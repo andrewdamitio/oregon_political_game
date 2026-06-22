@@ -1880,6 +1880,48 @@ function spendTotal(){let t=0;const sp=spendingByArea();for(const k in sp)t+=sp[
    16-quarter cooldown each.
    ============================================================ */
 const DILEMMAS={
+  austerityMandated:{title:"Austerity Reckoning", icon:"🔴",
+    text:"The structural deficit has grown beyond what reserves can cover. Oregon's balanced-budget requirement means the legislature must act — there is no option to simply borrow and wait. Every caucus wants someone else's programs cut. You must decide where the pain falls.",
+    influence:()=>Math.min(0.75,((GAME.structuralDebt||0)*0.28)+((GAME.deficitStreak||0)*0.12)),
+    options:[
+      {label:"Cut social services", text:"Shelter, behavioral health, and welfare spending are reduced by roughly $1.2B.",
+       apply:()=>{
+         createGrudge("m_homelessness",2.5,0.9,"Social service cuts");
+         createGrudge("m_health",-1.5,0.9,"Health program cuts");
+         createGrudge("m_behavioralHealth",-2.0,0.9,"Behavioral health cuts");
+         createGrudge("v_poor",-6,0.9,"Social services gutted");
+         createGrudge("v_publicUnions",-4,0.9,"Social services gutted");
+         createGrudge("v_liberal",-3,0.9,"Social services gutted");
+         createGrudge("v_conservative",2,0.9,"Fiscal discipline");
+         GAME.structuralDebt=+(Math.max(0,(GAME.structuralDebt||0)-1.2)).toFixed(2);
+         GAME.log.push("✂ Austerity: social services cut — $1.2B off the deficit");
+       }},
+      {label:"Cut infrastructure & education", text:"ODOT, K-12, and higher ed absorb the cuts.",
+       apply:()=>{
+         createGrudge("m_education",-2.0,0.9,"Education cuts");
+         createGrudge("m_gdp",-0.18,0.9,"Infrastructure cuts drag growth");
+         createGrudge("i_businessClimate",-4,0.9,"Infrastructure neglect");
+         createGrudge("v_parents",-5,0.9,"Education gutted");
+         createGrudge("v_collegeEducated",-3,0.9,"Education gutted");
+         createGrudge("v_suburban",-3,0.9,"Infrastructure cut");
+         createGrudge("v_conservative",2,0.9,"Fiscal discipline");
+         GAME.structuralDebt=+(Math.max(0,(GAME.structuralDebt||0)-1.0)).toFixed(2);
+         GAME.log.push("✂ Austerity: infrastructure & education cut — $1.0B off the deficit");
+       }},
+      {label:"Emergency tax surcharge", text:"A temporary surtax on income and corporate activity closes the gap.",
+       apply:()=>{
+         createGrudge("m_taxBurden",3.5,0.9,"Emergency tax surcharge");
+         createGrudge("m_gdp",-0.12,0.9,"Tax drag on growth");
+         createGrudge("v_businessClass",-5,0.9,"Emergency tax hike");
+         createGrudge("v_conservative",-5,0.9,"Emergency tax hike");
+         createGrudge("v_wealthy",-4,0.9,"Emergency tax hike");
+         createGrudge("v_liberal",2,0.9,"Made the wealthy pay first");
+         createGrudge("v_poor",1,0.9,"Made the wealthy pay first");
+         GAME.structuralDebt=+(Math.max(0,(GAME.structuralDebt||0)-1.6)).toFixed(2);
+         GAME.deficitStreak=0;
+         GAME.log.push("💸 Austerity: emergency tax surcharge — $1.6B off the deficit");
+       }}
+    ]},
   wildfireMap:{title:"The Wildfire Risk Map", icon:"🗺️",
     text:"Your agencies finished the statewide wildfire risk map (SB 762). Publishing it means honest risk pricing — and rural homeowners discovering their insurance just exploded. Withdrawing it (as Oregon actually did in 2022) keeps the peace and buries the data.",
     influence:()=>(GAME.activeSituations.wildfireSeason?0.5:0)+(METRICS.environment.value<55?0.2:0),
@@ -2396,6 +2438,16 @@ const SITUATIONS={
     metricEffect:{propertyCrime:0.7},
     moodAxes:{economic:0.2,environment:0.3}, moodMag:4,
     groupMood:{timber:-6,rural:-5}},
+  fiscalCrisis:{name:"Structural Deficit Crisis", kind:"bad", category:"condition",
+    desc:"Oregon's reserves are depleted and the state is carrying structural debt from consecutive unbalanced budgets. Borrowing costs are rising, agency heads are quietly rationing, and the bond market is watching. A reckoning is coming — every quarter this persists makes the eventual austerity cuts deeper.",
+    trigger:()=>(GAME.structuralDebt||0)>1.5 || (GAME.deficitStreak||0)>=4,
+    clear:()=>(GAME.structuralDebt||0)<0.3 && (GAME.deficitStreak||0)===0,
+    watch:{metric:"balance", startAt:-0.5, clearAt:0.5, badHigh:false},
+    costEffect:{debtAdmin:0.45},    // debt service pushes admin spending higher
+    metricEffect:{gdp:-0.10},
+    indicatorEffect:{businessClimate:-5, inMigration:-3},
+    moodAxes:{economic:0.3,govSize:-0.2}, moodMag:5,
+    groupMood:{businessClass:-5, wealthy:-3, moderate:-3, homeowners:-2}},
   kickerPayout:{name:"Kicker Payout", kind:"good", category:"condition",
     desc:"Revenue beat the forecast by enough to trigger Oregon's constitutional kicker — taxpayers get automatic refund checks, and the surplus you were counting on walks out the door.",
     trigger:()=>GAME.lastBalance>2.2 && !POLICIES.kickerReform,
@@ -2450,6 +2502,8 @@ const GAME={
   // ---- FISCAL MODEL (research: income-tax dependence + kicker + reserves) ----
   rainyDay:1.87,        // Rainy Day Fund ($B) — real 2023-25 end balance
   eduStability:1.0,     // Education Stability Fund ($B)
+  structuralDebt:0,     // accumulated unresolved deficit ($B) — accrues when reserves are exhausted
+  deficitStreak:0,      // consecutive quarters carrying a gap after reserves are drained
   econCycle:0,          // -1 deep recession .. +1 boom; random walk each quarter
   marketLevel:0,        // equity-market sub-variable; swings high-earner cap-gains
   persRate:5.26,        // PERS employer contributions ($B/biennium-equiv), escalating
@@ -3080,33 +3134,49 @@ function budgetBalance(){
 function settleFiscal(){
   const {balance}=budgetBalance();
   GAME.pendingKicker=0;        // consumed this cycle
-  // forecast = revenue the budget was balanced against (spend, roughly)
   const {revenue,spend}=budgetBalance();
   const surplusPct=(revenue-spend)/Math.max(1,spend);
+  // quarterly interest on structural debt (~4%/yr = 1%/qtr)
+  if((GAME.structuralDebt||0)>0)
+    GAME.structuralDebt=+(GAME.structuralDebt*1.01).toFixed(2);
   if(balance>0){
-    // 2% kicker trigger on the surplus
-    if(surplusPct>=0.02 && !POLICIES.kickerReform){
-      GAME.pendingKicker=balance;          // ENTIRE surplus refunded next cycle
-      GAME.log.push("💸 Kicker triggered — $"+balance.toFixed(2)+"B refunds to taxpayers next quarter");
-    } else {
-      // reform: split surplus to reserves + schools; or sub-2% surplus banked
-      const toRD=balance*0.6, toEd=balance*0.4;
-      GAME.rainyDay+=toRD; GAME.eduStability+=toEd;
-      if(POLICIES.kickerReform&&surplusPct>=0.02)GAME.log.push("🏦 Kicker reform: $"+balance.toFixed(2)+"B banked to reserves & schools");
+    GAME.deficitStreak=0;
+    let surplus=balance;
+    // pay down structural debt before triggering kicker or filling reserves
+    if((GAME.structuralDebt||0)>0){
+      const paydown=Math.min(surplus,GAME.structuralDebt);
+      GAME.structuralDebt=+(Math.max(0,GAME.structuralDebt-paydown)).toFixed(2);
+      surplus-=paydown;
+      if(GAME.structuralDebt<0.01){
+        GAME.structuralDebt=0;
+        GAME.log.push("💳 Structural debt fully cleared");
+      }
+    }
+    if(surplus>0.01){
+      if(surplusPct>=0.02 && !POLICIES.kickerReform){
+        GAME.pendingKicker=surplus;
+        GAME.log.push("💸 Kicker triggered — $"+surplus.toFixed(2)+"B refunds to taxpayers next quarter");
+      } else {
+        const toRD=surplus*0.6, toEd=surplus*0.4;
+        GAME.rainyDay+=toRD; GAME.eduStability+=toEd;
+        if(POLICIES.kickerReform&&surplusPct>=0.02)GAME.log.push("🏦 Kicker reform: $"+surplus.toFixed(2)+"B banked to reserves & schools");
+      }
     }
   } else if(balance<0){
-    // draw down reserves to cover a deficit (balanced-budget requirement)
+    // draw down reserves first (balanced-budget requirement)
     let gap=-balance;
     const fromRD=Math.min(GAME.rainyDay,gap); GAME.rainyDay-=fromRD; gap-=fromRD;
     if(gap>0){const fromEd=Math.min(GAME.eduStability,gap);GAME.eduStability-=fromEd;gap-=fromEd;}
     if(gap>0.05){
-      // reserves exhausted — forced cuts bite services & approval, but gently
-      // and with diminishing bite, so a rough patch doesn't crater the state.
-      const bite=Math.min(gap,3);   // cap how much a single quarter can hurt
-      GAME.log.push("⚠ Reserves exhausted — $"+gap.toFixed(2)+"B in forced cuts");
-      METRICS.education.value=clamp(METRICS.education.value-bite*0.6,0,100);
-      METRICS.health.value=clamp(METRICS.health.value-bite*0.45,0,100);
-      GAME.capital=clamp(GAME.capital-Math.min(gap*3,12),0,100);
+      // reserves exhausted — deficit accrues as structural debt; lighter immediate cuts
+      // since the debt mechanic now carries the long-term pressure
+      GAME.structuralDebt=+((GAME.structuralDebt||0)+gap).toFixed(2);
+      GAME.deficitStreak=(GAME.deficitStreak||0)+1;
+      const bite=Math.min(gap,2);
+      GAME.log.push("🔴 Deficit $"+gap.toFixed(2)+"B — borrowed against future budgets (structural debt: $"+GAME.structuralDebt.toFixed(1)+"B)");
+      METRICS.education.value=clamp(METRICS.education.value-bite*0.4,0,100);
+      METRICS.health.value=clamp(METRICS.health.value-bite*0.3,0,100);
+      GAME.capital=clamp(GAME.capital-Math.min(gap*2,8),0,100);
     }
   }
 }
@@ -3506,12 +3576,16 @@ function showQuarterReport(){
   }
   const b=budgetBalance();
   const balClass=b.balance>=0?'good':'bad';
+  const debtLine=(GAME.structuralDebt||0)>0
+    ?`<div class="rrow"><span class="rlabel" style="color:var(--clay)">⚠ Structural Debt</span><span class="rdelta" style="color:var(--clay)">-$${GAME.structuralDebt.toFixed(1)}B</span></div>`
+    :'';
   const budgetBlock=`<div class="rsection">
     <div class="rsec-h">💰 Budget</div>
     <div class="rrow"><span class="rlabel">Balance</span><span class="rdelta ${balClass}">${b.balance>=0?'+':''}$${b.balance.toFixed(1)}B</span></div>
     <div class="rrow"><span class="rlabel">Reserves (Rainy Day)</span><span class="rval">$${GAME.rainyDay.toFixed(1)}B</span></div>
+    ${debtLine}
     <div class="rrow"><span class="rlabel">Capital income</span><span class="rval">◈ ${GAME.capitalPerTurn}/qtr</span></div></div>`;
-  const events=(GAME.log||[]).slice(-6).filter(l=>/began|RESOLVED|Midterms|kicker|Kicker|Reserves|Promise|Scandal|boom|Windfall|Federal/i.test(l));
+  const events=(GAME.log||[]).slice(-6).filter(l=>/began|RESOLVED|Midterms|kicker|Kicker|Reserves|Promise|Scandal|boom|Windfall|Federal|Deficit|debt|Austerity/i.test(l));
   const eventBlock=events.length?`<div class="rsection"><div class="rsec-h">📰 This Quarter</div>${events.map(e=>`<div class="revent">${e}</div>`).join("")}</div>`:"";
   const cyc=GAME.econCycle;
   const fc=cyc>0.25?"Good news — the economy is expanding, lifting revenue and GDP.":cyc<-0.25?"Storm clouds — the economy is contracting; expect revenue to soften.":"The economy is steady this quarter.";
