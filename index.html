@@ -265,14 +265,18 @@
   .phasebar i{display:block;height:100%;background:var(--slate-blue);border-radius:5px;transition:width .3s}
   .phasetgt{position:absolute;top:-3px;width:2px;height:16px;background:var(--ink);transform:translateX(-50%)}
   /* issue web */
+  .websearch{margin-bottom:8px}
+  .websearch input{width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid var(--line);border-radius:4px;background:var(--paper-2);color:var(--ink);font-family:var(--font-body);font-size:13px}
+  .websearch input:focus{outline:none;border-color:var(--moss)}
   .webwrap{background:var(--paper-2);border:1px solid var(--line);border-radius:4px;overflow:auto}
   #webSvg{width:100%;min-width:760px;display:block}
   .webedge{stroke-opacity:.10;transition:stroke-opacity .12s}
   #webSvg.focus .webedge{stroke-opacity:.04}
   #webSvg .webedge.hot{stroke-opacity:.95 !important;stroke-width:2.8}
   .webnode{cursor:pointer}
-  .webnode circle{transition:opacity .12s}
+  .webnode circle{transition:opacity .12s,stroke-width .12s}
   .webnode.dim{opacity:.18}
+  .webnode.searchhit circle{stroke-width:3.8 !important;filter:drop-shadow(0 0 4px currentColor)}
   .weblbl{font-size:8.5px;fill:#6b6557;font-family:var(--font-body)}
   /* ---- graph-style Governing Board (icon tiles as nodes + connections) ---- */
   .boardgraph{background:var(--paper-2);border:1px solid var(--line);border-radius:6px;overflow:auto;margin-top:6px}
@@ -3893,7 +3897,7 @@ function effectBar(label,value,scale,opts={}){
 
 function effectsBreakdownHTML(kind,obj){
   const direct=directEffects(kind,obj);
-  let h=`<div class="ebsection"><div class="charttitle">Effect web at current setting</div>`;
+  let h=`<div class="ebsection"><div class="charttitle">Effects</div>`;
 
   // 1. Direct metric effects
   const dKeys=Object.keys(direct);
@@ -4261,7 +4265,7 @@ function renderDetail(){
         const allAbs=downLinks.map(L=>Math.abs((m.value-L.ref)*L.coef*0.25));
         if(moodImpact!==undefined)allAbs.push(Math.abs(moodImpact));
         const scale=Math.max(0.05,...allAbs);
-        h+=`<div class="ebgroup-label">Where this ripples to</div><div class="ebgroup">`;
+        h+=`<div class="ebgroup-label">Effects</div><div class="ebgroup">`;
         for(const L of downLinks){
           const tm=METRICS[L.to];
           const delta=(m.value-L.ref)*L.coef*0.25;
@@ -5067,6 +5071,7 @@ function renderWeb(){
   svg+=`</svg>`;
   main.innerHTML=`<div class="sectionhdr">Issue Web</div>
     <div class="sectionsub">The whole simulation as one map. Hover any bubble to light up everything it pushes and everything pushing it — <span style="color:var(--good)">green</span> helps, <span style="color:var(--clay)">red</span> hurts, <span style="color:var(--slate-blue)">blue</span> feeds a derived gauge. Click to open. Inner ring: state statistics · middle: derived gauges &amp; active crises · outer: your policies &amp; agencies.</div>
+    <div class="websearch"><input type="search" id="webSearch" placeholder="Search policies, metrics, agencies…" autocomplete="off"></div>
     <div class="webwrap">${svg}</div>`;
   // interactions
   const svgEl=document.getElementById("webSvg");
@@ -5087,6 +5092,32 @@ function renderWeb(){
     });
     g.addEventListener("click",()=>openDetail(id));
   });
+  // search bar — highlight matching nodes, dim the rest
+  const searchEl=document.getElementById("webSearch");
+  if(searchEl){
+    searchEl.addEventListener("input",()=>{
+      const q=searchEl.value.trim().toLowerCase();
+      if(!q){
+        nodeEls.forEach(n=>n.classList.remove("searchhit","dim"));
+        edgeEls.forEach(p=>p.classList.remove("hot"));
+        svgEl.classList.remove("focus");
+        return;
+      }
+      svgEl.classList.add("focus");
+      const hitIds=new Set();
+      nodeEls.forEach(g=>{
+        const id=g.dataset.node, n=nodes[id];
+        const match=n.label.toLowerCase().includes(q)||id.toLowerCase().includes(q);
+        g.classList.toggle("searchhit",match);
+        g.classList.toggle("dim",!match);
+        if(match)hitIds.add(id);
+      });
+      edgeEls.forEach(p=>{
+        const on=hitIds.has(p.dataset.a)||hitIds.has(p.dataset.b);
+        p.classList.toggle("hot",on);
+      });
+    });
+  }
 }
 function renderRailVoters(){
   const el=document.getElementById("railVoters");
