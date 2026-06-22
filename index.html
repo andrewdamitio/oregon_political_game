@@ -277,6 +277,7 @@
   .webnode circle{transition:opacity .12s,stroke-width .12s}
   .webnode.dim{opacity:.18}
   .webnode.searchhit circle{stroke-width:3.8 !important;filter:drop-shadow(0 0 4px currentColor)}
+  .boardnode.searchhit .bn-ring{stroke-width:4.5 !important;filter:drop-shadow(0 0 5px currentColor)}
   .weblbl{font-size:8.5px;fill:#6b6557;font-family:var(--font-body)}
   /* ---- graph-style Governing Board (icon tiles as nodes + connections) ---- */
   .boardgraph{background:var(--paper-2);border:1px solid var(--line);border-radius:6px;overflow:auto;margin-top:6px}
@@ -711,11 +712,11 @@ const METRICS={
    value 0..100, higher = better.
    ============================================================ */
 const INDICATORS={
-  downtown:{name:"Downtown Perception", icon:"🏙️", value:48,
+  downtown:{name:"Downtown Perception", icon:"🏙️", value:30,
     desc:"How safe, clean, and vibrant Oregon's downtown cores (esp. Portland) are perceived to be. Battered by homelessness, crime, and addiction; lifted as those recover.",
     derive:()=>{
-      let v=70;
-      v-=(METRICS.homelessness.value-50)*0.55;
+      let v=50;
+      v-=(METRICS.homelessness.value-50)*0.75;
       v-=(METRICS.propertyCrime.value-52)*0.40;
       v-=(METRICS.violentCrime.value-40)*0.30;
       v+=(METRICS.health.value-60)*0.25;
@@ -727,8 +728,8 @@ const INDICATORS={
       return clamp(v,0,100);
     },
     drivers:()=>[
-      {name:"⊕ baseline",v:70,base:true},
-      {name:METRICS.homelessness.icon+" Homelessness",v:-(METRICS.homelessness.value-50)*0.55,link:"m_homelessness"},
+      {name:"⊕ baseline",v:50,base:true},
+      {name:METRICS.homelessness.icon+" Homelessness",v:-(METRICS.homelessness.value-50)*0.75,link:"m_homelessness"},
       {name:"🛏️ Psychiatric Capacity",v:(METRICS.psychBeds.value-32)*0.12,link:"m_psychBeds"},
       {name:METRICS.propertyCrime.icon+" Property Crime",v:-(METRICS.propertyCrime.value-52)*0.40,link:"m_propertyCrime"},
       {name:METRICS.violentCrime.icon+" Violent Crime",v:-(METRICS.violentCrime.value-40)*0.30,link:"m_violentCrime"},
@@ -815,6 +816,11 @@ const INDICATORS={
       v+=(METRICS.gasPrice.value-3.6)*3;
       if(POLICIES.salesTax&&policyLevel(POLICIES.salesTax)>0)v+=8;  // a sales tax on TOP of income tax inflames it
       if(GAME.activeSituations.taxRevolt)v+=12;
+      // Portland tax stacking: each additional layer (Measure 5 reform, Preschool for All) amplifies the grievance
+      {const stackLayers=[
+        POLICIES.propTaxReform&&POLICIES.propTaxReform.enabled,
+        POLICIES.preschoolForAll&&POLICIES.preschoolForAll.enabled,
+      ].filter(Boolean).length; if(stackLayers>=2)v+=8;}
       v+=indPolicyBoost("taxGrievance")+sitIndicatorPush("taxGrievance");
       return clamp(v,0,100);
     },
@@ -1064,7 +1070,7 @@ const SECTION_OF={
   downtown:"welfare", taxGrievance:"taxes", ruralAlienation:"environment", pensionBurden:"taxes", localAutonomy:"pubservices", mandate:"taxes",
   // policies & agencies — taxes
   incomeTax:"taxes", corpTax:"taxes", salesTax:"taxes", gasTax:"taxes", vehicleReg:"taxes", estateTax:"taxes",
-  carbonTax:"taxes", taxCut:"taxes", kickerReform:"taxes", propTaxReform:"taxes", revenueDept:"taxes", treasury:"taxes", persReform:"taxes",
+  carbonTax:"taxes", taxCut:"taxes", kickerReform:"taxes", propTaxReform:"taxes", preschoolForAll:"taxes", revenueDept:"taxes", treasury:"taxes", persReform:"taxes",
   // public services
   stateSchoolFund:"pubservices", universities:"pubservices", stateColleges:"pubservices", communityColleges:"pubservices",
   higherEd:"pubservices", oregonPromise:"pubservices", digitalGov:"pubservices", odot:"pubservices", motorVoter:"pubservices",
@@ -1561,9 +1567,17 @@ const CATALOG={
     effects:{}, ideology:{economic:0.4,govSize:0.3}},
   // ---- constitutional reforms: generational fights, huge capital ----
   propTaxReform:{name:"Reform Measure 5/50 Property Tax Caps", domain:"economy", icon:"🏚️", mechanic:"law", reform:true,
-    desc:"Unwind the 1990s constitutional property-tax caps that cost local governments an estimated $41 BILLION over their first 16 years and pushed school funding from local property tax (28.6% state share in 1990) onto the volatile state income tax (70.6% by 1999) — the root of Oregon's boom-bust budget. Restores local capacity; raises tax bills statewide.",
+    desc:"Unwind the 1990s constitutional property-tax caps that cost local governments an estimated $41 BILLION over their first 16 years and pushed school funding from local property tax (28.6% state share in 1990) onto the volatile state income tax (70.6% by 1999) — the root of Oregon's boom-bust budget. Restores local capacity; raises tax bills statewide — but amplifies Oregon's already-high tax-stacking narrative.",
     enabled:true, revenue:1.5, capital:16, enactCapital:22, repealCost:18,
-    effects:{education:4,taxBurden:8,gdp:-0.2}, ideology:{economic:-0.6,govSize:-0.6}},
+    effects:{education:4,taxBurden:8,gdp:-0.2}, indicatorEffects:{taxGrievance:6},
+    blocEffect:{wealthy:-3,businessClass:-3,homeowners:-4,rural:-2,conservative:-2},
+    ideology:{economic:-0.6,govSize:-0.6}},
+  preschoolForAll:{name:"Preschool for All (Multnomah Co.)", domain:"economy", icon:"🎒", mechanic:"law",
+    desc:"Portland's 2020 Measure 26-214: a 1.5% income tax on high earners plus a 1% employer payroll tax on large businesses in Multnomah County. Funds universal pre-K but stacks atop Oregon's already-high income tax, the CAT, and carbon tax — feeding the 'highest-taxed state' narrative that drives out-migration of high earners and business.",
+    enabled:true, revenue:0.18, capital:8, repealCost:10,
+    effects:{education:2,taxBurden:3}, indicatorEffects:{taxGrievance:5},
+    blocEffect:{wealthy:-4,businessClass:-3,moderate:-1,liberal:2,poor:2,parents:2},
+    ideology:{economic:-0.3,govSize:-0.3}},
   nuclearRepeal:{name:"Repeal Nuclear Moratorium", domain:"envInfra", icon:"⚛️", mechanic:"law", reform:true,
     desc:"Repeal Oregon's 1980 voter-approved ban on new nuclear plants (in place until a federal waste repository exists). Opens the door to carbon-free baseload power — splitting environmentalists between climate hawks and anti-nuclear traditionalists.",
     enabled:true, costFull:0, capital:12, enactCapital:20, repealCost:14,
@@ -2271,20 +2285,23 @@ const SITUATIONS={
     startActive:true, clear:()=>METRICS.homelessness.value<45,
     costEffect:{humanServices:0.40},
     watch:{metric:"homelessness", startAt:null, clearAt:45, badHigh:true},
-    metricEffect:{health:-1.5}, moodAxes:{economic:-0.2,social:-0.2}, moodMag:6,
+    metricEffect:{health:-1.5}, indicatorEffect:{inMigration:-5},
+    moodAxes:{economic:-0.2,social:-0.2}, moodMag:6,
     groupMood:{urban:-4,poor:-4,liberal:-3,suburban:-2}},
   addictionCrisis:{name:"Addiction & Overdose Crisis", kind:"bad", category:"chronic",
     desc:"Fentanyl and untreated addiction are overwhelming Oregon after the rocky rollout and repeal of drug decriminalization. Treatment capacity is far short of need.",
     startActive:true, clear:()=>METRICS.drugUse.value<42 && METRICS.behavioralHealth.value>58,
     costEffect:{humanServices:0.35},
     watch:{metric:"drugUse", startAt:null, clearAt:42, badHigh:true, alsoMetric:"behavioralHealth", alsoClearAt:58},
-    metricEffect:{propertyCrime:1.4,violentCrime:0.4,homelessness:1.0,drugUse:1.2}, moodAxes:{social:0.2}, moodMag:6,
+    metricEffect:{propertyCrime:1.4,violentCrime:0.4,homelessness:1.0,drugUse:1.2}, indicatorEffect:{inMigration:-3},
+    moodAxes:{social:0.2}, moodMag:6,
     groupMood:{suburban:-3,rural:-3,blueCollar:-2,liberal:-2}},
   housingShortage:{name:"Chronic Housing Shortage", kind:"bad", category:"chronic",
     desc:"Decades of underbuilding behind the urban growth boundary have left Oregon hundreds of thousands of homes short, pushing prices and rents out of reach.",
     startActive:true, clear:()=>METRICS.homelessness.value<40 && METRICS.inequality.value<52,
     watch:{metric:"homelessness", startAt:null, clearAt:40, badHigh:true, alsoMetric:"inequality", alsoClearAt:52},
-    metricEffect:{inequality:0.8}, moodAxes:{economic:-0.2}, moodMag:5,
+    metricEffect:{inequality:0.8}, indicatorEffect:{inMigration:-6},
+    moodAxes:{economic:-0.2}, moodMag:5,
     groupMood:{urban:-4,renters:-5,blueCollar:-3,poor:-3,businessClass:-1,homeowners:4,wealthy:2}},
   // ============================================================
   // CONDITION-TRIGGERED — flare up when metrics worsen, clear when they recover.
@@ -4147,6 +4164,7 @@ function renderBoard(){
       <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="var(--paper-2)" stroke="var(--slate-blue)" stroke-width="2.2" stroke-dasharray="4 3"/></svg>Indicator — a derived gauge</span>
       <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="#f6e9e4" stroke="var(--bad)" stroke-width="3"/></svg>Active crisis</span>
     </div>`;
+  h+=`<div class="websearch" style="margin-top:10px"><input type="search" id="boardSearch" placeholder="Search policies, metrics, agencies…" autocomplete="off"></div>`;
   h+=`<div class="boardgraph">${svg}</div>`;
   main.innerHTML=h;
 
@@ -4181,6 +4199,31 @@ function renderBoard(){
     });
     g.addEventListener("click",()=>openDetail(id));
   });
+  // board search bar
+  const boardSearchEl=document.getElementById("boardSearch");
+  if(boardSearchEl){
+    boardSearchEl.addEventListener("input",()=>{
+      const q=boardSearchEl.value.trim().toLowerCase();
+      if(!q){
+        nodeEls.forEach(n=>n.classList.remove("searchhit","dim"));
+        edgeEls.forEach(p=>p.classList.remove("hot"));
+        svgEl.classList.remove("focus");
+        return;
+      }
+      svgEl.classList.add("focus");
+      const hitIds=new Set();
+      nodeEls.forEach(g=>{
+        const id=g.dataset.node, n=nodes[id];
+        const match=n&&(n.label.toLowerCase().includes(q)||id.toLowerCase().includes(q));
+        g.classList.toggle("searchhit",!!match);
+        g.classList.toggle("dim",!match);
+        if(match)hitIds.add(id);
+      });
+      edgeEls.forEach(p=>{
+        p.classList.toggle("hot",hitIds.has(p.dataset.a)||hitIds.has(p.dataset.b));
+      });
+    });
+  }
 }
 /* trend arrow for indicators (mirrors trendArrow for metrics) */
 function indTrend(key){
