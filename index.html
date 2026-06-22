@@ -830,7 +830,7 @@ const INDICATORS={
       {name:METRICS.gasPrice.icon+" Gas Price",v:(METRICS.gasPrice.value-3.6)*3,link:"m_gasPrice"},
       ...(POLICIES.salesTax&&policyLevel(POLICIES.salesTax)>0?[{name:"🛒 Sales Tax (on top of income tax)",v:8,link:"p_salesTax"}]:[]),
     ],
-    feedback:{gdp:-0.006}},                                 // grievance softly drags growth (the out-migration narrative)
+    feedback:{gdp:-0.014, unemployment:0.006}},              // high grievance drags growth and pushes jobs out
   ruralAlienation:{name:"Rural Alienation", icon:"🚜", value:45,
     desc:"How shut-out rural and eastern Oregon feel from a Portland-centered, one-party power structure — the sentiment behind the Greater Idaho votes, GOP walkouts, and Measure 113. Inflated by aggressive climate/tax agendas and high logging restrictions; eased by resource-economy support. High alienation raises legislative-walkout risk.",
     derive:()=>{
@@ -2453,6 +2453,14 @@ const SITUATIONS={
     indicatorEffect:{downtown:-5,inMigration:-6,businessClimate:-5},
     moodAxes:{economic:0.2}, moodMag:5,
     groupMood:{businessClass:-4,urban:-3,liberal:-2}},
+  taxFlightRisk:{name:"High-Earner Out-Migration", kind:"bad", category:"condition",
+    desc:"Oregon's stacked taxes — income tax with no sales-tax offset, the CAT, carbon pricing, property tax reform, and Portland levies — are making the state uncompetitive. Wealthy residents, founders, and businesses are heading to Washington, Nevada, and Texas. The grievance has reached the tipping point where it changes behavior.",
+    trigger:()=>INDICATORS.taxGrievance.value>70, clear:()=>INDICATORS.taxGrievance.value<58,
+    watch:{indicator:"taxGrievance", startAt:70, clearAt:58, badHigh:true},
+    metricEffect:{gdp:-0.18, unemployment:0.25},
+    indicatorEffect:{inMigration:-8, businessClimate:-7},
+    moodMag:4,
+    groupMood:{wealthy:-5,businessClass:-5,suburban:-3,rural:-2,conservative:-3,libertarian:-3}},
   timberCounties:{name:"Timber Counties Fiscal Crisis", kind:"bad", category:"condition",
     desc:"With harvest revenue collapsed, Oregon's timber-dependent counties can't fund sheriffs, schools, or roads — a slow-motion rural government failure.",
     trigger:()=>METRICS.loggingRate.value<25, clear:()=>METRICS.loggingRate.value>35,
@@ -2485,7 +2493,7 @@ const SITUATIONS={
    the world nudges some up. */
 const EVENT_POOL=[
   {id:"wildfireSeason", prob:0.09, gate:()=>true, seasonal:[2,3]},
-  {id:"taxRevolt", prob:0.06, gate:()=>METRICS.taxBurden.value>50},
+  {id:"taxRevolt", prob:0.11, gate:()=>INDICATORS.taxGrievance.value>62},
   {id:"recession", prob:0.18, gate:()=>GAME.econCycle<-0.35},
   {id:"federalWindfall", prob:0.06, gate:()=>true},
   {id:"techBoom", prob:0.06, gate:()=>METRICS.gdp.value>1},
@@ -5065,7 +5073,9 @@ function buildWebEdges(){
   const DD={downtown:["m_homelessness","m_propertyCrime","m_violentCrime","m_health"],
     inMigration:["m_unemployment","m_homelessness","m_environment","i_downtown"],
     businessClimate:["m_taxBurden","m_gasPrice","m_propertyCrime","m_violentCrime","i_inMigration","m_education"],
-    tourism:["m_environment","i_downtown"]};
+    tourism:["m_environment","i_downtown"],
+    taxGrievance:["m_taxBurden","m_gasPrice"],
+    housingAffordability:["m_homelessness","m_inequality","m_disposableIncome"]};
   for(const iid in DD)for(const src of DD[iid])E.push({a:src,b:"i_"+iid,neutral:true,w:0.5});
   return E;
 }
