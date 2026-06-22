@@ -371,6 +371,11 @@
   .prom-status{font-size:9.5px;margin-top:5px;font-weight:600}
   .prom-status.met{color:var(--moss)}
   .prom-status.unmet{color:var(--clay)}
+  .prom-status.partial{color:#a07820}
+  .prom-criteria{margin-top:6px;display:flex;flex-direction:column;gap:2px}
+  .prom-criterion{font-size:10px;padding:2px 0;display:flex;align-items:baseline;gap:4px}
+  .crit-met{color:var(--moss)}
+  .crit-unmet{color:#9a9080}
   .reportcard{max-width:680px}
   .rhead h2{margin:0 0 2px}
   .rgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px 22px;margin:14px 0}
@@ -3111,22 +3116,58 @@ function runElection(){
    to your Mandate. */
 const PROMISES={
   fundSchools:{label:"Fully fund K-12 education", bloc:["parents","publicUnions","collegeEducated"],
+    criteria:[
+      {label:"Education attainment ≥ 66%", check:()=>METRICS.education.value>=66},
+      {label:"State School Fund at 65%+ of capacity", check:()=>policyLevel(POLICIES.stateSchoolFund||{})>=0.65}
+    ],
     check:()=>METRICS.education.value>=66 && policyLevel(POLICIES.stateSchoolFund||{})>=0.65},
   cutTaxes:{label:"Cut taxes for working families", bloc:["middleIncome","conservative","businessClass"],
+    criteria:[
+      {label:"Tax burden meaningfully reduced (≤ 38%)", check:()=>METRICS.taxBurden.value<=38},
+      {label:"Tax burden at promised level (≤ 36%)", check:()=>METRICS.taxBurden.value<=36}
+    ],
     check:()=>METRICS.taxBurden.value<=36},
   endHomelessness:{label:"Get people off the streets", bloc:["urban","liberal","moderate"],
+    criteria:[
+      {label:"Homelessness substantially reduced (≤ 52)", check:()=>METRICS.homelessness.value<=52},
+      {label:"Streets meaningfully cleared (≤ 48)", check:()=>METRICS.homelessness.value<=48}
+    ],
     check:()=>METRICS.homelessness.value<=48},
   cleanEnergy:{label:"Lead on clean energy & climate", bloc:["liberal","socialist","transitCommuters"],
+    criteria:[
+      {label:"Environment index ≥ 66", check:()=>METRICS.environment.value>=66},
+      {label:"EV adoption ≥ 22%", check:()=>METRICS.evAdoption.value>=22}
+    ],
     check:()=>METRICS.environment.value>=66 && METRICS.evAdoption.value>=22},
   publicSafety:{label:"Restore public safety", bloc:["suburban","conservative","retirees","homeowners"],
+    criteria:[
+      {label:"Violent crime rate ≤ 42", check:()=>METRICS.violentCrime.value<=42},
+      {label:"Property crime rate ≤ 46", check:()=>METRICS.propertyCrime.value<=46}
+    ],
     check:()=>METRICS.violentCrime.value<=42 && METRICS.propertyCrime.value<=46},
   ruralRevival:{label:"Stand up for rural Oregon", bloc:["rural","timber"],
+    criteria:[
+      {label:"Rural alienation eased (≤ 47)", check:()=>INDICATORS.ruralAlienation.value<=47},
+      {label:"Rural alienation resolved (≤ 42)", check:()=>INDICATORS.ruralAlienation.value<=42}
+    ],
     check:()=>INDICATORS.ruralAlienation.value<=42},
   fixAddiction:{label:"End the addiction crisis", bloc:["moderate","parents","liberal"],
+    criteria:[
+      {label:"Drug use index ≤ 50", check:()=>METRICS.drugUse.value<=50},
+      {label:"No active addiction crisis situation", check:()=>!GAME.activeSituations.addictionCrisis}
+    ],
     check:()=>METRICS.drugUse.value<=50 && !GAME.activeSituations.addictionCrisis},
   growEconomy:{label:"Grow good-paying jobs", bloc:["blueCollar","businessClass","middleIncome"],
+    criteria:[
+      {label:"Unemployment ≤ 4.5%", check:()=>METRICS.unemployment.value<=4.5},
+      {label:"GDP index ≥ 60", check:()=>METRICS.gdp.value>=60}
+    ],
     check:()=>METRICS.unemployment.value<=4.5 && METRICS.gdp.value>=60},
   buildHousing:{label:"Make housing affordable", bloc:["renters","poor","urban"],
+    criteria:[
+      {label:"Homelessness ≤ 50", check:()=>METRICS.homelessness.value<=50},
+      {label:"Business climate ≥ 50 (supports housing investment)", check:()=>INDICATORS.businessClimate.value>=50}
+    ],
     check:()=>METRICS.homelessness.value<=50 && INDICATORS.businessClimate.value>=50},
 };
 
@@ -3254,11 +3295,18 @@ function renderCampaign(){
   h+=`<div class="ebgroup-label" style="margin-top:18px">Platform promises — what you pledge to deliver this term</div>
     <div class="sectionsub" style="margin-top:0">Set your platform anytime. At the election, each promise you've <b>kept</b> rewards you with the blocs that cared; each one <b>broken</b> breeds cynicism and a U-turn hit to your mandate. Aim only for what you can actually deliver.</div><div class="promgrid">`;
   for(const pid in PROMISES){
-    const pr=PROMISES[pid], on=c.promises.includes(pid), met=pr.check();
+    const pr=PROMISES[pid], on=c.promises.includes(pid);
+    const metCount=pr.criteria.filter(cr=>cr.check()).length;
+    const total=pr.criteria.length;
+    const allMet=metCount===total, someMet=!allMet&&metCount>0;
+    const statusClass=allMet?'met':someMet?'partial':'unmet';
+    const statusLabel=allMet?'On track to keep':someMet?`Partial progress (${metCount}/${total} conditions met)`:'Not currently on track';
+    const criteriaHtml=pr.criteria.map(cr=>`<div class="prom-criterion ${cr.check()?'crit-met':'crit-unmet'}">${cr.check()?'✓':'–'} ${cr.label}</div>`).join('');
     h+=`<div class="promcard ${on?'promon':''}" data-prom="${pid}">
       <div class="promlabel">${on?'✓ ':''}${pr.label}</div>
       <div class="promblocs">${pr.bloc.map(b=>SIMULANTS[b]?SIMULANTS[b].name:b).join(' · ')}</div>
-      ${on?`<div class="prom-status ${met?'met':'unmet'}">${met?'On track to keep':'Not currently met'}</div>`:``}</div>`;
+      <div class="prom-criteria">${criteriaHtml}</div>
+      ${on?`<div class="prom-status ${statusClass}">${statusLabel}</div>`:``}</div>`;
   }
   h+=`</div>`;
 
@@ -3295,15 +3343,20 @@ function evaluatePromises(){
   if(!GAME.activePromises||!GAME.activePromises.length)return;
   for(const ap of GAME.activePromises){
     const pr=PROMISES[ap.id]; if(!pr)continue;
-    const kept=pr.check();
+    const metCount=pr.criteria.filter(c=>c.check()).length;
+    const total=pr.criteria.length;
+    const kept=metCount===total;
+    const partial=!kept && metCount>0;
     for(const sid of pr.bloc){
       if(!SIMULANTS[sid])continue;
       if(kept){ createGrudge("v_"+sid, 4, 0.9, "Kept their promise: "+pr.label); }
+      else if(partial){ createGrudge("v_"+sid, 1.5, 0.9, "Made partial progress on: "+pr.label); }
       else { createGrudge("v_"+sid, -5, 0.92, "Broke their promise: "+pr.label);
              SIMULANTS[sid].cynicism=(SIMULANTS[sid].cynicism||0)+2; }
     }
-    GAME.log.push((kept?"✓ Promise kept: ":"✗ Promise broken: ")+pr.label);
-    if(!kept)GAME.uturnCount=(GAME.uturnCount||0)+1;
+    const outcome=kept?"✓ Promise kept: ":partial?"~ Partial progress on: ":"✗ Promise broken: ";
+    GAME.log.push(outcome+pr.label);
+    if(!kept&&!partial)GAME.uturnCount=(GAME.uturnCount||0)+1;
   }
   GAME.activePromises=[];
 }
