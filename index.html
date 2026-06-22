@@ -2428,7 +2428,7 @@ const GAME={
   // campEnergy refills each quarter; perception/turnout boosts decay over time;
   // fatigue rises when you over-campaign a bloc, lowering future success odds
   campEnergy:4, campEnergyMax:4,
-  ground:{perception:{}, turnout:{}, fatigue:{}}, campLog:[],
+  ground:{perception:{}, turnout:{}, fatigue:{}, fatigueAge:{}}, campLog:[],
   termLengthTurns:16, midtermTurn:8, term:1,
   activeSituations:{}, situationAge:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null,
   // ---- FISCAL MODEL (research: income-tax dependence + kicker + reserves) ----
@@ -3307,6 +3307,7 @@ function campPush(kind, sid){
     delta=back;
   }
   GAME.ground.fatigue[sid]=(GAME.ground.fatigue[sid]||0)+1;   // each push tires the bloc
+  GAME.ground.fatigueAge[sid]=0;                              // reset cooldown — they were just pressured
   GAME.campLog.unshift({turn:GAME.turn, kind, sid, ok, msg});
   if(GAME.campLog.length>12)GAME.campLog.pop();
   return {ok, chance, delta, msg};
@@ -3317,7 +3318,13 @@ function tickGroundGame(){
   for(const m of [GAME.ground.perception, GAME.ground.turnout]){
     for(const sid in m){ m[sid]*=0.78; if(Math.abs(m[sid])<0.05)delete m[sid]; }   // boosts fade
   }
-  for(const sid in GAME.ground.fatigue){ GAME.ground.fatigue[sid]*=0.6; if(GAME.ground.fatigue[sid]<0.15)delete GAME.ground.fatigue[sid]; }
+  for(const sid in GAME.ground.fatigue){
+    const age=(GAME.ground.fatigueAge[sid]||0)+1;
+    GAME.ground.fatigueAge[sid]=age;
+    const decay=Math.max(0.85-age*0.12, 0.35); // fades faster the longer they've been left alone
+    GAME.ground.fatigue[sid]*=decay;
+    if(GAME.ground.fatigue[sid]<0.15){delete GAME.ground.fatigue[sid];delete GAME.ground.fatigueAge[sid];}
+  }
   GAME.campEnergy=GAME.campEnergyMax;   // refill for the new quarter
 }
 
