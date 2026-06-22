@@ -898,6 +898,35 @@ const INDICATORS={
       ...(POLICIES.schoolChoice?[{name:"🎟️ School Choice",v:-8,link:"p_schoolChoice"}]:[]),
     ],
     feedback:{}},
+  housingAffordability:{name:"Housing Affordability", icon:"🏠", value:40,
+    desc:"How accessible Oregon's housing market is to working residents — a composite of homelessness pressure, income inequality, disposable income, and housing production. Oregon has one of the worst housing deficits in the nation, driven by decades of underbuilding behind urban growth boundaries and stagnant wages. High affordability attracts workers and families; low affordability accelerates homelessness, inequality, and out-migration.",
+    derive:()=>{
+      let v=45;
+      v-=(METRICS.homelessness.value-55)*0.55;     // homelessness is the sharpest signal
+      v-=(METRICS.inequality.value-50)*0.30;        // inequality squeezes lower-income renters hardest
+      v+=(METRICS.disposableIncome.value-50)*0.20;  // take-home pay eases the burden
+      if(POLICIES.affordableHousing)v+=effLevelOf(POLICIES.affordableHousing)*10;
+      if(POLICIES.rentStabilization)v+=effLevelOf(POLICIES.rentStabilization)*6;
+      if(POLICIES.officeConversion)v+=effLevelOf(POLICIES.officeConversion)*5;
+      if(POLICIES.middleHousing)v+=effLevelOf(POLICIES.middleHousing)*8;
+      v+=(2-LANDUSE.index)*3;                       // looser land use = more supply = more affordable
+      if(GAME.activeSituations.housingShortage)v-=10;
+      v+=indPolicyBoost("housingAffordability")+sitIndicatorPush("housingAffordability");
+      return clamp(v,0,100);
+    },
+    drivers:()=>[
+      {name:"⊕ baseline",v:45,base:true},
+      {name:METRICS.homelessness.icon+" Homelessness pressure",v:-(METRICS.homelessness.value-55)*0.55,link:"m_homelessness"},
+      {name:METRICS.inequality.icon+" Inequality",v:-(METRICS.inequality.value-50)*0.30,link:"m_inequality"},
+      {name:METRICS.disposableIncome.icon+" Disposable Income",v:(METRICS.disposableIncome.value-50)*0.20,link:"m_disposableIncome"},
+      ...(POLICIES.affordableHousing&&effLevelOf(POLICIES.affordableHousing)>0?[{name:"🏗️ Affordable Housing Bonds",v:effLevelOf(POLICIES.affordableHousing)*10,link:"p_affordableHousing"}]:[]),
+      ...(POLICIES.rentStabilization&&effLevelOf(POLICIES.rentStabilization)>0?[{name:"🏘️ Rent Stabilization",v:effLevelOf(POLICIES.rentStabilization)*6,link:"p_rentStabilization"}]:[]),
+      ...(POLICIES.officeConversion&&effLevelOf(POLICIES.officeConversion)>0?[{name:"🏢 Office Conversion",v:effLevelOf(POLICIES.officeConversion)*5,link:"p_officeConversion"}]:[]),
+      ...(POLICIES.middleHousing&&effLevelOf(POLICIES.middleHousing)>0?[{name:"🏠 Middle Housing",v:effLevelOf(POLICIES.middleHousing)*8,link:"p_middleHousing"}]:[]),
+      {name:LANDUSE.icon+" Land Use (supply constraint)",v:(2-LANDUSE.index)*3,link:"landuse"},
+      ...(GAME.activeSituations.housingShortage?[{name:"📉 Housing Shortage Crisis",v:-10}]:[]),
+    ],
+    feedback:{homelessness:-0.012, inequality:-0.008}},   // better affordability slowly eases homelessness & inequality
 };
 /* sum of indicatorEffects[id] across all enacted policies (scaled by level)
    AND agencies (scaled by funding) */
@@ -1024,7 +1053,7 @@ const SECTION_OF={
   gdp:"economy", unemployment:"economy", inequality:"economy", businessClimate:"economy", inMigration:"economy",
   education:"pubservices", digitization:"pubservices", eduOutcomes:"pubservices",
   violentCrime:"laworder", propertyCrime:"laworder", incarcerationRate:"laworder", drugUse:"laworder", psychBeds:"laworder",
-  homelessness:"welfare",
+  homelessness:"welfare", housingAffordability:"welfare",
   health:"health", behavioralHealth:"health", obesity:"health", alcoholUse:"health",
   environment:"environment", gasPrice:"environment", transitShare:"environment", loggingRate:"environment", tourism:"environment", evAdoption:"environment",
   downtown:"welfare", taxGrievance:"taxes", ruralAlienation:"environment", pensionBurden:"taxes", localAutonomy:"pubservices", mandate:"taxes",
@@ -3129,10 +3158,10 @@ const PROMISES={
     check:()=>METRICS.taxBurden.value<=36},
   endHomelessness:{label:"Get people off the streets", bloc:["urban","liberal","moderate"],
     criteria:[
-      {label:"Homelessness substantially reduced (≤ 52)", check:()=>METRICS.homelessness.value<=52},
-      {label:"Streets meaningfully cleared (≤ 48)", check:()=>METRICS.homelessness.value<=48}
+      {label:"Homelessness substantially reduced (≤ 50)", check:()=>METRICS.homelessness.value<=50},
+      {label:"Streets meaningfully cleared (≤ 44)", check:()=>METRICS.homelessness.value<=44}
     ],
-    check:()=>METRICS.homelessness.value<=48},
+    check:()=>METRICS.homelessness.value<=44},
   cleanEnergy:{label:"Lead on clean energy & climate", bloc:["liberal","socialist","transitCommuters"],
     criteria:[
       {label:"Environment index ≥ 66", check:()=>METRICS.environment.value>=66},
@@ -3165,10 +3194,10 @@ const PROMISES={
     check:()=>METRICS.unemployment.value<=4.5 && METRICS.gdp.value>=60},
   buildHousing:{label:"Make housing affordable", bloc:["renters","poor","urban"],
     criteria:[
-      {label:"Homelessness ≤ 50", check:()=>METRICS.homelessness.value<=50},
-      {label:"Business climate ≥ 50 (supports housing investment)", check:()=>INDICATORS.businessClimate.value>=50}
+      {label:"Housing affordability index ≥ 48", check:()=>INDICATORS.housingAffordability&&INDICATORS.housingAffordability.value>=48},
+      {label:"Housing affordability index ≥ 58 (strong delivery)", check:()=>INDICATORS.housingAffordability&&INDICATORS.housingAffordability.value>=58}
     ],
-    check:()=>METRICS.homelessness.value<=50 && INDICATORS.businessClimate.value>=50},
+    check:()=>INDICATORS.housingAffordability&&INDICATORS.housingAffordability.value>=58},
   fightWildfires:{label:"Protect Oregon from wildfires", bloc:["rural","homeowners","timber","liberal"],
     criteria:[
       {label:"Environment index ≥ 60 (healthy forests, fire-resilient landscape)", check:()=>METRICS.environment.value>=60},
@@ -3199,6 +3228,24 @@ const PROMISES={
       {label:"GDP index ≥ 55 (economy can support the investment)", check:()=>METRICS.gdp.value>=55}
     ],
     check:()=>AGENCIES.odot&&AGENCIES.odot.funding>=0.65 && METRICS.gdp.value>=55},
+  balanceBudget:{label:"Balance the budget and build reserves", bloc:["conservative","homeowners","businessClass","moderate"],
+    criteria:[
+      {label:"Budget balanced (revenue covers spending)", check:()=>budgetBalance().balance>=0},
+      {label:"Rainy Day Fund ≥ $2.0B", check:()=>GAME.rainyDay>=2.0}
+    ],
+    check:()=>budgetBalance().balance>=0 && GAME.rainyDay>=2.0},
+  resourceEconomy:{label:"Keep Oregon's resource economy working", bloc:["rural","timber","conservative","blueCollar"],
+    criteria:[
+      {label:"State forest logging at active levels (≥ 45)", check:()=>METRICS.loggingRate.value>=45},
+      {label:"Rural alienation eased (≤ 44)", check:()=>INDICATORS.ruralAlienation.value<=44}
+    ],
+    check:()=>METRICS.loggingRate.value>=45 && INDICATORS.ruralAlienation.value<=44},
+  localControl:{label:"Return power to local communities", bloc:["conservative","rural","moderate","homeowners"],
+    criteria:[
+      {label:"Local autonomy index ≥ 55 (districts retain control)", check:()=>INDICATORS.localAutonomy.value>=55},
+      {label:"Rural alienation resolved (≤ 42)", check:()=>INDICATORS.ruralAlienation.value<=42}
+    ],
+    check:()=>INDICATORS.localAutonomy.value>=55 && INDICATORS.ruralAlienation.value<=42},
 };
 
 function openCampaign(){
@@ -3295,6 +3342,7 @@ function renderCampaign(){
     <div class="sectionsub" style="margin-top:0">Set your platform anytime. At the election, each promise you've <b>kept</b> rewards you with the blocs that cared; each one <b>broken</b> breeds cynicism and a U-turn hit to your mandate. Aim only for what you can actually deliver.</div><div class="promgrid">`;
   for(const pid in PROMISES){
     const pr=PROMISES[pid], on=c.promises.includes(pid);
+    if(pr.check()&&!on)continue;  // already fully achieved and not pledged — no need to promise it
     const metCount=pr.criteria.filter(cr=>cr.check()).length;
     const total=pr.criteria.length;
     const allMet=metCount===total, someMet=!allMet&&metCount>0;
@@ -3377,22 +3425,31 @@ function renderCampaign(){
 /* at the start of a new term, judge the promises made last campaign */
 function evaluatePromises(){
   if(!GAME.activePromises||!GAME.activePromises.length)return;
+  // first pass: classify each promise
+  const outcomes={};
   for(const ap of GAME.activePromises){
     const pr=PROMISES[ap.id]; if(!pr)continue;
     const metCount=pr.criteria.filter(c=>c.check()).length;
     const total=pr.criteria.length;
-    const kept=metCount===total;
-    const partial=!kept && metCount>0;
+    outcomes[ap.id]=metCount===total?'kept':metCount>0?'partial':'broken';
+  }
+  // second pass: apply effects. partial credit only if ALL other promises were kept.
+  for(const ap of GAME.activePromises){
+    const pr=PROMISES[ap.id]; if(!pr)continue;
+    const outcome=outcomes[ap.id];
+    const otherAllKept=GAME.activePromises.filter(o=>o.id!==ap.id).every(o=>outcomes[o.id]==='kept');
     for(const sid of pr.bloc){
       if(!SIMULANTS[sid])continue;
-      if(kept){ createGrudge("v_"+sid, 4, 0.9, "Kept their promise: "+pr.label); }
-      else if(partial){ createGrudge("v_"+sid, 1.5, 0.9, "Made partial progress on: "+pr.label); }
-      else { createGrudge("v_"+sid, -5, 0.92, "Broke their promise: "+pr.label);
-             SIMULANTS[sid].cynicism=(SIMULANTS[sid].cynicism||0)+2; }
+      if(outcome==='kept'){ createGrudge("v_"+sid, 4, 0.9, "Kept their promise: "+pr.label); }
+      else if(outcome==='partial'&&otherAllKept){ createGrudge("v_"+sid, 1.5, 0.9, "Made partial progress on: "+pr.label); }
+      else if(outcome==='broken'){ createGrudge("v_"+sid, -5, 0.92, "Broke their promise: "+pr.label);
+        SIMULANTS[sid].cynicism=(SIMULANTS[sid].cynicism||0)+2; }
     }
-    const outcome=kept?"✓ Promise kept: ":partial?"~ Partial progress on: ":"✗ Promise broken: ";
-    GAME.log.push(outcome+pr.label);
-    if(!kept&&!partial)GAME.uturnCount=(GAME.uturnCount||0)+1;
+    if(outcome==='kept')GAME.log.push("✓ Promise kept: "+pr.label);
+    else if(outcome==='partial'&&otherAllKept)GAME.log.push("~ Partial progress on: "+pr.label);
+    else if(outcome==='partial')GAME.log.push("~ Partial (no bonus — other promises not fully kept): "+pr.label);
+    else GAME.log.push("✗ Promise broken: "+pr.label);
+    if(outcome==='broken')GAME.uturnCount=(GAME.uturnCount||0)+1;
   }
   GAME.activePromises=[];
 }
