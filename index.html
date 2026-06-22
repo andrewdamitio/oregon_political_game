@@ -4230,6 +4230,52 @@ function renderDetail(){
       }
       h+=`</div>`;
     }
+    // ---- downstream: what this metric currently pushes ----
+    {
+      const downLinks=METRIC_LINKS.filter(L=>L.from===k);
+      // direct voter-mood contribution at unit sensitivity weight, mirroring metricMood()
+      const blunt=1-clamp(METRICS.transitShare.value,0,40)/55;
+      const moodTable={
+        education:       (effective('education')-55)*0.04,
+        unemployment:    (effective('unemployment')-60)*0.05,
+        homelessness:    (effective('homelessness')-45)*0.075,
+        health:          (effective('health')-55)*0.03,
+        environment:     (effective('environment')-60)*0.04,
+        gdp:             (effective('gdp')-55)*0.05,
+        inequality:      (effective('inequality')-45)*0.04,
+        disposableIncome:(METRICS.disposableIncome.value-52)*0.105,
+        gasPrice:        -(METRICS.gasPrice.value-3.6)*3.0*blunt,
+        taxBurden:       (38-METRICS.taxBurden.value)*0.32,
+        transitShare:    (METRICS.transitShare.value-8)*0.06,
+        loggingRate:     (METRICS.loggingRate.value-40)*0.05,
+        incarcerationRate:(METRICS.incarcerationRate.value-50)*0.04,
+        drugUse:         -(effective('drugUse')-50)*0.05,
+        eduOutcomes:     (effective('eduOutcomes')-42)*0.03,
+        behavioralHealth:(effective('behavioralHealth')-45)*0.025,
+        obesity:         -(effective('obesity')-30)*0.02,
+        alcoholUse:      -(effective('alcoholUse')-55)*0.012,
+      };
+      const moodImpact=moodTable[k];
+      if(downLinks.length||moodImpact!==undefined){
+        const goodForM=(mk,v)=>{const tm=METRICS[mk];return tm&&tm.invert?v<0:v>0;};
+        const allAbs=downLinks.map(L=>Math.abs((m.value-L.ref)*L.coef*0.25));
+        if(moodImpact!==undefined)allAbs.push(Math.abs(moodImpact));
+        const scale=Math.max(0.05,...allAbs);
+        h+=`<div class="ebgroup-label">Where this ripples to</div><div class="ebgroup">`;
+        for(const L of downLinks){
+          const tm=METRICS[L.to];
+          const delta=(m.value-L.ref)*L.coef*0.25;
+          h+=effectBar((tm?.icon||'')+' '+(tm?.name||L.to),delta,scale,
+            {color:goodForM(L.to,delta)?'var(--good)':'var(--clay)',link:'m_'+L.to,fmt:v=>(v>=0?'+':'')+v.toFixed(2)});
+        }
+        if(moodImpact!==undefined){
+          h+=effectBar('👥 Voter approval (per unit of bloc sensitivity)',moodImpact,scale,
+            {color:moodImpact>=0?'var(--good)':'var(--clay)',fmt:v=>(v>=0?'+':'')+v.toFixed(2)});
+        }
+        h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Downstream effects at the current value. Metric links show the per-turn equilibrium nudge; voter mood shows the approval shift per unit of a bloc's sensitivity weight (motorists at 2.0 feel twice the gas-price pain of a bloc at 1.0).</div>`;
+        h+=`</div>`;
+      }
+    }
   } else if(key.startsWith("p_")){
     const id=key.slice(2), p=POLICIES[id];
     if(!p){h+=`<div class="sectionsub">This policy is no longer enacted. It may have been repealed — check New Policies to re-enact it.</div>`;main.innerHTML=h;return;}
