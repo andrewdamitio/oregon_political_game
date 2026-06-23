@@ -682,8 +682,8 @@ const METRICS={
   // --- agency-driven rates ---
   collectionRate:{name:"Tax Collection Rate", icon:"🏛️", value:96, baseline:96, eq:88, min:75,max:99,
     inertia:0.3, fmt:"pct", agencyDriven:true, realNote:"Share of owed tax actually collected"},
-  loggingRate:{name:"State Forest Logging", icon:"🪵", value:40, baseline:40, eq:18, min:0,max:100,
-    inertia:0.3, agencyDriven:true, realNote:"Harvest intensity on state forests"},
+  loggingRate:{name:"Logging Rate", icon:"🪵", value:40, baseline:40, eq:25, min:0,max:100,
+    inertia:0.3, realNote:"Combined state and private forest harvest intensity; driven by economy, regulation, and agency funding"},
   incarcerationRate:{name:"Incarceration Rate", icon:"⛓️", value:50, baseline:50, eq:50, min:10,max:95,
     inertia:0.3, invert:false, agencyDriven:true, realNote:"Custody capacity & enforcement"},
   // --- behavioral / outcome statistics (Stage: deeper simulation) ---
@@ -987,6 +987,7 @@ const METRIC_LINKS=[
   {from:"violentCrime",  to:"gdp",          coef:-0.003,ref:44},  // violent crime scares investment
   {from:"incarcerationRate", to:"violentCrime", coef:-0.10, ref:50}, // incapacitation cuts violent crime
   {from:"loggingRate", to:"environment",   coef:-0.13, ref:38},  // harvest degrades environment
+  {from:"gdp",         to:"loggingRate",   coef:5.0,   ref:2.0},  // national economy drives lumber demand
   {from:"inequality",  to:"violentCrime",  coef:0.03, ref:55},
   {from:"inequality",  to:"propertyCrime", coef:0.04, ref:55},
   {from:"inequality",  to:"homelessness",  coef:0.04, ref:55},   // and homelessness
@@ -1209,7 +1210,7 @@ const POLICIES={
     desc:"Oregon's 1971 framework regulating logging on PRIVATE forestland — stream buffers, steep-slope limits, aerial-spray setbacks. The 2022 Private Forest Accord rewrote it in a historic timber-environmentalist deal. Tighter rules protect watersheds and salmon; looser rules favor harvest economics.",
     tiers:["Minimal Rules","Pre-Accord Baseline","Private Forest Accord","Strong Setbacks","Strict Preservation"],
     tierIndex:2, costByTier:[0,0.02,0.06,0.10,0.15], capital:10,
-    effects:{environment:9,gdp:-0.25},
+    tierEffects:[{environment:0,gdp:0.10,loggingRate:25},{environment:4,gdp:-0.05,loggingRate:12},{environment:9,gdp:-0.25,loggingRate:0},{environment:15,gdp:-0.45,loggingRate:-15},{environment:22,gdp:-0.70,loggingRate:-28}],
     tierIdeology:[{environment:0.8,economic:0.4},{environment:0.4,economic:0.2},{environment:-0.1},{environment:-0.5,economic:-0.2},{environment:-0.8,economic:-0.4}]},
   incomeTax:{name:"Top Marginal Income Tax", domain:"economy", icon:"🧾", enacted:true, mechanic:"slider", noRepeal:true,
     desc:"Oregon's top personal rate (currently 9.9% above $125k — among the nation's highest). With no sales tax, the income tax carries ~85% of the General Fund; raising it funds the state but drags growth and risks out-migration.",
@@ -1623,7 +1624,7 @@ const AGENCIES={
   forestry:{name:"Dept. of Forestry", domain:"envInfra", icon:"🌲",
     funding:0.45, costMin:0.2, costFull:0.6, capital:4,
     desc:"Wildfire response and STATE FOREST LOGGING. More funding ramps harvest on state forests — timber revenue and rural jobs rise, but environmental quality falls and greens are angered.",
-    effects:{loggingRate:55,environment:-4,gdp:0.1}, indicatorEffects:{ruralAlienation:-4}, ideology:{environment:0.5,economic:0.2}},
+    effects:{loggingRate:22,environment:-4,gdp:0.1}, indicatorEffects:{ruralAlienation:-4}, ideology:{environment:0.5,economic:0.2}},
   ohcs:{name:"Housing & Community Services (OHCS)", domain:"social", icon:"🏚️",
     funding:0.5, costMin:0.5, costFull:1.3, capital:5,
     desc:"Oregon's housing agency — shelters ($205M/biennium), affordable development (~$1.6B in recent biennia across housing/homelessness), rent assistance. Direct lever on the homelessness emergency.",
@@ -2351,7 +2352,7 @@ const SITUATIONS={
   wildfireSeason:{name:"Severe Wildfire Season", kind:"bad", category:"event",
     desc:"Catastrophic wildfires choke the Willamette Valley with smoke and force evacuations across eastern and southern Oregon.",
     costEffect:{natResources:0.45},
-    metricEffect:{environment:-4,health:-3,gdp:-0.3}, moodAxes:{environment:-0.2}, moodMag:6, minTurns:2,
+    metricEffect:{environment:-4,health:-3,gdp:-0.3,loggingRate:-6}, moodAxes:{environment:-0.2}, moodMag:6, minTurns:2,
     onTrigger:{capital:-4, metrics:{environment:-6}}, mandateShock:-5,
     groupMood:{rural:-4,timber:-5,students:-2}},
   taxRevolt:{name:"Tax Revolt", kind:"bad", category:"condition",
@@ -2364,7 +2365,7 @@ const SITUATIONS={
     groupMood:{wealthy:-5,businessClass:-4,rural:-4,suburban:-2}},
   recession:{name:"National Recession", kind:"bad", category:"event",
     desc:"A national downturn drags Oregon's economy with it.",
-    metricEffect:{gdp:-0.6,unemployment:0.5}, moodMag:5, minTurns:3,
+    metricEffect:{gdp:-0.6,unemployment:0.5,loggingRate:-8}, moodMag:5, minTurns:3,
     groupMood:{blueCollar:-4,businessClass:-3,poor:-3}},
   transportCliff:{name:"Transportation Funding Cliff", kind:"bad", category:"condition",
     desc:"Oregon's transportation funding is structurally underfunded — the same cliff that triggered ODOT's historic 2025 layoffs. Unless gas taxes or vehicle fees are raised sufficiently, ODOT faces a ~$354M annual shortfall: plowing, paving, and maintenance degrade. Fix the funding and the cliff resolves.",
@@ -2395,7 +2396,7 @@ const SITUATIONS={
     groupMood:{businessClass:5,wealthy:3,collegeEducated:3,timber:-1}},
   droughtWater:{name:"Drought & Water Crisis", kind:"bad", category:"event",
     desc:"A severe drought pits farms, fish, and cities against each other over water.",
-    metricEffect:{environment:-2,gdp:-0.2}, moodAxes:{environment:-0.2}, moodMag:4, minTurns:3,
+    metricEffect:{environment:-2,gdp:-0.2,loggingRate:-5}, moodAxes:{environment:-0.2}, moodMag:4, minTurns:3,
     groupMood:{rural:-4,timber:-3}},
   scandal:{name:"Statehouse Scandal", kind:"bad", category:"event",
     desc:"An ethics scandal involving the administration dominates the press — your authority in Salem takes a real hit.",
@@ -2404,8 +2405,8 @@ const SITUATIONS={
   cascadiaQuake:{name:"Cascadia Earthquake", kind:"bad", category:"event",
     desc:"A major Cascadia Subduction Zone quake strikes — the Big One Oregonians have dreaded for decades. Infrastructure, ports, and bridges are damaged; recovery dominates everything.",
     costEffect:{debtAdmin:1.2,natResources:0.4},
-    metricEffect:{gdp:-0.5,health:-2,environment:-1}, moodMag:6, minTurns:4,
-    onTrigger:{capital:-8, metrics:{gdp:-1.5,environment:-4}}, mandateShock:-8,
+    metricEffect:{gdp:-0.8,health:-4,environment:-2}, moodMag:6, minTurns:4,
+    onTrigger:{capital:-8, metrics:{gdp:-3.5,environment:-8,health:-3}}, mandateShock:-8,
     indicatorEffect:{tourism:-16,businessClimate:-12,inMigration:-12,downtown:-8},
     groupMood:{}},
   klamathCrisis:{name:"Klamath Water Crisis", kind:"bad", category:"event",
@@ -2537,7 +2538,7 @@ const EVENT_POOL=[
   {id:"federalWindfall", prob:0.06, gate:()=>true},
   {id:"droughtWater", prob:0.06, gate:()=>true, seasonal:[2,3]},
   {id:"scandal", prob:0.035, gate:()=>true},
-  {id:"cascadiaQuake", prob:0.012, gate:()=>true},
+  {id:"cascadiaQuake", prob:0.0023, gate:()=>true},
   {id:"heatDome", prob:0.07, gate:()=>true, seasonal:[2]},
   {id:"oilShock", prob:0.05, gate:()=>true},
   {id:"klamathCrisis", prob:0.05, gate:()=>!POLICIES.waterRights||policyLevel(POLICIES.waterRights)<0.5, seasonal:[2,3]},
@@ -5112,7 +5113,8 @@ function buildWebEdges(){
     businessClimate:["m_taxBurden","m_gasPrice","m_propertyCrime","m_violentCrime","i_inMigration","m_education"],
     tourism:["m_environment","i_downtown"],
     taxGrievance:["m_taxBurden","m_gasPrice"],
-    housingAffordability:["m_homelessness","m_inequality","m_disposableIncome"]};
+    housingAffordability:["m_homelessness","m_inequality","m_disposableIncome"],
+    ruralAlienation:["m_loggingRate","m_taxBurden","m_gasPrice"]};
   for(const iid in DD)for(const src of DD[iid])E.push({a:src,b:"i_"+iid,neutral:true,w:0.5});
   return E;
 }
