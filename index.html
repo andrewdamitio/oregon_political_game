@@ -265,9 +265,10 @@
   .phasebar i{display:block;height:100%;background:var(--slate-blue);border-radius:5px;transition:width .3s}
   .phasetgt{position:absolute;top:-3px;width:2px;height:16px;background:var(--ink);transform:translateX(-50%)}
   /* issue web */
-  .websearch{margin-bottom:8px}
-  .websearch input{width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid var(--line);border-radius:4px;background:var(--paper-2);color:var(--ink);font-family:var(--font-body);font-size:13px}
-  .websearch input:focus{outline:none;border-color:var(--moss)}
+  .websearch{margin-bottom:8px;position:relative}
+  .websearch::before{content:"🔍";position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:14px;pointer-events:none;opacity:0.65;line-height:1}
+  .websearch input{width:100%;box-sizing:border-box;padding:7px 10px 7px 32px;border:2px solid var(--moss);border-radius:6px;background:var(--paper-2);color:var(--ink);font-family:var(--font-body);font-size:13px;font-weight:500}
+  .websearch input:focus{outline:none;border-color:var(--slate-blue);box-shadow:0 0 0 3px rgba(74,108,179,0.15)}
   .webwrap{background:var(--paper-2);border:1px solid var(--line);border-radius:4px;overflow:auto}
   #webSvg{width:100%;min-width:760px;display:block}
   .webedge{stroke-opacity:.10;transition:stroke-opacity .12s}
@@ -621,6 +622,8 @@ const REVENUE={
     note:"Registration & title fees — funds roads (ODOT)"},
   gasTaxRev:{name:"Gas Tax", base:0.9, linkedPolicy:"gasTax", refLevel:0.5,
     note:"40¢/gal, constitutionally dedicated to highways"},
+  evFeeRev:{name:"EV Road Usage Charge", base:0.10, linkedPolicy:"evFee", refLevel:0.5,
+    note:"Per-mile charge on electric vehicles (expanded OReGO). Offsets gas-tax erosion as fleet electrifies."},
 };
 
 /* ---------- SPENDING BY PROGRAM AREA ($B/yr) ----------
@@ -644,7 +647,7 @@ const SPENDING={
     policies:["rndTaxCredit","digitalGov","downtownRevitalization","cannabis"],
     note:"Business Oregon, fiscal agencies, OLCC"},
   natResources:{name:"Natural Resources & Environment", base:0.1, agencies:["odot","forestry","deq","oprd"],
-    policies:["wildfireResilience","transitInvestment","bottleBill","cleanFuels","forestCarbon","outdoorRec","forestPractices","modeSplit","gasTax","vehicleReg","waterRights"],
+    policies:["wildfireResilience","transitInvestment","bottleBill","cleanFuels","forestCarbon","outdoorRec","forestPractices","modeSplit","gasTax","vehicleReg","evFee","waterRights"],
     note:"DEQ, Transportation, Forestry, Parks, wildfire fund"},
   social:{name:"Social Programs", base:0.0, agencies:[], policies:["abortion","childcareSubsidy","sexWorkDecrim","gunStorage","universalMeals","rankedChoice","rightToRepair","psilocybin","paidLeave","motorVoter","middleHousing","deathWithDignity","minWageTiers"],
     note:"Reproductive health, childcare, civil programs"},
@@ -911,6 +914,35 @@ const INDICATORS={
       ...(POLICIES.schoolChoice?[{name:"🎟️ School Choice",v:-8,link:"p_schoolChoice"}]:[]),
     ],
     feedback:{}},
+  transportFunding:{name:"Transportation Revenue Health", icon:"🛣️", value:62,
+    desc:"How well-funded Oregon's transportation system is relative to ODOT's maintenance and operations needs. Gas tax is the primary lever but erodes as EVs grow; vehicle registration fees are stable; an EV road usage charge can close the gap. When this falls below ~62 the Transportation Funding Cliff situation activates.",
+    derive:()=>{
+      const g=policyLevel(POLICIES.gasTax??{value:0.5});
+      const r=policyLevel(POLICIES.vehicleReg??{value:0.5});
+      const e=POLICIES.evFee?policyLevel(POLICIES.evFee):0;
+      const total=g*0.9+r*0.6+e*0.2;
+      return clamp(total/1.2*100, 0, 100);
+    },
+    drivers:()=>[
+      {name:"⛽ Gas Tax",v:(policyLevel(POLICIES.gasTax??{value:0.5}))*75,link:"p_gasTax"},
+      {name:"🚗 Vehicle Reg. Fees",v:(policyLevel(POLICIES.vehicleReg??{value:0.5}))*50,link:"p_vehicleReg"},
+      ...(POLICIES.evFee&&policyLevel(POLICIES.evFee)>0.01?[{name:"🔌 EV Road Charge",v:policyLevel(POLICIES.evFee)*17,link:"p_evFee"}]:[]),
+    ],
+    feedback:{}},
+  justiceEffectiveness:{name:"Justice Pipeline Effectiveness", icon:"⚖️", value:50,
+    desc:"How well Oregon's justice system functions end-to-end. Crime reduction from incapacitation is limited by the weakest of three pillars: police (arrests), judiciary (prosecution), and corrections (jail capacity). All three must be adequately funded for the chain to work. Police retain a prevention benefit even when the pipeline is broken.",
+    derive:()=>{
+      const police = effLevelOf(POLICIES.policing);
+      const prosecution = AGENCIES.judiciary?.funding??0.5;
+      const jail = AGENCIES.corrections?.funding??0.5;
+      return clamp(Math.min(police, prosecution, jail)*100, 0, 100);
+    },
+    drivers:()=>[
+      {name:POLICIES.policing.icon+" "+POLICIES.policing.name,v:(effLevelOf(POLICIES.policing))*100,link:"p_policing"},
+      {name:AGENCIES.judiciary.icon+" "+AGENCIES.judiciary.name,v:(AGENCIES.judiciary?.funding??0.5)*100,link:"a_judiciary"},
+      {name:AGENCIES.corrections.icon+" "+AGENCIES.corrections.name,v:(AGENCIES.corrections?.funding??0.5)*100,link:"a_corrections"},
+    ],
+    feedback:{}},
   housingAffordability:{name:"Housing Affordability", icon:"🏠", value:40,
     desc:"How accessible Oregon's housing market is to working residents — a composite of homelessness pressure, income inequality, disposable income, and housing production. Oregon has one of the worst housing deficits in the nation, driven by decades of underbuilding behind urban growth boundaries and stagnant wages. High affordability attracts workers and families; low affordability accelerates homelessness, inequality, and out-migration.",
     derive:()=>{
@@ -1076,7 +1108,7 @@ const SECTION_OF={
   environment:"environment", gasPrice:"environment", transitShare:"environment", loggingRate:"environment", tourism:"environment", evAdoption:"environment",
   downtown:"welfare", taxGrievance:"taxes", ruralAlienation:"environment", pensionBurden:"taxes", localAutonomy:"pubservices", mandate:"taxes",
   // policies & agencies — taxes
-  incomeTax:"taxes", corpTax:"taxes", salesTax:"taxes", gasTax:"taxes", vehicleReg:"taxes", estateTax:"taxes",
+  incomeTax:"taxes", corpTax:"taxes", salesTax:"taxes", gasTax:"taxes", vehicleReg:"taxes", evFee:"taxes", estateTax:"taxes",
   carbonTax:"taxes", taxCut:"taxes", kickerReform:"taxes", propTaxReform:"taxes", preschoolForAll:"taxes", revenueDept:"taxes", treasury:"taxes", persReform:"taxes",
   // public services
   stateSchoolFund:"pubservices", universities:"pubservices", stateColleges:"pubservices", communityColleges:"pubservices",
@@ -1177,8 +1209,8 @@ const POLICIES={
     instTier:"communityCollege",
     ideology:{economic:-0.4,govSize:-0.4}},
   policing:{name:"Public Safety Funding", domain:"social", icon:"🚓", enacted:true, mechanic:"slider",
-    desc:"State police, local grants, courts, DAs. Beyond crime, heavier enforcement also bears on visible homelessness — clearing some encampments, but doing nothing for the underlying causes.",
-    value:0.5, costFull:2.5, capital:5, effects:{violentCrime:{b:-4,c:-10,i:2},propertyCrime:{b:-3,c:-10,i:2},homelessness:{b:0,c:-3,i:3},drugUse:{b:0,c:-3,i:3}},
+    desc:"State police, local grants, courts, DAs. Police provide a direct prevention benefit regardless of other capacity — community patrols, deterrence, rapid response. But the bigger incapacitation dividend requires the full justice pipeline: arrests that are prosecuted and sentences that can actually be served.",
+    value:0.5, costFull:2.5, capital:5, effects:{violentCrime:{b:0,c:-3,i:2},propertyCrime:{b:0,c:-3,i:2},homelessness:{b:0,c:-3,i:3},drugUse:{b:0,c:-3,i:3}},
     ideology:{economic:0.3,social:0.5,govSize:0.4}},
   civilCommitment:{name:"Ease of Civil Commitment", domain:"social", icon:"⚖️", enacted:true, mechanic:"slider", noRepeal:true,
     desc:"How readily the state can compel treatment for people in severe psychiatric or addiction crisis (Oregon's commitment standard is famously strict). Loosening it moves people off the street into care — but ONLY works if the psychiatric beds exist to receive them; with no capacity, it just generates backlog. Civil-liberties advocates fight every loosening.",
@@ -1239,6 +1271,12 @@ const POLICIES={
     blocEffect:{motorists:-5, rural:-4, suburban:-3, timber:-3, transitCommuters:1, liberal:1},
     real:{min:0,max:80,unit:"¢/gal",decimals:0,label:"per-gallon tax"},
     ideology:{economic:-0.25,govSize:-0.2}},
+  evFee:{name:"EV Road Usage Charge", domain:"envInfra", icon:"🔌", enacted:true, mechanic:"slider",
+    desc:"Oregon pioneered per-mile road usage charging for EVs through the voluntary OReGO program (2015). Expanding it to a mandatory statewide charge closes the gas-tax gap as the fleet electrifies — the 'user pays' principle applied to clean vehicles. EV owners (skewing affluent and urban) resist; rural and conservative voters see it as fairer than a gas-only system.",
+    value:0, revenueFull:0.2, capital:5, repealCost:4, effects:{evAdoption:{b:0,c:-3,i:4}, taxBurden:2},
+    blocEffect:{liberal:-3, wealthy:-2, suburban:-1, rural:2, motorists:-1},
+    real:{min:0,max:3.0,unit:"¢/mi",decimals:1,label:"per-mile charge"},
+    ideology:{economic:0.1,govSize:-0.1}},
   campingPolicy:{name:"Camping Time/Place/Manner", domain:"social", icon:"⛺", enacted:true, mechanic:"slider", noRepeal:true,
     desc:"Oregon cities must allow 'objectively reasonable' time, place, and manner of public camping (Martin v. Boise / state law). This slider sets enforcement strictness — from permissive (camps tolerated widely) to strict (tight restrictions and sweeps). Strict clears visible camps and lifts downtown perception, but scatters people from services and can worsen the underlying crisis; permissive does the reverse.",
     value:0.4, costFull:0.08, capital:6,
@@ -1631,12 +1669,12 @@ const AGENCIES={
     desc:"Debt issuance, investments, PERS oversight. Sound fiscal management reassures employers and rating agencies.",
     effects:{}, indicatorEffects:{businessClimate:4}, ideology:{}},
   corrections:{name:"Dept. of Corrections", domain:"social", icon:"🔒",
-    funding:0.5, costMin:0.7, costFull:1.5, capital:5,
-    desc:"State prisons & community supervision. Funding capacity reduces recidivism; underfunding means overcrowding and early releases. Tied to the Judicial Dept's incarceration policy.",
-    effects:{violentCrime:-3,propertyCrime:-1}, ideology:{social:0.3,govSize:0.2}},
+    funding:0.5, costMin:0.7, costFull:1.5, capital:4,
+    desc:"State prisons & community supervision. Jail capacity is the final link in the justice pipeline — without it, arrests and convictions produce early releases and overcrowding. Funding also reduces recidivism through programming.",
+    effects:{}, ideology:{social:0.3,govSize:0.2}},
   judiciary:{name:"Judicial Department", domain:"social", icon:"🏛",
-    funding:0.5, costMin:0.35, costFull:0.85, capital:6,
-    desc:"Courts & sentencing capacity. Higher funding raises incarceration, which cuts crime — but corrections costs rise and civil-liberties voters bristle.",
+    funding:0.5, costMin:0.35, costFull:0.85, capital:4,
+    desc:"Courts & sentencing capacity. Prosecution is the middle link — without it, arrests don't stick. Higher funding increases incarceration, which cuts crime, but corrections costs rise and civil-liberties voters bristle.",
     effects:{incarcerationRate:30}, ideology:{social:0.4,govSize:0.3}},
   dhs:{name:"Dept. of Human Services", domain:"eduHealth", icon:"🤝",
     funding:0.5, costMin:1.6, costFull:2.6, capital:5,
@@ -2399,10 +2437,10 @@ const SITUATIONS={
     metricEffect:{gdp:-0.6,unemployment:0.5,loggingRate:-8}, moodMag:5, minTurns:3,
     groupMood:{blueCollar:-4,businessClass:-3,poor:-3}},
   transportCliff:{name:"Transportation Funding Cliff", kind:"bad", category:"condition",
-    desc:"Oregon's transportation funding is structurally underfunded — the same cliff that triggered ODOT's historic 2025 layoffs. Unless gas taxes or vehicle fees are raised sufficiently, ODOT faces a ~$354M annual shortfall: plowing, paving, and maintenance degrade. Fix the funding and the cliff resolves.",
-    trigger:()=>GAME.turn>4&&!(POLICIES.gasTax&&policyLevel(POLICIES.gasTax)>0.55)&&!(POLICIES.vehicleReg&&policyLevel(POLICIES.vehicleReg)>0.65),
-    clear:()=>(POLICIES.gasTax&&policyLevel(POLICIES.gasTax)>0.55)||(POLICIES.vehicleReg&&policyLevel(POLICIES.vehicleReg)>0.65),
-    watch:{metric:"gdp", startAt:null, clearAt:null},
+    desc:"Oregon's transportation funding is structurally underfunded — the same cliff that triggered ODOT's historic 2025 layoffs and a $354M annual shortfall. Gas tax revenue erodes as the fleet electrifies. Three levers can close the gap: raise the gas tax (strongest), raise vehicle registration fees (stable), or enact the EV Road Usage Charge (closes the EV gap). Watch the 🛣️ Transportation Revenue Health indicator — it needs to reach ~70 to resolve this crisis. Any combination of the three levers works.",
+    trigger:()=>{const g=policyLevel(POLICIES.gasTax),r=policyLevel(POLICIES.vehicleReg),e=POLICIES.evFee?policyLevel(POLICIES.evFee):0;return GAME.turn>4&&(g*0.9+r*0.6+e*0.2)<0.75;},
+    clear:()=>{const g=policyLevel(POLICIES.gasTax),r=policyLevel(POLICIES.vehicleReg),e=POLICIES.evFee?policyLevel(POLICIES.evFee):0;return (g*0.9+r*0.6+e*0.2)>=0.85;},
+    watch:{indicator:"transportFunding", startAt:62, clearAt:70, badHigh:false},
     metricEffect:{gdp:-0.2,unemployment:0.3}, moodMag:5, minTurns:3,
     onTrigger:{capital:-4},
     indicatorEffect:{businessClimate:-5,inMigration:-2},
@@ -2805,6 +2843,17 @@ function metricTarget(k){
     const ind=INDICATORS[iid];
     if(ind.feedback&&ind.feedback[k]!==undefined)t+=(ind.value-50)*ind.feedback[k]/m.inertia;
   }
+  // --- Justice pipeline bottleneck ------------------------------------------
+  // Police provide a direct prevention benefit; full incapacitation requires
+  // all three pillars. Crime reduction scales with the weakest link.
+  if(k==="violentCrime"||k==="propertyCrime"){
+    const police    = effLevelOf(POLICIES.policing);
+    const prosec    = AGENCIES.judiciary?.funding??0.5;
+    const jail      = AGENCIES.corrections?.funding??0.5;
+    const effective = Math.min(police, prosec, jail);
+    if(k==="violentCrime")  t -= effective * 14;
+    if(k==="propertyCrime") t -= effective * 11;
+  }
   // --- Civil commitment × psychiatric beds interaction ---------------------
   // Commitment only works if beds exist to receive people. Its effect on
   // homelessness/drug-use/disorder SCALES with bed availability, and is a
@@ -2866,6 +2915,15 @@ function metricContributors(k){
       const e=(ind.value-50)*ind.feedback[k]/m.inertia;
       if(Math.abs(e)>0.05)out.push({name:ind.icon+' '+ind.name, v:e, link:"i_"+iid});
     }
+  }
+  // Justice pipeline bottleneck entry
+  if(k==="violentCrime"||k==="propertyCrime"){
+    const police    = effLevelOf(POLICIES.policing);
+    const prosec    = AGENCIES.judiciary?.funding??0.5;
+    const jail      = AGENCIES.corrections?.funding??0.5;
+    const effective = Math.min(police, prosec, jail);
+    const e = k==="violentCrime" ? -effective*14 : -effective*11;
+    if(Math.abs(e)>0.03) out.push({name:"⚖️ Justice Pipeline (bottlenecked)", v:e, link:"i_justiceEffectiveness"});
   }
   return out;
 }
@@ -5193,7 +5251,9 @@ function buildWebEdges(){
     tourism:["m_environment","i_downtown"],
     taxGrievance:["m_taxBurden","m_gasPrice"],
     housingAffordability:["m_homelessness","m_inequality","m_disposableIncome"],
-    ruralAlienation:["m_loggingRate","m_taxBurden","m_gasPrice"]};
+    ruralAlienation:["m_loggingRate","m_taxBurden","m_gasPrice"],
+    justiceEffectiveness:["p_policing","a_judiciary","a_corrections"],
+    transportFunding:["p_gasTax","p_vehicleReg","p_evFee"]};
   for(const iid in DD)for(const src of DD[iid])E.push({a:src,b:"i_"+iid,neutral:true,w:0.5});
   return E;
 }
