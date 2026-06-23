@@ -605,8 +605,8 @@ const REVENUE={
     note:"Allowance proceeds, reinvested"},
   otherGF:{name:"Other GF (estate, misc.)", base:0.45, linkedPolicy:null,
     note:"Estate tax (10–16%), fees. No sales tax"},
-  liquorRev:{name:"Liquor Revenue (OLCC)", base:0.30, linkedAgency:"olcc", refFunding:0.5,
-    note:"OLCC liquor markup — 56% of net to GF; scales with OLCC funding. Cannabis tax shows under the Cannabis Program policy."},
+  liquorRev:{name:"Liquor Revenue (OLCC)", base:0.30,
+    note:"OLCC spirits markup — 56% of net to GF; scales with alcohol control tier. Zero if privatized. Cannabis tax shows under the Cannabis Program policy."},
   timber:{name:"State Forest Timber Receipts", base:0.25, linkedPolicy:null,
     note:"Logging revenue — scales with Forestry harvest rate"},
   salesTaxRev:{name:"Sales Tax", base:6.0, linkedPolicy:"salesTax", refLevel:0.5,
@@ -640,7 +640,7 @@ const SPENDING={
     policies:["policing","prisonRegimen","measure11"], note:"State Police, Corrections, Courts, prison operations"},
   housing:{name:"Housing & Community Dev.", base:0.0, agencies:["ohcs"], policies:["affordableHousing","rentStabilization","officeConversion"],
     note:"OHCS agency budget + housing production policies"},
-  economy:{name:"Economic & Workforce Dev.", base:0.45, agencies:["revenueDept","treasury","olcc"],
+  economy:{name:"Economic & Workforce Dev.", base:0.45, agencies:["revenueDept","treasury"],
     policies:["rndTaxCredit","digitalGov","downtownRevitalization","cannabis"],
     note:"Business Oregon, fiscal agencies, OLCC"},
   natResources:{name:"Natural Resources & Environment", base:0.1, agencies:["odot","forestry","deq","oprd"],
@@ -1091,7 +1091,7 @@ const SECTION_OF={
   // environment & transport
   carbonProgram:"environment", cleanFuels:"environment", forestPractices:"environment", bottleBill:"environment",
   forestCarbon:"environment", wildfireResilience:"environment", modeSplit:"environment", transitInvestment:"environment",
-  outdoorRec:"environment", waterRights:"environment", forestry:"environment", deq:"environment", oprd:"environment", olcc:"economy",
+  outdoorRec:"environment", waterRights:"environment", forestry:"environment", deq:"environment", oprd:"environment",
   // health & liberties
   abortion:"health", abortionRestrict:"health", psilocybin:"health", deathWithDignity:"health", vaccineMandate:"health",
   oha:"health", universalMealsHealth:"health", sexEd:"pubservices", lgbtRights:"health",
@@ -1336,6 +1336,7 @@ const POLICIES={
     desc:"2019 — the first state to end single-family-only zoning: duplexes-to-quadplexes legal in larger cities. Oregon is ~111,000 homes underbuilt; the honest record so far is gradual — transformation depends on local markets and small builders, so the effects phase in slowly.",
     enabled:true, costFull:0.02, capital:9,
     effects:{homelessness:-3,inequality:-1}, indicatorEffects:{inMigration:1.5},
+    blocEffect:{suburban:-4, wealthy:-3},
     ideology:{economic:-0.3,govSize:0.1}},
   deathWithDignity:{name:"Death with Dignity", domain:"social", icon:"🕊️", enacted:true, mechanic:"law", repealCost:13, niche:true,
     desc:"Measure 16 (1994), reaffirmed 1997 — the first U.S. physician-assisted-dying law. Usage is small but steady (400 deaths in 2025, ~65 per 10,000 deaths). Voters reaffirmed it once already; repeal would be a culture-war earthquake for little budget effect.",
@@ -1420,13 +1421,35 @@ const CATALOG={
     blocEffect:{businessClass:-2, blueCollar:-3, rural:-2, retirees:1},
     real:{min:0,max:100,unit:"/100 rate",decimals:0,label:"alcohol tax level"},
     ideology:{economic:-0.2,govSize:-0.3}},
-  liquorControl:{name:"State Liquor Control", domain:"economy", icon:"🥃", enacted:true, mechanic:"toggle",
-    desc:"Oregon has run a state monopoly on distilled-spirits sales since 1933 — the OLCC sets prices and the markup flows to the General Fund (~56%). Keep it ON for that steady revenue and tighter control of access; toggle it OFF to privatize into grocery/retail, which is convenient and popular but expands access (raising consumption) and surrenders the markup.",
-    enabled:true, revenue:0.2, capital:6, repealCost:7,
-    effects:{alcoholUse:-3},
-    indicatorEffects:{},
-    blocEffect:{businessClass:-3, suburban:-2, publicUnions:3, retirees:1},
-    ideology:{economic:-0.4,govSize:-0.4}},
+  liquorControl:{name:"Alcohol Control Level", domain:"economy", icon:"🥃", enacted:true, mechanic:"tier",
+    desc:"Oregon has run a spirits monopoly through the OLCC since 1933 — the state markup flows to the General Fund. You can privatize spirits sales entirely, maintain the current spirits-only system, extend oversight to wine, or institute full beverage control. Higher tiers reduce consumption and preserve markup revenue but restrict commerce; extending restrictions to wine and beer directly damages Oregon's wine-country brand and in-migration.",
+    tiers:["No State Control","Spirits Monopoly","Spirits & Wine Oversight","Full Beverage Control"],
+    tierIndex:1, capital:7, repealCost:7,
+    costByTier:[0, 0.07, 0.09, 0.12],
+    tierEffects:[
+      {alcoholUse:3, gdp:0.08, health:-1, propertyCrime:1},
+      {alcoholUse:-3, health:1, propertyCrime:-2},
+      {alcoholUse:-5, gdp:-0.12, health:1, propertyCrime:-2},
+      {alcoholUse:-8, gdp:-0.25, health:2, propertyCrime:-2}
+    ],
+    tierIndicatorEffects:[
+      {businessClimate:2, inMigration:1},
+      {},
+      {inMigration:-3, tourism:-2},
+      {inMigration:-6, tourism:-5, businessClimate:-3}
+    ],
+    tierBlocEffects:[
+      {businessClass:3, suburban:2, libertarian:4, rural:2, publicUnions:-2},
+      {},
+      {rural:-4, businessClass:-3, suburban:-2},
+      {rural:-7, businessClass:-5, suburban:-4, libertarian:-5, publicUnions:2}
+    ],
+    tierIdeology:[
+      {govSize:-0.4, economic:0.2},
+      {govSize:-0.1},
+      {govSize:0.3, social:0.2},
+      {govSize:0.5, social:0.4}
+    ]},
   craftBevPromotion:{name:"Beer/Wine Industry Promotion", domain:"economy", icon:"🍷", enacted:true, mechanic:"toggle",
     desc:"Oregon already promotes its craft beer, cider, and Willamette Valley wine through the Oregon Wine Board and Travel Oregon — a genuine agricultural and tourism engine. Toggle whether the state keeps actively funding it. Boosts rural ag economies and visitors, at a small public-health cost from normalized consumption.",
     enabled:true, costFull:0.05, capital:4, repealCost:4,
@@ -1645,10 +1668,6 @@ const AGENCIES={
     funding:0.5, costMin:0.08, costFull:0.26, capital:4,
     desc:"State parks system — Silver Falls, Smith Rock, the coast (all of it public, by law). Lottery-funded since 1998. A direct driver of tourism appeal.",
     effects:{environment:3,gdp:0.08}, indicatorEffects:{tourism:9}, ideology:{environment:-0.4}},
-  olcc:{name:"Liquor & Cannabis Commission (OLCC)", domain:"economy", icon:"🥃",
-    funding:0.5, costMin:0.04, costFull:0.10, capital:3,
-    desc:"State liquor monopoly (since 1933) + cannabis regulation. Liquor markup revenue flows 56% to the General Fund; funding raises enforcement and sales capacity, scaling the revenue line and curbing illicit-market harms.",
-    effects:{propertyCrime:-2,health:1}, ideology:{govSize:0.1}},
 };
 
 /* SIMULANTS — voter blocs. `sensitivities` weights how strongly each
@@ -3125,6 +3144,11 @@ function revenueBySource(){
     }
     if(r.id==="timber"||id==="timber"){
       amt = r.base*(METRICS.loggingRate.value/40);
+    }
+    if(id==="liquorRev"){
+      const p=POLICIES.liquorControl;
+      // tier 0 = privatized (no markup); tiers 1-3 scale gently upward from spirits-only baseline
+      amt=(p&&p.tierIndex>0)?r.base*(1+(p.tierIndex-1)*0.07):0;
     }
     if(taxSources[id])amt*=collFactor; // collection efficiency
     if(id==="personalIncome")amt*=incomeCycle;
