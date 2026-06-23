@@ -1169,7 +1169,7 @@ const SECTION_OF={
   paidLeave:"welfare", minWageTiers:"welfare", universalMeals:"welfare", middleHousing:"welfare", rentStabilization:"welfare",
   officeConversion:"welfare", dhs:"welfare", downtownRevitalization:"welfare",
   // economy & jobs
-  rndTaxCredit:"economy", deregulation:"economy", rightToWork:"economy", rightToRepair:"economy", schoolChoice:"pubservices",
+  rndTaxCredit:"economy", deregulation:"economy", rightToWork:"economy", collectiveBargaining:"economy", rightToRepair:"economy", schoolChoice:"pubservices",
   nuclearRepeal:"economy",
   // environment & transport
   carbonProgram:"environment", renewablePortfolio:"environment", cleanFuels:"environment", forestPractices:"environment", bottleBill:"environment",
@@ -1677,9 +1677,31 @@ const CATALOG={
     value:0.5, costFull:0.3, capital:9, enactCapital:13,
     effects:{education:-2,inequality:4}, ideology:{economic:0.5,social:0.4,govSize:0.4}},
   rightToWork:{name:"Right-to-Work Law", domain:"economy", icon:"🚫", mechanic:"law",
-    desc:"Bar mandatory union dues as a condition of employment. Business groups cheer; it sharply weakens public-sector and trade unions — a direct hit to a core Oregon constituency.",
+    desc:"Bans mandatory union membership or dues as a condition of employment — unions lose the ability to collect fees from workers they represent, starving them of resources and organizing capacity. Business competitiveness rises sharply; union density collapses over time. A direct declaration of war on organized labor.",
     enabled:true, costFull:0, capital:12, enactCapital:16,
-    effects:{gdp:0.3,inequality:3,unemployment:-0.2}, ideology:{economic:0.7,social:0.3,govSize:0.4}},
+    effects:{gdp:0.8, inequality:4.5, unemployment:-0.5, taxBurden:-2},
+    indicatorEffects:{businessClimate:6},
+    blocEffect:{publicUnions:-22, blueCollar:-10, liberal:-7, socialist:-14, businessClass:13, libertarian:9, wealthy:5, rural:3},
+    ideology:{economic:0.7,social:0.3,govSize:0.4}},
+  collectiveBargaining:{name:"Public Sector Collective Bargaining", domain:"economy", icon:"✊", enacted:true, mechanic:"tier",
+    desc:"Whether state and local public employees can collectively bargain over wages, benefits, and working conditions. Oregon has guaranteed these rights since 1973 (ORS 243). Revoking them shrinks union density over years — lower public payroll pressure, more budget flexibility. But expect an immediate and sustained political war with organized labor, and unions that are still large will actively throttle your capital accumulation and slow implementation of anything else you try to do.",
+    tiers:["Banned","Limited Rights","Fully Guaranteed"],
+    tierIndex:2, costByTier:[0, 0, 0], capital:14,
+    tierEffects:[
+      {businessClimate:4, inequality:5, taxBurden:-2, gdp:0.3},
+      {businessClimate:2, inequality:2, taxBurden:-1},
+      {}
+    ],
+    tierBlocEffects:[
+      {publicUnions:-22, blueCollar:-10, liberal:-8, socialist:-14, businessClass:8, libertarian:7, wealthy:4},
+      {publicUnions:-8, blueCollar:-5, liberal:-4, socialist:-6, businessClass:3, libertarian:3},
+      {publicUnions:4, blueCollar:2, liberal:2, socialist:3}
+    ],
+    tierIdeology:[
+      {social:0.8, economic:0.35, govSize:0.35},
+      {social:0.4, economic:0.15},
+      {social:-0.5, economic:-0.2, govSize:-0.25}
+    ]},
   eVerify:{name:"Mandatory E-Verify & Immigration Enforcement", domain:"social", icon:"🪪", mechanic:"law",
     desc:"Require employers to verify work eligibility and expand state cooperation with federal immigration enforcement — reversing Oregon's sanctuary-state posture. Fierce backlash from progressive and Latino communities; labor shortages in agriculture.",
     enabled:true, costFull:0.1, capital:11, enactCapital:15,
@@ -2014,8 +2036,10 @@ const MEMBERSHIP_DRIVERS={
     desc:"Shrinks as bike/transit commuting grows and the Transportation Mix tilts away from highways."},
   transitCommuters:{f:()=>(METRICS.transitShare.value-8)*0.016,
     desc:"Grows directly with the bike/transit commute share."},
-  publicUnions:{f:()=>(POLICIES.rightToWork?-(effLevelOf(POLICIES.rightToWork))*0.12:0)+(spendTotal()/19.5-1)*0.04,
-    desc:"Grows with public spending; Right-to-Work shrinks it sharply (dues collapse)."},
+  publicUnions:{f:()=>(POLICIES.rightToWork?-(effLevelOf(POLICIES.rightToWork))*0.15:0)
+    +(POLICIES.collectiveBargaining?(policyLevel(POLICIES.collectiveBargaining)-1.0)*0.12:0)
+    +(spendTotal()/19.5-1)*0.04,
+    desc:"Grows with public spending; Right-to-Work and banned collective bargaining both shrink it — the former starves dues, the latter strips legal standing."},
   businessClass:{f:()=>(INDICATORS.businessClimate.value-55)*0.0018+(GAME.activeSituations.techBoom?0.01:0),
     desc:"Tracks the business climate; tech booms swell it."},
   collegeEducated:{f:()=>(METRICS.education.value-64)*0.0014+(INDICATORS.inMigration.value-50)*0.0010,
@@ -2921,8 +2945,11 @@ function policyEffect(p,k){
   return raw*efficacy();
 }
 function tickPhase(){
+  // Large public unions slow implementation: institutional resistance and bargaining requirements
+  const uPhaseSize = SIMULANTS.publicUnions?.size ?? 0.07;
+  const phaseFriction = 1 + Math.min(Math.max(0, uPhaseSize - 0.05) * 1.5, 0.22);
   for(const id in POLICIES){
-    const p=POLICIES[id], target=policyLevel(p), rate=1/policyPhaseQuarters(p);
+    const p=POLICIES[id], target=policyLevel(p), rate=(1/policyPhaseQuarters(p))/phaseFriction;
     if(p.eff===undefined)p.eff=target;
     if(Math.abs(target-p.eff)<=rate)p.eff=target;
     else p.eff+=Math.sign(target-p.eff)*rate;
@@ -3948,7 +3975,13 @@ function endTurn(){
   // Capital starvation: below mandate 25, each point of mandate lost cuts
   // income harder — political paralysis when the public has lost confidence.
   const starvationFactor = mand < 25 ? Math.max(0.20, mand/25) : 1;
-  GAME.capitalPerTurn=+((4+mand/100*9)*starvationFactor).toFixed(1);
+  // Large angry unions strangle capital: they drag their feet on implementation and bleed political energy
+  const uSize = SIMULANTS.publicUnions?.size ?? 0.07;
+  const uApproval = SIMULANTS.publicUnions?.approval ?? 49;
+  const unionBlock = (uSize > 0.05 && uApproval < 35)
+    ? Math.max(0.45, 1 - Math.min(uSize - 0.05, 0.20) * 4 * Math.max(0, 35 - uApproval) / 35)
+    : 1.0;
+  GAME.capitalPerTurn=+((4+mand/100*9)*starvationFactor*unionBlock).toFixed(1);
   GAME.capital=clamp(GAME.capital+GAME.capitalPerTurn,0,100);
   GAME.turn++;
   pushHistory();
@@ -5083,9 +5116,12 @@ function restoreFrom(key,snap){
   else if(key==="landuse")LANDUSE.index=d.i;
 }
 function chargeFor(key){
-  if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];return p?(p.capital||5):0;}
-  if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];return a?(a.capital||4):0;}
-  if(key==="landuse")return LANDUSE.capital||8;
+  // Large public unions add friction to every policy change: extra bargaining, legal review, institutional drag
+  const uSize = SIMULANTS.publicUnions?.size ?? 0.07;
+  const uFriction = 1 + Math.min(Math.max(0, uSize - 0.05) * 2, 0.25); // up to +25% at peak union density
+  if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];return p?Math.round((p.capital||5)*uFriction):0;}
+  if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];return a?Math.round((a.capital||4)*uFriction):0;}
+  if(key==="landuse")return Math.round((LANDUSE.capital||8)*uFriction);
   return 0;
 }
 function nameFor(key){
