@@ -682,7 +682,7 @@ const METRICS={
   // --- agency-driven rates ---
   collectionRate:{name:"Tax Collection Rate", icon:"🏛️", value:96, baseline:96, eq:88, min:75,max:99,
     inertia:0.3, fmt:"pct", agencyDriven:true, realNote:"Share of owed tax actually collected"},
-  loggingRate:{name:"Logging Rate", icon:"🪵", value:40, baseline:40, eq:25, min:0,max:100,
+  loggingRate:{name:"Logging Rate", icon:"🪵", value:40, baseline:40, eq:30, min:0,max:100,
     inertia:0.3, realNote:"Combined state and private forest harvest intensity; driven by economy, regulation, and agency funding"},
   incarcerationRate:{name:"Incarceration Rate", icon:"⛓️", value:50, baseline:50, eq:50, min:10,max:95,
     inertia:0.3, invert:false, agencyDriven:true, realNote:"Custody capacity & enforcement"},
@@ -958,6 +958,8 @@ function indPolicyBoost(indId){
     const a=AGENCIES[aid];
     if(a.indicatorEffects&&a.indicatorEffects[indId]!==undefined)
       b+=a.indicatorEffects[indId]*(a.funding??0.5);
+    if(a.loggingIndicatorEffects&&a.loggingIndicatorEffects[indId]!==undefined)
+      b+=a.loggingIndicatorEffects[indId]*(a.logging??0.5);
   }
   return b;
 }
@@ -987,7 +989,7 @@ const METRIC_LINKS=[
   {from:"violentCrime",  to:"gdp",          coef:-0.003,ref:44},  // violent crime scares investment
   {from:"incarcerationRate", to:"violentCrime", coef:-0.10, ref:50}, // incapacitation cuts violent crime
   {from:"loggingRate", to:"environment",   coef:-0.13, ref:38},  // harvest degrades environment
-  {from:"gdp",         to:"loggingRate",   coef:5.0,   ref:2.0},  // national economy drives lumber demand
+  {from:"gdp",         to:"loggingRate",   coef:7.0,   ref:2.0},  // national economy drives lumber demand
   {from:"inequality",  to:"violentCrime",  coef:0.03, ref:55},
   {from:"inequality",  to:"propertyCrime", coef:0.04, ref:55},
   {from:"inequality",  to:"homelessness",  coef:0.04, ref:55},   // and homelessness
@@ -1622,9 +1624,15 @@ const AGENCIES={
     desc:"Highways, bridges, maintenance, transit grants — chronically short of funding as gas-tax revenue erodes. Funding level sets how much gets built; the Transportation Mix policy sets WHAT gets built.",
     effects:{gdp:0.15, environment:-4}, indicatorEffects:{businessClimate:3,inMigration:1}, ideology:{economic:0.1}},
   forestry:{name:"Dept. of Forestry", domain:"envInfra", icon:"🌲",
-    funding:0.45, costMin:0.2, costFull:0.6, capital:4,
-    desc:"Wildfire response and STATE FOREST LOGGING. More funding ramps harvest on state forests — timber revenue and rural jobs rise, but environmental quality falls and greens are angered.",
-    effects:{loggingRate:22,environment:-4,gdp:0.1}, indicatorEffects:{ruralAlienation:-4}, ideology:{environment:0.5,economic:0.2}},
+    funding:0.45, costMin:0.1, costFull:0.45, capital:4,
+    logging:0.5,
+    desc:"Wildfire suppression and stewardship of state-owned forests. Funding builds fire-response capacity and improves forest health. Harvest level controls how aggressively ODF logs state land — a direct lever on timber revenues and rural jobs, but at environmental cost.",
+    effects:{environment:7},
+    loggingEffects:{loggingRate:15},
+    indicatorEffects:{ruralAlienation:-2},
+    loggingIndicatorEffects:{ruralAlienation:-5},
+    ideology:{environment:0.5},
+    loggingIdeology:{environment:-0.6,economic:0.2}},
   ohcs:{name:"Housing & Community Services (OHCS)", domain:"social", icon:"🏚️",
     funding:0.5, costMin:0.5, costFull:1.3, capital:5,
     desc:"Oregon's housing agency — shelters ($205M/biennium), affordable development (~$1.6B in recent biennia across housing/homelessness), rent assistance. Direct lever on the homelessness emergency.",
@@ -2756,6 +2764,7 @@ function metricTarget(k){
   for(const id in AGENCIES){
     const a=AGENCIES[id];
     if(a.effects&&a.effects[k]!==undefined)t+=effExpr(a.effects[k],(a.funding??0.5),"a:"+id+":"+k);
+    if(a.loggingEffects&&a.loggingEffects[k]!==undefined)t+=effExpr(a.loggingEffects[k],(a.logging??0.5),"a:"+id+":log:"+k);
   }
   if(LANDUSE.effects[k]!==undefined)t+=LANDUSE.effects[k][LANDUSE.index];
   // inter-metric links: other metrics' deviation shifts this one's equilibrium
@@ -3035,6 +3044,7 @@ function tickApproval(){
     for(const id in AGENCIES){
       const a=AGENCIES[id];
       if(a.ideology)policyMood+=dot(a.ideology,sim.ideology)*((a.funding??0.5)-0.5)*6;
+      if(a.loggingIdeology)policyMood+=dot(a.loggingIdeology,sim.ideology)*((a.logging??0.5)-0.5)*6;
     }
     // land use posture
     policyMood+=dot(LANDUSE.ideologyByStop[LANDUSE.index],sim.ideology)*5;
@@ -3837,6 +3847,8 @@ function directEffects(kind,obj){
   } else if(kind==="agency"){
     const f=obj.funding??0.5;
     for(const k in (obj.effects||{}))out[k]=obj.effects[k]*f;
+    const l=obj.logging??0.5;
+    for(const k in (obj.loggingEffects||{}))out[k]=(out[k]||0)+obj.loggingEffects[k]*l;
   } else if(kind==="landuse"){
     for(const k in obj.effects)out[k]=obj.effects[k][obj.index];
   }
@@ -3923,7 +3935,10 @@ function blocReaction(kind,obj,sim){
       if(metricSensKey(k)&&Math.abs(s[metricSensKey(k)]||0)>=1.4)engaged=true;
   } else if(kind==="agency"){
     if(obj.ideology)m+=dot(obj.ideology,sim.ideology)*((obj.funding??0.5)-0.5)*6;
+    if(obj.loggingIdeology)m+=dot(obj.loggingIdeology,sim.ideology)*((obj.logging??0.5)-0.5)*6;
     for(const k in (obj.effects||{}))
+      if(metricSensKey(k)&&Math.abs(s[metricSensKey(k)]||0)>=1.4)engaged=true;
+    for(const k in (obj.loggingEffects||{}))
       if(metricSensKey(k)&&Math.abs(s[metricSensKey(k)]||0)>=1.4)engaged=true;
   } else if(kind==="landuse"){
     m+=dot(obj.ideologyByStop[obj.index],sim.ideology)*5;
@@ -4424,11 +4439,22 @@ function renderDetail(){
     if(eff.length){
       h+=`<div class="sectionsub">Funding drives: ${eff.map(k=>METRICS[k]?METRICS[k].name:k).join(", ")}.</div>`;
     }
-    // funding slider (range costMin..costFull)
+    const logEff=Object.keys(a.loggingEffects||{});
+    if(logEff.length){
+      h+=`<div class="sectionsub">Harvest level drives: ${logEff.map(k=>METRICS[k]?METRICS[k].name:k).join(", ")}.</div>`;
+    }
+    // funding slider
     h+=`<div class="ctrlbox">
       <span class="mono" style="font-size:11px;color:#6b6557">Funding</span>
       <input type="range" min="0" max="1" step="0.05" value="${a.funding}" data-agency="${id}">
       <span class="mono">${Math.round(a.funding*100)}% · $${spend.toFixed(2)}B</span></div>`;
+    // harvest level slider (only for agencies that have it)
+    if(a.logging!==undefined){
+      h+=`<div class="ctrlbox">
+        <span class="mono" style="font-size:11px;color:#6b6557">Harvest level</span>
+        <input type="range" min="0" max="1" step="0.05" value="${a.logging}" data-agency-log="${id}">
+        <span class="mono">${Math.round(a.logging*100)}%</span></div>`;
+    }
     if(pendActive)h+=`<div class="repealrow"><button class="undobtn" id="undoBtn">↩ Undo change (no capital)</button></div>`;
     h+=effectsBreakdownHTML("agency",a);
   } else if(key==="landuse"){
@@ -4557,7 +4583,8 @@ function renderDetail(){
         // contributors to an indicator: policies/agencies with indicatorEffects on it
         const ik=s.watch.indicator, contribs=[];
         for(const id in POLICIES){const p=POLICIES[id];if(p.indicatorEffects&&p.indicatorEffects[ik]){const e=p.indicatorEffects[ik]*policyLevel(p);if(Math.abs(e)>0.05)contribs.push({name:(p.icon||'')+' '+p.name,e,link:"p_"+id});}}
-        for(const id in AGENCIES){const a=AGENCIES[id];if(a.indicatorEffects&&a.indicatorEffects[ik]){const e=a.indicatorEffects[ik]*(a.funding??0.5);if(Math.abs(e)>0.05)contribs.push({name:a.icon+' '+a.name,e,link:"a_"+id});}}
+        for(const id in AGENCIES){const a=AGENCIES[id];if(a.indicatorEffects&&a.indicatorEffects[ik]){const e=a.indicatorEffects[ik]*(a.funding??0.5);if(Math.abs(e)>0.05)contribs.push({name:a.icon+' '+a.name,e,link:"a_"+id});}
+          if(a.loggingIndicatorEffects&&a.loggingIndicatorEffects[ik]){const e=a.loggingIndicatorEffects[ik]*(a.logging??0.5);if(Math.abs(e)>0.05)contribs.push({name:a.icon+' '+a.name+' harvest',e,link:"a_"+id});}}
         if(contribs.length){
           contribs.sort((a,b)=>b.e-a.e);
           h+=`<div class="ebgroup-label">What's improving or worsening this crisis</div><div class="ebgroup">`;
@@ -4577,7 +4604,8 @@ function renderDetail(){
           if(Math.abs(e)>0.05)contribs.push({name:(METRICS[L.from].icon||'')+' '+METRICS[L.from].name,e,link:"m_"+L.from,cause:true});
         }
         // direct levers: agencies & land use that act on the metric itself
-        for(const id in AGENCIES){const a=AGENCIES[id]; if(a.effects&&a.effects[mk]!==undefined){const e=effExpr(a.effects[mk],(a.funding??0.5),"a:"+id+":"+mk); if(Math.abs(e)>0.05)contribs.push({name:a.icon+' '+a.name,e,link:"a_"+id});}}
+        for(const id in AGENCIES){const a=AGENCIES[id]; if(a.effects&&a.effects[mk]!==undefined){const e=effExpr(a.effects[mk],(a.funding??0.5),"a:"+id+":"+mk); if(Math.abs(e)>0.05)contribs.push({name:a.icon+' '+a.name,e,link:"a_"+id});}
+          if(a.loggingEffects&&a.loggingEffects[mk]!==undefined){const e=effExpr(a.loggingEffects[mk],(a.logging??0.5),"a:"+id+":log:"+mk); if(Math.abs(e)>0.05)contribs.push({name:a.icon+' '+a.name+' harvest',e,link:"a_"+id});}}
         if(LANDUSE.effects[mk]!==undefined){const e=LANDUSE.effects[mk][LANDUSE.index]; if(Math.abs(e)>0.05)contribs.push({name:LANDUSE.icon+' '+LANDUSE.name,e,link:"landuse"});}
         // only the policies that DIRECTLY target this metric (not downstream ripples)
         for(const id in POLICIES){const p=POLICIES[id]; if(p.effects&&p.effects[mk]!==undefined){const e=policyEffect(p,mk); if(Math.abs(e)>0.05)contribs.push({name:(p.icon||'')+' '+p.name,e,link:"p_"+id});}}
@@ -4816,14 +4844,14 @@ function repealPolicy(id){
    ============================================================ */
 function snapshotFor(key){
   if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];return p?JSON.stringify({v:p.value,t:p.tierIndex,e:p.enabled,i:p.intensity,ch:p.channels?p.channels.map(c=>c.share):null}):null;}
-  if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];return a?JSON.stringify({f:a.funding}):null;}
+  if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];return a?JSON.stringify({f:a.funding,l:a.logging}):null;}
   if(key==="landuse")return JSON.stringify({i:LANDUSE.index});
   return null;
 }
 function restoreFrom(key,snap){
   const d=JSON.parse(snap);
   if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];if(!p)return;p.value=d.v;p.tierIndex=d.t;p.enabled=d.e;p.intensity=d.i;if(d.ch&&p.channels)p.channels.forEach((c,i)=>c.share=d.ch[i]);}
-  else if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];if(a)a.funding=d.f;}
+  else if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];if(a){a.funding=d.f;if(d.l!==undefined)a.logging=d.l;}}
   else if(key==="landuse")LANDUSE.index=d.i;
 }
 function chargeFor(key){
@@ -4863,6 +4891,10 @@ function wirePolicyControls(){
   main.querySelectorAll('[data-agency]').forEach(el=>el.addEventListener('change',e=>{
     const a=AGENCIES[e.target.dataset.agency];
     if(a)a.funding=parseFloat(e.target.value);render();}));
+  // agency harvest level
+  main.querySelectorAll('[data-agency-log]').forEach(el=>el.addEventListener('change',e=>{
+    const a=AGENCIES[e.target.dataset.agencyLog];
+    if(a)a.logging=parseFloat(e.target.value);render();}));
   // land use preset
   main.querySelectorAll('[data-landuse]').forEach(el=>el.addEventListener('change',e=>{
     const i=parseInt(e.target.value); if(i===LANDUSE.index)return;
@@ -5092,6 +5124,8 @@ function buildWebEdges(){
     const ag=AGENCIES[id];
     for(const k in (ag.effects||{})){const v=effExpr(ag.effects[k],(ag.funding??0.5),"a:"+id+":"+k); if(Math.abs(v)>0.25)E.push({a:"a_"+id,b:"m_"+k,good:goodFor(k,v),w:Math.abs(v)});}
     for(const ik in (ag.indicatorEffects||{})){const v=ag.indicatorEffects[ik]*(ag.funding??0.5); if(Math.abs(v)>0.5)E.push({a:"a_"+id,b:"i_"+ik,good:v>0,w:Math.abs(v)});}
+    for(const k in (ag.loggingEffects||{})){const v=effExpr(ag.loggingEffects[k],(ag.logging??0.5),"a:"+id+":log:"+k); if(Math.abs(v)>0.25)E.push({a:"a_"+id,b:"m_"+k,good:goodFor(k,v),w:Math.abs(v)});}
+    for(const ik in (ag.loggingIndicatorEffects||{})){const v=ag.loggingIndicatorEffects[ik]*(ag.logging??0.5); if(Math.abs(v)>0.5)E.push({a:"a_"+id,b:"i_"+ik,good:v>0,w:Math.abs(v)});}
   }
   for(const L of METRIC_LINKS){
     const v=(METRICS[L.from].value-L.ref)*L.coef;
