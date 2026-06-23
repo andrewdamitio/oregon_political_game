@@ -2218,6 +2218,56 @@ const DILEMMAS={
          createGrudge("v_businessClass",1,0.9,"Held the line on spending");
        }},
     ]},
+  walkoutConcessions:{
+    title:"Walkout: Caucus Demands",
+    text:"Republican legislators are in Idaho and your floor staff can't move a single bill. Their caucus is circulating a list of demands. You can offer a real concession and end this — or hold out and keep burning capital every quarter waiting for alienation to cool.",
+    influence:()=>GAME.activeSituations.gopWalkout?0.95:0,
+    options:[
+      {label:"Timber Accord — ease logging rules",
+       text:"Forest Practices Act drops one tier, opening more harvest access on private land. Timber and rural caucus return to the chamber immediately. Urbanites and environmentalists feel genuinely betrayed.",
+       apply:()=>{
+         if(POLICIES.forestPractices&&POLICIES.forestPractices.tierIndex>0)POLICIES.forestPractices.tierIndex--;
+         createGrudge("i_ruralAlienation",-24,0.85,"Logging concession won");
+         createGrudge("v_timber",14,0.88,"Logging rules eased");
+         createGrudge("v_rural",10,0.88,"Walkout demands met");
+         createGrudge("v_conservative",8,0.88,"Held firm against urban agenda");
+         createGrudge("v_businessClass",4,0.88,"Regulatory rollback");
+         createGrudge("v_urban",-9,0.90,"Walked back environmental rules");
+         createGrudge("v_liberal",-10,0.90,"Caved to timber interests");
+         createGrudge("v_socialist",-13,0.90,"Handed a win to extractive industries");
+         createGrudge("v_publicUnions",-4,0.90,"Environmental rollback");
+         endSituation("gopWalkout");
+         GAME.log.push("🪵 Timber Accord: Forest Practices eased — walkout ends");
+       }},
+      {label:"Business Climate Deal — freeze new regulations",
+       text:"You agree to a one-year pause on new business regulations and modest tax relief. Conservative and business-aligned legislators return. Progressives lose ground on their economic agenda.",
+       apply:()=>{
+         createGrudge("m_taxBurden",-2.5,0.88,"Business climate deal");
+         createGrudge("i_businessClimate",5,0.88,"Regulatory freeze deal");
+         createGrudge("i_ruralAlienation",-20,0.85,"Business deal reached");
+         createGrudge("v_businessClass",12,0.88,"Business climate deal won");
+         createGrudge("v_conservative",8,0.88,"Held business interests");
+         createGrudge("v_wealthy",5,0.88,"Regulatory relief");
+         createGrudge("v_rural",6,0.88,"Walkout demands met");
+         createGrudge("v_poor",-8,0.90,"Business first, workers second");
+         createGrudge("v_socialist",-12,0.90,"Capitulated to business lobby");
+         createGrudge("v_liberal",-7,0.90,"Caved on economic agenda");
+         createGrudge("v_publicUnions",-6,0.90,"Regulatory rollback hurts workers");
+         endSituation("gopWalkout");
+         GAME.log.push("📋 Business Deal: regulatory freeze — walkout ends");
+       }},
+      {label:"Hold the line — no concessions",
+       text:"No deal. The walkout continues draining capital every quarter. Rural alienation may cool on its own — eventually. Your progressive base respects the refusal to cave, for now.",
+       apply:()=>{
+         GAME.capital=clamp(GAME.capital-6,0,100);
+         createGrudge("i_ruralAlienation",-4,0.88,"Walkout standoff continues");
+         createGrudge("v_liberal",6,0.90,"Refused to hand wins to conservatives");
+         createGrudge("v_socialist",7,0.90,"Stood firm against rural caucus");
+         createGrudge("v_rural",-5,0.90,"Governor refuses any deal");
+         createGrudge("v_timber",-3,0.88,"No concessions from Salem");
+         GAME.log.push("⚔ Held the line — walkout continues, ◈ 6 drained");
+       }},
+    ]},
 };
 function maybeFireDilemma(){
   if(GAME.pendingDilemma)return;
@@ -2657,13 +2707,14 @@ const SITUATIONS={
     metricEffect:{health:-2.5}, moodMag:4, minTurns:1, onTrigger:{capital:-3},
     groupMood:{suburban:-3,blueCollar:-2}},
   gopWalkout:{name:"Legislative Walkout", kind:"bad", category:"condition",
-    desc:"When rural alienation runs this high, Republican legislators deny quorum and walk out — the tactic that killed cap-and-trade twice (HB 2020, SB 1530). Measure 113 now bars chronic absentees from reelection, but a walkout still freezes your agenda. The walkout itself vents some pressure — legislators extract small concessions and rural voters blow off steam — but it only ends once alienation genuinely cools.",
+    desc:"When rural alienation runs this high, Republican legislators deny quorum — the tactic that killed cap-and-trade twice (HB 2020, SB 1530). The walkout doesn't just freeze your agenda: it drains political capital every quarter while legislators sit on their hands. You can wait for alienation to cool on its own, or accept a concession demand — but concessions hand real policy wins to conservative and timber interests.",
     trigger:()=>INDICATORS.ruralAlienation.value>65,
     clear:()=>INDICATORS.ruralAlienation.value<52,
-    metricEffect:{}, moodMag:4, minTurns:2, onTrigger:{capital:-6},
-    indicatorEffect:{ruralAlienation:-10},
+    metricEffect:{}, moodMag:6, minTurns:2, onTrigger:{capital:-10},
+    capitalDrain:-4,
+    indicatorEffect:{ruralAlienation:-8},
     moodAxes:{economic:0.2,govSize:0.2},
-    groupMood:{rural:3,timber:2,liberal:-3,publicUnions:-2}},
+    groupMood:{rural:3,timber:2,liberal:-5,publicUnions:-3}},
   oilShock:{name:"Oil Price Shock", kind:"bad", category:"event",
     desc:"Global crude prices spike — every gas station marquee in Oregon becomes a referendum on your administration.",
     metricEffect:{gasPrice:0.25,gdp:-0.15}, moodMag:4, minTurns:2,
@@ -3144,6 +3195,11 @@ function tickSituations(){
     if(!s||s.category!=="event")continue;
     GAME.situationAge[sid]=(GAME.situationAge[sid]||0)+1;
     if(durationOk(sid)&&Math.random()<0.55)endSituation(sid);
+  }
+  // per-turn capital drain from active situations that have capitalDrain
+  for(const sid in GAME.activeSituations){
+    const s=SITUATIONS[sid];
+    if(s&&s.capitalDrain)GAME.capital=clamp(GAME.capital+s.capitalDrain,0,100);
   }
   // roll for new random events (at most one new event per quarter)
   rollEvents();
