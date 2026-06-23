@@ -757,7 +757,7 @@ const INDICATORS={
       ...(GAME.activeSituations.doomLoop?[{name:"⚠ Portland Doom Loop",v:-5*sitSeverity("doomLoop"),link:"sit_doomLoop"}]:[]),
       ...(GAME.activeSituations.cascadiaQuake?[{name:"⚠ Cascadia Earthquake",v:-8,link:"sit_cascadiaQuake"}]:[]),
     ],
-    feedback:{gdp:0.030}}, // downtown perception lifts growth; at starting level ~30 this drags GDP by ~0.6 pts
+    feedback:{gdp:0.030, businessClimate:0.018}}, // at starting downtown~18: GDP-0.96, businessClimate-0.58 drag
   inMigration:{name:"In-Migration Rate", icon:"🚚", value:50,
     desc:"Net flow of people and talent into Oregon. Driven by jobs, affordability, environment, and downtown vitality. Feeds the labor force and growth.",
     derive:()=>{
@@ -1063,11 +1063,11 @@ function efficacy(){
 const METRIC_LINKS=[
   {from:"unemployment", to:"propertyCrime",coef:0.55, ref:5.0},
   {from:"unemployment", to:"violentCrime", coef:0.2,  ref:5.0},
-  {from:"unemployment", to:"homelessness", coef:0.7,  ref:5.0},
+  {from:"unemployment", to:"homelessness", coef:1.2,  ref:5.0},
   {from:"education",    to:"unemployment", coef:-0.008,ref:55},
   {from:"homelessness", to:"health",       coef:-0.02, ref:55},
   {from:"gdp",          to:"unemployment", coef:-0.10, ref:2.0},
-  {from:"propertyCrime",to:"gdp",          coef:-0.004,ref:54},  // property crime hurts business
+  {from:"propertyCrime",to:"gdp",          coef:-0.008,ref:54},  // property crime hurts business
   {from:"violentCrime",  to:"gdp",          coef:-0.003,ref:44},  // violent crime scares investment
   {from:"incarcerationRate", to:"violentCrime", coef:-0.10, ref:50}, // incapacitation cuts violent crime
   {from:"incarcerationRate", to:"drugUse",     coef:-0.07, ref:50}, // enforcement suppresses open drug use
@@ -1076,7 +1076,7 @@ const METRIC_LINKS=[
   {from:"inequality",  to:"violentCrime",  coef:0.03, ref:55},
   {from:"inequality",  to:"propertyCrime", coef:0.04, ref:55},
   {from:"inequality",  to:"homelessness",  coef:0.04, ref:55},   // and homelessness
-  {from:"homelessness",to:"propertyCrime", coef:0.06, ref:55},   // visible homelessness raises property crime
+  {from:"homelessness",to:"propertyCrime", coef:0.12, ref:55},   // visible homelessness raises property crime
   {from:"gasPrice",    to:"disposableIncome", coef:-5.5, ref:3.6}, // pump pain eats budgets
   {from:"taxBurden",   to:"disposableIncome", coef:-0.14, ref:38},
   {from:"unemployment",to:"disposableIncome", coef:-1.1, ref:5.0},
@@ -2541,6 +2541,16 @@ const SITUATIONS={
     metricEffect:{environment:-4,health:-3,gdp:-0.3,loggingRate:-6}, moodAxes:{environment:-0.2}, moodMag:6, minTurns:2,
     onTrigger:{capital:-4, metrics:{environment:-6}}, mandateShock:-5,
     groupMood:{rural:-4,timber:-5,students:-2}},
+  businessExodus:{name:"Business Climate Collapse", kind:"bad", category:"condition",
+    desc:"Oregon's stacked costs and regulatory burden have crossed a tipping point. Companies are announcing relocations to Washington and Idaho — and the exodus feeds itself: as anchor firms leave, their suppliers and service vendors follow, Oregon's anti-business reputation hardens, and the remaining talent pool thins. Reversing it requires meaningfully improving the business climate, not just stopping the slide.",
+    trigger:()=>INDICATORS.businessClimate.value<35,
+    clear:()=>INDICATORS.businessClimate.value>47,
+    watch:{indicator:"businessClimate", startAt:35, clearAt:47, badHigh:false},
+    metricEffect:{gdp:-0.30, unemployment:0.4},
+    indicatorEffect:{inMigration:-6, businessClimate:-4},
+    moodMag:5, moodAxes:{economic:0.3}, minTurns:3,
+    onTrigger:{capital:-3},
+    groupMood:{businessClass:-8, wealthy:-5, suburban:-3, blueCollar:-3, rural:-2}},
   taxRevolt:{name:"Tax Revolt", kind:"bad", category:"condition",
     desc:"An anti-tax ballot measure campaign has caught fire. Oregon's stacked income, payroll, and property taxes have pushed voter frustration past the tipping point — initiative petitions are circulating, town halls are getting heated, and your governing mandate is under siege. The revolt persists until tax grievance cools significantly.",
     trigger:()=>INDICATORS.taxGrievance.value>75,
@@ -3935,7 +3945,10 @@ function endTurn(){
   const mand=INDICATORS.mandate.value;
   GAME.mandateShock=(GAME.mandateShock||0)*0.82;          // event shocks fade over ~4-5 quarters
   if(Math.abs(GAME.mandateShock)<0.3)GAME.mandateShock=0;
-  GAME.capitalPerTurn=+(4+mand/100*9).toFixed(1);
+  // Capital starvation: below mandate 25, each point of mandate lost cuts
+  // income harder — political paralysis when the public has lost confidence.
+  const starvationFactor = mand < 25 ? Math.max(0.20, mand/25) : 1;
+  GAME.capitalPerTurn=+((4+mand/100*9)*starvationFactor).toFixed(1);
   GAME.capital=clamp(GAME.capital+GAME.capitalPerTurn,0,100);
   GAME.turn++;
   pushHistory();
