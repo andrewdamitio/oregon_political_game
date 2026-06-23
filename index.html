@@ -722,7 +722,7 @@ const INDICATORS={
       v+=(METRICS.health.value-60)*0.25;
       if(GAME.activeSituations.crimeWave)v-=8;
       if(GAME.activeSituations.homelessEmergency)v-=6;
-      if(GAME.activeSituations.addictionCrisis)v-=6;
+      if(GAME.activeSituations.addictionCrisis)v-=18;
       v+=(METRICS.psychBeds.value-32)*0.12;
       v+=indPolicyBoost("downtown")+sitIndicatorPush("downtown");
       return clamp(v,0,100);
@@ -734,8 +734,11 @@ const INDICATORS={
       {name:METRICS.propertyCrime.icon+" Property Crime",v:-(METRICS.propertyCrime.value-52)*0.40,link:"m_propertyCrime"},
       {name:METRICS.violentCrime.icon+" Violent Crime",v:-(METRICS.violentCrime.value-40)*0.30,link:"m_violentCrime"},
       {name:METRICS.health.icon+" Public Health",v:(METRICS.health.value-60)*0.25,link:"m_health"},
+      ...(GAME.activeSituations.addictionCrisis?[{name:"⚠ Addiction & Overdose Crisis",v:-18,link:"sit_addictionCrisis"}]:[]),
+      ...(GAME.activeSituations.crimeWave?[{name:"⚠ Crime Wave",v:-8,link:"sit_crimeWave"}]:[]),
+      ...(GAME.activeSituations.homelessEmergency?[{name:"⚠ Homelessness Emergency",v:-6,link:"sit_homelessEmergency"}]:[]),
     ],
-    feedback:{gdp:0.012}}, // downtown perception lifts growth (business-climate link is via derive)
+    feedback:{gdp:0.030}}, // downtown perception lifts growth; at starting level ~30 this drags GDP by ~0.6 pts
   inMigration:{name:"In-Migration Rate", icon:"🚚", value:50,
     desc:"Net flow of people and talent into Oregon. Driven by jobs, affordability, environment, and downtown vitality. Feeds the labor force and growth.",
     derive:()=>{
@@ -988,6 +991,7 @@ const METRIC_LINKS=[
   {from:"propertyCrime",to:"gdp",          coef:-0.004,ref:54},  // property crime hurts business
   {from:"violentCrime",  to:"gdp",          coef:-0.003,ref:44},  // violent crime scares investment
   {from:"incarcerationRate", to:"violentCrime", coef:-0.10, ref:50}, // incapacitation cuts violent crime
+  {from:"incarcerationRate", to:"drugUse",     coef:-0.07, ref:50}, // enforcement suppresses open drug use
   {from:"loggingRate", to:"environment",   coef:-0.13, ref:38},  // harvest degrades environment
   {from:"gdp",         to:"loggingRate",   coef:7.0,   ref:2.0},  // national economy drives lumber demand
   {from:"inequality",  to:"violentCrime",  coef:0.03, ref:55},
@@ -2308,17 +2312,17 @@ const SITUATIONS={
   // metric past a "fixed" threshold through sustained policy. They are
   // listed as ongoing crises on the Governing Board.
   // ============================================================
-  homelessEmergency:{name:"Homelessness Emergency", kind:"bad", category:"chronic",
-    desc:"Oregon has among the highest unsheltered rates in the nation. Encampments are a visible humanitarian and political crisis — the state has declared an emergency.",
-    startActive:true, clear:()=>METRICS.homelessness.value<45,
+  homelessEmergency:{name:"Homelessness Emergency", kind:"bad", category:"condition",
+    desc:"Oregon has among the highest unsheltered rates in the nation. Encampments are a visible humanitarian and political crisis. Activates when homelessness becomes severe; resolves only after sustained improvement.",
+    trigger:()=>METRICS.homelessness.value>60, clear:()=>METRICS.homelessness.value<50,
     costEffect:{humanServices:0.40},
-    watch:{metric:"homelessness", startAt:null, clearAt:45, badHigh:true},
+    watch:{metric:"homelessness", startAt:60, clearAt:50, badHigh:true},
     metricEffect:{health:-1.5}, indicatorEffect:{inMigration:-5},
     moodAxes:{economic:-0.2,social:-0.2}, moodMag:6,
     groupMood:{urban:-4,poor:-4,liberal:-3,suburban:-2}},
   addictionCrisis:{name:"Addiction & Overdose Crisis", kind:"bad", category:"chronic",
-    desc:"Fentanyl and untreated addiction are overwhelming Oregon after the rocky rollout and repeal of drug decriminalization. Treatment capacity is far short of need.",
-    startActive:true, clear:()=>METRICS.drugUse.value<42 && METRICS.behavioralHealth.value>58,
+    desc:"Fentanyl and untreated addiction are overwhelming Oregon after the rocky rollout and repeal of drug decriminalization. Treatment capacity is far short of need. Higher incarceration capacity can help contain the crisis alongside behavioral health investment.",
+    startActive:true, clear:()=>METRICS.drugUse.value<42 && (METRICS.behavioralHealth.value>58 || METRICS.incarcerationRate.value>68),
     costEffect:{humanServices:0.35},
     watch:{metric:"drugUse", startAt:null, clearAt:42, badHigh:true, alsoMetric:"behavioralHealth", alsoClearAt:58},
     metricEffect:{propertyCrime:1.4,violentCrime:0.4,homelessness:1.0,drugUse:1.2}, indicatorEffect:{inMigration:-3},
