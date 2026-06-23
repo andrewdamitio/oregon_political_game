@@ -1023,6 +1023,37 @@ function sitIndicatorPush(indId){
   }
   return b;
 }
+/* Auto-generate driver rows for an indicator from all indPolicyBoost/sitIndicatorPush
+   sources. Used by the detail renderer to surface invisible policy connections. */
+function indBoostDrivers(indId){
+  const out=[];
+  for(const pid in POLICIES){
+    const p=POLICIES[pid]; let v=0;
+    if(p.indicatorEffects&&p.indicatorEffects[indId]!==undefined) v+=p.indicatorEffects[indId]*effLevelOf(p);
+    if(p.mechanic==="tier"&&p.tierIndicatorEffects&&p.tierIndicatorEffects[p.tierIndex]&&p.tierIndicatorEffects[p.tierIndex][indId]!==undefined)
+      v+=p.tierIndicatorEffects[p.tierIndex][indId];
+    if(Math.abs(v)>0.3) out.push({name:(p.icon?p.icon+' ':'')+p.name, v, link:"p_"+pid});
+  }
+  for(const fid in GAME.fading){
+    const fp=GAME.fading[fid].pol; let v=0;
+    if(fp.indicatorEffects&&fp.indicatorEffects[indId]!==undefined) v+=fp.indicatorEffects[indId]*effLevelOf(fp);
+    if(Math.abs(v)>0.3) out.push({name:(fp.icon?fp.icon+' ':'')+fp.name+' ↓', v, link:"p_"+fid});
+  }
+  for(const aid in AGENCIES){
+    const a=AGENCIES[aid]; let v=0;
+    if(a.indicatorEffects&&a.indicatorEffects[indId]!==undefined) v+=a.indicatorEffects[indId]*(a.funding??0.5);
+    if(a.loggingIndicatorEffects&&a.loggingIndicatorEffects[indId]!==undefined) v+=a.loggingIndicatorEffects[indId]*(a.logging??0.5);
+    if(Math.abs(v)>0.3) out.push({name:(a.icon?a.icon+' ':'')+a.name, v, link:"a_"+aid});
+  }
+  for(const sid in GAME.activeSituations){
+    const s=SITUATIONS[sid];
+    if(s&&s.indicatorEffect&&s.indicatorEffect[indId]!==undefined){
+      const v=s.indicatorEffect[indId]*sitSeverity(sid);
+      if(Math.abs(v)>0.3) out.push({name:(s.kind==="good"?"✦ ":"⚠ ")+s.name, v, link:"sit_"+sid});
+    }
+  }
+  return out;
+}
 /* EFFICACY MULTIPLIER from digitization: 0.7x at digitization 0, 1.0x at ~55,
    up to ~1.15x at 100. Low state capacity weakens every policy's outcomes. */
 function efficacy(){
@@ -2108,6 +2139,43 @@ const DILEMMAS={
        apply:()=>{createGrudge("v_motorists",-6,0.9,"Bridge tolls");createGrudge("v_suburban",-3,0.9,"Commute costs up");createGrudge("m_gdp",0.08,0.92,"Infrastructure funded");createGrudge("m_transitShare",0.3,0.9,"Mode shift");createGrudge("i_businessClimate",2,0.92,"Freight reliability");}},
       {label:"Cancel tolling", text:"Tolling is cancelled.",
        apply:()=>{createGrudge("v_motorists",4,0.9,"Tolls cancelled");createGrudge("m_gdp",-0.06,0.92,"Bridge deferred");createGrudge("i_businessClimate",-2,0.92,"Infrastructure doubts");}}]},
+  souBailout:{title:"Southern Oregon University: Financial Crisis", icon:"🎓",
+    text:"Southern Oregon University in Ashland projects a $28M structural shortfall — enrollment is down 19% since 2019 and federal formula changes cut deeper than expected. Without state action, SOU begins faculty layoffs and program closures this year. Ashland's downtown economy depends heavily on the university. SOU also serves rural Josephine and Jackson counties with no other local higher-ed option.",
+    influence:()=>GAME.turn>=4 ? (POLICIES.universities&&policyLevel(POLICIES.universities)<0.4 ? 0.38 : 0.18) : 0,
+    options:[
+      {label:"Full emergency subsidy", text:"Oregon commits $30M/year in emergency operational support for three years — buying SOU time to stabilize enrollment and restructure. Southern Oregon keeps its university; the budget takes a hit.",
+       apply:()=>{
+         createGrudge("m_education",1.2,0.9,"SOU stabilized");
+         createGrudge("i_ruralAlienation",-5,0.9,"State stood by southern Oregon");
+         createGrudge("v_publicUnions",5,0.9,"University saved");
+         createGrudge("v_rural",4,0.9,"Regional campus preserved");
+         createGrudge("v_liberal",2,0.9,"Invested in education");
+         createGrudge("v_conservative",-4,0.9,"University bailout");
+         createGrudge("v_businessClass",-2,0.9,"More higher-ed spending");
+         createGrudge("capital",-3);
+         GAME.structuralDebt=+(+(GAME.structuralDebt||0)+0.09).toFixed(2);
+       }},
+      {label:"Merge SOU with Oregon Tech", text:"SOU consolidates with OIT (Klamath Falls) under a Southwest Oregon University System. Core programs survive in reduced form; faculty contracts are renegotiated. A compromise that pleases no one fully.",
+       apply:()=>{
+         createGrudge("m_education",0.2,0.9,"Partial preservation");
+         createGrudge("i_ruralAlienation",3,0.9,"SOU identity dissolved");
+         createGrudge("v_publicUnions",-4,0.9,"Faculty cuts in merger");
+         createGrudge("v_rural",1,0.9,"Campus survives in some form");
+         createGrudge("v_liberal",-2,0.9,"Half-measure on education");
+         createGrudge("v_conservative",2,0.9,"Efficient consolidation");
+         createGrudge("capital",-1);
+       }},
+      {label:"Decline to intervene", text:"SOU navigates its own restructuring — 30% faculty reduction, elimination of low-enrollment programs, and a severely diminished campus. Ashland takes an economic hit; southern Oregon loses its only regional university.",
+       apply:()=>{
+         createGrudge("m_education",-1.5,0.9,"SOU gutted");
+         createGrudge("i_ruralAlienation",8,0.9,"State abandoned southern Oregon");
+         createGrudge("v_publicUnions",-7,0.9,"State abandoned the university");
+         createGrudge("v_rural",-5,0.9,"No university left in southern Oregon");
+         createGrudge("v_liberal",-3,0.9,"Education abandoned");
+         createGrudge("v_conservative",3,0.9,"Fiscal discipline — no bailout");
+         createGrudge("v_businessClass",1,0.9,"Held the line on spending");
+       }},
+    ]},
 };
 function maybeFireDilemma(){
   if(GAME.pendingDilemma)return;
@@ -4815,7 +4883,10 @@ function renderDetail(){
       ${sparkline(GAME.history["i_"+id],{axis:true,color:'var(--slate-blue)',min:0,max:100,fmt:v=>Math.round(v)})}</div>`;
     // what FEEDS this number (the derive breakdown)
     if(ind.drivers){
-      const ds=ind.drivers().filter(d=>d.base||Math.abs(d.v)>0.05);
+      const rawDs=ind.drivers();
+      const existingLinks=new Set(rawDs.map(d=>d.link).filter(Boolean));
+      const autoDs=indBoostDrivers(id).filter(d=>!existingLinks.has(d.link));
+      const ds=[...rawDs,...autoDs].filter(d=>d.base||Math.abs(d.v)>0.05);
       if(ds.length){
         h+=`<div class="ebgroup-label">What feeds this number</div><div class="ebgroup">`;
         const scale=Math.max(1,...ds.filter(d=>!d.base).map(d=>Math.abs(d.v)));
