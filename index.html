@@ -1212,7 +1212,7 @@ const POLICIES={
     desc:"Oregon's 1971 framework regulating logging on PRIVATE forestland — stream buffers, steep-slope limits, aerial-spray setbacks. The 2022 Private Forest Accord rewrote it in a historic timber-environmentalist deal. Tighter rules protect watersheds and salmon; looser rules favor harvest economics.",
     tiers:["Minimal Rules","Pre-Accord Baseline","Private Forest Accord","Strong Setbacks","Strict Preservation"],
     tierIndex:2, costByTier:[0,0.02,0.06,0.10,0.15], capital:10,
-    tierEffects:[{environment:0,gdp:0.10,loggingRate:25},{environment:4,gdp:-0.05,loggingRate:12},{environment:9,gdp:-0.25,loggingRate:0},{environment:15,gdp:-0.45,loggingRate:-15},{environment:22,gdp:-0.70,loggingRate:-28}],
+    tierEffects:[{environment:0,gdp:0.05,loggingRate:25},{environment:2,gdp:-0.05,loggingRate:12},{environment:4.5,gdp:-0.125,loggingRate:0},{environment:9,gdp:-0.30,loggingRate:-15},{environment:16,gdp:-0.55,loggingRate:-28}],
     tierIdeology:[{environment:0.8,economic:0.4},{environment:0.4,economic:0.2},{environment:-0.1},{environment:-0.5,economic:-0.2},{environment:-0.8,economic:-0.4}]},
   incomeTax:{name:"Top Marginal Income Tax", domain:"economy", icon:"🧾", enacted:true, mechanic:"slider", noRepeal:true,
     desc:"Oregon's top personal rate (currently 9.9% above $125k — among the nation's highest). With no sales tax, the income tax carries ~85% of the General Fund; raising it funds the state but drags growth and risks out-migration.",
@@ -2573,7 +2573,7 @@ const GAME={
   campEnergy:4, campEnergyMax:4,
   ground:{perception:{}, turnout:{}, fatigue:{}, fatigueAge:{}}, campLog:[],
   termLengthTurns:16, midtermTurn:8, term:1,
-  activeSituations:{}, situationAge:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null,
+  activeSituations:{}, situationAge:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null,
   // ---- FISCAL MODEL (research: income-tax dependence + kicker + reserves) ----
   rainyDay:1.87,        // Rainy Day Fund ($B) — real 2023-25 end balance
   eduStability:1.0,     // Education Stability Fund ($B)
@@ -4301,13 +4301,18 @@ function openDetail(key){
   detailKey=key; currentView="detail";
   const snap=snapshotFor(key);
   if(snap!==null)GAME.pending={key,snap};
+  // track harvest-level slider independently (separate capital charge)
+  GAME.pendingLog=null;
+  if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];if(a&&a.logging!==undefined)GAME.pendingLog={id:key.slice(2),snap:a.logging};}
   render();
 }
 function renderDetail(){
   const key=detailKey;
   // is there an unsaved, changed proposal on this page?
-  const pendActive = GAME.pending && GAME.pending.key===key && snapshotFor(key)!==GAME.pending.snap;
-  const pendCost = pendActive ? chargeFor(key) : 0;
+  const fundPendActive = GAME.pending && GAME.pending.key===key && snapshotFor(key)!==GAME.pending.snap;
+  const logPendActive = GAME.pendingLog && key.startsWith("a_") && GAME.pendingLog.id===key.slice(2) && AGENCIES[key.slice(2)]?.logging!==GAME.pendingLog.snap;
+  const pendActive = fundPendActive || logPendActive;
+  const pendCost = (fundPendActive ? chargeFor(key) : 0) + (logPendActive ? (AGENCIES[key.slice(2)]?.capital||4) : 0);
   let h=`<div class="detailtop"><button class="backbtn" id="backBtn">‹ Back to board</button>`;
   h+=`</div>`;
   if(pendActive)h+=`<div class="pendbanner">Unsaved change — returning to the board spends <b>◈ ${pendCost}</b> to make it official. Use <b>Undo</b> below to discard it for free.${GAME.capital<pendCost?` <span style="color:var(--bad)">You only have ◈ ${Math.floor(GAME.capital)} — it will revert.</span>`:''}</div>`;
@@ -4608,7 +4613,10 @@ function renderDetail(){
           if(a.loggingEffects&&a.loggingEffects[mk]!==undefined){const e=effExpr(a.loggingEffects[mk],(a.logging??0.5),"a:"+id+":log:"+mk); if(Math.abs(e)>0.05)contribs.push({name:a.icon+' '+a.name+' harvest',e,link:"a_"+id});}}
         if(LANDUSE.effects[mk]!==undefined){const e=LANDUSE.effects[mk][LANDUSE.index]; if(Math.abs(e)>0.05)contribs.push({name:LANDUSE.icon+' '+LANDUSE.name,e,link:"landuse"});}
         // only the policies that DIRECTLY target this metric (not downstream ripples)
-        for(const id in POLICIES){const p=POLICIES[id]; if(p.effects&&p.effects[mk]!==undefined){const e=policyEffect(p,mk); if(Math.abs(e)>0.05)contribs.push({name:(p.icon||'')+' '+p.name,e,link:"p_"+id});}}
+        for(const id in POLICIES){const p=POLICIES[id];
+          if((p.effects&&p.effects[mk]!==undefined)||(p.tierEffects&&p.tierEffects.some(t=>t&&t[mk]!==undefined))){
+            const e=policyEffect(p,mk); if(Math.abs(e)>0.05)contribs.push({name:(p.icon||'')+' '+p.name,e,link:"p_"+id});
+          }}
         if(contribs.length){
           // for a badHigh metric, negative effect = improving (green); positive = worsening (red)
           const improving=v=>s.watch.badHigh?v<0:v>0;
@@ -4709,6 +4717,7 @@ function renderDetail(){
   const doUndo=()=>{
     const key=detailKey;
     if(key&&GAME.pending&&GAME.pending.key===key){restoreFrom(key,GAME.pending.snap);GAME.pending=null;}
+    if(GAME.pendingLog){const a=AGENCIES[GAME.pendingLog.id];if(a)a.logging=GAME.pendingLog.snap;GAME.pendingLog=null;}
     try{render();}catch(err){}
   };
   const bb=document.getElementById("backBtn"); if(bb)bb.onclick=goBack;
@@ -4844,14 +4853,14 @@ function repealPolicy(id){
    ============================================================ */
 function snapshotFor(key){
   if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];return p?JSON.stringify({v:p.value,t:p.tierIndex,e:p.enabled,i:p.intensity,ch:p.channels?p.channels.map(c=>c.share):null}):null;}
-  if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];return a?JSON.stringify({f:a.funding,l:a.logging}):null;}
+  if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];return a?JSON.stringify({f:a.funding}):null;}
   if(key==="landuse")return JSON.stringify({i:LANDUSE.index});
   return null;
 }
 function restoreFrom(key,snap){
   const d=JSON.parse(snap);
   if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];if(!p)return;p.value=d.v;p.tierIndex=d.t;p.enabled=d.e;p.intensity=d.i;if(d.ch&&p.channels)p.channels.forEach((c,i)=>c.share=d.ch[i]);}
-  else if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];if(a){a.funding=d.f;if(d.l!==undefined)a.logging=d.l;}}
+  else if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];if(a)a.funding=d.f;}
   else if(key==="landuse")LANDUSE.index=d.i;
 }
 function chargeFor(key){
@@ -4869,17 +4878,25 @@ function nameFor(key){
 /* settle any pending change before leaving the current page */
 function settlePending(){
   const pend=GAME.pending;
-  if(!pend)return;
   GAME.pending=null;
-  const now=snapshotFor(pend.key);
-  if(now===null||now===pend.snap)return;            // nothing changed
-  const cost=chargeFor(pend.key);
-  if(GAME.capital>=cost){
-    GAME.capital-=cost;
-    GAME.log.push("◈ "+cost+" capital — changed "+nameFor(pend.key));
-  } else {
-    restoreFrom(pend.key,pend.snap);
-    GAME.log.push("✗ Not enough capital — "+nameFor(pend.key)+" reverted");
+  if(pend){
+    const now=snapshotFor(pend.key);
+    if(now!==null&&now!==pend.snap){
+      const cost=chargeFor(pend.key);
+      if(GAME.capital>=cost){GAME.capital-=cost;GAME.log.push("◈ "+cost+" capital — changed "+nameFor(pend.key));}
+      else{restoreFrom(pend.key,pend.snap);GAME.log.push("✗ Not enough capital — "+nameFor(pend.key)+" reverted");}
+    }
+  }
+  // settle harvest-level slider independently
+  const pendL=GAME.pendingLog;
+  GAME.pendingLog=null;
+  if(pendL){
+    const a=AGENCIES[pendL.id];
+    if(a&&a.logging!==pendL.snap){
+      const cost=a.capital||4;
+      if(GAME.capital>=cost){GAME.capital-=cost;GAME.log.push("◈ "+cost+" capital — adjusted "+a.name+" harvest level");}
+      else{a.logging=pendL.snap;GAME.log.push("✗ Not enough capital — "+a.name+" harvest level reverted");}
+    }
   }
 }
 function wirePolicyControls(){
