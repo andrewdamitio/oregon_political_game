@@ -660,9 +660,9 @@ const METRICS={
     inertia:0.2, invert:true, fmt:"pctRaw", realNote:"OR actual: 5.2% (Feb 2026)"},
   education:{name:"Educational Attainment", icon:"🎓", value:64, baseline:64, eq:55, min:0,max:100,
     inertia:0.15, fmt:"pct", realNote:"~64% HS+some college index"},
-  violentCrime:{name:"Violent Crime", icon:"🚨", value:38, baseline:38, eq:44, min:0,max:100,
+  violentCrime:{name:"Violent Crime", icon:"🚨", value:38, baseline:38, eq:37, min:0,max:100,
     inertia:0.18, invert:true, realNote:"Assaults, robberies — drives fear and headlines"},
-  propertyCrime:{name:"Property Crime", icon:"🔓", value:52, baseline:52, eq:58, min:0,max:100,
+  propertyCrime:{name:"Property Crime", icon:"🔓", value:52, baseline:52, eq:53, min:0,max:100,
     inertia:0.2, invert:true, realNote:"Property crime elevated post-2020"},
   homelessness:{name:"Homelessness", icon:"🏚️", value:62, baseline:62, eq:66, min:0,max:100,
     inertia:0.18, invert:true, realNote:"OR among highest per-capita unsheltered"},
@@ -958,7 +958,7 @@ const INDICATORS={
       {name:AGENCIES.judiciary.icon+" "+AGENCIES.judiciary.name,v:(AGENCIES.judiciary?.funding??0.5)*100,link:"a_judiciary"},
       {name:AGENCIES.corrections.icon+" "+AGENCIES.corrections.name,v:(AGENCIES.corrections?.funding??0.5)*100,link:"a_corrections"},
     ],
-    feedback:{}},
+    feedback:{violentCrime:-0.025, propertyCrime:-0.022}},
   housingAffordability:{name:"Housing Affordability", icon:"🏠", value:40,
     desc:"How accessible Oregon's housing market is to working residents — a composite of homelessness pressure, income inequality, disposable income, and housing production. Oregon has one of the worst housing deficits in the nation, driven by decades of underbuilding behind urban growth boundaries and stagnant wages. High affordability attracts workers and families; low affordability accelerates homelessness, inequality, and out-migration.",
     derive:()=>{
@@ -3176,17 +3176,6 @@ function metricTarget(k){
     const ind=INDICATORS[iid];
     if(ind.feedback&&ind.feedback[k]!==undefined)t+=(ind.value-50)*ind.feedback[k]/m.inertia;
   }
-  // --- Justice pipeline bottleneck ------------------------------------------
-  // Police provide a direct prevention benefit; full incapacitation requires
-  // all three pillars. Crime reduction scales with the weakest link.
-  if(k==="violentCrime"||k==="propertyCrime"){
-    const police    = effLevelOf(POLICIES.policing);
-    const prosec    = AGENCIES.judiciary?.funding??0.5;
-    const jail      = AGENCIES.corrections?.funding??0.5;
-    const effective = Math.min(police, prosec, jail);
-    if(k==="violentCrime")  t -= effective * 14;
-    if(k==="propertyCrime") t -= effective * 11;
-  }
   // --- Civil commitment × psychiatric beds interaction ---------------------
   // Commitment only works if beds exist to receive people. Its effect on
   // homelessness/drug-use/disorder SCALES with bed availability, and is a
@@ -3248,15 +3237,6 @@ function metricContributors(k){
       const e=(ind.value-50)*ind.feedback[k]/m.inertia;
       if(Math.abs(e)>0.05)out.push({name:ind.icon+' '+ind.name, v:e, link:"i_"+iid});
     }
-  }
-  // Justice pipeline bottleneck entry
-  if(k==="violentCrime"||k==="propertyCrime"){
-    const police    = effLevelOf(POLICIES.policing);
-    const prosec    = AGENCIES.judiciary?.funding??0.5;
-    const jail      = AGENCIES.corrections?.funding??0.5;
-    const effective = Math.min(police, prosec, jail);
-    const e = k==="violentCrime" ? -effective*14 : -effective*11;
-    if(Math.abs(e)>0.03) out.push({name:"⚖️ Justice Pipeline (bottlenecked)", v:e, link:"i_justiceEffectiveness"});
   }
   return out;
 }
