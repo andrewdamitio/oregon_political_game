@@ -988,30 +988,28 @@ const INDICATORS={
       ...(GAME.activeSituations.housingShortage?[{name:"📉 Housing Shortage Crisis",v:-10}]:[]),
     ],
     feedback:{homelessness:-0.012, inequality:-0.008, disposableIncome:0.04}}, // housing costs are the dominant squeeze on take-home budgets
-  adminOverhead:{name:"Administrative Overhead", icon:"🗂️", value:80,
-    desc:"How stretched Oregon's administrative capacity is — each enacted program requires staffing, management, and coordination. When overhead exceeds capacity (100%), every active program delivers weaker results as bureaucratic complexity crowds out execution. Invest in Government Operations to raise the capacity ceiling; Digital Government Modernization helps too. Below 100%: no penalty. Above 100%: all policy metric effects reduced proportionally, up to 50% at extreme overload.",
+  adminOverhead:{name:"Administrative Overhead", icon:"🗂️", value:87,
+    desc:"How burdened Oregon's administrative apparatus is. Driven by total active policy spending — more programs at higher funding levels means more staffing, coordination, and overhead. Government Digitization directly lowers administrative overhead as better systems reduce friction. Below 100%: no penalty. Above 100%: all program metric effects are reduced proportionally (0.5% per point over, max 50% at extreme overload). Invest in Government Operations and Workforce Budget to slowly raise Digitization and push overhead down; it takes several quarters to materialize.",
     derive:()=>{
-      let load=0;
+      let policySpend=0;
       for(const id in POLICIES){
-        if(id==="govOps")continue;
         const p=POLICIES[id];
-        load+=(p.mechanic==="toggle"&&!p.enabled)?0.3:1.0;
+        const pl=policyLevel(p);
+        const eff=(p.eff!==undefined?p.eff:pl);
+        policySpend+=pl>0?Math.max(0,policyNetCost(p))*(eff/pl):Math.max(0,policyNetCost(p));
       }
-      const govOpsEff=(POLICIES.govOps?(POLICIES.govOps.eff??policyLevel(POLICIES.govOps)):0.3);
-      const digEff=(POLICIES.digitalGov?(POLICIES.digitalGov.eff??policyLevel(POLICIES.digitalGov)):0);
-      const capacity=29+govOpsEff*16+digEff*8;
-      return Math.round(load/capacity*100);
+      return Math.round(clamp(69+policySpend*5-INDICATORS.digitization.value*0.8,0,180));
     },
     drivers:()=>{
-      const govOpsEff=(POLICIES.govOps?(POLICIES.govOps.eff??policyLevel(POLICIES.govOps)):0.3);
-      const digEff=(POLICIES.digitalGov?(POLICIES.digitalGov.eff??policyLevel(POLICIES.digitalGov)):0);
-      const capacity=29+govOpsEff*16+digEff*8;
-      let load=0;
-      for(const id in POLICIES){if(id==="govOps")continue;const p=POLICIES[id];load+=(p.mechanic==="toggle"&&!p.enabled)?0.3:1.0;}
+      let policySpend=0;
+      for(const id in POLICIES){
+        const p=POLICIES[id];const pl=policyLevel(p);
+        const eff=(p.eff!==undefined?p.eff:pl);
+        policySpend+=pl>0?Math.max(0,policyNetCost(p))*(eff/pl):Math.max(0,policyNetCost(p));
+      }
       return [
-        {name:"⊕ program load ("+Math.round(load)+" active)",v:Math.round(load/capacity*100),base:true},
-        {name:"🗂️ Gov't Operations (raises capacity)",v:-Math.round(govOpsEff*16/capacity*100),link:"p_govOps"},
-        ...(POLICIES.digitalGov?[{name:"🖥️ Digital Gov (raises capacity)",v:-Math.round(digEff*8/capacity*100),link:"p_digitalGov"}]:[]),
+        {name:"⊕ policy spending ($"+policySpend.toFixed(1)+"B/yr)",v:Math.round(69+policySpend*5),base:true},
+        {name:"🖥️ Gov. Digitization (lowers overhead)",v:-Math.round(INDICATORS.digitization.value*0.8),link:"i_digitization"},
       ];
     },
     feedback:{}},
@@ -1804,10 +1802,10 @@ const CATALOG={
     enabled:true, costFull:0, capital:12, enactCapital:20, repealCost:14,
     effects:{environment:5,gdp:0.35}, indicatorEffects:{businessClimate:4},
     ideology:{economic:0.3,govSize:0.1}},
-  govOps:{name:"Government Operations & Workforce", domain:"economy", icon:"🗂️", enacted:true, mechanic:"slider", phaseIn:10, noOverhead:true,
-    desc:"Investment in state agency staffing, workforce training, coordination, and management systems — the unglamorous load-bearing infrastructure of governance. Raising this is slow and expensive, but it directly expands Administrative Capacity: the number of programs Oregon can run at full effectiveness simultaneously. The default level covers existing obligations; enact many new programs without investing here and effectiveness degrades across the board.",
+  govOps:{name:"Government Operations and Workforce Budget", domain:"economy", icon:"🗂️", enacted:true, mechanic:"slider", phaseIn:10, noOverhead:true,
+    desc:"The state's investment in agency staffing, training, coordination, and management infrastructure. Raising this increases spending and therefore Administrative Overhead in the short term. Over several quarters, the investment gradually improves Government Digitization, which in turn reduces overhead — the long-run benefit outpaces the cost. The payoff is slow and hard to raise, but it's the only way to sustain a large number of programs without losing effectiveness.",
     value:0.3, costFull:1.2, capital:7,
-    effects:{taxBurden:4},
+    indicatorEffects:{digitization:12},
     ideology:{govSize:-0.4}},
 };
 
