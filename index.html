@@ -1101,6 +1101,8 @@ const METRIC_LINKS=[
   {from:"evAdoption",     to:"gasPrice",       coef:-0.004, ref:13},// demand relief at the pump
   {from:"evAdoption",     to:"environment",    coef:0.05, ref:13},  // cleaner transport
   {from:"health",         to:"gdp",            coef:0.006, ref:58}, // a healthy workforce is productive
+  {from:"health",         to:"taxBurden",      coef:-0.04, ref:58}, // poor health → higher Medicaid/OHP costs
+  {from:"health",         to:"disposableIncome",coef:0.03, ref:58}, // poor health → higher personal healthcare costs
   // ---- connectivity sweep: make under-connected metrics push outward ----
   {from:"inequality",     to:"gdp",            coef:-0.008, ref:55}, // extreme inequality saps broad demand
   {from:"inequality",     to:"health",         coef:-0.03, ref:55},  // inequality worsens population health
@@ -1797,7 +1799,7 @@ const AGENCIES={
   oha:{name:"Oregon Health Authority", domain:"eduHealth", icon:"🏥",
     funding:0.6, costMin:2.4, costFull:4.0, capital:6,
     desc:"Oregon Health Plan (Medicaid), public health.",
-    effects:{health:{b:4,c:10,i:3},behavioralHealth:{b:2,c:8,i:4},psychBeds:{b:4,c:18,i:2},obesity:-2,inequality:-2}, indicatorEffects:{}, ideology:{economic:-0.3,govSize:-0.3}},
+    effects:{health:{b:1,c:4,i:5},behavioralHealth:{b:1,c:4,i:4},psychBeds:{b:2,c:9,i:3},obesity:-1,inequality:-2}, indicatorEffects:{}, ideology:{economic:-0.3,govSize:-0.3}},
   odot:{name:"Dept. of Transportation (ODOT)", domain:"envInfra", icon:"🛣️",
     funding:0.5, costMin:0.6, costFull:1.3, capital:4,
     desc:"Highways, bridges, maintenance, transit grants — chronically short of funding as gas-tax revenue erodes. Funding level sets how much gets built; the Transportation Mix policy sets WHAT gets built.",
@@ -1934,6 +1936,10 @@ const SIMULANTS={
   retirees:{category:"lifestage", name:"Retirees", size:0.21, turnout:0.85,
     ideology:{economic:0.2,social:0.25,environment:0.05,govSize:0.15}, approval:47,
     sensitivities:{health:2.0, crime:1.6, taxes:1.3, gdp:0.7, income:1.2, gasprice:0.8},
+    instPref:{}},
+  everybody:{category:"universal", name:"Everybody", size:0.12, turnout:0.70, static:true,
+    ideology:{economic:0,social:0,environment:0,govSize:0}, approval:46,
+    sensitivities:{gdp:1.8, education:1.5, taxes:1.5, income:1.6, crime:1.2, homelessness:1.3, health:1.0},
     instPref:{}},
 };
 
@@ -2475,6 +2481,7 @@ function tickMembership(){
   }
   // emergent sizes
   for(const id in SIMULANTS){
+    if(SIMULANTS[id].static)continue;
     let sum=0;for(const v of VOTERS)sum+=v.m[id]||0;
     SIMULANTS[id].size=sum/VOTERS.length;
   }
@@ -3353,7 +3360,6 @@ function metricMood(sim){
   }
   mood+=(effective("eduOutcomes")-42)*0.03*w("education");
   mood+=(effective("behavioralHealth")-45)*0.025*w("health");
-  mood-=(effective("obesity")-30)*0.02*w("health");
   mood-=(effective("alcoholUse")-55)*0.012*w("health");
   mood+=(effective("disposableIncome")-52)*0.045*(s.income!==undefined?s.income:1.0);
   if(s.transit!==undefined)mood+=(METRICS.transitShare.value-8)*0.06*s.transit;  // transit/bike riders reward mode share
@@ -3449,7 +3455,7 @@ function tickApproval(){
 function turnoutOf(s,sid){return s.turnout+motorVoterTurnoutBoost(sid||'');}
 function overallApproval(){
   if(!VOTERS.length){let num=0,den=0;
-    for(const sid in SIMULANTS){const s=SIMULANTS[sid],w=s.size*turnoutOf(s,sid);num+=s.approval*w;den+=w;}
+    for(const sid in SIMULANTS){const s=SIMULANTS[sid];if(s.static)continue;const w=s.size*turnoutOf(s,sid);num+=s.approval*w;den+=w;}
     return num/den;}
   let sum=0;for(const v of VOTERS)sum+=v.approval;
   return sum/VOTERS.length;
@@ -4901,8 +4907,9 @@ function renderDetail(){
   } else if(key.startsWith("v_")){
     const sid=key.slice(2), s=SIMULANTS[sid];
     const col=s.approval>=55?'var(--good)':s.approval>=45?'var(--warn)':'var(--bad)';
+    const sizeDesc=s.static?"Tracks universal concerns — economy, taxes, public services — that affect all voters regardless of ideology.":`${Math.round(s.size*100)}% of the electorate · ${Math.round(s.turnout*100)}% turnout.`;
     h+=`<div class="sectionhdr">${s.name}</div>
-      <div class="sectionsub">${Math.round(s.size*100)}% of the electorate · ${Math.round(s.turnout*100)}% turnout. This bloc's approval of you over time, and what's driving it.</div>`;
+      <div class="sectionsub">${sizeDesc} This bloc's approval of you over time, and what's driving it.</div>`;
     h+=`<div class="detailval" style="color:${col}">${Math.round(s.approval)}% approval</div>`;
     h+=`<div class="chartbox"><div class="charttitle">This group's approval over time</div>
       ${sparkline(GAME.history["v_"+sid],{color:'var(--moss)',min:0,max:100,fmt:v=>Math.round(v)+'%'})}</div>`;
@@ -5350,8 +5357,8 @@ function renderVoters(){
     income:"Income",gasprice:"Gas price",transit:"Transit"};
   const instLabels={university:"Universities",stateCollege:"State Colleges",communityCollege:"Community Colleges",aid:"Student Aid"};
   // category colors so identity types are visually distinct everywhere
-  const CAT_COLOR={ideology:"#7a5ca8", income:"#c08a2e", housing:"#4a7b8a", region:"#4a7b56", lifestage:"#b06a4a", sector:"#8a8270"};
-  const CAT_NAME={ideology:"Ideology", income:"Income", housing:"Housing", region:"Region", lifestage:"Life stage", sector:"Work / lifestyle"};
+  const CAT_COLOR={ideology:"#7a5ca8", income:"#c08a2e", housing:"#4a7b8a", region:"#4a7b56", lifestage:"#b06a4a", sector:"#8a8270", universal:"#5a7a9a"};
+  const CAT_NAME={ideology:"Ideology", income:"Income", housing:"Housing", region:"Region", lifestage:"Life stage", sector:"Work / lifestyle", universal:"Universal"};
   const catOf=(id)=>SIMULANTS[id]?(SIMULANTS[id].category||"sector"):"sector";
   const n=Object.keys(SIMULANTS).length;
   let h="";
@@ -5384,14 +5391,15 @@ function renderVoters(){
     h+=`</div>`;
   }
   h+=`<div class="sectionhdr">The Electorate</div><div class="sectionsub">${n} overlapping voter identities, grouped by type. People hold several at once — but only one ideology (or none), one income tier, and one housing status. Shared members carry their mood across every identity they hold. Click any for its history, drivers, and overlaps.</div>`;
-  const CATS=[["ideology","Ideology (mutually exclusive — or none)"],["income","Income (mutually exclusive)"],["housing","Housing (mutually exclusive)"],["lifestage","Life Stage"],["sector","Work & Lifestyle"],["region","Region & Politics"]];
+  const CATS=[["universal","Everyone (universal concerns — economy, costs, public services)"],["ideology","Ideology (mutually exclusive — or none)"],["income","Income (mutually exclusive)"],["housing","Housing (mutually exclusive)"],["lifestage","Life Stage"],["sector","Work & Lifestyle"],["region","Region & Politics"]];
   const blocCard=(sid)=>{
     const s=SIMULANTS[sid], col=s.approval>=55?'var(--good)':s.approval>=45?'var(--warn)':'var(--bad)';
     const sens=Object.entries(s.sensitivities||{}).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,4);
     const tags=sens.map(([k,v])=>`<span class="stag ${v>0?'pos':'neg'}">${sensLabels[k]||k}</span>`).join("");
     let instTag="";
     if(s.instPref){const top=Object.entries(s.instPref).sort((a,b)=>b[1]-a[1])[0];if(top&&top[1]>0)instTag=`<span class="stag inst">${instLabels[top[0]]}</span>`;}
-    return `<div class="bloc bloc-link" data-detail="v_${sid}"><div class="btop"><span class="bname">${s.name}</span><span class="bsize">${Math.round(s.size*100)}% · ${Math.round(s.turnout*100)}% turnout</span></div>
+    const sizeLabel=s.static?"All voters":Math.round(s.size*100)+"% · "+Math.round(s.turnout*100)+"% turnout";
+    return `<div class="bloc bloc-link" data-detail="v_${sid}"><div class="btop"><span class="bname">${s.name}</span><span class="bsize">${sizeLabel}</span></div>
       <div class="approve"><div class="abar"><i style="width:${s.approval}%;background:${col}"></i></div><span class="apct">${Math.round(s.approval)}%</span></div>
       <div class="bsens">${tags}${instTag}</div></div>`;
   };
