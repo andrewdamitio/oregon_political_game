@@ -651,7 +651,7 @@ const SPENDING={
     note:"DEQ, Transportation, Forestry, Parks, wildfire fund"},
   social:{name:"Social Programs", base:0.0, agencies:[], policies:["abortion","childcareSubsidy","sexWorkDecrim","gunStorage","universalMeals","rankedChoice","rightToRepair","psilocybin","paidLeave","motorVoter","middleHousing","deathWithDignity","minWageTiers"],
     note:"Reproductive health, childcare, civil programs"},
-  debtAdmin:{name:"Debt Service & Administration", base:0.85, agencies:[], policies:["kickerReform"],
+  debtAdmin:{name:"Debt Service & Administration", base:0.85, agencies:[], policies:["kickerReform","govOps"],
     note:"Bond debt service, central government"},
 };
 
@@ -988,6 +988,33 @@ const INDICATORS={
       ...(GAME.activeSituations.housingShortage?[{name:"📉 Housing Shortage Crisis",v:-10}]:[]),
     ],
     feedback:{homelessness:-0.012, inequality:-0.008, disposableIncome:0.04}}, // housing costs are the dominant squeeze on take-home budgets
+  adminOverhead:{name:"Administrative Overhead", icon:"🗂️", value:80,
+    desc:"How stretched Oregon's administrative capacity is — each enacted program requires staffing, management, and coordination. When overhead exceeds capacity (100%), every active program delivers weaker results as bureaucratic complexity crowds out execution. Invest in Government Operations to raise the capacity ceiling; Digital Government Modernization helps too. Below 100%: no penalty. Above 100%: all policy metric effects reduced proportionally, up to 50% at extreme overload.",
+    derive:()=>{
+      let load=0;
+      for(const id in POLICIES){
+        if(id==="govOps")continue;
+        const p=POLICIES[id];
+        load+=(p.mechanic==="toggle"&&!p.enabled)?0.3:1.0;
+      }
+      const govOpsEff=(POLICIES.govOps?(POLICIES.govOps.eff??policyLevel(POLICIES.govOps)):0.3);
+      const digEff=(POLICIES.digitalGov?(POLICIES.digitalGov.eff??policyLevel(POLICIES.digitalGov)):0);
+      const capacity=32+govOpsEff*16+digEff*8;
+      return Math.round(load/capacity*100);
+    },
+    drivers:()=>{
+      const govOpsEff=(POLICIES.govOps?(POLICIES.govOps.eff??policyLevel(POLICIES.govOps)):0.3);
+      const digEff=(POLICIES.digitalGov?(POLICIES.digitalGov.eff??policyLevel(POLICIES.digitalGov)):0);
+      const capacity=32+govOpsEff*16+digEff*8;
+      let load=0;
+      for(const id in POLICIES){if(id==="govOps")continue;const p=POLICIES[id];load+=(p.mechanic==="toggle"&&!p.enabled)?0.3:1.0;}
+      return [
+        {name:"⊕ program load ("+Math.round(load)+" active)",v:Math.round(load/capacity*100),base:true},
+        {name:"🗂️ Gov't Operations (raises capacity)",v:-Math.round(govOpsEff*16/capacity*100),link:"p_govOps"},
+        ...(POLICIES.digitalGov?[{name:"🖥️ Digital Gov (raises capacity)",v:-Math.round(digEff*8/capacity*100),link:"p_digitalGov"}]:[]),
+      ];
+    },
+    feedback:{}},
 };
 /* sum of indicatorEffects[id] across all enacted policies (scaled by level)
    AND agencies (scaled by funding) */
@@ -1058,6 +1085,15 @@ function indBoostDrivers(indId){
    up to ~1.15x at 100. Low state capacity weakens every policy's outcomes. */
 function efficacy(){
   return clamp(0.7 + (INDICATORS.digitization.value/100)*0.5, 0.6, 1.2);
+}
+/* ADMINISTRATIVE OVERHEAD PENALTY: when more programs are active than state capacity
+   can handle (adminOverhead > 100), all program metric effects are reduced proportionally.
+   Revenue policies (revenueFull) and capacity investments (noOverhead) are exempt.
+   Max 50% reduction at extreme overload. Reads the previous tick's indicator value. */
+function govOverheadMult(){
+  const ov=INDICATORS.adminOverhead?.value??80;
+  if(ov<=100)return 1.0;
+  return Math.max(0.5,1-(ov-100)*0.005);
 }
 
 const METRIC_LINKS=[
@@ -1155,7 +1191,8 @@ const SECTION_OF={
   homelessness:"welfare", housingAffordability:"welfare",
   health:"health", behavioralHealth:"health", obesity:"health", alcoholUse:"health",
   environment:"environment", gasPrice:"environment", transitShare:"environment", loggingRate:"environment", tourism:"environment", evAdoption:"environment",
-  downtown:"welfare", taxGrievance:"taxes", ruralAlienation:"environment", pensionBurden:"taxes", localAutonomy:"pubservices", mandate:"taxes",
+  downtown:"welfare", taxGrievance:"taxes", ruralAlienation:"environment", pensionBurden:"taxes", localAutonomy:"pubservices", mandate:"taxes", adminOverhead:"pubservices",
+  govOps:"pubservices",
   // policies & agencies — taxes
   incomeTax:"taxes", corpTax:"taxes", salesTax:"taxes", gasTax:"taxes", vehicleReg:"taxes", evFee:"taxes", estateTax:"taxes",
   carbonTax:"taxes", taxCut:"taxes", kickerReform:"taxes", propTaxReform:"taxes", preschoolForAll:"taxes", revenueDept:"taxes", treasury:"taxes", persReform:"taxes",
@@ -1282,7 +1319,7 @@ const POLICIES={
     blocEffect:{conservative:4, suburban:2, retirees:2, businessClass:1, socialist:-5, liberal:-4, poor:-3, libertarian:-3},
     real:{min:0,max:100,unit:"/100 strictness",decimals:0,label:"detention strictness"},
     ideology:{social:0.6,govSize:0.4}},
-  homelessServices:{name:"Homeless Services", domain:"social", icon:"🏘️", enacted:true, mechanic:"intensity",
+  homelessServices:{name:"Homeless Services", domain:"social", icon:"🏘️", enacted:true, mechanic:"intensity", phaseIn:7,
     desc:"Shelter system + Housing First. OR committed ~$700M.",
     enabled:true, intensity:0.45, costFull:1.6, capital:5,
     effects:{homelessness:{b:-8,c:-26,i:3},health:8,propertyCrime:-3}, indicatorEffects:{downtown:8,inMigration:1}, ideology:{economic:-0.6,social:-0.4,govSize:-0.6}},
@@ -1292,11 +1329,11 @@ const POLICIES={
     tierIndex:3, costByTier:[0,0,0.05,0.3], capital:14,
     tierIdeology:[{social:0.9,govSize:0.3},{social:0.5},{social:-0.5},{social:-0.9,economic:-0.3}],
     effects:{}},
-  carbonProgram:{name:"Climate Protection Program", domain:"envInfra", icon:"🌍", enacted:true, mechanic:"law",
+  carbonProgram:{name:"Climate Protection Program", domain:"envInfra", icon:"🌍", enacted:true, mechanic:"law", phaseIn:5,
     desc:"Oregon's cap-and-reduce program for large emitters — a declining pollution ceiling with allowance trading. Revenue is reinvested in clean energy, low-income utility assistance, and transit. The program survived a 2024 repeal attempt; weakening it draws national climate backlash and destabilizes forward revenue projections.",
     enabled:true, revenue:0.6, capital:10, effects:{environment:{b:5,c:13,i:5},gdp:-0.25},
     ideology:{economic:-0.5,social:-0.3,environment:-0.9,govSize:-0.5}},
-  renewablePortfolio:{name:"Renewable Portfolio Standard", domain:"envInfra", icon:"☀️", enacted:true, mechanic:"tier",
+  renewablePortfolio:{name:"Renewable Portfolio Standard", domain:"envInfra", icon:"☀️", enacted:true, mechanic:"tier", phaseIn:8,
     desc:"Oregon's HB 2021 (Clean Electricity and Coal Transition Act) requires large utilities to reach 100% clean electricity by 2040, with coal fully off the grid by 2030. Oregon's mix is already ~70% renewable, but meeting the mandate requires costly grid upgrades, new transmission lines, and backup generation — pushing electricity rates up for households and businesses. Relaxing the standard saves money but surrenders Oregon's climate leadership.",
     tiers:["No Standard","25% Renewable","50% Clean","80% Clean","100% Clean"],
     tierIndex:4, capital:12, repealCost:16,
@@ -1329,7 +1366,7 @@ const POLICIES={
       {environment:-0.5, economic:-0.2},
       {environment:-0.9, economic:-0.4, govSize:-0.3}
     ]},
-  forestPractices:{name:"Forest Practices Act", domain:"envInfra", icon:"🪵", enacted:true, mechanic:"tier",
+  forestPractices:{name:"Forest Practices Act", domain:"envInfra", icon:"🪵", enacted:true, mechanic:"tier", phaseIn:7,
     desc:"Oregon's 1971 framework regulating logging on PRIVATE forestland — stream buffers, steep-slope limits, aerial-spray setbacks. The 2022 Private Forest Accord rewrote it in a historic timber-environmentalist deal. Tighter rules protect watersheds and salmon but directly throttle the overall logging rate; looser rules accelerate harvest and favor timber economics.",
     tiers:["Minimal Rules","Pre-Accord Baseline","Private Forest Accord","Strong Setbacks","Strict Preservation"],
     tierIndex:2, costByTier:[0,0.02,0.06,0.10,0.15], capital:10,
@@ -1428,7 +1465,7 @@ const POLICIES={
     effects:{},
     tierEffects:[{violentCrime:2,incarcerationRate:-28,inequality:-2},{violentCrime:1,incarcerationRate:-18,inequality:-1},{violentCrime:0,incarcerationRate:10,inequality:0},{violentCrime:-1.5,incarcerationRate:20,inequality:1.5}],
     tierIdeology:[{social:-0.7,govSize:-0.2},{social:-0.4},{social:0.2},{social:0.7,govSize:0.2}]},
-  paidLeave:{name:"Paid Leave Oregon", domain:"social", icon:"👶", enacted:true, mechanic:"slider", repealCost:11,
+  paidLeave:{name:"Paid Leave Oregon", domain:"social", icon:"👶", enacted:true, mechanic:"slider", phaseIn:6, repealCost:11,
     desc:"HB 2005 (2019): paid family/medical leave funded by a payroll tax (workers 60% / employers 40%), benefits since Sept 2023. The slider sets the generosity — weeks of leave and wage-replacement. More is popular with families and lifts health and equity, but raises the payroll tax and irks small employers.",
     value:0.5, costFull:0.08, capital:8,
     effects:{health:{b:1,c:4,i:3},inequality:-3,taxBurden:5,behavioralHealth:1},
@@ -1767,6 +1804,11 @@ const CATALOG={
     enabled:true, costFull:0, capital:12, enactCapital:20, repealCost:14,
     effects:{environment:5,gdp:0.35}, indicatorEffects:{businessClimate:4},
     ideology:{economic:0.3,govSize:0.1}},
+  govOps:{name:"Government Operations & Workforce", domain:"economy", icon:"🗂️", enacted:true, mechanic:"slider", phaseIn:10, noOverhead:true,
+    desc:"Investment in state agency staffing, workforce training, coordination, and management systems — the unglamorous load-bearing infrastructure of governance. Raising this is slow and expensive, but it directly expands Administrative Capacity: the number of programs Oregon can run at full effectiveness simultaneously. The default level covers existing obligations; enact many new programs without investing here and effectiveness degrades across the board.",
+    value:0.3, costFull:1.2, capital:7,
+    effects:{taxBurden:4},
+    ideology:{govSize:-0.4}},
 };
 
 /* AGENCIES — unavoidable standing government. Can't be abolished, but most
@@ -2705,9 +2747,9 @@ const SITUATIONS={
     groupMood:{businessClass:-8, wealthy:-5, suburban:-3, blueCollar:-3, rural:-2}},
   taxRevolt:{name:"Tax Revolt", kind:"bad", category:"condition",
     desc:"An anti-tax ballot measure campaign has caught fire. Oregon's stacked income, payroll, and property taxes have pushed voter frustration past the tipping point — initiative petitions are circulating, town halls are getting heated, and your governing mandate is under siege. The revolt persists until tax grievance cools significantly.",
-    trigger:()=>INDICATORS.taxGrievance.value>75,
-    clear:()=>INDICATORS.taxGrievance.value<60,
-    watch:{indicator:"taxGrievance", startAt:75, clearAt:60, badHigh:true},
+    trigger:()=>INDICATORS.taxGrievance.value>68,
+    clear:()=>INDICATORS.taxGrievance.value<53,
+    watch:{indicator:"taxGrievance", startAt:68, clearAt:53, badHigh:true},
     metricEffect:{taxBurden:-2}, moodAxes:{economic:0.5,govSize:0.5}, moodMag:6, minTurns:3,
     onTrigger:{capital:-5},
     groupMood:{wealthy:-5,businessClass:-4,rural:-4,suburban:-2}},
@@ -2833,7 +2875,7 @@ const SITUATIONS={
     groupMood:{timber:-6,rural:-5}},
   fiscalCrisis:{name:"Structural Deficit Crisis", kind:"bad", category:"condition",
     desc:"Oregon's reserves are depleted and the state is carrying structural debt from consecutive unbalanced budgets. Borrowing costs are rising, agency heads are quietly rationing, and the bond market is watching. A reckoning is coming — every quarter this persists makes the eventual austerity cuts deeper.",
-    trigger:()=>(GAME.structuralDebt||0)>1.5 || (GAME.deficitStreak||0)>=4,
+    trigger:()=>(GAME.structuralDebt||0)>0.8 || (GAME.deficitStreak||0)>=4,
     clear:()=>(GAME.structuralDebt||0)<0.3 && (GAME.deficitStreak||0)===0,
     watch:{metric:"balance", startAt:-0.5, clearAt:0.5, badHigh:false},
     costEffect:{debtAdmin:0.45},    // debt service pushes admin spending higher
@@ -3071,7 +3113,7 @@ function policyEffect(p,k){
   } else {
     raw=(p.effects&&p.effects[k]!==undefined)?effExpr(p.effects[k],eff,"p:"+(p._id||p.name)+":"+k):0;
   }
-  return raw*efficacy();
+  return raw*efficacy()*(p.revenueFull||p.noOverhead?1:govOverheadMult());
 }
 function tickPhase(){
   // Large public unions slow implementation: institutional resistance and bargaining requirements
