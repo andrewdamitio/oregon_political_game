@@ -1785,7 +1785,8 @@ const CATALOG={
   persReform:{name:"PERS Benefit Reform", domain:"economy", icon:"🏦", mechanic:"law",
     desc:"Trim future pension accruals against the ~$27–28B unfunded liability. The honest math: SB 1049-style reform saves only ~$150M/biennium near-term — most 'savings' just re-amortize the debt — and Moro v. State (2015) bars touching already-earned benefits. Unions will sue, and they sometimes win.",
     enabled:true, revenue:0.08, capital:12, enactCapital:14,
-    effects:{}, ideology:{economic:0.4,govSize:0.3}},
+    effects:{}, ideology:{economic:0.4,govSize:0.3},
+    blocEffect:{publicUnions:-18, socialist:-4, liberal:-3, blueCollar:-2, moderate:2, businessClass:4, wealthy:3, conservative:4, libertarian:2}},
   // ---- constitutional reforms: generational fights, huge capital ----
   propTaxReform:{name:"Reform Measure 5/50 Property Tax Caps", domain:"economy", icon:"🏚️", mechanic:"law", reform:true,
     desc:"Unwind the 1990s constitutional property-tax caps that cost local governments an estimated $41 BILLION over their first 16 years and pushed school funding from local property tax (28.6% state share in 1990) onto the volatile state income tax (70.6% by 1999) — the root of Oregon's boom-bust budget. Restores local capacity; raises tax bills statewide — but amplifies Oregon's already-high tax-stacking narrative.",
@@ -1793,12 +1794,12 @@ const CATALOG={
     effects:{education:4,taxBurden:8,gdp:-0.2}, indicatorEffects:{taxGrievance:6},
     blocEffect:{wealthy:-3,businessClass:-3,homeowners:-4,rural:-2,conservative:-2,retirees:-10},
     ideology:{economic:-0.6,govSize:-0.6}},
-  preschoolForAll:{name:"Preschool for All (Multnomah Co.)", domain:"economy", icon:"🎒", mechanic:"law",
-    desc:"Portland's 2020 Measure 26-214: a 1.5% income tax on high earners plus a 1% employer payroll tax on large businesses in Multnomah County. Funds universal pre-K but stacks atop Oregon's already-high income tax, the CAT, and carbon tax — feeding the 'highest-taxed state' narrative that drives out-migration of high earners and business.",
-    enabled:true, revenue:0.18, capital:8, repealCost:10,
-    effects:{education:2,taxBurden:3}, indicatorEffects:{taxGrievance:5},
-    blocEffect:{wealthy:-4,businessClass:-3,moderate:-1,liberal:2,poor:2,parents:2},
-    ideology:{economic:-0.3,govSize:-0.3}},
+  preschoolForAll:{name:"Universal Preschool", domain:"economy", icon:"🎒", mechanic:"law",
+    desc:"State-funded universal pre-K for all Oregon 3- and 4-year-olds. The evidence base is strong — high-quality early childhood education produces the highest return of any education investment, raising graduation rates, reducing crime, and compressing lifetime inequality. Requires a significant ongoing General Fund appropriation and a major expansion of the early-childhood workforce.",
+    enabled:true, costFull:0.35, enactCapital:12, repealCost:11,
+    effects:{education:4,inequality:-3}, indicatorEffects:{taxGrievance:1},
+    blocEffect:{parents:6, poor:4, liberal:3, publicUnions:3, socialist:2, collegeEducated:2, moderate:1, businessClass:-2, conservative:-2, wealthy:-1, libertarian:-2},
+    ideology:{economic:-0.4,govSize:-0.5}},
   nuclearRepeal:{name:"Repeal Nuclear Moratorium", domain:"envInfra", icon:"⚛️", mechanic:"law", reform:true,
     desc:"Repeal Oregon's 1980 voter-approved ban on new nuclear plants (in place until a federal waste repository exists). Opens the door to carbon-free baseload power — splitting environmentalists between climate hawks and anti-nuclear traditionalists.",
     enabled:true, costFull:0, capital:12, enactCapital:20, repealCost:14,
@@ -1948,7 +1949,7 @@ const SIMULANTS={
     instPref:{university:1.3, communityCollege:0.5}},
   publicUnions:{category:"sector", name:"Public-Sector Unions", size:0.07, turnout:0.80,
     ideology:{economic:-0.6,social:-0.3,environment:-0.2,govSize:-0.7}, approval:49,
-    sensitivities:{education:1.8, health:1.6, govSpend:2.0, gdp:0.6, inequality:0.8, income:1.0},
+    sensitivities:{education:1.8, health:1.3, govSpend:2.0, gdp:0.6, inequality:0.8, income:1.0},
     instPref:{university:0.8, stateCollege:0.9, communityCollege:0.9, aid:0.7}},
   collegeEducated:{category:"sector", name:"College Educated", size:0.36, turnout:0.74,
     ideology:{economic:-0.2,social:-0.35,environment:-0.3,govSize:-0.15}, approval:48,
@@ -2567,8 +2568,10 @@ function turnoutProb(v){
     ? 0.07*Math.max(0.3, 1-0.6*Math.max(Math.abs(v.econ||0),Math.abs(v.social||0))-0.25*Math.min((v.age||0)/1.5,1))
     : 0;
   const base=0.34+mvBoost+turnoutMobilization();
-  // enthusiasm: voters who feel strongly (either way) turn out far more than the indifferent
-  return clamp(base+0.55*Math.abs(v.approval-50)/50+v.age*0.18,0.05,0.97);
+  // enthusiasm: voters who feel strongly (either way) turn out more than the indifferent.
+  // Coefficient kept moderate (0.32) so the enthusiasm gap doesn't swamp demographic turnout
+  // signals — a 47% approval game should still feel like a close race, not a blowout.
+  return clamp(base+0.32*Math.abs(v.approval-50)/50+v.age*0.18,0.05,0.97);
 }
 /* system-wide turnout mobilization from civic policy and the political moment.
    Ranked-choice voting and motor-voter lift participation; deep cynicism and
@@ -3660,7 +3663,7 @@ function settleFiscal(){
       GAME.log.push("🔴 Deficit $"+gap.toFixed(2)+"B — borrowed against future budgets (structural debt: $"+GAME.structuralDebt.toFixed(1)+"B)");
       METRICS.education.value=clamp(METRICS.education.value-bite*0.4,0,100);
       METRICS.health.value=clamp(METRICS.health.value-bite*0.3,0,100);
-      GAME.capital=clamp(GAME.capital-Math.min(gap*2,8),0,100);
+      GAME.capital=Math.round(clamp(GAME.capital-Math.min(gap*2,8),0,100));
     }
   }
 }
@@ -3687,11 +3690,20 @@ function runElection(){
     for(const sid in GAME.ground.turnout){ const w=v.m[sid]||0; if(w>0.2)mob+=GAME.ground.turnout[sid]*w; }
     const t=clamp(turnoutProb(v)+mob,0.03,0.98)*(0.85+Math.random()*0.3);
     tot+=t;
-    if(app>50){ yes+=t; continue; }
-    // unhappy with you — do they defect to a third party, stay home, or back the challenger?
     const pole=Math.max(Math.abs(v.econ),Math.abs(v.social));         // ideological intensity
+    if(app>50){
+      // Strong ideologues who only weakly approve may prefer a purer third-party option
+      // (a socialist barely warming to a centrist; a libertarian barely tolerating you).
+      // RCV makes defection safe — second preferences can flow back; without it the vote is lost.
+      const lukewarm=clamp((70-app)/25,0,1);                          // 1 near 50, 0 above 70
+      const ideoDefect=Math.max(0,pole-0.45)*lukewarm*(rcv?1.8:1.1);
+      if(ideoDefect>0.2+Math.random()*0.5){ third+=t; }               // defects to a purer party
+      else{ yes+=t; }
+      continue;
+    }
+    // Disaffected opposition: defect to a third party or back the challenger
     const disaffection=clamp((50-app)/22,0,1);
-    let thirdPull=pole*disaffection*(rcv?1.5:0.7);                    // RCV makes 3rd parties viable
+    const thirdPull=pole*disaffection*(rcv?1.5:0.7);                  // RCV makes 3rd parties viable
     if(thirdPull>0.30+Math.random()*0.35){ third+=t; }                // defects to a third party
     else no+=t;                                                        // backs the challenger
   }
@@ -3992,7 +4004,7 @@ function renderCampaign(){
     GAME.campaignDone=true;
     GAME.campaign={effort:{}, promises:c.promises, pool:10};
     GAME.capitalPerTurn=+(4+INDICATORS.mandate.value/100*9).toFixed(1);
-    GAME.capital=clamp(GAME.capital+GAME.capitalPerTurn,0,100);
+    GAME.capital=Math.round(clamp(GAME.capital+GAME.capitalPerTurn,0,100));
     GAME.turn++; pushHistory();
     GAME.campaignDone=false;
     render(); showElection(runElection());
@@ -4091,7 +4103,7 @@ function showQuarterReport(){
 function showElection(r){
   GAME.gameOver=!r.won;
   const card=document.getElementById("electionCard");
-  const thirdLine=r.thirdShare>0.02?`<div style="font-size:12px;color:#8a7a3a">${r.rcv?'Ranked-choice':'Spoiler effect'}: third parties drew ${(r.thirdShare*100).toFixed(1)}% of turnout${r.rcv?' — second preferences partly flowed back to you':' — splitting the vote against you'}</div>`:'';
+  const thirdLine=r.thirdShare>0.02?`<div style="font-size:12px;color:#8a7a3a">${r.rcv?'Ranked-choice':'Spoiler effect'}: third parties drew ${(r.thirdShare*100).toFixed(1)}% of turnout${r.rcv?' — second preferences partly flowed back to you':' — drawing ideological voters from both coalitions'}</div>`:'';
   card.innerHTML=`<h2>Election — ${GAME.startYear+GAME.term*4}</h2>
     <div class="sectionsub">End of term ${GAME.term}. Turnout ${(r.turnout*100).toFixed(0)}%.</div>
     <div class="res ${r.won?'win':'lose'}">${r.won?'RE-ELECTED':'DEFEATED'} · ${(r.share*100).toFixed(1)}% vs ${(100-r.share*100).toFixed(1)}%</div>
@@ -4149,7 +4161,7 @@ function endTurn(){
     ? Math.max(0.45, 1 - Math.min(uSize - 0.05, 0.20) * 4 * Math.max(0, 35 - uApproval) / 35)
     : 1.0;
   GAME.capitalPerTurn=+((4+mand/100*9)*starvationFactor*unionBlock).toFixed(1);
-  GAME.capital=clamp(GAME.capital+GAME.capitalPerTurn,0,100);
+  GAME.capital=Math.round(clamp(GAME.capital+GAME.capitalPerTurn,0,100));
   GAME.turn++;
   pushHistory();
   const into=GAME.turn-(GAME.term-1)*GAME.termLengthTurns;
