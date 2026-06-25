@@ -441,7 +441,8 @@
   .ebnote{font-size:12px;color:#8a8270;font-style:italic;margin:6px 0}
   .ebrow{display:flex;align-items:center;gap:8px;padding:3px 0}
   .eblabel{font-size:11px;width:150px;flex:none;color:#3a3a36;line-height:1.2}
-  .ebtrack{flex:1;height:12px;background:var(--paper);border-radius:6px;position:relative;overflow:hidden}
+  .ebtrack{flex:1;height:12px;background:var(--paper);border-radius:6px;position:relative;overflow:visible}
+  .ebtgt{position:absolute;top:-2px;bottom:-2px;width:2px;background:rgba(28,37,38,0.45);border-radius:1px;pointer-events:none;transform:translateX(-50%);z-index:2}
   .ebtrack::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--line)}
   .ebfill{position:absolute;top:0;bottom:0;border-radius:3px;min-width:1px}
   .ebval{font-family:var(--font-data);font-size:11px;width:74px;text-align:right;flex:none}
@@ -1446,9 +1447,9 @@ const POLICIES={
     effects:{},
     tierEffects:[
       {environment:0,gasPrice:0},
-      {environment:3,gdp:-0.07,gasPrice:0.18},
-      {environment:6,gdp:-0.15,gasPrice:0.35},
-      {environment:11,gdp:-0.28,gasPrice:0.6}],
+      {environment:3,gdp:-0.07,gasPrice:0.18,evAdoption:2},
+      {environment:6,gdp:-0.15,gasPrice:0.35,evAdoption:5},
+      {environment:11,gdp:-0.28,gasPrice:0.6,evAdoption:10}],
     tierIndicatorEffects:[{ruralAlienation:-3},{ruralAlienation:1},{ruralAlienation:4},{ruralAlienation:7}],
     tierIdeology:[{environment:0.6},{environment:0.2},{environment:-0.4},{environment:-0.8,economic:-0.3}]},
   salesTax:{name:"State Sales Tax", domain:"economy", icon:"🧾", enacted:true, mechanic:"slider",
@@ -1917,7 +1918,7 @@ const AGENCIES={
   deq:{name:"Dept. of Environmental Quality", domain:"envInfra", icon:"🧪",
     funding:0.5, costMin:0.12, costFull:0.32, capital:4,
     desc:"Air, water, and land quality regulation; cleanup of contaminated sites; permitting. Stronger enforcement lifts environmental quality but adds business friction.",
-    effects:{environment:9}, ideology:{environment:-0.5,govSize:-0.3}},
+    effects:{environment:9,gdp:-0.05}, ideology:{environment:-0.5,govSize:-0.3}},
   oprd:{name:"Parks & Recreation (OPRD)", domain:"envInfra", icon:"🏞️",
     funding:0.5, costMin:0.08, costFull:0.26, capital:4,
     desc:"State parks system — Silver Falls, Smith Rock, the coast (all of it public, by law). Lottery-funded since 1998. A direct driver of tourism appeal.",
@@ -2565,9 +2566,15 @@ function tickMembership(){
   const delta={};
   for(const id in MEMBERSHIP_DRIVERS)delta[id]=clamp(MEMBERSHIP_DRIVERS[id].f(),-0.35,0.35);
   for(const v of VOTERS){
-    // income mobility: adjusted income tracks the economy
-    v.adjIncome=clamp(v.innateIncome+(METRICS.disposableIncome.value-52)/200,0.02,0.98);
-    let poorT=clamp((0.42-v.adjIncome)*4,0,1), wealthyT=clamp((v.adjIncome-0.62)*4,0,1);
+    // income mobility: disposable income shifts everyone up/down; inequality
+    // stretches the distribution — high inequality pushes the already-rich richer
+    // and the already-poor poorer, shrinking the middle. Lower inequality + high
+    // disposable income can produce genuinely broad-based wealth.
+    v.adjIncome=clamp(v.innateIncome+(METRICS.disposableIncome.value-52)/180,0.02,0.98);
+    const ineqFactor=(METRICS.inequality.value-55)/100; // 0 at baseline; positive = more unequal
+    const distFromMid=v.adjIncome-0.5;
+    const stretched=clamp(v.adjIncome+distFromMid*ineqFactor*1.8,0.01,0.99);
+    let poorT=clamp((0.40-stretched)*5,0,1), wealthyT=clamp((stretched-0.60)*5,0,1);
     let middleT=Math.max(0,1-poorT-wealthyT); { const is=poorT+wealthyT+middleT||1; poorT/=is; wealthyT/=is; middleT/=is; }
     // IDEOLOGY (mutually exclusive, sums to 1): score each pole by fit;
     // Moderates absorb the centrist remainder so every voter has exactly one
@@ -4742,13 +4749,24 @@ function effectBar(label,value,scale,opts={}){
   const labelHTML = opts.link
     ? `<a class="eblabel eblink" data-detail="${opts.link}">${label}</a>`
     : `<span class="eblabel">${label}</span>`;
+  const tgtTick = (opts.target!==undefined&&opts.target!==null)
+    ? `<span class="ebtgt" style="left:${clamp(50+opts.target/scale*50,1,99)}%"></span>`
+    : '';
   return `<div class="ebrow">${labelHTML}
-    <div class="ebtrack"><div class="ebfill ${pos?'pos':'neg'}" style="width:${pct}%;${pos?'left':'right'}:50%;background:${col}"></div></div>
+    <div class="ebtrack"><div class="ebfill ${pos?'pos':'neg'}" style="width:${pct}%;${pos?'left':'right'}:50%;background:${col}"></div>${tgtTick}</div>
     <span class="ebval" style="color:${col}">${valLabel}</span></div>`;
 }
 
 function effectsBreakdownHTML(kind,obj){
   const direct=directEffects(kind,obj);
+  // For non-tier policies phasing in, compute the ratio of target→current so we can
+  // show a tick mark on metric bars at the full-strength end point.
+  // Budget / bloc reactions / indicators already use policyLevel (target), so no tick needed there.
+  let phaseRatio=null;
+  if(kind==="policy"&&obj.mechanic!=="tier"){
+    const e=effLevelOf(obj),t=policyLevel(obj);
+    if(Math.abs(e-t)>0.02&&e>0.001)phaseRatio=t/e;
+  }
   let h=`<div class="ebsection"><div class="charttitle">Effects</div>`;
 
   // 1. Direct metric effects
@@ -4759,11 +4777,11 @@ function effectsBreakdownHTML(kind,obj){
     const scale=Math.max(1,...dKeys.map(k=>Math.abs(direct[k])));
     for(const k of dKeys){
       const m=METRICS[k];
-      // for inverted metrics, a positive raw push is "bad" → color accordingly
       const good = m && m.invert ? direct[k]<0 : direct[k]>0;
       h+=effectBar(m?m.name:k, direct[k], scale, {color: good?'var(--good)':'var(--clay)',
         link:m?("m_"+k):null,
-        fmt:v=>(v>=0?'+':'')+v.toFixed(1)+(m&&m.fmt==='pctRaw'?' pts':'')});
+        fmt:v=>(v>=0?'+':'')+v.toFixed(1)+(m&&m.fmt==='pctRaw'?' pts':''),
+        target:phaseRatio!=null ? direct[k]*phaseRatio : undefined});
     }
     h+=`</div>`;
   } else {
@@ -4990,20 +5008,30 @@ function renderBoard(){
     const w=clamp(0.8+e.w*0.12,0.8,3);
     svg+=`<path class="webedge${e.neutral?' eneutral':''}" data-a="${e.a}" data-b="${e.b}" d="M${A.x.toFixed(0)},${A.y.toFixed(0)} Q${mx.toFixed(0)},${my.toFixed(0)} ${B.x.toFixed(0)},${B.y.toFixed(0)}" stroke="${col}" stroke-width="${w}" fill="none"/>`;
   }
-  // nodes — icon-forward "logo" tiles in circles
+  // nodes — icon-forward "logo" tiles
+  // Shapes differ by kind so all three node types are visually distinct at a glance:
+  //   Policy/agency (levers)  → rounded square — actionable button feel
+  //   Statistics               → thin circle — passive readout
+  //   Active crisis            → thick dashed circle — urgent alert
   for(const id in nodes){
-    const n=nodes[id]; if(n.x===undefined||n.hub)continue;   // hubs are drawn as labels only, not clickable
+    const n=nodes[id]; if(n.x===undefined||n.hub)continue;
     const isStat=n.kind==="stat", isInd=n.kind==="indicator", isSit=n.kind==="situation";
-    const r=(isStat||isInd)?26:30;
+    const isLeverNode=n.kind==="policy"||n.kind==="agency";
+    const r=(isStat||isInd)?25:30;
     const below=n.y>=cy;
     const ly=below?(r+13):(-r-7);
-    // indicators get a dashed ring + tinted fill (derived gauges); situations a
-    // bold alert ring; policies/agencies the solid "logo" tile
-    const dash=isInd?` stroke-dasharray="4 3"`:"";
-    const fill=isInd?"var(--paper-2)":(isSit?(n.stroke==='var(--good)'?"#eef5e9":"#f6e9e4"):"var(--paper)");
-    const ringW=isSit?3.2:2.4;
+    let shapeEl;
+    if(isLeverNode){
+      const s=r*2-6;
+      shapeEl=`<rect class="bn-ring" x="${-(s/2)}" y="${-(s/2)}" width="${s}" height="${s}" rx="10" ry="10" fill="var(--paper)" stroke="${n.stroke}" stroke-width="2.2"/>`;
+    } else if(isSit){
+      const sitFill=n.stroke==='var(--good)'?"#eef5e9":"#f6e9e4";
+      shapeEl=`<circle class="bn-ring" r="${r}" fill="${sitFill}" stroke="${n.stroke}" stroke-width="3.5" stroke-dasharray="5 3"/>`;
+    } else {
+      shapeEl=`<circle class="bn-ring" r="${r}" fill="var(--paper)" stroke="${n.stroke}" stroke-width="1.6"/>`;
+    }
     svg+=`<g class="boardnode ${n.kind}" data-node="${id}" data-detail="${id}" transform="translate(${n.x.toFixed(0)},${n.y.toFixed(0)})">
-      <circle class="bn-ring" r="${r}" fill="${fill}" stroke="${n.stroke}" stroke-width="${ringW}"${dash}/>
+      ${shapeEl}
       <text class="bn-ico" y="${(isStat||isInd)?7:8}" text-anchor="middle" font-size="${(isStat||isInd)?22:25}">${n.icon}</text>
       <text class="bn-lbl" y="${ly}" text-anchor="middle">${n.label.length>22?n.label.slice(0,21)+"…":n.label}</text>
     </g>`;
@@ -5028,9 +5056,9 @@ function renderBoard(){
   h+=kh;
   // legend for the graph node types — sits between the key metrics and the map
   h+=`<div class="boardlegend">
-      <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="var(--paper)" stroke="var(--slate-blue)" stroke-width="2.2"/></svg>Policy / agency — your levers</span>
-      <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="var(--paper)" stroke="var(--moss)" stroke-width="2.2"/></svg>Statistic — an outcome your policies shape</span>
-      <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="#f6e9e4" stroke="var(--bad)" stroke-width="3"/></svg>Active crisis</span>
+      <span class="blg"><svg width="20" height="20"><rect x="2" y="2" width="16" height="16" rx="4" ry="4" fill="var(--paper)" stroke="var(--slate-blue)" stroke-width="2.2"/></svg>Policy / agency — your levers</span>
+      <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="var(--paper)" stroke="var(--moss)" stroke-width="1.6"/></svg>Statistic — an outcome your policies shape</span>
+      <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="#f6e9e4" stroke="var(--bad)" stroke-width="3.5" stroke-dasharray="5 3"/></svg>Active crisis</span>
     </div>`;
   h+=`<div class="websearch" style="margin-top:10px"><input type="search" id="boardSearch" placeholder="Search policies, metrics, agencies…" autocomplete="off"></div>`;
   h+=`<div class="boardgraph">${svg}</div>`;
@@ -5198,7 +5226,7 @@ function renderDetail(){
         h+=`<div class="ebgroup-label">${lbl} — implementation takes ~${policyPhaseQuarters(p)} quarters</div>
           <div class="ebgroup"><div class="phasewrap"><div class="phasebar"><i style="width:${Math.round(eff*100)}%"></i><span class="phasetgt" style="left:${Math.round(tgt*100)}%"></span></div>
           <span class="mono" style="font-size:11px">${Math.round(eff*100)}% in effect → set to ${Math.round(tgt*100)}%</span></div>
-          <div class="threshline" style="margin-top:5px">Effects shown below are at the CURRENT phased-in strength, not the target.</div></div>`;
+          <div class="threshline" style="margin-top:5px">Metric effects show current phased-in strength — <b>tick marks</b> show full-target level. Budget, bloc reactions, and indicators already reflect the set target.</div></div>`;
       }
     }
     // allocation channel breakdown
