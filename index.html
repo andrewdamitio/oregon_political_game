@@ -3944,8 +3944,9 @@ function campPush(kind, sid){
     msg=`✗ ${s.name} resented the ${kind==="persuade"?"messaging":"GOTV pressure"} — it backfired`;
     delta=back;
   }
-  GAME.ground.fatigue[sid]=(GAME.ground.fatigue[sid]||0)+1;   // each push tires the bloc
-  GAME.ground.fatigueAge[sid]=0;                              // reset cooldown — they were just pressured
+  // fatigue grows only on failure (resentment); success adds a small amount
+  GAME.ground.fatigue[sid]=(GAME.ground.fatigue[sid]||0)+(ok?0.25:1.0);
+  GAME.ground.fatigueAge[sid]=0;
   GAME.campLog.unshift({turn:GAME.turn, kind, sid, ok, msg});
   if(GAME.campLog.length>12)GAME.campLog.pop();
   return {ok, chance, delta, msg};
@@ -4016,7 +4017,7 @@ function renderCampaign(){
     const noE=GAME.campEnergy<1;
     h+=`<div class="cbloc2">
       <div class="cb2-top"><span class="cb2-name">${s.name}</span><span class="cb2-appr" style="color:${appcol}">${Math.round(s.approval)}%</span></div>
-      <div class="cb2-meta">${Math.round(s.size*100)}% of voters · ${Math.round((s.turnout||0.5)*100)}% turnout${fat>0.4?` · <span class="cb2-fat">tiring of you</span>`:``}</div>
+      <div class="cb2-meta">${Math.round(s.size*100)}% of voters · ${Math.round((s.turnout||0.5)*100)}% turnout${fat>1.5?` · <span class="cb2-fat">tiring of you</span>`:``}</div>
       <div class="cb2-acts">
         <button class="cb2-btn persuade" data-push="persuade" data-sid="${sid}" ${noE?'disabled':''}>
           <span class="cb2-kind">Persuade</span><span class="cb2-odds">${pc}%</span></button>
@@ -4238,11 +4239,17 @@ function showCampPopup(){
   const isElecQ=nextInto>=GAME.termLengthTurns-1;
   const yearsLeft=GAME.termLengthTurns-1-((GAME.turn)-(GAME.term-1)*GAME.termLengthTurns);
 
-  let h=`<div class="sectionhdr">${isElecQ?"🗳 Election Campaign — Final Quarter":"🗳 Ground Game"}</div>
+  const noEnergy=GAME.campEnergy<1;
+  const advLabel=isElecQ?"Hold Election ▸":(noEnergy?"Advance ▸":"Skip &amp; Advance ▸");
+
+  let h=`<div class="sectionhdr">${isElecQ?"🗳 Election Campaign — Final Quarter":"🗳 Campaigning"}</div>
     <div class="sectionsub">${isElecQ
       ?`<b style="color:var(--clay)">The election follows this quarter.</b> Make last-minute pushes, finalize your platform promises, then hold the election.`
       :`Spend remaining campaign energy before ending the quarter — persuade blocs to win them over or mobilize them to drive turnout. ${yearsLeft>0?`Election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`:''}`
     }</div>`;
+
+  // advance button at top
+  h+=`<div style="margin:10px 0 14px"><button class="enactbtn" id="campPopAdvance">${advLabel}</button></div>`;
 
   // energy meter
   h+=`<div class="energybar"><span class="energy-label">Campaign energy remaining</span>
@@ -4261,7 +4268,7 @@ function showCampPopup(){
     const noE=GAME.campEnergy<1;
     h+=`<div class="cbloc2">
       <div class="cb2-top"><span class="cb2-name">${s.name}</span><span class="cb2-appr" style="color:${appcol}">${Math.round(s.approval)}%</span></div>
-      <div class="cb2-meta">${Math.round(s.size*100)}% of voters · ${Math.round((s.turnout||0.5)*100)}% turnout${fat>0.4?` · <span class="cb2-fat">tiring of you</span>`:``}</div>
+      <div class="cb2-meta">${Math.round(s.size*100)}% of voters · ${Math.round((s.turnout||0.5)*100)}% turnout${fat>1.5?` · <span class="cb2-fat">tiring of you</span>`:``}</div>
       <div class="cb2-acts">
         <button class="cb2-btn persuade" data-push="persuade" data-sid="${sid}" ${noE?'disabled':''}>
           <span class="cb2-kind">Persuade</span><span class="cb2-odds">${pc}%</span></button>
@@ -4303,11 +4310,6 @@ function showCampPopup(){
     h+=`</div>`;
   }
 
-  // footer
-  h+=`<div class="camp-popup-foot">`;
-  if(!isElecQ)h+=`<button class="camp-popup-skip" id="campPopSkip">Skip &amp; advance</button>`;
-  h+=`<button class="enactbtn" id="campPopAdvance">${isElecQ?"Hold Election ▸":"Next Quarter ▸"}</button>`;
-  h+=`</div>`;
 
   const card=document.getElementById("campPopupCard");
   const savedScroll=card.scrollTop;
@@ -4327,13 +4329,6 @@ function showCampPopup(){
     if(i>=0)c.promises.splice(i,1); else c.promises.push(pid);
     showCampPopup();
   }));
-  // skip (non-election quarters only)
-  const skipBtn=document.getElementById("campPopSkip");
-  if(skipBtn)skipBtn.onclick=()=>{
-    document.getElementById("campPopupModal").classList.add("hidden");
-    doEndTurn();
-  };
-  // advance button
   document.getElementById("campPopAdvance").onclick=()=>{
     document.getElementById("campPopupModal").classList.add("hidden");
     if(isElecQ){
