@@ -1915,7 +1915,7 @@ const AGENCIES={
   deq:{name:"Dept. of Environmental Quality", domain:"envInfra", icon:"🧪",
     funding:0.5, costMin:0.12, costFull:0.32, capital:4,
     desc:"Air, water, and land quality regulation; cleanup of contaminated sites; permitting. Stronger enforcement lifts environmental quality but adds business friction.",
-    effects:{environment:9,gdp:-0.05}, ideology:{environment:-0.5,govSize:-0.3}},
+    effects:{environment:9}, ideology:{environment:-0.5,govSize:-0.3}},
   oprd:{name:"Parks & Recreation (OPRD)", domain:"envInfra", icon:"🏞️",
     funding:0.5, costMin:0.08, costFull:0.26, capital:4,
     desc:"State parks system — Silver Falls, Smith Rock, the coast (all of it public, by law). Lottery-funded since 1998. A direct driver of tourism appeal.",
@@ -4523,7 +4523,19 @@ function policyMarksFor(k){
 function directEffects(kind,obj){
   const out={};
   if(kind==="policy"){
-    for(const k in METRICS){const e=policyEffect(obj,k); if(Math.abs(e)>1e-6)out[k]=e;}
+    if(obj.mechanic==="tier"&&obj.tierEffects){
+      // Use target tier (policyLevel), not phased-in eff, so switching tiers shows the right effects immediately
+      const tgt=policyLevel(obj), n=(obj.tiers.length-1);
+      const lv=clamp(tgt,0,1)*n, lo=Math.floor(lv), hi=Math.min(n,lo+1), f=lv-lo;
+      for(const k in METRICS){
+        const a=(obj.tierEffects[lo]&&obj.tierEffects[lo][k])||0, b=(obj.tierEffects[hi]&&obj.tierEffects[hi][k])||0;
+        const raw=a+(b-a)*f;
+        const e=raw*efficacy()*(obj.revenueFull||obj.noOverhead?1:govOverheadMult());
+        if(Math.abs(e)>1e-6)out[k]=e;
+      }
+    } else {
+      for(const k in METRICS){const e=policyEffect(obj,k); if(Math.abs(e)>1e-6)out[k]=e;}
+    }
   } else if(kind==="agency"){
     const f=obj.funding??0.5;
     for(const k in (obj.effects||{}))out[k]=obj.effects[k]*f;
@@ -4697,13 +4709,19 @@ function effectsBreakdownHTML(kind,obj){
     h+=`<div class="ebnote">No direct metric effects.</div>`;
   }
 
-  // 1b. Direct effects on indicators (policies only)
-  if(kind==="policy"&&obj.indicatorEffects){
-    const ik=Object.keys(obj.indicatorEffects).filter(k=>Math.abs(obj.indicatorEffects[k]*policyLevel(obj))>0.01);
+  // 1b. Direct effects on indicators (policies only) — includes tierIndicatorEffects
+  if(kind==="policy"){
+    const indMap={};
+    const lvl=policyLevel(obj);
+    if(obj.indicatorEffects){for(const k in obj.indicatorEffects){const v=obj.indicatorEffects[k]*lvl;if(Math.abs(v)>0.01)indMap[k]=(indMap[k]||0)+v;}}
+    if(obj.mechanic==="tier"&&obj.tierIndicatorEffects&&obj.tierIndicatorEffects[obj.tierIndex]){
+      for(const k in obj.tierIndicatorEffects[obj.tierIndex]){const v=obj.tierIndicatorEffects[obj.tierIndex][k];if(Math.abs(v)>0.01)indMap[k]=(indMap[k]||0)+v;}
+    }
+    const ik=Object.keys(indMap).filter(k=>Math.abs(indMap[k])>0.01);
     if(ik.length){
       h+=`<div class="ebgroup-label">Direct effects on indicators</div><div class="ebgroup">`;
-      const scale=Math.max(1,...ik.map(k=>Math.abs(obj.indicatorEffects[k]*policyLevel(obj))));
-      for(const k of ik){const ind=INDICATORS[k];const val=obj.indicatorEffects[k]*policyLevel(obj);
+      const scale=Math.max(1,...ik.map(k=>Math.abs(indMap[k])));
+      for(const k of ik){const ind=INDICATORS[k];const val=indMap[k];
         h+=effectBar(ind?ind.name:k, val, scale, {color:val>=0?'var(--good)':'var(--clay)', link:"i_"+k, fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' pts'});}
       h+=`</div>`;
     }
@@ -4793,8 +4811,8 @@ function renderBoard(){
   for(const s of allStats()){
     const key=s.key, nid=(s.ind?"i_":"m_")+key, m=s.stat;
     const good=s.ind?(m.value>=50):(m.invert?(m.value<m.baseline+3):(m.value>m.baseline-3));
-    nodes[nid]={icon:m.icon||"📊", label:m.name, kind:s.ind?"indicator":"stat",
-      stroke:s.ind?'var(--slate-blue)':(good?'var(--moss)':'var(--clay)'),
+    nodes[nid]={icon:m.icon||"📊", label:m.name, kind:"stat",
+      stroke:good?'var(--moss)':'var(--clay)',
       val:s.ind?Math.round(m.value):fmtMetric(m), sec:sectionFor(key)};
   }
   // active crises/situations as nodes too (so the board shows the full system,
@@ -4935,8 +4953,7 @@ function renderBoard(){
   // legend for the graph node types — sits between the key metrics and the map
   h+=`<div class="boardlegend">
       <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="var(--paper)" stroke="var(--slate-blue)" stroke-width="2.2"/></svg>Policy / agency — your levers</span>
-      <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="var(--paper)" stroke="var(--moss)" stroke-width="2.2"/></svg>Statistic — a real outcome</span>
-      <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="var(--paper-2)" stroke="var(--slate-blue)" stroke-width="2.2" stroke-dasharray="4 3"/></svg>Indicator — a derived gauge</span>
+      <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="var(--paper)" stroke="var(--moss)" stroke-width="2.2"/></svg>Statistic — an outcome your policies shape</span>
       <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="#f6e9e4" stroke="var(--bad)" stroke-width="3"/></svg>Active crisis</span>
     </div>`;
   h+=`<div class="websearch" style="margin-top:10px"><input type="search" id="boardSearch" placeholder="Search policies, metrics, agencies…" autocomplete="off"></div>`;
@@ -5409,7 +5426,7 @@ function renderDetail(){
     const id=key.slice(2), ind=INDICATORS[id];
     const col=ind.value>=60?'var(--good)':ind.value>=42?'var(--warn)':'var(--bad)';
     h+=`<div class="sectionhdr">${ind.icon} ${ind.name}</div><div class="sectionsub">${ind.desc}</div>`;
-    h+=`<div class="detailrow"><span class="pill dom">Derived statistic</span><span class="pill">A gauge computed from other statistics &amp; crises — not directly settable</span></div>`;
+    h+=`<div class="detailrow"><span class="pill dom">State statistic</span><span class="pill">Computed from other statistics &amp; policies — reflects conditions, not a direct policy target</span></div>`;
     h+=`<div class="detailval" style="color:${col}">${Math.round(ind.value)}<span style="font-size:16px;color:#8a8270">/100</span></div>`;
     h+=`<div class="chartbox"><div class="charttitle">${ind.name} over time</div>
       ${sparkline(GAME.history["i_"+id],{axis:true,color:'var(--slate-blue)',min:0,max:100,fmt:v=>Math.round(v)})}</div>`;
@@ -5924,7 +5941,7 @@ function renderWeb(){
     nodes["m_"+k]={icon:"",label:m.name,cls:"metric",stroke:good?'var(--moss)':'var(--clay)',val:fmtMetric(m)};}
   // indicators + active situations middle ring
   const iIds=Object.keys(INDICATORS).map(k=>"i_"+k);
-  for(const k in INDICATORS)nodes["i_"+k]={icon:INDICATORS[k].icon,label:INDICATORS[k].name,cls:"indicator",stroke:'var(--slate-blue)',val:Math.round(INDICATORS[k].value)};
+  for(const k in INDICATORS){const iv=INDICATORS[k];const igood=iv.value>=50;nodes["i_"+k]={icon:iv.icon,label:iv.name,cls:"metric",stroke:igood?'var(--moss)':'var(--clay)',val:Math.round(iv.value)};}
   const sIds=Object.keys(GAME.activeSituations).filter(k=>SITUATIONS[k]).map(k=>"s_"+k);
   for(const k of Object.keys(GAME.activeSituations))if(SITUATIONS[k])nodes["s_"+k]={icon:SITUATIONS[k].kind==="good"?"✦":"⚠",label:SITUATIONS[k].name,cls:"situation",stroke:SITUATIONS[k].kind==="good"?'var(--good)':'var(--bad)',val:""};
   // policies + agencies + landuse outer ring
@@ -5958,7 +5975,7 @@ function renderWeb(){
   }
   svg+=`</svg>`;
   main.innerHTML=`<div class="sectionhdr">Issue Web</div>
-    <div class="sectionsub">The whole simulation as one map. Hover any bubble to light up everything it pushes and everything pushing it — <span style="color:var(--good)">green</span> helps, <span style="color:var(--clay)">red</span> hurts, <span style="color:var(--slate-blue)">blue</span> feeds a derived gauge. Click to open. Inner ring: state statistics · middle: derived gauges &amp; active crises · outer: your policies &amp; agencies.</div>
+    <div class="sectionsub">The whole simulation as one map. Hover any bubble to light up everything it pushes and everything pushing it — <span style="color:var(--good)">green</span> helps, <span style="color:var(--clay)">red</span> hurts. Click to open. Inner ring: state statistics · middle: active crises · outer: your policies &amp; agencies.</div>
     <div class="websearch"><input type="search" id="webSearch" placeholder="Search policies, metrics, agencies…" autocomplete="off"></div>
     <div class="webwrap">${svg}</div>`;
   // interactions
