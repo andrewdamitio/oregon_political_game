@@ -374,6 +374,10 @@
   .camplog-row{font-size:11px;padding:5px 10px;border-radius:3px;border-left:3px solid}
   .camplog-row.ok{background:#eef5e9;border-left-color:var(--moss);color:#3a5a40}
   .camplog-row.fail{background:#f6e9e4;border-left-color:var(--clay);color:#8a4a32}
+  .camp-popup-card{background:var(--paper);max-width:800px;width:96%;max-height:86vh;overflow-y:auto;padding:22px 24px;border-top:4px solid var(--slate-blue);border-radius:3px}
+  .camp-popup-foot{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-top:18px;padding-top:12px;border-top:1px solid var(--line)}
+  .camp-popup-skip{background:transparent;border:1px solid var(--line);color:#8a8270;padding:8px 18px;border-radius:3px;cursor:pointer;font-family:var(--font-display);font-size:14px}
+  .camp-popup-skip:hover{border-color:var(--ink);color:var(--ink)}
   .prom-status{font-size:9.5px;margin-top:5px;font-weight:600}
   .prom-status.met{color:var(--moss)}
   .prom-status.unmet{color:var(--clay)}
@@ -567,6 +571,7 @@
 <div id="electionModal" class="modal hidden"><div class="card" id="electionCard"></div></div>
 <div id="reportModal" class="modal hidden"><div class="card reportcard" id="reportCard"></div></div>
 <div id="dilemmaModal" class="modal hidden"><div class="card" id="dilemmaCard"></div></div>
+<div id="campPopupModal" class="modal hidden"><div class="camp-popup-card" id="campPopupCard"></div></div>
 
 <script>
 /* =====================================================================
@@ -3899,7 +3904,7 @@ function campChance(kind, sid){
     base += (s.approval-50)*0.004;              // friendly blocs turn out easier
     base += ((s.turnout||0.5)<0.5?0.06:-0.03);  // low-turnout blocs have headroom
   }
-  base -= (GAME.ground.fatigue[sid]||0)*0.12;   // fatigue from over-campaigning
+  base -= (GAME.ground.fatigue[sid]||0)*0.08;   // fatigue from over-campaigning
   return clamp(base, 0.12, 0.92);
 }
 
@@ -4160,37 +4165,12 @@ function showElection(r){
     render();
   };
 }
-function endTurn(){
-  if(GAME.gameOver)return;
-  if(GAME.pendingDilemma){GAME.log.push("❖ Resolve the dilemma before ending the quarter");render();return;}
-  settlePending();
-  currentView="board"; detailKey=null;
-  tickEconomy();
-  tickPhase();
-  tickEffSm();
-  tickMembership();
-  tickMetrics();
-  GAME.lastBalance=budgetBalance().balance;
-  settleFiscal();
-  tickNationalMood();
-  tickSituations();
-  maybeFireDilemma();
-  tickIndicators();
-  tickGrudges();
-  tickCynComp();
-  tickGroundGame();
-  tickApproval();
-  tickVoterApproval();
-  // political capital income scales with your Mandate. A strong mandate funds
-  // real action; a weak one constrains you — but never to a standstill, so you
-  // can always claw back. Roughly 4–13 per quarter (was a flat ~6).
+/* shared capital-income calc used by both doEndTurn and doElectionTurn */
+function _calcCapital(){
   const mand=INDICATORS.mandate.value;
-  GAME.mandateShock=(GAME.mandateShock||0)*0.82;          // event shocks fade over ~4-5 quarters
+  GAME.mandateShock=(GAME.mandateShock||0)*0.82;
   if(Math.abs(GAME.mandateShock)<0.3)GAME.mandateShock=0;
-  // Capital starvation: below mandate 25, each point of mandate lost cuts
-  // income harder — political paralysis when the public has lost confidence.
   const starvationFactor = mand < 25 ? Math.max(0.20, mand/25) : 1;
-  // Large angry unions strangle capital: they drag their feet on implementation and bleed political energy
   const uSize = SIMULANTS.publicUnions?.size ?? 0.07;
   const uApproval = SIMULANTS.publicUnions?.approval ?? 49;
   const unionBlock = (uSize > 0.05 && uApproval < 35)
@@ -4198,25 +4178,162 @@ function endTurn(){
     : 1.0;
   GAME.capitalPerTurn=+((4+mand/100*9)*starvationFactor*unionBlock).toFixed(1);
   GAME.capital=Math.round(clamp(GAME.capital+GAME.capitalPerTurn,0,100));
-  GAME.turn++;
-  pushHistory();
+}
+function _runTicks(){
+  settlePending();
+  currentView="board"; detailKey=null;
+  tickEconomy(); tickPhase(); tickEffSm(); tickMembership();
+  tickMetrics();
+  GAME.lastBalance=budgetBalance().balance;
+  settleFiscal(); tickNationalMood(); tickSituations(); maybeFireDilemma();
+  tickIndicators(); tickGrudges(); tickCynComp(); tickGroundGame();
+  tickApproval(); tickVoterApproval();
+}
+/* regular quarter advancement — called by the campaign popup "Next Quarter" button */
+function doEndTurn(){
+  _runTicks();
+  _calcCapital();
+  GAME.turn++; pushHistory();
   const into=GAME.turn-(GAME.term-1)*GAME.termLengthTurns;
   if(into===GAME.midtermTurn){
     const swing=overallApproval()>52?"a green wave — your hand is strengthened":overallApproval()<45?"a rebuke — your standing weakens":"a mixed verdict";
-    GAME.lastMargin=clamp((overallApproval()-50)/50,-1,1);   // midterms re-read your mandate
+    GAME.lastMargin=clamp((overallApproval()-50)/50,-1,1);
     GAME.log.push("🗳 Midterms: "+swing);
   }
-  // the final quarter of the term is the campaign: surface the campaign screen
-  // before the vote so the player can allocate effort and make promises
-  if(into===GAME.termLengthTurns-1 && !GAME.campaignDone){
-    openCampaign();
-    if(GAME.log.length>8)GAME.log=GAME.log.slice(-8);
-    return;
-  }
-  if(into>=GAME.termLengthTurns){GAME.campaignDone=false;render();showElection(runElection());return;}
   if(GAME.log.length>8)GAME.log=GAME.log.slice(-8);
   render();
-  if(!GAME.skipReport)showQuarterReport();   // briefing on the quarter just elapsed
+  if(!GAME.skipReport)showQuarterReport();
+}
+/* election quarter — ticks run for the campaign quarter, then the election fires */
+function doElectionTurn(){
+  _runTicks();
+  _calcCapital();
+  GAME.turn++; pushHistory();   // campaign quarter
+  GAME.turn++; pushHistory();   // election turn
+  if(GAME.log.length>8)GAME.log=GAME.log.slice(-8);
+  GAME.campaignDone=false;
+  render(); showElection(runElection());
+}
+/* campaign popup — shown every time the player clicks "End Quarter".
+   Lets the player spend ground-game energy and (on the election quarter)
+   finalize platform promises before the turn advances. */
+function showCampPopup(){
+  const c=GAME.campaign=GAME.campaign||{effort:{},promises:[],pool:10};
+  const nextInto=(GAME.turn+1)-(GAME.term-1)*GAME.termLengthTurns;
+  const isElecQ=nextInto>=GAME.termLengthTurns-1;
+  const yearsLeft=GAME.termLengthTurns-1-((GAME.turn)-(GAME.term-1)*GAME.termLengthTurns);
+
+  let h=`<div class="sectionhdr">${isElecQ?"🗳 Election Campaign — Final Quarter":"🗳 Ground Game"}</div>
+    <div class="sectionsub">${isElecQ
+      ?`<b style="color:var(--clay)">The election follows this quarter.</b> Make last-minute pushes, finalize your platform promises, then hold the election.`
+      :`Spend remaining campaign energy before ending the quarter — persuade blocs to win them over or mobilize them to drive turnout. ${yearsLeft>0?`Election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`:''}`
+    }</div>`;
+
+  // energy meter
+  h+=`<div class="energybar"><span class="energy-label">Campaign energy remaining</span>
+    <span class="energy-pips">${Array.from({length:GAME.campEnergyMax},(_,i)=>`<i class="${i<GAME.campEnergy?'on':''}"></i>`).join("")}</span>
+    <span class="energy-num">${GAME.campEnergy} / ${GAME.campEnergyMax}</span></div>`;
+
+  // bloc grid
+  h+=`<div class="campgrid2" style="margin-top:12px">`;
+  const blocs=Object.keys(SIMULANTS).sort((a,b)=>SIMULANTS[b].size-SIMULANTS[a].size);
+  for(const sid of blocs){
+    const s=SIMULANTS[sid];
+    const pc=Math.round(campChance("persuade",sid)*100), mc=Math.round(campChance("mobilize",sid)*100);
+    const pBoost=groundPerception(sid), tBoost=groundTurnout(sid);
+    const fat=GAME.ground.fatigue[sid]||0;
+    const appcol=s.approval>=55?'var(--good)':s.approval>=45?'var(--warn)':'var(--bad)';
+    const noE=GAME.campEnergy<1;
+    h+=`<div class="cbloc2">
+      <div class="cb2-top"><span class="cb2-name">${s.name}</span><span class="cb2-appr" style="color:${appcol}">${Math.round(s.approval)}%</span></div>
+      <div class="cb2-meta">${Math.round(s.size*100)}% of voters · ${Math.round((s.turnout||0.5)*100)}% turnout${fat>0.4?` · <span class="cb2-fat">tiring of you</span>`:``}</div>
+      <div class="cb2-acts">
+        <button class="cb2-btn persuade" data-push="persuade" data-sid="${sid}" ${noE?'disabled':''}>
+          <span class="cb2-kind">Persuade</span><span class="cb2-odds">${pc}%</span></button>
+        <button class="cb2-btn mobilize" data-push="mobilize" data-sid="${sid}" ${noE?'disabled':''}>
+          <span class="cb2-kind">Mobilize</span><span class="cb2-odds">${mc}%</span></button>
+      </div>
+      ${(pBoost>0.05||tBoost>0.005)?`<div class="cb2-boosts">${pBoost>0.05?`<span class="cb2-boost good">+${pBoost.toFixed(1)} perception</span>`:``}${tBoost>0.005?`<span class="cb2-boost good">+${Math.round(tBoost*100)} turnout</span>`:``}</div>`:``}
+    </div>`;
+  }
+  h+=`</div>`;
+
+  // recent push results
+  if(GAME.campLog.length){
+    h+=`<div class="ebgroup-label" style="margin-top:14px">Recent results</div><div class="camplog">`;
+    for(const e of GAME.campLog.slice(0,4))h+=`<div class="camplog-row ${e.ok?'ok':'fail'}">${e.msg}</div>`;
+    h+=`</div>`;
+  }
+
+  // election quarter only: platform promises
+  if(isElecQ){
+    h+=`<div class="ebgroup-label" style="margin-top:18px">Platform promises — finalize before the vote</div>
+      <div class="sectionsub" style="margin-top:0">Kept promises reward you with the blocs that cared; broken ones hurt your mandate next term.</div>
+      <div class="promgrid">`;
+    for(const pid in PROMISES){
+      const pr=PROMISES[pid], on=c.promises.includes(pid);
+      if(pr.check()&&!on)continue;
+      const metCount=pr.criteria.filter(cr=>cr.check()).length;
+      const total=pr.criteria.length;
+      const allMet=metCount===total, someMet=!allMet&&metCount>0;
+      const statusClass=allMet?'met':someMet?'partial':'unmet';
+      const statusLabel=allMet?'On track to keep':someMet?`Partial (${metCount}/${total} met)`:'Not on track';
+      const criteriaHtml=pr.criteria.map(cr=>`<div class="prom-criterion ${cr.check()?'crit-met':'crit-unmet'}">${cr.check()?'✓':'–'} ${cr.label}</div>`).join('');
+      h+=`<div class="promcard ${on?'promon':''}" data-prom="${pid}">
+        <div class="promlabel">${on?'✓ ':''}${pr.label}</div>
+        <div class="promblocs">${pr.bloc.map(b=>SIMULANTS[b]?SIMULANTS[b].name:b).join(' · ')}</div>
+        <div class="prom-criteria">${criteriaHtml}</div>
+        ${on?`<div class="prom-status ${statusClass}">${statusLabel}</div>`:``}</div>`;
+    }
+    h+=`</div>`;
+  }
+
+  // footer
+  h+=`<div class="camp-popup-foot">`;
+  if(!isElecQ)h+=`<button class="camp-popup-skip" id="campPopSkip">Skip &amp; advance</button>`;
+  h+=`<button class="enactbtn" id="campPopAdvance">${isElecQ?"Hold Election ▸":"Next Quarter ▸"}</button>`;
+  h+=`</div>`;
+
+  const card=document.getElementById("campPopupCard");
+  const savedScroll=card.scrollTop;
+  card.innerHTML=h;
+  card.scrollTop=savedScroll;
+  document.getElementById("campPopupModal").classList.remove("hidden");
+
+  // wire push buttons (re-render popup on click to update odds/boosts/log)
+  card.querySelectorAll('[data-push]').forEach(el=>el.addEventListener('click',()=>{
+    const r=campPush(el.dataset.push, el.dataset.sid);
+    if(r)GAME.log.push(r.msg);
+    showCampPopup();
+  }));
+  // wire promise toggles
+  card.querySelectorAll('[data-prom]').forEach(el=>el.addEventListener('click',()=>{
+    const pid=el.dataset.prom, i=c.promises.indexOf(pid);
+    if(i>=0)c.promises.splice(i,1); else c.promises.push(pid);
+    showCampPopup();
+  }));
+  // skip (non-election quarters only)
+  const skipBtn=document.getElementById("campPopSkip");
+  if(skipBtn)skipBtn.onclick=()=>{
+    document.getElementById("campPopupModal").classList.add("hidden");
+    doEndTurn();
+  };
+  // advance button
+  document.getElementById("campPopAdvance").onclick=()=>{
+    document.getElementById("campPopupModal").classList.add("hidden");
+    if(isElecQ){
+      GAME.activePromises=c.promises.map(pid=>({id:pid, madeTerm:GAME.term}));
+      GAME.campaign={effort:{}, promises:c.promises, pool:10};
+      doElectionTurn();
+    } else {
+      doEndTurn();
+    }
+  };
+}
+function endTurn(){
+  if(GAME.gameOver)return;
+  if(GAME.pendingDilemma){GAME.log.push("❖ Resolve the dilemma before ending the quarter");render();return;}
+  showCampPopup();
 }
 
 let currentView="board";
