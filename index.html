@@ -3503,6 +3503,64 @@ function metricMood(sim){
   if(s.gdp!==undefined&&s.gdp>1.0)mood+=(INDICATORS.businessClimate.value-50)*0.03*(s.gdp-0.5);
   return mood;
 }
+// Returns the approval-point contribution of a single metric or indicator key
+// to a specific simulant, mirroring metricMood(). Returns null when that key
+// does not affect this bloc (sensitivity not defined / condition not met).
+function blocContribFor(key, sim, sid){
+  const s=sim.sensitivities||{};
+  const w=k=>(s[k]!==undefined?s[k]:1);
+  const visibleAmp=1+clamp((50-INDICATORS.downtown.value),0,50)/45;
+  const visAmp=1+clamp((50-INDICATORS.downtown.value),0,50)/55;
+  const blunt=1-clamp(METRICS.transitShare.value,0,40)/55;
+  const gw=s.gasprice!==undefined?s.gasprice:0.8;
+  const evBase=clamp(METRICS.evAdoption.value/100,0,1);
+  const evDampen=1-evBase*(sid==="motorists"?0.55:0.25);
+  switch(key){
+    case "education":        return (effective("education")-55)*0.07*w("education");
+    case "unemployment":     return (effective("unemployment")-80)*0.08*w("unemployment");
+    case "violentCrime":
+    case "propertyCrime":    return (((effective("violentCrime")*0.6+effective("propertyCrime")*0.4))-50)*0.08*w("crime");
+    case "homelessness":     return (effective("homelessness")-45)*0.12*w("homelessness")*visibleAmp;
+    case "health":           return (effective("health")-55)*0.06*w("health");
+    case "environment":      return (effective("environment")-60)*0.07*w("environment");
+    case "gdp":              return (METRICS.gdp.value-2.0)*1.1*w("gdp");
+    case "inequality":       return s.inequality!==undefined?(effective("inequality")-45)*0.07*s.inequality:null;
+    case "drugUse":          return -(effective("drugUse")-50)*0.08*w("crime")*visAmp;
+    case "eduOutcomes":      {let eo=(effective("eduOutcomes")-43)*0.05*w("education"); if((s.education||1)>1.5)eo+=(effective("eduOutcomes")-43)*0.05*(s.education-1.0); return eo;}
+    case "behavioralHealth": return (effective("behavioralHealth")-45)*0.05*w("health");
+    case "alcoholUse":       return -(effective("alcoholUse")-55)*0.02*w("health");
+    case "disposableIncome": return (effective("disposableIncome")-52)*0.18*(s.income!==undefined?s.income:1.0);
+    case "transitShare":     return s.transit!==undefined?(METRICS.transitShare.value-8)*0.06*s.transit:null;
+    case "loggingRate":      return s.logging!==undefined?(METRICS.loggingRate.value-40)*0.05*s.logging:null;
+    case "incarcerationRate":return s.incarceration!==undefined?(METRICS.incarcerationRate.value-50)*0.04*s.incarceration:null;
+    case "taxBurden":        {if(s.taxes===undefined)return null; let tx=(38-METRICS.taxBurden.value)*0.32*s.taxes; if(s.taxes>1.2)tx-=(INDICATORS.taxGrievance.value-42)*0.06*(s.taxes-0.6); return tx;}
+    case "gasPrice":         return -(METRICS.gasPrice.value-3.6)*4.0*blunt*gw*evDampen;
+    case "evAdoption":       {const rawGas=-(METRICS.gasPrice.value-3.6)*4.0*blunt*gw; return -rawGas*evBase*(sid==="motorists"?0.55:0.25);}
+    case "businessClimate":  {let bc=(INDICATORS.businessClimate.value-50)*0.06; if(s.gdp!==undefined&&s.gdp>1.0)bc+=(INDICATORS.businessClimate.value-50)*0.03*(s.gdp-0.5); return bc;}
+    case "downtown":         return (INDICATORS.downtown.value-50)*0.04;
+    case "inMigration":      return (INDICATORS.inMigration.value-50)*0.03;
+    case "ruralAlienation":  return (sim.ideology&&sim.ideology.social>0.3)?-(INDICATORS.ruralAlienation.value-45)*0.05*sim.ideology.social:null;
+    case "taxGrievance":     return (s.taxes!==undefined&&s.taxes>1.2)?-(INDICATORS.taxGrievance.value-42)*0.06*(s.taxes-0.6):null;
+    case "govSpend":         {if(s.govSpend===undefined)return null; const spd=budgetBalance().spend; return (spd-20)*1.2*s.govSpend;}
+    default: return null;
+  }
+}
+// Renders a "Voter bloc impact" bar section for a given metric/indicator key.
+function blocImpactHTML(key){
+  const impacts=[];
+  for(const sid in SIMULANTS){
+    const sim=SIMULANTS[sid]; if(sim.static)continue;
+    const v=blocContribFor(key,sim,sid);
+    if(v!==null&&Math.abs(v)>0.08)impacts.push({sid,name:sim.name,v});
+  }
+  if(!impacts.length)return "";
+  impacts.sort((a,b)=>Math.abs(b.v)-Math.abs(a.v));
+  const scale=Math.max(0.5,...impacts.map(c=>Math.abs(c.v)));
+  let h=`<div class="ebgroup-label">Current approval impact per voter bloc</div><div class="ebgroup">`;
+  for(const c of impacts)h+=effectBar(c.name,c.v,scale,{color:c.v>=0?'var(--good)':'var(--clay)',link:"v_"+c.sid,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' pts'});
+  h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Approval points this is currently contributing to each bloc, given their sensitivities and the metric's current value. Click a bloc to see its full approval breakdown.</div></div>`;
+  return h;
+}
 function tickApproval(){
   for(const sid in SIMULANTS){
     const sim=SIMULANTS[sid];
@@ -4998,10 +5056,11 @@ function renderDetail(){
           h+=effectBar((tm?.icon||'')+' '+(tm?.name||L.to),delta,scale,
             {color:goodForM(L.to,delta)?'var(--good)':'var(--clay)',link:'m_'+L.to,fmt:v=>(v>=0?'+':'')+v.toFixed(2)});
         }
-        h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Per-turn equilibrium nudge on linked metrics at the current value. To see how this metric affects a specific voter bloc, click that bloc in the Voters tab.</div>`;
+        h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Per-turn equilibrium nudge on linked metrics at the current value.</div>`;
         h+=`</div>`;
       }
     }
+    h+=blocImpactHTML(k);
   } else if(key.startsWith("p_")){
     const id=key.slice(2), p=POLICIES[id];
     if(!p){h+=`<div class="sectionsub">This policy is no longer enacted. It may have been repealed — check New Policies to re-enact it.</div>`;main.innerHTML=h;return;}
@@ -5348,6 +5407,7 @@ function renderDetail(){
       h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Each point this indicator sits above 50 nudges these metrics per quarter (and vice-versa below 50).</div></div>`;
     }
     h+=`<div class="sectionsub" style="margin-top:12px">This indicator is computed from the state of your metrics and active situations — improve the underlying conditions and it follows, with some lag.</div>`;
+    h+=blocImpactHTML(id);
   }
   main.innerHTML=h;
   // back/undo: wire BOTH directly (reliable) and rely on delegation as backup.
