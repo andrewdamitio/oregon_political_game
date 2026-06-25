@@ -2135,10 +2135,13 @@ const EXCLUSIVE=new Set(["socialist","liberal","moderate","conservative","libert
 /* policy/condition-driven membership deltas (global, added to innate).
    desc strings surface on voter pages. */
 const MEMBERSHIP_DRIVERS={
-  motorists:{f:()=>-(METRICS.transitShare.value-8)*0.014 - (POLICIES.modeSplit?effLevelOf(POLICIES.modeSplit)-0.35:0)*0.10,
-    desc:"Shrinks as bike/transit commuting grows and the Transportation Mix tilts away from highways."},
-  transitCommuters:{f:()=>(METRICS.transitShare.value-8)*0.016,
-    desc:"Grows directly with the bike/transit commute share."},
+  motorists:{f:()=>-(METRICS.transitShare.value-8)*0.014
+    - (POLICIES.modeSplit?effLevelOf(POLICIES.modeSplit)-0.35:0)*0.10
+    - clamp((METRICS.gasPrice.value-3.6)*0.008, -0.05, 0.02),
+    desc:"Shrinks as bike/transit commuting grows, gas prices rise, and the Transportation Mix tilts toward transit."},
+  transitCommuters:{f:()=>(METRICS.transitShare.value-8)*0.016
+    +(POLICIES.transitInvestment&&POLICIES.transitInvestment.enacted?(policyLevel(POLICIES.transitInvestment)-0.4)*0.025:0),
+    desc:"Grows as the bike/transit commute share rises; boosted directly by Transit & Rail Investment funding."},
   publicUnions:{f:()=>(POLICIES.rightToWork?-(effLevelOf(POLICIES.rightToWork))*0.15:0)
     +(POLICIES.collectiveBargaining?(policyLevel(POLICIES.collectiveBargaining)-1.0)*0.12:0)
     -(POLICIES.schoolChoice?effLevelOf(POLICIES.schoolChoice)*0.04:0)
@@ -3461,12 +3464,13 @@ function metricMood(sim){
     mood+=(38-METRICS.taxBurden.value)*0.32*s.taxes; // ALL taxes feed the burden composite
   }
   // gas prices: pain scaled by how car-dependent the state still is —
-  // a high bike/transit commute share blunts it for everyone, and each
-  // group's own gasprice sensitivity reflects its car dependence
+  // a high bike/transit commute share blunts it for everyone; rising EV
+  // adoption further blunts it specifically for motorists (more drive EVs)
   {
     const blunt=1-clamp(METRICS.transitShare.value,0,40)/55;
     const gw=s.gasprice!==undefined?s.gasprice:0.8;
-    mood-=(METRICS.gasPrice.value-3.6)*3.0*blunt*gw;
+    const evDampen=sim.id==="motorists"?1-clamp(METRICS.evAdoption.value/100,0,1)*0.55:1;
+    mood-=(METRICS.gasPrice.value-3.6)*3.0*blunt*gw*evDampen;
   }
   // disposable income: pocketbook term in every group's voter model
   mood+=(METRICS.disposableIncome.value-52)*0.06*(s.income!==undefined?s.income:1);
@@ -4199,6 +4203,8 @@ function _runTicks(){
   settlePending();
   currentView="board"; detailKey=null;
   tickEconomy(); tickPhase(); tickEffSm(); tickMembership();
+  // EV adoption drifts upward each quarter: ZEV mandate, falling prices, charging expansion
+  METRICS.evAdoption.eq = Math.min(75, 13 + GAME.turn * 0.5);
   tickMetrics();
   GAME.lastBalance=budgetBalance().balance;
   settleFiscal(); tickNationalMood(); tickSituations(); maybeFireDilemma();
