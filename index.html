@@ -1137,6 +1137,7 @@ const METRIC_LINKS=[
   {from:"behavioralHealth",to:"homelessness",  coef:-0.05, ref:50},
   {from:"alcoholUse",     to:"health",         coef:-0.03, ref:55},
   {from:"alcoholUse",     to:"violentCrime",   coef:0.025, ref:55}, // alcohol-fueled violence
+  {from:"education",      to:"alcoholUse",     coef:0.018, ref:82}, // higher-ed culture — college-educated OR drinks more
   {from:"obesity",        to:"health",         coef:-0.06, ref:30}, // chronic-disease burden
   {from:"eduOutcomes",    to:"unemployment",   coef:-0.012, ref:42},// real skills lower joblessness
   {from:"eduOutcomes",    to:"gdp",            coef:0.010, ref:42}, // a skilled workforce grows the economy
@@ -1287,7 +1288,7 @@ const POLICIES={
   universities:{name:"Public Universities", domain:"eduHealth", icon:"🎓", phaseIn:6, enacted:true, mechanic:"slider",
     desc:"Research universities (UO, OSU, PSU). Drive degrees, research, and growth — but benefits skew toward wealthier, urban students. Heavy university tilt can widen inequality.",
     value:0.45, costFull:1.4, capital:5,
-    effects:{education:11, gdp:0.4, inequality:5},
+    effects:{education:11, gdp:0.4, inequality:2},
     sizeEffect:{students:0.025}, sizeRefLevel:0.5,
     instTier:"university",
     ideology:{economic:-0.2,govSize:-0.3}},
@@ -2147,37 +2148,91 @@ const EXCLUSIVE=new Set(["socialist","liberal","moderate","conservative","libert
 /* policy/condition-driven membership deltas (global, added to innate).
    desc strings surface on voter pages. */
 const MEMBERSHIP_DRIVERS={
-  motorists:{f:()=>-(METRICS.transitShare.value-8)*0.014
-    - (POLICIES.modeSplit?effLevelOf(POLICIES.modeSplit)-0.35:0)*0.10
-    - clamp((METRICS.gasPrice.value-3.6)*0.008, -0.05, 0.02),
-    desc:"Shrinks as bike/transit commuting grows, gas prices rise, and the Transportation Mix tilts toward transit."},
-  transitCommuters:{f:()=>(METRICS.transitShare.value-8)*0.016
-    +(POLICIES.transitInvestment&&POLICIES.transitInvestment.enacted?(policyLevel(POLICIES.transitInvestment)-0.4)*0.025:0),
-    desc:"Grows as the bike/transit commute share rises; boosted directly by Transit & Rail Investment funding."},
-  publicUnions:{f:()=>(POLICIES.rightToWork?-(effLevelOf(POLICIES.rightToWork))*0.15:0)
-    +(POLICIES.collectiveBargaining?(policyLevel(POLICIES.collectiveBargaining)-1.0)*0.12:0)
-    -(POLICIES.schoolChoice?effLevelOf(POLICIES.schoolChoice)*0.04:0)
-    +(POLICIES.stateSchoolFund?(effLevelOf(POLICIES.stateSchoolFund)-0.5)*0.04:0)
-    +(spendTotal()/19.5-1)*0.04,
-    desc:"Grows with public spending and school funding; Right-to-Work, banned collective bargaining, and school choice vouchers all shrink it."},
-  businessClass:{f:()=>(INDICATORS.businessClimate.value-55)*0.0018
-    +(POLICIES.deregulation?effLevelOf(POLICIES.deregulation)*0.03:0)
-    +(GAME.activeSituations.techBoom?0.01:0),
-    desc:"Tracks the business climate; deregulation and tech booms swell it."},
-  collegeEducated:{f:()=>(METRICS.education.value-64)*0.0014+(INDICATORS.inMigration.value-50)*0.0010,
-    desc:"Grows with educational attainment and the in-migration of credentialed workers."},
-  blueCollar:{f:()=>(METRICS.unemployment.value-5)*0.005
-    -(METRICS.education.value-64)*0.001
-    -(POLICIES.deregulation?effLevelOf(POLICIES.deregulation)*0.02:0),
-    desc:"Unemployment pushes people into precarity; rising attainment and deregulation slowly shrink it."},
-  students:{f:()=>((POLICIES.universities?effLevelOf(POLICIES.universities):0.5)+(POLICIES.communityColleges?effLevelOf(POLICIES.communityColleges):0.5)-1.0)*0.05,
-    desc:"Higher-ed funding levels grow enrollment."},
-  timber:{f:()=>(METRICS.loggingRate.value-40)*0.0018,
-    desc:"Harvest levels sustain resource-economy communities."},
-  retirees:{f:()=>0.002,
-    desc:"Oregon ages: slow steady growth every quarter regardless of policy."},
-  parents:{f:()=>(INDICATORS.inMigration.value-50)*0.0010,
-    desc:"Young families move in when Oregon is thriving."},
+  motorists:{
+    f:()=>-(METRICS.transitShare.value-8)*0.014
+      -(POLICIES.modeSplit?effLevelOf(POLICIES.modeSplit)-0.35:0)*0.10
+      -clamp((METRICS.gasPrice.value-3.6)*0.008,-0.05,0.02),
+    desc:"Shrinks as bike/transit commuting grows, gas prices rise, and the Transportation Mix tilts toward transit.",
+    drivers:()=>{const d=[];
+      d.push({name:"🚌 Transit/bike share",v:-(METRICS.transitShare.value-8)*0.014,link:"m_transitShare"});
+      if(POLICIES.modeSplit)d.push({name:"🚲 Transportation Mix policy",v:-(effLevelOf(POLICIES.modeSplit)-0.35)*0.10,link:"p_modeSplit"});
+      d.push({name:"⛽ Gas prices",v:-clamp((METRICS.gasPrice.value-3.6)*0.008,-0.05,0.02),link:"m_gasPrice"});
+      return d;}},
+  transitCommuters:{
+    f:()=>(METRICS.transitShare.value-8)*0.016
+      +(POLICIES.transitInvestment&&POLICIES.transitInvestment.enacted?(policyLevel(POLICIES.transitInvestment)-0.4)*0.025:0),
+    desc:"Grows as the bike/transit commute share rises; boosted directly by Transit & Rail Investment funding.",
+    drivers:()=>{const d=[];
+      d.push({name:"🚌 Transit/bike share",v:(METRICS.transitShare.value-8)*0.016,link:"m_transitShare"});
+      if(POLICIES.transitInvestment&&POLICIES.transitInvestment.enacted)
+        d.push({name:"🚆 Transit & Rail Investment",v:(policyLevel(POLICIES.transitInvestment)-0.4)*0.025,link:"p_transitInvestment"});
+      return d;}},
+  publicUnions:{
+    f:()=>(POLICIES.rightToWork?-(effLevelOf(POLICIES.rightToWork))*0.15:0)
+      +(POLICIES.collectiveBargaining?(policyLevel(POLICIES.collectiveBargaining)-1.0)*0.12:0)
+      -(POLICIES.schoolChoice?effLevelOf(POLICIES.schoolChoice)*0.04:0)
+      +(POLICIES.stateSchoolFund?(effLevelOf(POLICIES.stateSchoolFund)-0.5)*0.04:0)
+      +(spendTotal()/19.5-1)*0.04,
+    desc:"Grows with public spending and school funding; Right-to-Work, banned collective bargaining, and school choice vouchers all shrink it.",
+    drivers:()=>{const d=[];
+      d.push({name:"💰 Government spending",v:(spendTotal()/19.5-1)*0.04,link:"budget"});
+      if(POLICIES.stateSchoolFund)d.push({name:"🏫 State School Fund",v:(effLevelOf(POLICIES.stateSchoolFund)-0.5)*0.04,link:"p_stateSchoolFund"});
+      if(POLICIES.collectiveBargaining)d.push({name:"🤝 Collective Bargaining",v:(policyLevel(POLICIES.collectiveBargaining)-1.0)*0.12,link:"p_collectiveBargaining"});
+      if(POLICIES.rightToWork)d.push({name:"⚒️ Right-to-Work",v:-(effLevelOf(POLICIES.rightToWork))*0.15,link:"p_rightToWork"});
+      if(POLICIES.schoolChoice)d.push({name:"🎟️ School Choice",v:-(effLevelOf(POLICIES.schoolChoice))*0.04,link:"p_schoolChoice"});
+      return d;}},
+  businessClass:{
+    f:()=>(INDICATORS.businessClimate.value-55)*0.0018
+      +(POLICIES.deregulation?effLevelOf(POLICIES.deregulation)*0.03:0)
+      +(GAME.activeSituations.techBoom?0.01:0),
+    desc:"Tracks the business climate; deregulation and tech booms swell it.",
+    drivers:()=>{const d=[];
+      d.push({name:"📈 Business climate",v:(INDICATORS.businessClimate.value-55)*0.0018,link:"i_businessClimate"});
+      if(POLICIES.deregulation)d.push({name:"📋 Deregulation",v:effLevelOf(POLICIES.deregulation)*0.03,link:"p_deregulation"});
+      if(GAME.activeSituations.techBoom)d.push({name:"💻 Tech boom",v:0.01});
+      return d;}},
+  collegeEducated:{
+    f:()=>(METRICS.education.value-64)*0.0014+(INDICATORS.inMigration.value-50)*0.0010,
+    desc:"Grows with educational attainment and the in-migration of credentialed workers.",
+    drivers:()=>[
+      {name:"🎓 Education quality",v:(METRICS.education.value-64)*0.0014,link:"m_education"},
+      {name:"📊 In-migration",v:(INDICATORS.inMigration.value-50)*0.0010,link:"i_inMigration"},
+    ]},
+  blueCollar:{
+    f:()=>(METRICS.unemployment.value-5)*0.005
+      -(METRICS.education.value-64)*0.001
+      -(POLICIES.deregulation?effLevelOf(POLICIES.deregulation)*0.02:0),
+    desc:"Unemployment pushes people into precarity; rising attainment and deregulation slowly shrink it.",
+    drivers:()=>{const d=[];
+      d.push({name:"📉 Unemployment",v:(METRICS.unemployment.value-5)*0.005,link:"m_unemployment"});
+      d.push({name:"🎓 Education attainment",v:-(METRICS.education.value-64)*0.001,link:"m_education"});
+      if(POLICIES.deregulation)d.push({name:"📋 Deregulation",v:-(effLevelOf(POLICIES.deregulation))*0.02,link:"p_deregulation"});
+      return d;}},
+  students:{
+    f:()=>((POLICIES.universities?effLevelOf(POLICIES.universities):0.5)+(POLICIES.communityColleges?effLevelOf(POLICIES.communityColleges):0.5)-1.0)*0.05,
+    desc:"Higher-ed funding levels grow enrollment.",
+    drivers:()=>{const d=[];
+      if(POLICIES.universities)d.push({name:"🎓 Public Universities",v:(effLevelOf(POLICIES.universities)-0.5)*0.05,link:"p_universities"});
+      if(POLICIES.communityColleges)d.push({name:"🏫 Community Colleges",v:(effLevelOf(POLICIES.communityColleges)-0.5)*0.05,link:"p_communityColleges"});
+      return d;}},
+  timber:{
+    f:()=>(METRICS.loggingRate.value-40)*0.0018,
+    desc:"Harvest levels sustain resource-economy communities.",
+    drivers:()=>[
+      {name:"🌲 Logging rate",v:(METRICS.loggingRate.value-40)*0.0018,link:"m_loggingRate"},
+    ]},
+  retirees:{
+    f:()=>0.002,
+    desc:"Oregon ages: slow steady growth every quarter regardless of policy.",
+    drivers:()=>[
+      {name:"👴 Oregon's aging population",v:0.002},
+    ]},
+  parents:{
+    f:()=>(INDICATORS.inMigration.value-50)*0.0010,
+    desc:"Young families move in when Oregon is thriving.",
+    drivers:()=>[
+      {name:"📊 In-migration of families",v:(INDICATORS.inMigration.value-50)*0.0010,link:"i_inMigration"},
+    ]},
 };
 /* entrenchment: fraction of the gap closed per quarter (D4 inertia-scaling:
    ideological identity moves 3-5x slower than behavioral identity) */
@@ -5360,8 +5415,18 @@ function renderDetail(){
       h+=`<div class="ebgroup-label">Membership influences</div><div class="ebgroup">`;
       if(md){
         const delta=clamp(md.f(),-0.35,0.35);
-        h+=effectBar("Trend this quarter",delta*100,5,{color:delta>=0?'var(--good)':'var(--clay)',fmt:v=>(v>=0?'+':'')+v.toFixed(2)+'%/qtr'});
-        h+=`<div class="threshline" style="margin-top:4px">${md.desc}</div>`;
+        h+=effectBar("Net trend this quarter",delta*100,5,{color:delta>=0?'var(--good)':'var(--clay)',fmt:v=>(v>=0?'+':'')+v.toFixed(2)+'%/qtr'});
+        if(md.drivers){
+          const drvs=md.drivers().filter(d=>Math.abs(d.v)>0.00005);
+          if(drvs.length){
+            const ds=Math.max(0.0005,...drvs.map(d=>Math.abs(d.v)))*100;
+            for(const d of drvs)
+              h+=effectBar(d.name,d.v*100,ds,{color:d.v>=0?'var(--good)':'var(--clay)',
+                link:d.link,fmt:v=>(v>=0?'+':'')+v.toFixed(2)+'%/qtr'});
+          }
+        } else {
+          h+=`<div class="threshline" style="margin-top:4px">${md.desc}</div>`;
+        }
       }
       if(isIncomeMob){
         const di=METRICS.disposableIncome.value;
