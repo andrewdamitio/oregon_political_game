@@ -1143,7 +1143,6 @@ const METRIC_LINKS=[
   {from:"evAdoption",     to:"gasPrice",       coef:-0.004, ref:13},// demand relief at the pump
   {from:"evAdoption",     to:"environment",    coef:0.05, ref:13},  // cleaner transport
   {from:"health",         to:"gdp",            coef:0.006, ref:58}, // a healthy workforce is productive
-  {from:"health",         to:"taxBurden",      coef:-0.04, ref:58}, // poor health → higher Medicaid/OHP costs
   {from:"health",         to:"disposableIncome",coef:0.03, ref:58}, // poor health → higher personal healthcare costs
   // ---- connectivity sweep: make under-connected metrics push outward ----
   {from:"inequality",     to:"gdp",            coef:-0.008, ref:55}, // extreme inequality saps broad demand
@@ -3474,11 +3473,12 @@ function metricMood(sim){
   }
   // gas prices: pain scaled by how car-dependent the state still is —
   // a high bike/transit commute share blunts it for everyone; rising EV
-  // adoption further blunts it specifically for motorists (more drive EVs)
+  // adoption blunts it for everyone; strongest for motorists (more drive EVs themselves)
   {
     const blunt=1-clamp(METRICS.transitShare.value,0,40)/55;
     const gw=s.gasprice!==undefined?s.gasprice:0.8;
-    const evDampen=sim.id==="motorists"?1-clamp(METRICS.evAdoption.value/100,0,1)*0.55:1;
+    const evBase=clamp(METRICS.evAdoption.value/100,0,1);
+    const evDampen=1-evBase*(sim.id==="motorists"?0.55:0.25);
     mood-=(METRICS.gasPrice.value-3.6)*4.0*blunt*gw*evDampen;
   }
   // disposable income: pocketbook term in every group's voter model
@@ -5124,7 +5124,6 @@ function renderDetail(){
       const visAmp=1+clamp((50-INDICATORS.downtown.value),0,50)/55;
       const blunt=1-clamp(METRICS.transitShare.value,0,40)/55;
       const gw=ss.gasprice!==undefined?ss.gasprice:0.8;
-      const evDampen=sid==="motorists"?1-clamp(METRICS.evAdoption.value/100,0,1)*0.55:1;
       const mc=[];
       const add=(lbl,v,lnk)=>{if(Math.abs(v)>0.08)mc.push({lbl,v,lnk});};
       add("Education Quality",(effective('education')-55)*0.07*w2('education'),'m_education');
@@ -5144,7 +5143,7 @@ function renderDetail(){
       if(ss.logging!==undefined)add("Timber Economy",(METRICS.loggingRate.value-40)*0.05*ss.logging,'m_loggingRate');
       if(ss.incarceration!==undefined)add("Incarceration Rate",(METRICS.incarcerationRate.value-50)*0.04*ss.incarceration,'m_incarcerationRate');
       if(ss.taxes!==undefined){let tx=(38-METRICS.taxBurden.value)*0.32*ss.taxes;if(ss.taxes>1.2)tx-=(INDICATORS.taxGrievance.value-42)*0.06*(ss.taxes-0.6);add("Tax Burden",tx,'m_taxBurden');}
-      add("Gas Prices",-(METRICS.gasPrice.value-3.6)*4.0*blunt*gw*evDampen,'m_gasPrice');
+      {const rawGas=-(METRICS.gasPrice.value-3.6)*4.0*blunt*gw; add("Gas Prices",rawGas,'m_gasPrice'); const evBase2=clamp(METRICS.evAdoption.value/100,0,1); const evFactor=sid==="motorists"?0.55:0.25; const evBenefit=-rawGas*evBase2*evFactor; if(Math.abs(evBenefit)>0.08)add("🔌 EV Adoption (cushions gas-price pain)",evBenefit,'m_evAdoption');}
       {let bc=(INDICATORS.businessClimate.value-50)*0.06;if(ss.gdp!==undefined&&ss.gdp>1.0)bc+=(INDICATORS.businessClimate.value-50)*0.03*(ss.gdp-0.5);add("Business Climate",bc,'i_businessClimate');}
       add("Downtown Vitality",(INDICATORS.downtown.value-50)*0.04,'i_downtown');
       add("Population Growth",(INDICATORS.inMigration.value-50)*0.03,'i_inMigration');
