@@ -2282,7 +2282,7 @@ const DILEMMAS={
        apply:()=>{createGrudge("m_gdp",0.15,0.9,"Data center investment");createGrudge("v_businessClass",4,0.9,"Open for business");createGrudge("v_timber",2,0.9,"Rural jobs");createGrudge("m_environment",-0.5,0.9,"Water & power strain");createGrudge("v_liberal",-3,0.9,"Corporate giveaway");}},
       {label:"Reject it", text:"The data center is rejected.",
        apply:()=>{createGrudge("v_liberal",3,0.9,"Held the line on water");createGrudge("v_businessClass",-4,0.9,"Hostile to investment");createGrudge("i_businessClimate",-3,0.9,"Deal rejected");}}]},
-  campSweep:{title:"The Downtown Camps", icon:"⛺",
+  campSweep:{title:"The Downtown Camps", icon:"⛺", cooldown:28,
     text:"Business owners demand the downtown encampments be swept before the holiday season. Service providers say sweeps scatter people from caseworkers and accomplish nothing. Both are right.",
     influence:()=>(INDICATORS.downtown.value<45?0.5:0)+(METRICS.homelessness.value>60?0.15:0),
     options:[
@@ -2444,7 +2444,7 @@ function maybeFireDilemma(){
   if(GAME.turn-(GAME.lastDilemmaTurn||-9)<3)return;
   let best=null,bestScore=0;
   for(const id in DILEMMAS){
-    if(GAME.dilemmaCooldown[id]&&GAME.turn-GAME.dilemmaCooldown[id]<16)continue;
+    if(GAME.dilemmaCooldown[id]&&GAME.turn-GAME.dilemmaCooldown[id]<(DILEMMAS[id].cooldown||16))continue;
     // every dilemma carries a small ambient chance (D4's _random_ floor)
     // on top of its condition-driven influence
     const sc=clamp(0.18+DILEMMAS[id].influence(),0,1)+Math.random()*0.45;
@@ -3030,7 +3030,7 @@ const NATIONAL_MOOD={ value:0, drift:0 };
 const GAME={
   turn:0, startYear:2025, capital:40, capitalPerTurn:6,
   lastMargin:0, crisesResolved:0, uturnCount:0, mandateShock:0,
-  campaign:{effort:{},promises:[],pool:10}, activePromises:[], campaignDone:false, skipReport:false,
+  campaign:{effort:{},promises:[],pool:10}, activePromises:[], campaignDone:false, skipReport:false, skipCampaign:false,
   // ---- ground game: ongoing campaigning, independent of governing capital ----
   // campEnergy refills each quarter; perception/turnout boosts decay over time;
   // fatigue rises when you over-campaign a bloc, lowering future success odds
@@ -4244,7 +4244,7 @@ function showElection(r){
     GAME.lastMargin=clamp((r.share-0.5)*2,-1,1);
     if(r.won){
       GAME.term++;GAME.capital=clamp(GAME.capital+15,0,100);GAME.log.push("★ Term "+GAME.term+" begins");
-      GAME.skipReport=false;              // quarterly reports resume each new term
+      GAME.skipReport=false; GAME.skipCampaign=false; // reports and campaign popup resume each new term
       evaluatePromises();                 // judge last campaign's promises as the new term opens
       GAME.campaign={effort:{},promises:[],pool:10};
     }
@@ -4322,7 +4322,10 @@ function showCampPopup(){
     }</div>`;
 
   // advance button at top
-  h+=`<div style="margin:10px 0 14px"><button class="enactbtn" id="campPopAdvance">${advLabel}</button></div>`;
+  h+=`<div style="margin:10px 0 14px;display:flex;align-items:center;gap:14px">
+    <button class="enactbtn" id="campPopAdvance">${advLabel}</button>
+    ${!isElecQ?`<label style="font-size:12px;color:#6b6557;cursor:pointer;user-select:none;display:flex;align-items:center;gap:5px"><input type="checkbox" id="campSkipChk"${GAME.skipCampaign?' checked':''}>Don't show again this term</label>`:''}
+  </div>`;
 
   // energy meter
   h+=`<div class="energybar"><span class="energy-label">Campaign energy remaining</span>
@@ -4403,6 +4406,8 @@ function showCampPopup(){
     showCampPopup();
   }));
   document.getElementById("campPopAdvance").onclick=()=>{
+    const skipChk=document.getElementById("campSkipChk");
+    if(skipChk&&skipChk.checked)GAME.skipCampaign=true;
     document.getElementById("campPopupModal").classList.add("hidden");
     if(isElecQ){
       GAME.activePromises=c.promises.map(pid=>({id:pid, madeTerm:GAME.term}));
@@ -4412,10 +4417,21 @@ function showCampPopup(){
       doEndTurn();
     }
   };
+  const _skipChk=document.getElementById("campSkipChk");
+  if(_skipChk)_skipChk.onchange=()=>{
+    GAME.skipCampaign=_skipChk.checked;
+    if(_skipChk.checked){
+      document.getElementById("campPopupModal").classList.add("hidden");
+      doEndTurn();
+    }
+  };
 }
 function endTurn(){
   if(GAME.gameOver)return;
   if(GAME.pendingDilemma){GAME.log.push("❖ Resolve the dilemma before ending the quarter");render();return;}
+  const _nextInto=(GAME.turn+1)-(GAME.term-1)*GAME.termLengthTurns;
+  const _isElecQ=_nextInto>=GAME.termLengthTurns-1;
+  if(GAME.skipCampaign&&!_isElecQ){doEndTurn();return;}
   showCampPopup();
 }
 
@@ -5215,14 +5231,30 @@ function renderDetail(){
       if(!mc.length)h+=`<div class="threshline">No significant metric contributions at this time.</div>`;
       h+=`</div>`;
     }
-    // institution preferences
-    if(s.instPref){
-      const instLabels={university:"Universities",stateCollege:"State Colleges",communityCollege:"Community Colleges",aid:"Student Aid"};
-      const ip=Object.entries(s.instPref).sort((a,b)=>b[1]-a[1]);
-      h+=`<div class="ebgroup-label">Higher-ed funding preferences</div><div class="ebgroup">`;
-      const iscale=Math.max(1,...ip.map(x=>Math.abs(x[1])));
-      for(const [k,v] of ip)
-        h+=effectBar(instLabels[k]||k, v, iscale, {color:v>=0?'var(--good)':'var(--clay)', fmt:x=>(x>=0?'+':'')+x.toFixed(1)});
+    // membership influences
+    {
+      const md=MEMBERSHIP_DRIVERS[sid];
+      const isIncomeMob=["poor","middleIncome","wealthy"].includes(sid);
+      const isIdeology=["socialist","liberal","moderate","conservative","libertarian"].includes(sid);
+      h+=`<div class="ebgroup-label">Membership influences</div><div class="ebgroup">`;
+      if(md){
+        const delta=clamp(md.f(),-0.35,0.35);
+        h+=effectBar("Trend this quarter",delta*100,5,{color:delta>=0?'var(--good)':'var(--clay)',fmt:v=>(v>=0?'+':'')+v.toFixed(2)+'%/qtr'});
+        h+=`<div class="threshline" style="margin-top:4px">${md.desc}</div>`;
+      }
+      if(isIncomeMob){
+        const di=METRICS.disposableIncome.value;
+        h+=`<div class="threshline" style="margin-top:4px">Income mobility — voters cross between Low, Middle, and Affluent income bands as disposable income (currently ${di.toFixed(0)}) shifts their adjusted earnings. Improving household income reduces the Low-income share and grows Middle/Affluent.</div>`;
+      }
+      if(isIdeology){
+        const sw=ELECTORATE_SHIFT();
+        const shift=sw[sid]||0;
+        if(Math.abs(shift)>0.03)h+=effectBar("Current conditions pull",shift*100,25,{color:shift>=0?'var(--good)':'var(--clay)',fmt:v=>(v>=0?'+':'')+v.toFixed(1)+'%'});
+        h+=`<div class="threshline" style="margin-top:4px">Core share is shaped by how voters' own economic and social leanings align with this ideology. Active crises (addiction, homelessness, tax revolt, tech boom, in-migration) gradually tilt the ideological makeup of the electorate.</div>`;
+      }
+      if(!md&&!isIncomeMob&&!isIdeology){
+        h+=`<div class="threshline">Membership tracks voter demographics — urbanity, income, age, and homeownership rates — which shift gradually as Oregon's economic and social conditions evolve.</div>`;
+      }
       h+=`</div>`;
     }
     // cynicism & complacency (D4's anti-landslide pressures), named effects
