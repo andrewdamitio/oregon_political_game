@@ -1832,7 +1832,9 @@ const CATALOG={
   vaccineMandate:{name:"End Nonmedical Vaccine Exemptions", domain:"eduHealth", icon:"💉", mechanic:"law",
     desc:"Require school immunization with medical-only exemptions. Oregon's nonmedical exemption rate is among the nation's highest and climbing (7.5% of kindergartners by 2018). SB 442 (2015) and HB 3063 (2019) both died — even under Democratic supermajorities — after furious 'medical freedom' opposition and the 2019 measles outbreak.",
     enabled:true, costFull:0.02, capital:12, enactCapital:14,
-    effects:{health:{b:1,c:3,i:3}}, indicatorEffects:{ruralAlienation:3}, ideology:{social:-0.3,govSize:-0.5}},
+    effects:{health:{b:1,c:3,i:3}},
+    blocEffect:{libertarian:-9, conservative:-4, rural:-2, moderate:-1, liberal:4, socialist:2, parents:2},
+    ideology:{social:-0.3,govSize:-0.5}},
   persReform:{name:"PERS Benefit Reform", domain:"economy", icon:"🏦", mechanic:"law",
     desc:"Trim future pension accruals against the ~$27–28B unfunded liability. The honest math: SB 1049-style reform saves only ~$150M/biennium near-term — most 'savings' just re-amortize the debt — and Moro v. State (2015) bars touching already-earned benefits. Unions will sue, and they sometimes win.",
     enabled:true, revenue:0.08, capital:12, enactCapital:14,
@@ -1907,7 +1909,7 @@ const AGENCIES={
     indicatorEffects:{ruralAlienation:-2},
     loggingIndicatorEffects:{ruralAlienation:-5},
     ideology:{environment:0.5},
-    loggingIdeology:{environment:-0.6,economic:0.2}},
+    loggingIdeology:{environment:0.6,economic:0.2}},
   ohcs:{name:"Housing & Community Services (OHCS)", domain:"social", icon:"🏚️",
     funding:0.5, costMin:0.5, costFull:1.3, capital:5,
     desc:"Oregon's housing agency — shelters ($205M/biennium), affordable development (~$1.6B in recent biennia across housing/homelessness), rent assistance. Direct lever on the homelessness emergency.",
@@ -4332,6 +4334,30 @@ function showCampPopup(){
     <span class="energy-pips">${Array.from({length:GAME.campEnergyMax},(_,i)=>`<i class="${i<GAME.campEnergy?'on':''}"></i>`).join("")}</span>
     <span class="energy-num">${GAME.campEnergy} / ${GAME.campEnergyMax}</span></div>`;
 
+  // collapsible platform promises
+  {
+    const promOpen=GAME.campPromOpen||false;
+    const activeCount=c.promises.length;
+    h+=`<div id="campPopPromToggle" style="margin-top:10px;cursor:pointer;padding:7px 10px;background:var(--paper-2);border-radius:4px;font-size:12px;color:#6b6557;user-select:none">${promOpen?'▾':'▸'} Platform promises${activeCount?` — <b>${activeCount} active</b>`:' — set & track your pledges'}</div>`;
+    if(promOpen){
+      h+=`<div style="margin-top:6px"><div class="sectionsub" style="margin-top:0">Set your platform anytime. Kept promises reward you at the election; broken ones breed cynicism and U-turn penalties.</div><div class="promgrid">`;
+      for(const pid in PROMISES){
+        const pr=PROMISES[pid], on=c.promises.includes(pid);
+        if(pr.check()&&!on)continue;
+        const metCount=pr.criteria.filter(cr=>cr.check()).length;
+        const total=pr.criteria.length;
+        const allMet=metCount===total, someMet=!allMet&&metCount>0;
+        const criteriaHtml=pr.criteria.map(cr=>`<div class="prom-criterion ${cr.check()?'crit-met':'crit-unmet'}">${cr.check()?'✓':'–'} ${cr.label}</div>`).join('');
+        h+=`<div class="promcard ${on?'promon':''}" data-prom="${pid}">
+          <div class="promlabel">${on?'✓ ':''}${pr.label}</div>
+          <div class="promblocs">${pr.bloc.map(b=>SIMULANTS[b]?SIMULANTS[b].name:b).join(' · ')}</div>
+          <div class="prom-criteria">${criteriaHtml}</div>
+          ${on?`<div class="prom-status ${allMet?'met':someMet?'partial':'unmet'}">${allMet?'On track':someMet?`Partial (${metCount}/${total})`:'Not on track'}</div>`:``}</div>`;
+      }
+      h+=`</div></div>`;
+    }
+  }
+
   // bloc grid
   h+=`<div class="campgrid2" style="margin-top:12px">`;
   const blocs=Object.keys(SIMULANTS).sort((a,b)=>SIMULANTS[b].size-SIMULANTS[a].size);
@@ -4399,12 +4425,15 @@ function showCampPopup(){
     if(r)GAME.log.push(r.msg);
     showCampPopup();
   }));
-  // wire promise toggles
+  // wire promise toggles (works in both the popup collapsible and election-quarter section)
   card.querySelectorAll('[data-prom]').forEach(el=>el.addEventListener('click',()=>{
     const pid=el.dataset.prom, i=c.promises.indexOf(pid);
     if(i>=0)c.promises.splice(i,1); else c.promises.push(pid);
     showCampPopup();
   }));
+  // wire collapsible promise toggle
+  const promToggleEl=document.getElementById("campPopPromToggle");
+  if(promToggleEl)promToggleEl.addEventListener('click',()=>{GAME.campPromOpen=!GAME.campPromOpen;showCampPopup();});
   document.getElementById("campPopAdvance").onclick=()=>{
     const skipChk=document.getElementById("campSkipChk");
     if(skipChk&&skipChk.checked)GAME.skipCampaign=true;
@@ -4671,6 +4700,38 @@ function metricSensKey(metricKey){
   return map[metricKey]||null;
 }
 
+/* project how a policy's metric/indicator effects shift each bloc's membership DRIVER rate.
+   Temporarily applies effects to live values, evaluates each MEMBERSHIP_DRIVER, then restores.
+   Returns [{sid,name,delta}] where delta is the per-quarter membership-rate shift. */
+function projectedMembershipDeltas(policy){
+  const de=directEffects("policy",policy);
+  const ie={};
+  const lvl=policyLevel(policy);
+  if(policy.indicatorEffects){for(const k in policy.indicatorEffects)ie[k]=(ie[k]||0)+policy.indicatorEffects[k]*lvl;}
+  if(policy.mechanic==="tier"&&policy.tierIndicatorEffects&&policy.tierIndicatorEffects[policy.tierIndex]){
+    for(const k in policy.tierIndicatorEffects[policy.tierIndex])ie[k]=(ie[k]||0)+policy.tierIndicatorEffects[policy.tierIndex][k];
+  }
+  // baseline rates
+  const base={};
+  for(const sid in MEMBERSHIP_DRIVERS)base[sid]=clamp(MEMBERSHIP_DRIVERS[sid].f(),-0.35,0.35);
+  // apply effects temporarily
+  for(const k in de)if(METRICS[k])METRICS[k].value+=de[k];
+  for(const k in ie)if(INDICATORS[k])INDICATORS[k].value+=ie[k];
+  // projected rates
+  const proj={};
+  for(const sid in MEMBERSHIP_DRIVERS)proj[sid]=clamp(MEMBERSHIP_DRIVERS[sid].f(),-0.35,0.35);
+  // restore
+  for(const k in de)if(METRICS[k])METRICS[k].value-=de[k];
+  for(const k in ie)if(INDICATORS[k])INDICATORS[k].value-=ie[k];
+  // collect meaningful deltas
+  const out=[];
+  for(const sid in MEMBERSHIP_DRIVERS){
+    const d=proj[sid]-base[sid];
+    if(Math.abs(d)*100>=0.01&&SIMULANTS[sid])out.push({sid,name:SIMULANTS[sid].name,delta:d});
+  }
+  return out.sort((a,b)=>b.delta-a.delta);
+}
+
 /* horizontal diverging bar: value can be + or -; scale sets full-width magnitude.
    opts.link = a detail key (e.g. "v_poor") makes the label a hyperlink. */
 function effectBar(label,value,scale,opts={}){
@@ -4771,6 +4832,21 @@ function effectsBreakdownHTML(kind,obj){
       h+=effectBar(x.name,x.delta*100,sScale*100,{color:x.delta>=0?'var(--good)':'var(--clay)',
         link:"v_"+x.sid, fmt:v=>(v>=0?'+':'')+v.toFixed(2)+'%/qtr'});
     h+=`</div>`;
+  }
+
+  // Projected membership shifts (indirect, via metric/indicator effects)
+  if(kind==="policy"){
+    const memDeltas=projectedMembershipDeltas(obj);
+    if(memDeltas.length){
+      h+=`<div class="ebgroup-label">Projected membership shifts</div>`;
+      h+=`<div class="ebnote" style="margin:-6px 0 8px">Indirect effect on membership growth rate — how this policy changes underlying conditions that drive group size over time.</div>`;
+      h+=`<div class="ebgroup">`;
+      const mScale=Math.max(0.001,...memDeltas.map(x=>Math.abs(x.delta)));
+      for(const x of memDeltas)
+        h+=effectBar(x.name,x.delta*100,mScale*100,{color:x.delta>=0?'var(--good)':'var(--clay)',
+          link:"v_"+x.sid, fmt:v=>(v>=0?'+':'')+v.toFixed(2)+'%/qtr'});
+      h+=`</div>`;
+    }
   }
 
   h+=`</div>`;
@@ -5203,7 +5279,7 @@ function renderDetail(){
     h+=`<div class="chartbox"><div class="charttitle">This group's approval over time</div>
       ${sparkline(GAME.history["v_"+sid],{color:'var(--moss)',min:0,max:100,fmt:v=>Math.round(v)+'%'})}</div>`;
     h+=`<div class="chartbox"><div class="charttitle">Membership — share of electorate holding this identity</div>
-      ${sparkline(GAME.history["mem_"+sid],{color:'var(--gold)',fmt:v=>v.toFixed(1)+'%'})}</div>`;
+      ${sparkline(GAME.history["mem_"+sid],{color:'var(--gold)',min:0,max:50,fmt:v=>v.toFixed(1)+'%'})}</div>`;
     if(MEMBERSHIP_DRIVERS[sid])
       h+=`<div class="threshline" style="margin:4px 0 12px;font-style:italic">Membership driver: ${MEMBERSHIP_DRIVERS[sid].desc}</div>`;
     else if(["poor","middleIncome","wealthy"].includes(sid))
