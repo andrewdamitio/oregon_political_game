@@ -1005,7 +1005,8 @@ const INDICATORS={
         policySpend+=pl>0?Math.max(0,policyNetCost(p))*(eff/pl):Math.max(0,policyNetCost(p));
       }
       const deregAdj=indPolicyBoost("adminOverhead");
-      return Math.round(clamp(69+policySpend*5-INDICATORS.digitization.value*0.8+deregAdj,0,180));
+      const sitAdj=sitIndicatorPush("adminOverhead");
+      return Math.round(clamp(69+policySpend*5-INDICATORS.digitization.value*0.8+deregAdj+sitAdj,0,180));
     },
     drivers:()=>{
       let policySpend=0;
@@ -1015,10 +1016,12 @@ const INDICATORS={
         policySpend+=pl>0?Math.max(0,policyNetCost(p))*(eff/pl):Math.max(0,policyNetCost(p));
       }
       const deregAdj=Math.round(indPolicyBoost("adminOverhead"));
+      const sitAdj=Math.round(sitIndicatorPush("adminOverhead"));
       return [
         {name:"⊕ policy spending ($"+policySpend.toFixed(1)+"B/yr)",v:Math.round(69+policySpend*5),base:true},
         {name:"🖥️ Gov. Digitization (lowers overhead)",v:-Math.round(INDICATORS.digitization.value*0.8),link:"i_digitization"},
         ...(deregAdj!==0?[{name:"✂️ Deregulation (cuts red tape)",v:deregAdj,link:"p_deregulation"}]:[]),
+        ...(sitAdj!==0?[{name:"⚠ Active crisis (system disruption)",v:sitAdj}]:[]),
       ];
     },
     feedback:{}},
@@ -2496,6 +2499,33 @@ const DILEMMAS={
          GAME.log.push("⚔ Held the line — walkout continues, ◈ 6 drained");
        }},
     ]},
+  ransomware:{title:"Ransomware Demand", icon:"💻", cooldown:24,
+    text:"The attackers have sent a ransom demand: $4.2M in cryptocurrency to decrypt state systems and restore citizen data before it's published on the dark web. The FBI advises against paying — it funds criminal enterprises and invites repeat attacks. But every day the portals stay down, benefits go unpaid, DMV queues stretch around the block, and public-sector workers are processing claims by hand.",
+    influence:()=>GAME.activeSituations.cyberattack?0.80:-1.5,
+    options:[
+      {label:"Pay the ransom", text:"The state pays. Systems are restored within 48 hours. The FBI notes Oregon in its 'paid' list. Hardliners call it a capitulation; benefits recipients and workers notice the lights come back on.",
+       apply:()=>{
+         GAME.capital=Math.max(0,GAME.capital-3);
+         createGrudge("v_conservative",-5,0.88,"Government paid the criminals");
+         createGrudge("v_libertarian",-4,0.88,"State surrendered to extortion");
+         createGrudge("v_businessClass",-3,0.90,"Sets a dangerous precedent");
+         createGrudge("v_poor",4,0.90,"Benefits restored quickly");
+         createGrudge("v_publicUnions",3,0.90,"Workers' systems restored");
+         createGrudge("v_moderate",2,0.90,"Pragmatic — people needed help");
+         GAME.log.push("💸 Ransom paid — state systems restored; ◈ 3 spent");
+       }},
+      {label:"Refuse and rebuild", text:"Oregon refuses to pay. Emergency IT contractors are brought in. Full recovery takes weeks — public frustration runs high, but Oregon won't fund the next attack.",
+       apply:()=>{
+         GAME.capital=Math.max(0,GAME.capital-5);
+         createGrudge("v_conservative",5,0.90,"Didn't pay the criminals");
+         createGrudge("v_libertarian",4,0.90,"Principled stand against extortion");
+         createGrudge("v_businessClass",2,0.90,"Right call — no precedent set");
+         createGrudge("v_poor",-4,0.88,"Benefits delayed for weeks");
+         createGrudge("v_publicUnions",-4,0.88,"Workers left scrambling longer");
+         createGrudge("v_moderate",-3,0.88,"Weeks of disruption was avoidable");
+         GAME.log.push("🔒 Ransom refused — emergency rebuild underway; ◈ 5 spent");
+       }},
+    ]},
 };
 function maybeFireDilemma(){
   if(GAME.pendingDilemma)return;
@@ -2962,10 +2992,10 @@ const SITUATIONS={
     indicatorEffect:{tourism:-8},
     groupMood:{poor:-3,blueCollar:-2}},
   cyberattack:{name:"State Systems Cyberattack", kind:"bad", category:"event",
-    desc:"Ransomware cripples state IT systems — benefits portals, DMV, payroll. Oregon's aging infrastructure makes it an easy target.",
-    metricEffect:{}, moodMag:5, minTurns:2, onTrigger:{capital:-4},
-    indicatorEffect:{digitization:-14,businessClimate:-4},
-    groupMood:{publicUnions:-3}},
+    desc:"Ransomware cripples state IT systems — benefits portals, DMV, payroll. Oregon's aging infrastructure makes it an easy target. Every department is working off paper and phone calls while IT scrambles.",
+    metricEffect:{}, moodMag:5, minTurns:4, onTrigger:{capital:-4},
+    indicatorEffect:{digitization:-14,businessClimate:-4,adminOverhead:22},
+    groupMood:{publicUnions:-3,poor:-3,moderate:-2}},
   bedOvercrowding:{name:"Psychiatric System Overcrowding", kind:"bad", category:"condition",
     desc:"You've made civil commitment easy, but the psychiatric beds to hold those committed don't exist. People are warehoused in emergency rooms and jails, boarded in hallways, or cycled right back to the street. The Oregon State Hospital is over capacity and under a federal contempt order. The fix is not less commitment — it is more beds.",
     metricEffect:{behavioralHealth:-4, psychBeds:-3}, moodMag:5, minTurns:3,
@@ -4400,7 +4430,10 @@ function showCampPopup(){
   {
     const promOpen=GAME.campPromOpen||false;
     const activeCount=c.promises.length;
-    h+=`<div id="campPopPromToggle" style="margin-top:10px;cursor:pointer;padding:7px 10px;background:var(--paper-2);border-radius:4px;font-size:12px;color:#6b6557;user-select:none">${promOpen?'▾':'▸'} Platform promises${activeCount?` — <b>${activeCount} active</b>`:' — set & track your pledges'}</div>`;
+    h+=`<div id="campPopPromToggle" style="margin-top:16px;cursor:pointer;padding:12px 16px;background:var(--paper-2);border:2px solid var(--gold);border-radius:6px;display:flex;align-items:center;justify-content:space-between;user-select:none">
+      <span style="font-family:var(--font-display);font-size:15px;font-weight:700;color:var(--ink)">📋 Platform Promises${activeCount?` <span style="font-weight:400;font-size:13px;color:var(--good)"> — ${activeCount} active</span>`:' <span style="font-weight:400;font-size:12px;color:#8a8270"> — set & track your pledges</span>'}</span>
+      <span style="font-size:18px;color:#b9a77a;margin-left:10px">${promOpen?'▾':'▸'}</span>
+    </div>`;
     if(promOpen){
       h+=`<div style="margin-top:6px"><div class="sectionsub" style="margin-top:0">Set your platform anytime. Kept promises reward you at the election; broken ones breed cynicism and U-turn penalties.</div><div class="promgrid">`;
       for(const pid in PROMISES){
