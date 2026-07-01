@@ -848,7 +848,13 @@ const INDICATORS={
       let v=40+indPolicyBoost("digitization")+sitIndicatorPush("digitization");
       return clamp(v,0,100);
     },
-    drivers:()=>[{name:"⊕ baseline (weak by default)",v:40,base:true}],
+    drivers:()=>{
+      const items=[{name:"⊕ baseline (weak by default)",v:40,base:true}];
+      for(const pid in POLICIES){const p=POLICIES[pid];if(p.indicatorEffects?.digitization){const v=Math.round(p.indicatorEffects.digitization*effLevelOf(p)*10)/10;if(Math.abs(v)>0.05)items.push({name:(p.icon||'')+" "+p.name,v,link:"p_"+pid});}}
+      const sip=Math.round(sitIndicatorPush("digitization")*10)/10;
+      if(Math.abs(sip)>0.05)items.push({name:"⚠ Active crisis (system disruption)",v:sip});
+      return items;
+    },
     feedback:{}},                                          // no direct metric feedback — it's the efficacy lever
   taxGrievance:{name:"Tax-Burden Grievance", icon:"🧾", value:42,
     desc:"How resentful businesses and higher earners feel about Oregon's stacked tax load — income tax with no offsetting sales-tax relief, the CAT, gas and carbon taxes. Research shows this grievance is politically potent and PARTLY DECOUPLED from whether anyone is actually leaving: the perception drives politics regardless. Feeds business climate and the out-migration narrative.",
@@ -1031,7 +1037,7 @@ const INDICATORS={
     ],
     feedback:{health:0.025, violentCrime:-0.018, propertyCrime:-0.012, homelessness:-0.015}},
   adminOverhead:{name:"Administrative Overhead", icon:"🗂️", value:87,
-    desc:"How burdened Oregon's administrative apparatus is. Driven by total active policy spending — more programs at higher funding levels means more staffing, coordination, and overhead. Government Digitization directly lowers administrative overhead as better systems reduce friction. Below 100%: no penalty. Above 100%: all program metric effects are reduced proportionally (0.5% per point over, max 50% at extreme overload). Invest in Government Operations and Workforce Budget to slowly raise Digitization and push overhead down; it takes several quarters to materialize.",
+    desc:"How burdened Oregon's administrative apparatus is. Driven by total active policy spending — more programs mean more coordination overhead. Government Digitization directly lowers it as better systems reduce friction. Government Operations and Workforce Budget reduces it immediately (coordination quality) and builds Digitization over time. Below 100%: no penalty. Above 100%: all program metric effects are reduced proportionally (0.5% per point over, max 50% at extreme overload).",
     derive:()=>{
       let policySpend=0;
       for(const id in POLICIES){
@@ -1052,14 +1058,13 @@ const INDICATORS={
         const eff=(p.eff!==undefined?p.eff:pl);
         policySpend+=pl>0?Math.max(0,policyNetCost(p))*(eff/pl):Math.max(0,policyNetCost(p));
       }
-      const deregAdj=Math.round(indPolicyBoost("adminOverhead"));
       const sitAdj=Math.round(sitIndicatorPush("adminOverhead"));
       const mhStrain=Math.round(Math.max(0,(50-(INDICATORS.mentalHealth?.value??45))*0.20));
       return [
         {name:"⊕ policy spending ($"+policySpend.toFixed(1)+"B/yr)",v:Math.round(69+policySpend*5),base:true},
         {name:"🖥️ Gov. Digitization (lowers overhead)",v:-Math.round(INDICATORS.digitization.value*0.8),link:"i_digitization"},
         ...(mhStrain>0?[{name:"💚 Mental health crisis (ER/admin strain)",v:mhStrain,link:"i_mentalHealth"}]:[]),
-        ...(deregAdj!==0?[{name:"✂️ Deregulation (cuts red tape)",v:deregAdj,link:"p_deregulation"}]:[]),
+        ...Object.entries(POLICIES).filter(([,p])=>p.indicatorEffects?.adminOverhead).map(([pid,p])=>({name:(p.icon||'')+" "+p.name,v:Math.round(p.indicatorEffects.adminOverhead*effLevelOf(p)),link:"p_"+pid})).filter(x=>Math.abs(x.v)>0.1),
         ...(sitAdj!==0?[{name:"⚠ Active crisis (system disruption)",v:sitAdj}]:[]),
       ];
     },
@@ -1904,9 +1909,9 @@ const CATALOG={
     effects:{environment:5,gdp:0.35}, indicatorEffects:{businessClimate:4},
     ideology:{economic:0.3,govSize:0.1}},
   govOps:{name:"Government Operations and Workforce Budget", domain:"economy", icon:"🗂️", enacted:true, mechanic:"slider", phaseIn:10, noOverhead:true,
-    desc:"The state's investment in agency staffing, training, coordination, and management infrastructure. Raising this increases spending and therefore Administrative Overhead in the short term. Over several quarters, the investment gradually improves Government Digitization, which in turn reduces overhead — the long-run benefit outpaces the cost. The payoff is slow and hard to raise, but it's the only way to sustain a large number of programs without losing effectiveness.",
+    desc:"Investment in agency staffing, training, coordination, and IT management. Raising it immediately reduces Administrative Overhead by improving internal coordination, and over 10 quarters it also builds Government Digitization — a compounding second reduction that keeps overhead in check as the program portfolio grows.",
     value:0.3, costFull:1.2, capital:7,
-    indicatorEffects:{digitization:12},
+    indicatorEffects:{digitization:12, adminOverhead:-8},
     ideology:{govSize:-0.4}},
 };
 
