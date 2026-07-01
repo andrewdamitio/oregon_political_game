@@ -611,8 +611,8 @@ const STATE={ name:"Oregon" };
    linkedPolicy = the policy whose level scales this source (revenue =
    base * level/refLevel). Sources with no linked policy are fixed. */
 const REVENUE={
-  personalIncome:{name:"Personal Income Tax", base:17.4, linkedPolicy:"incomeTax", refLevel:0.6,
-    note:"4.75%–9.9% top marginal (above $125k). ~$35B/biennium all-funds — 85%+ of GF; no sales tax"},
+  personalIncome:{name:"Personal Income Tax", base:16.4, linkedPolicy:"incomeTax", refLevel:0.6,
+    note:"4.75%–9.9% top marginal (above $125k). ~$33B/biennium all-funds — 85%+ of GF; no sales tax"},
   corpIncome:{name:"Corporate Excise/Income Tax", base:1.3, linkedPolicy:null,
     note:"6.6% / 7.6% corporate excise tax; separate from the CAT"},
   corpActivity:{name:"Corporate Activity Tax (CAT)", base:1.25, linkedPolicy:"corpTax", refLevel:0.5,
@@ -1366,7 +1366,7 @@ const POLICIES={
     ideology:{economic:-0.4,govSize:-0.4}},
   policing:{name:"Public Safety Funding", domain:"social", icon:"🚓", enacted:true, mechanic:"slider",
     desc:"State police, local grants, and DA offices. Police provide a direct prevention benefit regardless of the rest of the system — deterrence, patrol, rapid response. But incapacitation (locking people up) requires the full pipeline: arrests must be prosecuted (Judicial Dept.) and sentences must be servable (Corrections). Crime reduction from incapacitation is capped by the WEAKEST of the three pillars — investing in police without funding courts and prisons produces arrests that don't stick. Watch the ⚖️ Justice Pipeline Effectiveness indicator.",
-    value:0.5, costFull:2.5, capital:5, effects:{violentCrime:{b:0,c:-3,i:2},propertyCrime:{b:0,c:-3,i:2},homelessness:{b:0,c:-3,i:3},drugUse:{b:0,c:-3,i:3}},
+    value:0.5, costFull:1.0, capital:5, effects:{violentCrime:{b:0,c:-3,i:2},propertyCrime:{b:0,c:-3,i:2},homelessness:{b:0,c:-3,i:3},drugUse:{b:0,c:-3,i:3}},
     blocEffect:{moderate:2, conservative:3, suburban:2, retirees:2, homeowners:1, socialist:-3, liberal:-2},
     ideology:{economic:0.3,social:0.5,govSize:0.4}},
   civilCommitment:{name:"Ease of Civil Commitment", domain:"social", icon:"⚖️", enacted:true, mechanic:"slider", noRepeal:true,
@@ -1946,7 +1946,7 @@ const AGENCIES={
     desc:"State prisons and community supervision. The final link in the justice pipeline: without bed capacity, convictions produce early releases and courts resort to plea deals that skip incarceration entirely. Funding also reduces recidivism through programming. Crucially, crime reduction from incapacitation is capped by the weakest of police, prosecution, and jail capacity — a full prison negates the gains from both arrests and convictions.",
     effects:{}, ideology:{social:0.3,govSize:0.2}},
   judiciary:{name:"Judicial Department", domain:"social", icon:"🏛",
-    funding:0.5, costMin:0.35, costFull:0.85, capital:4, cutSurcharge:1.2,
+    funding:0.5, costMin:0.20, costFull:0.55, capital:4, cutSurcharge:1.2,
     desc:"Courts, prosecutors, and sentencing capacity. The middle link: arrests that aren't prosecuted don't reduce crime. Higher capacity increases incarceration and drives down violent and property crime. But incapacitation is bottlenecked by the weakest of police, prosecution, and jail capacity — underfund the courts and even heavy policing and a full prison lose their leverage. Civil-liberties voters push back on high incarceration regardless.",
     effects:{incarcerationRate:30}, ideology:{social:0.4,govSize:0.3}},
   dhs:{name:"Dept. of Human Services", domain:"eduHealth", icon:"🤝",
@@ -3901,7 +3901,11 @@ function revenueBySource(){
       amt=(p&&p.tierIndex>0)?r.base*(1+(p.tierIndex-1)*0.07):0;
     }
     if(taxSources[id])amt*=collFactor; // collection efficiency
-    if(id==="personalIncome")amt*=incomeCycle;
+    if(id==="personalIncome"){
+      // policy-driven growth also lifts revenue: more jobs → more filers, higher GDP → broader prosperity
+      const policyEconBoost=clamp((METRICS.gdp.value-2.0)*0.025+(5.2-METRICS.unemployment.value)*0.012,-0.12,0.12);
+      amt*=incomeCycle*(1+policyEconBoost);
+    }
     else if(id==="corpIncome"||id==="corpActivity")amt*=corpCycle;
     else if(id==="salesTaxRev")amt*=salesCycle;                       // stable through downturns
     else if(id==="cannabisRev"||id==="liquorRev")amt*=sinCycle;       // sin taxes hold up
