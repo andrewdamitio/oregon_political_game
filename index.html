@@ -1040,11 +1040,13 @@ const INDICATORS={
     desc:"How burdened Oregon's administrative apparatus is. Driven by total active policy spending — more programs mean more coordination overhead. Government Digitization directly lowers it as better systems reduce friction. Government Operations and Workforce Budget reduces it immediately (coordination quality) and builds Digitization over time. Below 100%: no penalty. Above 100%: all program metric effects are reduced proportionally (0.5% per point over, max 50% at extreme overload).",
     derive:()=>{
       let policySpend=0;
+      const eff=govOpsEffMult();
       for(const id in POLICIES){
         const p=POLICIES[id];
         const pl=policyLevel(p);
-        const eff=(p.eff!==undefined?p.eff:pl);
-        policySpend+=pl>0?Math.max(0,policyNetCost(p))*(eff/pl):Math.max(0,policyNetCost(p));
+        const ef=(p.eff!==undefined?p.eff:pl);
+        const raw=pl>0?Math.max(0,policyNetCost(p))*(ef/pl):Math.max(0,policyNetCost(p));
+        policySpend+=raw*(id==="govOps"?1:eff);
       }
       const deregAdj=indPolicyBoost("adminOverhead");
       const sitAdj=sitIndicatorPush("adminOverhead");
@@ -1053,10 +1055,12 @@ const INDICATORS={
     },
     drivers:()=>{
       let policySpend=0;
+      const govEff=govOpsEffMult();
       for(const id in POLICIES){
         const p=POLICIES[id];const pl=policyLevel(p);
-        const eff=(p.eff!==undefined?p.eff:pl);
-        policySpend+=pl>0?Math.max(0,policyNetCost(p))*(eff/pl):Math.max(0,policyNetCost(p));
+        const ef=(p.eff!==undefined?p.eff:pl);
+        const raw=pl>0?Math.max(0,policyNetCost(p))*(ef/pl):Math.max(0,policyNetCost(p));
+        policySpend+=raw*(id==="govOps"?1:govEff);
       }
       const sitAdj=Math.round(sitIndicatorPush("adminOverhead"));
       const mhStrain=Math.round(Math.max(0,(50-(INDICATORS.mentalHealth?.value??45))*0.20));
@@ -1148,6 +1152,13 @@ function govOverheadMult(){
   const ov=INDICATORS.adminOverhead?.value??80;
   if(ov<=100)return 1.0;
   return Math.max(0.5,1-(ov-100)*0.005);
+}
+/* GOVERNMENT OPERATIONS EFFICIENCY: higher govOps investment lowers what every
+   spending policy costs to run — better procurement, less waste, less duplication.
+   At default level 0.3: ~1.0x (neutral). At max 1.0: ~0.88x (12% savings). */
+function govOpsEffMult(){
+  const lvl=policyLevel(POLICIES.govOps||{value:0.3});
+  return clamp(1.04-lvl*0.16, 0.80, 1.10);
 }
 
 const METRIC_LINKS=[
@@ -1909,7 +1920,7 @@ const CATALOG={
     effects:{environment:5,gdp:0.35}, indicatorEffects:{businessClimate:4},
     ideology:{economic:0.3,govSize:0.1}},
   govOps:{name:"Government Operations and Workforce Budget", domain:"economy", icon:"🗂️", enacted:true, mechanic:"slider", phaseIn:10, noOverhead:true,
-    desc:"Investment in agency staffing, training, coordination, and IT management. Raising it immediately reduces Administrative Overhead by improving internal coordination, and over 10 quarters it also builds Government Digitization — a compounding second reduction that keeps overhead in check as the program portfolio grows.",
+    desc:"Investment in agency staffing, training, coordination, and IT management. Raising it reduces the running cost of every other spending policy (better procurement, less duplication) and immediately lowers Administrative Overhead. Over 10 quarters it also builds Government Digitization — a compounding second reduction that keeps overhead in check as the program portfolio grows. At max investment: roughly 12% off all policy operating costs.",
     value:0.3, costFull:1.2, capital:7,
     indicatorEffects:{digitization:12, adminOverhead:-8},
     ideology:{govSize:-0.4}},
@@ -3934,7 +3945,7 @@ function spendingByArea(){
       const p=POLICIES[pid];
       if(!p||!p.enacted)continue;        // catalog policies not yet enacted contribute nothing
       const c=policyNetCost(p);
-      if(c>0)amt+=c;                      // only spending (revenue policies handled in REVENUE)
+      if(c>0)amt+=c*(pid==="govOps"?1:govOpsEffMult()); // govOps exempt from its own multiplier
     }
     // prison population drives corrections costs (the Measure 11 chain:
     // mandatory minimums → incarceration growth → corrections crowd-out)
