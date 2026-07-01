@@ -2956,14 +2956,14 @@ const SITUATIONS={
     costEffect:{humanServices:0.35},
     watch:{metric:"drugUse", startAt:null, clearAt:42, badHigh:true, alsoMetric:"behavioralHealth", alsoClearAt:58},
     metricEffect:{propertyCrime:1.4,violentCrime:0.4,homelessness:1.0,drugUse:1.2}, indicatorEffect:{inMigration:-3},
-    moodAxes:{social:0.2}, moodMag:6,
+    moodAxes:{social:0.2}, moodMag:4,
     groupMood:{suburban:-3,rural:-3,blueCollar:-2,liberal:-2}},
   housingShortage:{name:"Chronic Housing Shortage", kind:"bad", category:"chronic",
     desc:"Decades of underbuilding behind the urban growth boundary have left Oregon hundreds of thousands of homes short, pushing prices and rents out of reach.",
     startActive:true, clear:()=>METRICS.homelessness.value<40 && METRICS.inequality.value<52,
     watch:{metric:"homelessness", startAt:null, clearAt:40, badHigh:true, alsoMetric:"inequality", alsoClearAt:52},
     metricEffect:{inequality:0.8}, indicatorEffect:{inMigration:-6},
-    moodAxes:{economic:-0.2}, moodMag:5,
+    moodAxes:{economic:-0.2}, moodMag:3,
     groupMood:{urban:-4,renters:-5,blueCollar:-3,poor:-3,businessClass:-1,homeowners:4,wealthy:2}},
   // ============================================================
   // CONDITION-TRIGGERED — flare up when metrics worsen, clear when they recover.
@@ -3829,7 +3829,7 @@ function tickApproval(){
     // below 50, so simply holding steady erodes you and re-election must be
     // earned through visible results. Complacency adds late-term landslide
     // resistance on top of this.
-    const target=clamp(36+policyMood+metricMood(sim)+sitMood
+    const target=clamp(39+policyMood+metricMood(sim)+sitMood
       +groupGrudge(sid)-(sim.cynicism||0)-(sim.complacency||0)+groundPerception(sid),0,100);
     sim.approval+=(target-sim.approval)*0.3;
     sim.approval=clamp(sim.approval,0,100);
@@ -6533,16 +6533,14 @@ for(const id in SIMULANTS)SIMULANTS[id].id=id;
 // build the simulated electorate and pre-roll to equilibrium
 buildVoters();
 for(let pr=0;pr<10;pr++){tickMembership();tickVoterApproval();}
-// seed indicators from the starting state (derive once so they reflect inherited crises)
+// seed indicators, then run 8 equilibration passes so metrics start at their
+// policy-sustained equilibrium rather than at "real Oregon" values that sit
+// below equilibrium — this prevents autopilot improvement on turn 1-6
 for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();
-for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive(); // 2nd pass for cross-deps
-// settle metrics once so turn-0 already reflects indicator feedbacks and policy effects,
-// then re-derive indicators from the updated metric values
-tickMetrics();
-for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();
-// reset prevMetrics to the settled state so turn-0 shows no spurious trend arrows
-GAME.prevMetrics={};
-for(const k in METRICS)GAME.prevMetrics[k]=METRICS[k].value;
+for(let _s=0;_s<8;_s++){tickMetrics();for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();}
+// reset prevMetrics/prevIndicators so turn-0 shows no spurious trend arrows
+GAME.prevMetrics={};for(const k in METRICS)GAME.prevMetrics[k]=METRICS[k].value;
+GAME.prevIndicators={};for(const id in INDICATORS)GAME.prevIndicators[id]=INDICATORS[id].value;
 pushHistory(); // seed turn 0
 render();
 </script>
