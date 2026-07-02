@@ -652,7 +652,7 @@ const REVENUE={
    largest area (OHA Medicaid + DHS); K-12 is the State School Fund. */
 const SPENDING={
   humanServices:{name:"Human Services (caseloads)", base:1.0, agencies:["dhs","oha"],
-    policies:["homelessServices","behavioralHealth"],
+    policies:["homelessServices","behavioralHealth","ohpBlockGrant"],
     note:"Caseload growth on top of DHS + OHA agency budgets"},
   k12:{name:"K-12 Education", base:0.0, agencies:[], policies:["stateSchoolFund"],
     note:"State School Fund ~$11.4B/biennium"},
@@ -660,15 +660,15 @@ const SPENDING={
     note:"Universities, regional colleges, community colleges, need-based aid"},
   publicSafety:{name:"Public Safety & Justice", base:0.2, agencies:["corrections","judiciary"],
     policies:["policing","prisonRegimen","measure11"], note:"State Police, Corrections, Courts, prison operations"},
-  housing:{name:"Housing & Community Dev.", base:0.0, agencies:["ohcs"], policies:["affordableHousing","rentStabilization","officeConversion"],
+  housing:{name:"Housing & Community Dev.", base:0.0, agencies:["ohcs"], policies:["affordableHousing","rentStabilization","officeConversion","singleStair"],
     note:"OHCS agency budget + housing production policies"},
   economy:{name:"Economic & Workforce Dev.", base:0.45, agencies:["revenueDept","treasury"],
     policies:["rndTaxCredit","digitalGov","downtownRevitalization","cannabis"],
     note:"Business Oregon, fiscal agencies, OLCC"},
   natResources:{name:"Natural Resources & Environment", base:0.1, agencies:["odot","forestry","deq","oprd"],
-    policies:["wildfireResilience","transitInvestment","bottleBill","cleanFuels","forestCarbon","outdoorRec","forestPractices","modeSplit","gasTax","vehicleReg","evFee","waterRights","renewablePortfolio"],
+    policies:["wildfireResilience","transitInvestment","bottleBill","cleanFuels","forestCarbon","outdoorRec","forestPractices","modeSplit","gasTax","vehicleReg","evFee","waterRights","renewablePortfolio","cascadiaPrep"],
     note:"DEQ, Transportation, Forestry, Parks, wildfire fund"},
-  social:{name:"Social Programs", base:0.0, agencies:[], policies:["abortion","childcareSubsidy","sexWorkDecrim","gunStorage","universalMeals","rankedChoice","rightToRepair","psilocybin","paidLeave","motorVoter","middleHousing","deathWithDignity","minWageTiers"],
+  social:{name:"Social Programs", base:0.0, agencies:[], policies:["abortion","childcareSubsidy","sexWorkDecrim","gunStorage","universalMeals","rankedChoice","rightToRepair","psilocybin","paidLeave","motorVoter","middleHousing","deathWithDignity","minWageTiers","safeConsumption"],
     note:"Reproductive health, childcare, civil programs"},
   debtAdmin:{name:"Debt Service & Administration", base:0.85, agencies:[], policies:["kickerReform","govOps"],
     note:"Bond debt service, central government"},
@@ -777,24 +777,28 @@ const INDICATORS={
       ...(GAME.activeSituations.cascadiaQuake?[{name:"⚠ Cascadia Earthquake",v:-8,link:"sit_cascadiaQuake"}]:[]),
     ],
     feedback:{gdp:0.018, businessClimate:0.018}}, // at starting downtown~18: GDP drag reduced (was 0.030 — too strong)
-  inMigration:{name:"In-Migration Rate", icon:"🚚", value:50,
+  inMigration:{name:"In-Migration Rate", icon:"🚚", value:40,
     desc:"Net flow of people and talent into Oregon. Driven by jobs, affordability, environment, and downtown vitality. Feeds the labor force and growth.",
     derive:()=>{
-      let v=50;
-      v+=(55-METRICS.unemployment.value*6.5)*0.20;     // strong job market draws people
-      v-=(METRICS.homelessness.value-50)*0.30;          // unaffordability/visible crisis repels
+      let v=38;                                                      // Oregon has net out-migration in recent years
+      v+=(55-METRICS.unemployment.value*6.5)*0.20;                  // strong job market draws people
+      v-=(METRICS.homelessness.value-50)*0.30;                      // visible crisis repels
       v+=(METRICS.environment.value-60)*0.20;
-      v+=(INDICATORS.downtown.value-50)*0.30;           // downtown vitality attracts
+      v+=(INDICATORS.downtown.value-50)*0.30;                       // downtown vitality attracts
+      v-=(50-INDICATORS.housingAffordability.value)*0.22;           // unaffordable housing is the #1 driver of out-migration
+      v-=(METRICS.taxBurden.value-38)*0.08;                         // cost-of-living burden
       v+=NATIONAL_MOOD.value*0.4;
       v+=indPolicyBoost("inMigration")+sitIndicatorPush("inMigration");
       return clamp(v,0,100);
     },
     drivers:()=>[
-      {name:"⊕ baseline",v:50,base:true},
+      {name:"⊕ baseline (net negative — recent Oregon out-migration)",v:38,base:true},
       {name:METRICS.unemployment.icon+" Job Market (unemployment)",v:(55-METRICS.unemployment.value*6.5)*0.20,link:"m_unemployment"},
-      {name:METRICS.homelessness.icon+" Homelessness / affordability",v:-(METRICS.homelessness.value-50)*0.30,link:"m_homelessness"},
+      {name:METRICS.homelessness.icon+" Homelessness / visible crisis",v:-(METRICS.homelessness.value-50)*0.30,link:"m_homelessness"},
       {name:METRICS.environment.icon+" Environment",v:(METRICS.environment.value-60)*0.20,link:"m_environment"},
       {name:INDICATORS.downtown.icon+" Downtown Vitality",v:(INDICATORS.downtown.value-50)*0.30,link:"i_downtown"},
+      {name:INDICATORS.housingAffordability.icon+" Housing Affordability",v:-(50-INDICATORS.housingAffordability.value)*0.22,link:"i_housingAffordability"},
+      {name:METRICS.taxBurden.icon+" Tax / Cost-of-Living Burden",v:-(METRICS.taxBurden.value-38)*0.08,link:"m_taxBurden"},
       {name:"🇺🇸 National Mood",v:NATIONAL_MOOD.value*0.4,link:"nationalMood"},
     ],
     feedback:{gdp:0.015, unemployment:0.01}},          // newcomers grow economy, slight labor-supply effect
@@ -995,7 +999,9 @@ const INDICATORS={
       if(POLICIES.rentStabilization)v+=effLevelOf(POLICIES.rentStabilization)*6;
       if(POLICIES.officeConversion)v+=effLevelOf(POLICIES.officeConversion)*5;
       if(POLICIES.middleHousing)v+=effLevelOf(POLICIES.middleHousing)*8;
-      v+=(2-LANDUSE.index)*3;                       // looser land use = more supply = more affordable
+      if(POLICIES.singleStair)v+=effLevelOf(POLICIES.singleStair)*6;
+      if(POLICIES.housingPackage)v+=effLevelOf(POLICIES.housingPackage)*5;
+      v+=(2-LANDUSE.index)*4;                       // looser land use = more supply = more affordable
       if(GAME.activeSituations.housingShortage)v-=10;
       v+=indPolicyBoost("housingAffordability")+sitIndicatorPush("housingAffordability");
       return clamp(v,0,100);
@@ -1009,7 +1015,9 @@ const INDICATORS={
       ...(POLICIES.rentStabilization&&effLevelOf(POLICIES.rentStabilization)>0?[{name:"🏘️ Rent Stabilization",v:effLevelOf(POLICIES.rentStabilization)*6,link:"p_rentStabilization"}]:[]),
       ...(POLICIES.officeConversion&&effLevelOf(POLICIES.officeConversion)>0?[{name:"🏢 Office Conversion",v:effLevelOf(POLICIES.officeConversion)*5,link:"p_officeConversion"}]:[]),
       ...(POLICIES.middleHousing&&effLevelOf(POLICIES.middleHousing)>0?[{name:"🏠 Middle Housing",v:effLevelOf(POLICIES.middleHousing)*8,link:"p_middleHousing"}]:[]),
-      {name:LANDUSE.icon+" Land Use (supply constraint)",v:(2-LANDUSE.index)*3,link:"landuse"},
+      ...(POLICIES.singleStair&&effLevelOf(POLICIES.singleStair)>0?[{name:"🏗️ Single Stair Reform",v:effLevelOf(POLICIES.singleStair)*6,link:"p_singleStair"}]:[]),
+      ...(POLICIES.housingPackage&&effLevelOf(POLICIES.housingPackage)>0?[{name:"🏘️ Housing Production Package",v:effLevelOf(POLICIES.housingPackage)*5,link:"p_housingPackage"}]:[]),
+      {name:LANDUSE.icon+" Land Use (supply constraint)",v:(2-LANDUSE.index)*4,link:"landuse"},
       ...(GAME.activeSituations.housingShortage?[{name:"📉 Housing Shortage Crisis",v:-10}]:[]),
     ],
     feedback:{homelessness:-0.012, inequality:-0.008, disposableIncome:0.04}}, // housing costs are the dominant squeeze on take-home budgets
@@ -1181,11 +1189,13 @@ const METRIC_LINKS=[
   {from:"gasPrice",    to:"disposableIncome", coef:-5.5, ref:3.6}, // pump pain eats budgets
   {from:"taxBurden",   to:"disposableIncome", coef:-0.14, ref:38},
   {from:"unemployment",to:"disposableIncome", coef:-1.1, ref:5.0},
-  {from:"gdp",         to:"disposableIncome", coef:2.2,  ref:2.0},
+  {from:"gdp",         to:"disposableIncome", coef:1.0,  ref:2.0}, // growth helps households, but inequality mediates how much reaches the bottom
+  {from:"inequality",  to:"disposableIncome", coef:-0.40, ref:55}, // high inequality means GDP gains pile up at the top; working households don't feel the growth
   {from:"disposableIncome", to:"gdp",         coef:0.006, ref:52}, // consumer spending
   {from:"transitShare",to:"environment",      coef:0.07, ref:8},   // mode shift cuts emissions
   {from:"transitShare",to:"gasPrice",         coef:-0.004, ref:8}, // demand relief at the pump
   {from:"incarcerationRate",to:"inequality",  coef:0.015, ref:50}, // mass incarceration scars communities
+  {from:"unemployment",    to:"inequality",   coef:0.10,  ref:5.0}, // job losses hit low-wage workers hardest; idle labor weakens bargaining power
   // --- new behavioral / outcome chains ---
   {from:"drugUse",        to:"homelessness",   coef:0.10, ref:55},  // addiction is a top driver of unsheltered homelessness
   {from:"drugUse",        to:"propertyCrime",  coef:0.06, ref:55},  // theft to support use
@@ -1272,10 +1282,11 @@ const SECTION_OF={
   // welfare & housing
   homelessServices:"welfare", ohcs:"welfare", affordableHousing:"welfare", behavioralHealth:"welfare", childcareSubsidy:"welfare",
   paidLeave:"welfare", minWageTiers:"welfare", universalMeals:"welfare", middleHousing:"welfare", rentStabilization:"welfare",
-  officeConversion:"welfare", dhs:"welfare", downtownRevitalization:"welfare",
+  officeConversion:"welfare", dhs:"welfare", downtownRevitalization:"welfare", singleStair:"welfare", housingPackage:"welfare",
   // economy & jobs
   rndTaxCredit:"economy", deregulation:"economy", rightToWork:"economy", collectiveBargaining:"economy", rightToRepair:"economy", schoolChoice:"pubservices",
-  nuclearRepeal:"economy",
+  nuclearRepeal:"economy", tortReform:"economy", jordanCoveLNG:"environment",
+  safeConsumption:"health", ohpBlockGrant:"health", cascadiaPrep:"environment",
   // environment & transport
   carbonProgram:"environment", renewablePortfolio:"environment", cleanFuels:"environment", forestPractices:"environment", bottleBill:"environment",
   forestCarbon:"environment", wildfireResilience:"environment", modeSplit:"environment", transitInvestment:"environment",
@@ -1512,11 +1523,35 @@ const POLICIES={
       {environment:11,gdp:-0.28,gasPrice:0.6,evAdoption:10}],
     tierIndicatorEffects:[{ruralAlienation:-3},{ruralAlienation:1},{ruralAlienation:4},{ruralAlienation:7}],
     tierIdeology:[{environment:0.6},{environment:0.2},{environment:-0.4},{environment:-0.8,economic:-0.3}]},
-  cannabis:{name:"Cannabis Program (Measure 91)", domain:"economy", icon:"🌿", enacted:true, mechanic:"slider",
-    desc:"Oregon legalized recreational cannabis in 2014. The slider sets how loose the regime runs — dispensary density, licensing caps, potency rules, delivery. Looser means more tax revenue and a smaller illicit market, but more youth-access and public-health concern. Repeal = re-criminalization.",
-    value:0.6, revenueFull:0.45, capital:6, repealCost:11,
-    real:{min:0,max:100,unit:"/100 looseness",decimals:0,label:"dispensary looseness"},
-    effects:{propertyCrime:-3,health:-2,taxBurden:2,drugUse:1.5}, ideology:{social:-0.5,govSize:-0.3}},
+  cannabis:{name:"Cannabis Program (Measure 91)", domain:"economy", icon:"🌿", enacted:true, mechanic:"tier",
+    desc:"Oregon legalized recreational cannabis in 2014. Choose the access tier: full prohibition, home cultivation only, medical dispensaries, or full recreational retail. Higher tiers generate tax revenue and shrink the illicit market but raise public-health and youth-access concerns.",
+    tiers:["Prohibited","Home Growing Only","Medical Dispensaries","Recreational Dispensaries"],
+    tierIndex:3, capital:6, repealCost:11,
+    costByTier:[0, 0, 0, 0],
+    tierEffects:[
+      {propertyCrime:3, drugUse:-0.5, health:2},
+      {propertyCrime:-1, drugUse:0.5},
+      {propertyCrime:-2, drugUse:1, health:-1},
+      {propertyCrime:-3, drugUse:1.5, health:-2}
+    ],
+    tierIndicatorEffects:[
+      {businessClimate:-2, inMigration:-3},
+      {},
+      {businessClimate:1, inMigration:2},
+      {businessClimate:2, inMigration:4}
+    ],
+    tierBlocEffects:[
+      {conservative:5, rural:4, retirees:4, parents:5, libertarian:-5, liberal:-5, socialist:-5, students:-6, poor:-3},
+      {libertarian:2, liberal:1, students:1, conservative:-1},
+      {liberal:3, socialist:2, libertarian:3, poor:2, students:3, conservative:-2, retirees:-2, parents:-3},
+      {liberal:5, socialist:4, libertarian:4, students:6, poor:3, moderate:2, conservative:-5, retirees:-4, parents:-4}
+    ],
+    tierIdeology:[
+      {social:0.8, govSize:0.5},
+      {social:-0.1, govSize:0.1},
+      {social:-0.4, govSize:-0.1},
+      {social:-0.7, govSize:-0.3}
+    ]},
   estateTax:{name:"Estate Tax", domain:"economy", icon:"⚰️", enacted:true, mechanic:"slider",
     desc:"Oregon taxes estates over $1 million — the lowest exemption threshold in the nation (with Massachusetts), 10–16% graduated, no spousal portability. $422.8M in FY2025 (~2.8% of GF). Measure 84 (2012) tried full repeal and lost 54–46. Critics point to wealthy-retiree out-migration; defenders note only ~5% of estates pay anything.",
     value:0.625, revenueFull:0.67, capital:8, repealCost:12,
@@ -1550,7 +1585,7 @@ const POLICIES={
     tiers:["No state minimum","Single statewide minimum","Geographic Tiers","High tiered (+$2)"],
     tierIndex:2, costByTier:[0,0.01,0.02,0.03], capital:9, repealCost:12,
     effects:{},
-    tierEffects:[{inequality:3,unemployment:-0.15,gdp:0.1},{inequality:0.8,unemployment:0.1},{inequality:0,unemployment:0},{inequality:-2,unemployment:0.5,gdp:-0.15}],
+    tierEffects:[{inequality:3,unemployment:-0.15,gdp:0.1,disposableIncome:-3},{inequality:0.8,unemployment:0.1,disposableIncome:-1},{inequality:0,unemployment:0},{inequality:-2,unemployment:0.5,gdp:-0.15,disposableIncome:3}],
     tierIndicatorEffects:[{ruralAlienation:5},{ruralAlienation:7},{ruralAlienation:-3},{ruralAlienation:6}],
     tierBlocEffects:[{rural:-3,timber:-2,businessClass:2,poor:-3},{rural:-4,timber:-3,poor:3,blueCollar:2},{rural:2,blueCollar:1},{rural:-5,timber:-4,businessClass:-3,blueCollar:2,poor:2}],
     tierIdeology:[{economic:0.7,govSize:0.5},{economic:0.1},{economic:-0.3},{economic:-0.7,govSize:-0.4}]},
@@ -1562,10 +1597,10 @@ const POLICIES={
     blocEffect:{rural:4, timber:3, businessClass:2, poor:-3, socialist:-3, liberal:-2},
     ideology:{economic:0.4,social:0.2}},
   middleHousing:{name:"Middle Housing (HB 2001)", domain:"social", icon:"🏘️", enacted:true, mechanic:"law", repealCost:10, phaseIn:10,
-    desc:"2019 — the first state to end single-family-only zoning: duplexes-to-quadplexes legal in larger cities. Oregon is ~111,000 homes underbuilt; the honest record so far is gradual — transformation depends on local markets and small builders, so the effects phase in slowly.",
+    desc:"2019 — the first state to end single-family-only zoning: duplexes-to-quadplexes legal in larger cities. Oregon is ~111,000 homes short; the law is working but slowly — transformation depends on local markets and small builders who need financing and time to retool. The supply effects compound over years as more infill projects complete, gradually pulling down rents and expanding where working families can live.",
     enabled:true, costFull:0.02, capital:9,
-    effects:{homelessness:-3,inequality:-1}, indicatorEffects:{inMigration:1.5},
-    blocEffect:{suburban:-4, wealthy:-3},
+    effects:{homelessness:-8,inequality:-2}, indicatorEffects:{inMigration:2, housingAffordability:6},
+    blocEffect:{suburban:-4, wealthy:-3, renters:3, blueCollar:2},
     ideology:{economic:-0.3,govSize:0.1}},
   deathWithDignity:{name:"Death with Dignity", domain:"social", icon:"🕊️", enacted:true, mechanic:"law", repealCost:13, niche:true,
     desc:"Measure 16 (1994), reaffirmed 1997 — the first U.S. physician-assisted-dying law. Usage is small but steady (400 deaths in 2025, ~65 per 10,000 deaths). Voters reaffirmed it once already; repeal would be a culture-war earthquake for little budget effect.",
@@ -1629,13 +1664,20 @@ const CATALOG={
     real:{min:0,max:100,unit:"/100 effort",decimals:0,label:"deflection funding"},
     ideology:{social:-0.2,govSize:-0.3}},
   housingPackage:{name:"Housing Production Package", domain:"social", icon:"🏘️", mechanic:"slider",
-    desc:"A push toward Gov. Kotek's 36,000-homes-a-year target: infrastructure finance, permitting reform, and UGB flexibility through the new Housing Accountability and Production Office. Cuts homelessness and inequality over time and boosts GDP and in-migration, but it costs money up front and the supply effects build slowly.",
-    value:0.5, costFull:0.6, capital:7, enactCapital:12, phaseIn:8,
-    effects:{homelessness:{b:-2,c:-12,i:6}, inequality:-3, gdp:0.15},
-    indicatorEffects:{inMigration:3, businessClimate:2},
+    desc:"A push toward Gov. Kotek's 36,000-homes-a-year target: infrastructure finance, permitting reform, and UGB flexibility through the new Housing Accountability and Production Office. The supply effects build gradually and compound over time — full investment takes 6+ quarters to ramp up but eventually provides the single largest housing push available to state government.",
+    value:0.5, costFull:0.6, capital:7, enactCapital:12, phaseIn:6,
+    effects:{homelessness:{b:-2,c:-16,i:5}, inequality:-4, gdp:0.2},
+    indicatorEffects:{inMigration:4, businessClimate:2},
     blocEffect:{renters:4, blueCollar:2, businessClass:2, moderate:1},
     real:{min:0,max:100,unit:"/100 ambition",decimals:0,label:"production push"},
     ideology:{economic:-0.2,govSize:-0.2}},
+  singleStair:{name:"Single Staircase Building Reform", domain:"social", icon:"🏗️", mechanic:"slider",
+    desc:"Allow residential buildings up to 6 stories to be built with a single exit staircase instead of the required two. Oregon passed the core reform in 2023 (HB 2780), but implementation is uneven and the reform is limited to smaller buildings. Expanding it to more building types and heights unlocks much cheaper, deeper floorplates — the floor area previously lost to a second stairwell becomes a bedroom or studio. Developers estimate it cuts per-unit construction costs 12–18% in mid-rise projects, enabling more missing-middle infill in cities that can't support towers. Every major peer nation already allows this.",
+    value:0.5, costFull:0.04, capital:6, enactCapital:10, phaseIn:5,
+    effects:{homelessness:{b:-1,c:-8,i:4}, inequality:-2, gdp:0.1},
+    indicatorEffects:{inMigration:2, businessClimate:2, housingAffordability:5},
+    blocEffect:{renters:5, blueCollar:3, businessClass:3, liberal:3, moderate:2, homeowners:-3, suburban:-2},
+    ideology:{economic:-0.1, govSize:-0.2}},
   dataCenterEnergy:{name:"Data-Center Energy Framework", domain:"economy", icon:"🖥️", mechanic:"slider",
     desc:"Rules governing the surge of data-center and chip-fab electricity demand — special rate classes, grid-cost allocation, and clean-power requirements. Higher strictness protects ratepayers and the climate but cools a booming investment sector; looser rules court the investment at the cost of grid strain and household power bills.",
     value:0.4, costFull:0.05, capital:6, enactCapital:10,
@@ -1786,17 +1828,17 @@ const CATALOG={
     blocEffect:{liberal:2, socialist:2, libertarian:3, moderate:1},
     ideology:{social:-0.4,govSize:-0.2}},
   gunStorage:{name:"Secure Gun Storage Law", domain:"social", icon:"🔐", mechanic:"law",
-    desc:"Mandate safe storage and reporting (echoes Measure 114). Cuts some crime and suicide; fierce rural opposition.",
+    desc:"Mandate locked storage and require reporting of lost or stolen firearms (echoes Measure 114). Reduces accidental shootings, youth suicides by firearm, and stolen-gun crime without restricting legal ownership. Effects build over time as household storage practices change. Fierce rural and libertarian opposition frames it as the first step toward confiscation.",
     enabled:true, costFull:0.05, capital:9, enactCapital:13,
-    effects:{violentCrime:-5,health:3}, ideology:{social:-0.7,govSize:-0.5}},
+    effects:{violentCrime:{b:-2,c:-9,i:4},health:{b:1,c:5,i:4}}, ideology:{social:-0.7,govSize:-0.5}},
   forestCarbon:{name:"Forest Carbon Offsets", domain:"envInfra", icon:"🌳", mechanic:"slider",
     desc:"Sell carbon credits for keeping state forests standing — competes with logging revenue but boosts environment and tourism.",
     value:0.5, revenue:0.2, capital:6, enactCapital:9,
     effects:{environment:{b:2,c:7,i:6},loggingRate:-8}, indicatorEffects:{tourism:2,ruralAlienation:3}, ideology:{environment:-0.7,economic:-0.2}},
   digitalGov:{name:"Digital Government Modernization", domain:"economy", icon:"🖥️", phaseIn:8, mechanic:"slider",
-    desc:"Overhaul Oregon's aging state IT (the failed Cover Oregon exchange is the cautionary tale). Raises state capacity so every other policy lands more effectively.",
+    desc:"Overhaul Oregon's aging state IT (the failed Cover Oregon exchange is the cautionary tale). Raises state capacity so every other policy lands more effectively, slashes administrative overhead, and compresses redundant processes — producing a measurable drop in effective tax burden over time.",
     value:0.5, costFull:0.6, capital:6, enactCapital:11,
-    effects:{}, indicatorEffects:{digitization:14}, ideology:{govSize:-0.2}},
+    effects:{taxBurden:-2}, indicatorEffects:{digitization:22, adminOverhead:-10}, ideology:{govSize:-0.2}},
   outdoorRec:{name:"Outdoor Recreation Investment", domain:"envInfra", icon:"🏕️", mechanic:"slider",
     desc:"State parks, trails, coast and Columbia Gorge access, Travel Oregon marketing. Drives tourism and rural jobs.",
     value:0.5, costFull:0.4, capital:5, enactCapital:8,
@@ -1876,7 +1918,7 @@ const CATALOG={
   deregulation:{name:"Business Deregulation Package", domain:"economy", icon:"✂️", mechanic:"slider",
     desc:"Sweeping rollback of permitting, environmental, and licensing rules to cut red tape. Lifts growth and business climate; environmental quality and worker protections suffer.",
     value:0.5, costFull:0, capital:8, enactCapital:11,
-    effects:{gdp:0.4,environment:-6,unemployment:-0.3}, indicatorEffects:{businessClimate:8, adminOverhead:-18, digitization:4},
+    effects:{gdp:0.4,environment:-6,unemployment:-0.3,inequality:2}, indicatorEffects:{businessClimate:8, adminOverhead:-18, digitization:4},
     sizeEffect:{businessClass:0.03, blueCollar:-0.02},
     ideology:{economic:0.7,environment:0.5,govSize:0.6}},
   carbonTax:{name:"Carbon Tax", domain:"envInfra", icon:"🏭", mechanic:"slider",
@@ -1891,7 +1933,8 @@ const CATALOG={
   waterRights:{name:"Groundwater & Water Rights Reform", domain:"envInfra", icon:"💧", mechanic:"slider",
     desc:"Tighten Oregon's prior-appropriation system: statewide groundwater allocation rules (adopted 2024), critical-area designations like Harney Basin (first in 30+ years — cutbacks up to 70%, ~$41M local ag hit), and instream-flow protection. Agriculture uses ~85% of diverted water; the Klamath wars showed what scarcity without rules costs.",
     value:0.5, costFull:0.12, capital:9, enactCapital:11,
-    effects:{environment:7,gdp:-0.15}, ideology:{environment:-0.6,economic:-0.3}},
+    effects:{environment:16,gdp:-0.15}, indicatorEffects:{tourism:4},
+    ideology:{environment:-0.6,economic:-0.3}},
   vaccineMandate:{name:"End Nonmedical Vaccine Exemptions", domain:"eduHealth", icon:"💉", mechanic:"law",
     desc:"Require school immunization with medical-only exemptions. Oregon's nonmedical exemption rate is among the nation's highest and climbing (7.5% of kindergartners by 2018). SB 442 (2015) and HB 3063 (2019) both died — even under Democratic supermajorities — after furious 'medical freedom' opposition and the 2019 measles outbreak.",
     enabled:true, costFull:0.02, capital:12, enactCapital:14,
@@ -1921,6 +1964,44 @@ const CATALOG={
     enabled:true, costFull:0, capital:12, enactCapital:20, repealCost:14,
     effects:{environment:5,gdp:0.35}, indicatorEffects:{businessClimate:4},
     ideology:{economic:0.3,govSize:0.1}},
+  safeConsumption:{name:"Safe Consumption Sites", domain:"social", icon:"🩺", mechanic:"slider",
+    desc:"Supervised drug consumption facilities staffed by medical personnel — people bring their own substances, use under medical watch, and can be connected to treatment on the spot. No one overdoses alone. Oregon cities explored this after Measure 110; Vancouver's Insite and Amsterdam's facilities have 25+ years of data behind them: overdose deaths fall sharply, ER visits drop, and connection to treatment rises. The politics are brutal — every conservative ad writes itself, and rural Oregon sees this as Portland telling addicts their habit is fine.",
+    value:0.4, costFull:0.28, capital:6, enactCapital:12,
+    effects:{drugUse:{b:-1,c:-8,i:5}, behavioralHealth:{b:1,c:4,i:4}, propertyCrime:-2},
+    indicatorEffects:{downtown:3, inMigration:-2},
+    blocEffect:{liberal:7, socialist:6, poor:4, urban:4, students:3, conservative:-8, rural:-6, suburban:-5, retirees:-4, parents:-3},
+    ideology:{social:-0.8, govSize:-0.3}},
+  jordanCoveLNG:{name:"Jordan Cove LNG Terminal", domain:"envInfra", icon:"⛽", mechanic:"law", reform:true,
+    desc:"Re-open the permit process for Pembina Pipeline's proposed $10B liquefied natural gas export terminal at Coos Bay — connected by a 229-mile Pacific Connector pipeline from the Klamath Basin. A decade of permitting battles ended when FERC denied the final certificate in 2021 after Oregon DEQ withheld its Clean Water Act certification. Re-opening means overriding DEQ, confronting the tribal treaty-rights claims along the corridor, and taking on the environmental coalition that killed it. The payoff is tangible: thousands of construction jobs in a desperate coastal economy, permanent facility jobs, and export revenue that diversifies the state's economic base beyond software and timber.",
+    costFull:0.12, capital:8, enactCapital:16, repealCost:11,
+    effects:{gdp:0.5, unemployment:-0.8, environment:-7},
+    indicatorEffects:{ruralAlienation:-11, businessClimate:5, inMigration:-3},
+    blocEffect:{rural:8, timber:7, businessClass:5, conservative:6, moderate:2, liberal:-8, socialist:-7, students:-5},
+    ideology:{environment:0.7, economic:0.5, govSize:-0.2}},
+  tortReform:{name:"Tort Reform & Liability Cap", domain:"economy", icon:"⚖️", mechanic:"law",
+    desc:"Cap non-economic ('pain and suffering') damages in civil lawsuits at $500K, limit punitive damages to 3× compensatory, and streamline class-action certification rules. Every Oregon legislative session, business groups push a version of this; every session, plaintiff's attorneys kill it in committee. States with caps have seen lower medical malpractice premiums and reduced corporate litigation drag — but also much lower compensation for workers and consumers whose lives were genuinely wrecked by negligence. The tradeoff is real on both sides.",
+    costFull:0, capital:7, enactCapital:11, repealCost:9,
+    effects:{gdp:0.2, inequality:2},
+    indicatorEffects:{businessClimate:6, inMigration:1},
+    blocEffect:{businessClass:7, wealthy:5, conservative:5, libertarian:4, rural:2, poor:-6, blueCollar:-3, liberal:-5, socialist:-5},
+    ideology:{economic:0.5, govSize:0.2}},
+  cascadiaPrep:{name:"Cascadia Earthquake Preparedness Act", domain:"envInfra", icon:"🌊", mechanic:"slider",
+    desc:"Oregon is overdue for a Cascadia Subduction Zone megaquake — scientists estimate a 10–15% chance of a M9.0 event in the next 50 years, with a potential death toll exceeding 10,000 if unprepared. This program funds mandatory seismic retrofits of state buildings and bridges, strengthened building codes for new public construction, tsunami evacuation infrastructure on the coast, and enhanced emergency communication systems.\n\nThe cross-aisle support is unusually broad — the physics of plate tectonics don't care about party registration. The trade-off: tighter seismic standards raise costs for every new public project. ODOT bridge and highway projects get more expensive, as does any state-funded public construction. Private developers face higher code compliance costs, which nudges business climate downward.",
+    value:0.4, costFull:0.20, capital:8, enactCapital:9,
+    effects:{health:{b:1,c:4,i:8}},
+    indicatorEffects:{businessClimate:-3, inMigration:2},
+    agencyLinks:{
+      odot:{desc:"seismic code premium on road and bridge projects", rate:0.14},
+      ohcs:{desc:"seismic code premium on public housing construction", rate:0.14}
+    },
+    blocEffect:{liberal:5, moderate:7, conservative:5, rural:5, parents:5, retirees:4, businessClass:-3, wealthy:-2, timber:-2},
+    ideology:{govSize:-0.3, environment:-0.1}},
+  ohpBlockGrant:{name:"OHP/Medicaid Block Grant", domain:"eduHealth", icon:"🏥", mechanic:"law",
+    desc:"Convert Oregon Health Plan from an open Medicaid entitlement — where enrollment and cost grow automatically with need — to a capped state block grant receiving a fixed federal allotment each year. When recessions hit and enrollment surges, people lose coverage or benefits narrow automatically. Republicans have proposed this in every budget-crunch session, arguing it makes health spending predictable and forces efficiency. The math is real: it saves money. So does the human cost — people who fall off coverage don't disappear; they show up in ERs, shelters, and jails, just billed to a different bucket.",
+    costFull:-0.45, capital:9, enactCapital:14, repealCost:12,
+    effects:{health:{b:-1,c:-6,i:4}, inequality:3, taxBurden:-2},
+    blocEffect:{conservative:6, libertarian:5, wealthy:4, businessClass:3, rural:2, poor:-8, blueCollar:-4, liberal:-6, socialist:-6, parents:-3},
+    ideology:{economic:0.4, social:0.2, govSize:0.5}},
   govOps:{name:"Government Operations and Workforce Budget", domain:"economy", icon:"🗂️", enacted:true, mechanic:"slider", phaseIn:10, noOverhead:true,
     desc:"Investment in agency staffing, training, coordination, and IT management — the infrastructure that makes everything else work. It does three things:\n\n1. Immediately lowers Administrative Overhead (−8 direct effect), cutting the coordination friction that erodes all other programs.\n2. Slowly builds Government Digitization over 10 quarters — better systems that further reduce overhead and boost the effectiveness of every policy across the board.\n3. Reduces the operating cost of every other spending policy by up to 12% at max investment — better procurement, less duplication, smarter contracting.\n\nThis policy is exempt from the overhead penalty it helps reduce. At the default level of 30%, Oregon is slightly underinvested — overhead sits just above the penalty threshold. Raising govOps is the most leveraged move in the portfolio: it makes every other dollar work harder.",
     value:0.3, costFull:1.2, capital:7,
@@ -1960,7 +2041,7 @@ const AGENCIES={
     desc:"Oregon Health Plan (Medicaid), public health.",
     effects:{health:{b:1,c:4,i:5},behavioralHealth:{b:1,c:4,i:4},psychBeds:{b:2,c:9,i:3},obesity:-1,inequality:-2}, indicatorEffects:{}, ideology:{economic:-0.3,govSize:-0.3}},
   odot:{name:"Dept. of Transportation (ODOT)", domain:"envInfra", icon:"🛣️",
-    funding:0.5, costMin:0.6, costFull:1.3, capital:4,
+    funding:0.5, costMin:0.6, costFull:1.3, capital:4, seismicAgency:true,
     desc:"Highways, bridges, maintenance, transit grants — chronically short of funding as gas-tax revenue erodes. Funding level sets how much gets built; the Transportation Mix policy sets WHAT gets built.",
     effects:{gdp:0.15, environment:-4}, indicatorEffects:{businessClimate:3,inMigration:1}, ideology:{economic:0.1}},
   forestry:{name:"Dept. of Forestry", domain:"envInfra", icon:"🌲",
@@ -1973,7 +2054,7 @@ const AGENCIES={
     ideology:{environment:0.5},
     loggingIdeology:{environment:0.6,economic:0.2}},
   ohcs:{name:"Housing & Community Services (OHCS)", domain:"social", icon:"🏚️",
-    funding:0.5, costMin:0.5, costFull:1.3, capital:5, cutSurcharge:1.4,
+    funding:0.5, costMin:0.5, costFull:1.3, capital:5, cutSurcharge:1.4, seismicAgency:true,
     desc:"Oregon's housing agency — shelters ($205M/biennium), affordable development (~$1.6B in recent biennia across housing/homelessness), rent assistance. Direct lever on the homelessness emergency.",
     effects:{homelessness:{b:-4,c:-10,i:3},inequality:-2}, indicatorEffects:{downtown:3,inMigration:2}, ideology:{economic:-0.5,govSize:-0.5}},
   deq:{name:"Dept. of Environmental Quality", domain:"envInfra", icon:"🧪",
@@ -2038,7 +2119,7 @@ const SIMULANTS={
     instPref:{communityCollege:1.4, aid:1.8}},
   middleIncome:{category:"income", name:"Middle Income", size:0.55, turnout:0.66,
     ideology:{economic:0.0,social:0.0,environment:-0.1,govSize:0.05}, approval:46,
-    sensitivities:{gdp:1.3, taxes:1.5, crime:1.2, education:1.2, health:1.0, gasprice:1.2, income:1.5},
+    sensitivities:{gdp:1.3, taxes:1.5, crime:1.2, education:1.2, health:1.0, gasprice:1.2, income:1.5, inequality:0.8},
     instPref:{university:0.6, stateCollege:0.7, communityCollege:0.7, aid:0.5}},
   wealthy:{category:"income", name:"Wealthy", size:0.13, turnout:0.82,
     ideology:{economic:0.5,social:-0.1,environment:-0.1,govSize:0.4}, approval:46,
@@ -2051,7 +2132,7 @@ const SIMULANTS={
     instPref:{communityCollege:0.5, aid:0.6}},
   homeowners:{category:"housing", name:"Homeowners", size:0.55, turnout:0.78,
     ideology:{economic:0.25,social:0.05,environment:0.0,govSize:0.2}, approval:47,
-    sensitivities:{gdp:1.2, taxes:1.6, crime:1.5, homelessness:1.1, education:0.9, income:1.0, gasprice:0.9},
+    sensitivities:{gdp:1.2, taxes:1.6, crime:1.5, homelessness:1.1, education:0.9, income:1.0, gasprice:0.9, inequality:0.3},
     instPref:{university:0.7}},
   // ===== WORK & LIFESTYLE (overlapping) =====
   blueCollar:{category:"sector", name:"Blue Collar", size:0.22, turnout:0.55,
@@ -2560,16 +2641,16 @@ const DILEMMAS={
     text:"The attackers have sent a ransom demand: $4.2M in cryptocurrency to decrypt state systems and restore citizen data before it's published on the dark web. The FBI advises against paying — it funds criminal enterprises and invites repeat attacks. But every day the portals stay down, benefits go unpaid, DMV queues stretch around the block, and public-sector workers are processing claims by hand.",
     influence:()=>GAME.activeSituations.cyberattack?0.80:-1.5,
     options:[
-      {label:"Pay the ransom", text:"The state pays. Systems are restored within 48 hours. The FBI notes Oregon in its 'paid' list. Hardliners call it a capitulation; benefits recipients and workers notice the lights come back on.",
+      {label:"Pay the ransom", text:"The state pays. Systems are restored within 48 hours — benefits portals come back online, DMV queues clear, and payroll processes again. The FBI flags Oregon for future targeting. Conservatives call it surrender to extortion; low-income Oregonians whose rent-assistance and food-benefits were suspended for days don't share that abstraction — they got their money.",
        apply:()=>{
          GAME.capital=Math.max(0,GAME.capital-3);
          createGrudge("v_conservative",-5,0.88,"Government paid the criminals");
-         createGrudge("v_libertarian",-4,0.88,"State surrendered to extortion");
-         createGrudge("v_businessClass",-3,0.90,"Sets a dangerous precedent");
-         createGrudge("v_poor",4,0.90,"Benefits restored quickly");
-         createGrudge("v_publicUnions",3,0.90,"Workers' systems restored");
-         createGrudge("v_moderate",2,0.90,"Pragmatic — people needed help");
-         GAME.log.push("💸 Ransom paid — state systems restored; ◈ 3 spent");
+         createGrudge("v_libertarian",-5,0.88,"State surrendered to extortion");
+         createGrudge("v_businessClass",-3,0.90,"Sets a dangerous precedent for future attacks");
+         createGrudge("v_poor",3,0.90,"Benefits portals restored — rent and food aid resumed");
+         createGrudge("v_publicUnions",3,0.90,"Workers' systems and payroll restored quickly");
+         createGrudge("v_moderate",2,0.90,"Pragmatic call — people needed help now");
+         GAME.log.push("💸 Ransom paid — benefits portals and state systems restored; ◈ 3 spent");
        }},
       {label:"Refuse and rebuild", text:"Oregon refuses to pay. Emergency IT contractors are brought in. Full recovery takes weeks — public frustration runs high, but Oregon won't fund the next attack.",
        apply:()=>{
@@ -2965,24 +3046,24 @@ const SITUATIONS={
     trigger:()=>METRICS.homelessness.value>60, clear:()=>METRICS.homelessness.value<50, onClear:{capital:3},
     costEffect:{humanServices:0.40},
     watch:{metric:"homelessness", startAt:60, clearAt:50, badHigh:true},
-    metricEffect:{health:-1.5}, indicatorEffect:{inMigration:-5},
-    moodAxes:{economic:-0.2,social:-0.2}, moodMag:6,
-    groupMood:{urban:-4,poor:-4,liberal:-3,suburban:-2}},
+    metricEffect:{health:-1.5, gdp:-0.12}, indicatorEffect:{inMigration:-5},
+    moodAxes:{economic:-0.2,social:-0.2}, moodMag:2,
+    groupMood:{urban:-8,poor:-8,liberal:-6,suburban:-4,conservative:1}},
   addictionCrisis:{name:"Addiction & Overdose Crisis", kind:"bad", category:"chronic",
     desc:"Fentanyl and untreated addiction are overwhelming Oregon after the rocky rollout and repeal of drug decriminalization. Treatment capacity is far short of need. Higher incarceration capacity can help contain the crisis alongside behavioral health investment.",
     startActive:true, minTurns:8, clear:()=>METRICS.drugUse.value<42 && (METRICS.behavioralHealth.value>58 || METRICS.incarcerationRate.value>68),
     costEffect:{humanServices:0.35},
     watch:{metric:"drugUse", startAt:null, clearAt:42, badHigh:true, alsoMetric:"behavioralHealth", alsoClearAt:58},
-    metricEffect:{propertyCrime:1.4,violentCrime:0.4,homelessness:1.0,drugUse:1.2}, indicatorEffect:{inMigration:-3},
-    moodAxes:{social:0.2}, moodMag:4,
-    groupMood:{suburban:-3,rural:-3,blueCollar:-2,liberal:-2}},
+    metricEffect:{propertyCrime:1.4,violentCrime:0.4,homelessness:1.0,drugUse:1.2,gdp:-0.15}, indicatorEffect:{inMigration:-3},
+    moodAxes:{social:0.2}, moodMag:1,
+    groupMood:{suburban:-6,rural:-5,blueCollar:-5,liberal:-4,parents:-3,conservative:-2}},
   housingShortage:{name:"Chronic Housing Shortage", kind:"bad", category:"chronic",
     desc:"Decades of underbuilding behind the urban growth boundary have left Oregon hundreds of thousands of homes short, pushing prices and rents out of reach.",
     startActive:true, minTurns:8, clear:()=>METRICS.homelessness.value<40 && METRICS.inequality.value<52,
     watch:{metric:"homelessness", startAt:null, clearAt:40, badHigh:true, alsoMetric:"inequality", alsoClearAt:52},
-    metricEffect:{inequality:0.8}, indicatorEffect:{inMigration:-6},
-    moodAxes:{economic:-0.2}, moodMag:3,
-    groupMood:{urban:-4,renters:-5,blueCollar:-3,poor:-3,businessClass:-1,homeowners:4,wealthy:2}},
+    metricEffect:{inequality:0.8, gdp:-0.08}, indicatorEffect:{inMigration:-6},
+    moodAxes:{economic:-0.2}, moodMag:1,
+    groupMood:{urban:-5,renters:-8,blueCollar:-4,poor:-5,businessClass:-2,homeowners:4,wealthy:2}},
   // ============================================================
   // CONDITION-TRIGGERED — flare up when metrics worsen, clear when they recover.
   // ============================================================
@@ -2991,15 +3072,15 @@ const SITUATIONS={
     trigger:()=>METRICS.violentCrime.value>60, clear:()=>METRICS.violentCrime.value<50, onClear:{capital:2},
     watch:{metric:"violentCrime", startAt:60, clearAt:50, badHigh:true},
     costEffect:{publicSafety:0.25},
-    metricEffect:{gdp:-0.1}, moodAxes:{social:0.4}, moodMag:4,
-    groupMood:{suburban:-3,rural:-2,businessClass:-2}},
+    metricEffect:{gdp:-0.18}, moodAxes:{social:0.4}, moodMag:1,
+    groupMood:{suburban:-6,rural:-4,businessClass:-4,conservative:-3,moderate:-2,blueCollar:-2}},
   propertySpike:{name:"Property Crime Spike", kind:"bad", category:"condition",
     desc:"Car break-ins, shoplifting, and catalytic-converter theft surge — businesses board windows and shoppers stay home.",
     trigger:()=>METRICS.propertyCrime.value>68, clear:()=>METRICS.propertyCrime.value<58, onClear:{capital:2},
     watch:{metric:"propertyCrime", startAt:68, clearAt:58, badHigh:true},
     costEffect:{publicSafety:0.15},
-    metricEffect:{gdp:-0.1}, indicatorEffect:{downtown:-6,businessClimate:-4}, moodMag:4,
-    groupMood:{businessClass:-4,suburban:-2,wealthy:-2}},
+    metricEffect:{gdp:-0.1}, indicatorEffect:{downtown:-6,businessClimate:-4}, moodMag:1,
+    groupMood:{businessClass:-8,suburban:-5,wealthy:-4,moderate:-2,blueCollar:-2}},
   fiscalCrisis:{name:"Budget Shortfall", kind:"bad", category:"condition",
     desc:"The General Fund is running a structural deficit.",
     trigger:()=>GAME.lastBalance<-1.5, clear:()=>GAME.lastBalance>-0.5,
@@ -3010,30 +3091,30 @@ const SITUATIONS={
     desc:"A widening gap between rich and poor is fueling resentment and protest.",
     trigger:()=>METRICS.inequality.value>74, clear:()=>METRICS.inequality.value<64, onClear:{capital:3},
     watch:{metric:"inequality", startAt:74, clearAt:64, badHigh:true},
-    metricEffect:{violentCrime:0.6,propertyCrime:0.6}, moodAxes:{economic:-0.4}, moodMag:4,
-    groupMood:{poor:-4,blueCollar:-3,liberal:-2,wealthy:1}},
+    metricEffect:{violentCrime:0.6,propertyCrime:0.6,gdp:-0.10}, moodAxes:{economic:-0.4}, moodMag:1,
+    groupMood:{poor:-8,blueCollar:-6,liberal:-5,wealthy:2,socialist:-4}},
   // ---- positive conditions ----
   boomingEconomy:{name:"Booming Economy", kind:"good", category:"condition",
     desc:"Strong growth and low joblessness lift confidence statewide.",
     trigger:()=>METRICS.gdp.value>3.8 && METRICS.unemployment.value<4,
     clear:()=>METRICS.gdp.value<3,
     watch:{metric:"gdp", startAt:3.8, clearAt:3, badHigh:false},
-    metricEffect:{}, moodMag:5,
-    groupMood:{businessClass:3,blueCollar:2,wealthy:2}},
+    metricEffect:{}, moodMag:2,
+    groupMood:{businessClass:6,blueCollar:5,wealthy:5,moderate:2,middleIncome:2}},
   educationLeader:{name:"Education Leader", kind:"good", category:"condition",
     desc:"Oregon is recognized for top educational outcomes.",
     trigger:()=>METRICS.education.value>82, clear:()=>METRICS.education.value<74,
     watch:{metric:"education", startAt:82, clearAt:74, badHigh:false},
-    metricEffect:{}, moodMag:3, groupMood:{students:3,publicUnions:2}},
+    metricEffect:{}, moodMag:1, groupMood:{students:6,publicUnions:4,parents:4,collegeEducated:2}},
   // ============================================================
   // RANDOM EVENTS — episodic, roll in and out (see EVENT_POOL).
   // ============================================================
   wildfireSeason:{name:"Severe Wildfire Season", kind:"bad", category:"event",
     desc:"Catastrophic wildfires choke the Willamette Valley with smoke and force evacuations across eastern and southern Oregon.",
     costEffect:{natResources:0.45},
-    metricEffect:{environment:-4,health:-3,gdp:-0.3,loggingRate:-6}, moodAxes:{environment:-0.2}, moodMag:6, minTurns:2,
+    metricEffect:{environment:-4,health:-3,gdp:-0.3,loggingRate:-6}, moodAxes:{environment:-0.2}, moodMag:2, minTurns:2,
     onTrigger:{capital:-4, metrics:{environment:-6}}, mandateShock:-5,
-    groupMood:{rural:-4,timber:-5,students:-2}},
+    groupMood:{rural:-8,timber:-9,students:-3,liberal:-2,blueCollar:-2}},
   businessExodus:{name:"Business Climate Collapse", kind:"bad", category:"condition",
     desc:"Oregon's stacked costs and regulatory burden have crossed a tipping point. Companies are announcing relocations to Washington and Idaho — and the exodus feeds itself: as anchor firms leave, their suppliers and service vendors follow, Oregon's anti-business reputation hardens, and the remaining talent pool thins. Reversing it requires meaningfully improving the business climate, not just stopping the slide.",
     trigger:()=>INDICATORS.businessClimate.value<35, onClear:{capital:3},
@@ -3041,154 +3122,154 @@ const SITUATIONS={
     watch:{indicator:"businessClimate", startAt:35, clearAt:47, badHigh:false},
     metricEffect:{gdp:-0.30, unemployment:0.4},
     indicatorEffect:{inMigration:-6, businessClimate:-4},
-    moodMag:5, moodAxes:{economic:0.3}, minTurns:3,
+    moodMag:2, moodAxes:{economic:0.3}, minTurns:3,
     onTrigger:{capital:-3},
-    groupMood:{businessClass:-8, wealthy:-5, suburban:-3, blueCollar:-3, rural:-2}},
+    groupMood:{businessClass:-10, wealthy:-7, suburban:-4, blueCollar:-4, rural:-3}},
   taxRevolt:{name:"Tax Revolt", kind:"bad", category:"condition",
     desc:"An anti-tax ballot measure campaign has caught fire. Oregon's stacked income, payroll, and property taxes have pushed voter frustration past the tipping point — initiative petitions are circulating, town halls are getting heated, and your governing mandate is under siege. The revolt persists until tax grievance cools significantly.",
     trigger:()=>INDICATORS.taxGrievance.value>68, onClear:{capital:3},
     clear:()=>INDICATORS.taxGrievance.value<53,
     watch:{indicator:"taxGrievance", startAt:68, clearAt:53, badHigh:true},
-    metricEffect:{taxBurden:-2}, moodAxes:{economic:0.5,govSize:0.5}, moodMag:6, minTurns:3,
+    metricEffect:{taxBurden:-2}, moodAxes:{economic:0.5,govSize:0.5}, moodMag:2, minTurns:3,
     onTrigger:{capital:-5},
-    groupMood:{wealthy:-5,businessClass:-4,rural:-4,suburban:-2}},
+    groupMood:{wealthy:-9,businessClass:-8,rural:-7,suburban:-4,conservative:-3,libertarian:-3,motorists:-2}},
   recession:{name:"National Recession", kind:"bad", category:"event",
     desc:"A national downturn drags Oregon's economy with it.",
-    metricEffect:{gdp:-0.6,unemployment:0.5,loggingRate:-8}, moodMag:5, minTurns:3,
-    groupMood:{blueCollar:-4,businessClass:-3,poor:-3}},
+    metricEffect:{gdp:-0.6,unemployment:0.5,loggingRate:-8}, moodMag:2, minTurns:3,
+    groupMood:{blueCollar:-7,businessClass:-6,poor:-6,middleIncome:-3,moderate:-2}},
   transportCliff:{name:"Transportation Funding Cliff", kind:"bad", category:"condition",
     desc:"Oregon's transportation funding is structurally underfunded — the same cliff that triggered ODOT's historic 2025 layoffs and a $354M annual shortfall. Gas tax revenue erodes as the fleet electrifies. Three levers can close the gap: raise the gas tax (strongest), raise vehicle registration fees (stable), or enact the EV Road Usage Charge (closes the EV gap). Watch the 🛣️ Transportation Revenue Health indicator — it needs to reach ~70 to resolve this crisis. Any combination of the three levers works.",
     trigger:()=>{const g=policyLevel(POLICIES.gasTax),r=policyLevel(POLICIES.vehicleReg),e=POLICIES.evFee?policyLevel(POLICIES.evFee):0;return GAME.turn>4&&(g*0.9+r*0.6+e*0.2)<0.75;},
     clear:()=>{const g=policyLevel(POLICIES.gasTax),r=policyLevel(POLICIES.vehicleReg),e=POLICIES.evFee?policyLevel(POLICIES.evFee):0;return (g*0.9+r*0.6+e*0.2)>=0.85;},
     watch:{indicator:"transportFunding", startAt:62, clearAt:70, badHigh:false},
-    metricEffect:{gdp:-0.2,unemployment:0.3}, moodMag:5, minTurns:3,
+    metricEffect:{gdp:-0.2,unemployment:0.3}, moodMag:2, minTurns:3,
     onTrigger:{capital:-4}, onClear:{capital:2},
     indicatorEffect:{businessClimate:-5,inMigration:-2},
-    groupMood:{motorists:-6,rural:-5,businessClass:-4,timber:-3,publicUnions:-3}},
+    groupMood:{motorists:-9,rural:-8,businessClass:-5,timber:-5,publicUnions:-4,blueCollar:-2}},
   federalShock:{name:"Federal Tax-Law Shock", kind:"bad", category:"event",
     desc:"Congress rewrites the tax code (echoing 2025's H.R. 1). Because Oregon auto-conforms, hundreds of millions in General Fund revenue vanish almost overnight, and federal Medicaid match tightens — a fiscal hit you didn't choose and can't easily undo.",
-    metricEffect:{}, moodMag:4, minTurns:2,
+    metricEffect:{}, moodMag:0, minTurns:2,
     onTrigger:{fedHit:true},
-    groupMood:{publicUnions:-3,poor:-3,blueCollar:-2}},
+    groupMood:{}},
   federalWindfall:{name:"Federal Infrastructure Windfall", kind:"good", category:"event",
     desc:"A wave of federal grants flows to Oregon for transit, broadband, and water.",
-    metricEffect:{gdp:0.3,environment:1}, moodMag:5, minTurns:2,
+    metricEffect:{gdp:0.3,environment:1}, moodMag:2, minTurns:2,
     onTrigger:{capital:4, metrics:{gdp:0.5}}, mandateShock:6,
-    groupMood:{publicUnions:3,blueCollar:2}},
+    groupMood:{publicUnions:6,blueCollar:5,poor:4,liberal:2}},
   techBoom:{name:"Tech & Semiconductor Boom", kind:"good", category:"condition",
     desc:"Strong GDP growth and an influx of skilled workers have crossed a threshold that attracts major chip-fab and data-center investments to Oregon's Silicon Forest. The boom sustains itself as long as the economy stays hot and talent keeps flowing in.",
     trigger:()=>METRICS.gdp.value>3.5&&INDICATORS.inMigration.value>58,
     clear:()=>METRICS.gdp.value<2.8||INDICATORS.inMigration.value<50,
     watch:{metric:"gdp", startAt:3.5, clearAt:2.8, badHigh:false},
-    metricEffect:{gdp:0.25,unemployment:-0.2,inequality:0.8}, moodMag:5, minTurns:3, mandateShock:7,
+    metricEffect:{gdp:0.25,unemployment:-0.2,inequality:0.8}, moodMag:2, minTurns:3, mandateShock:7,
     indicatorEffect:{businessClimate:6,inMigration:4},
-    groupMood:{businessClass:5,wealthy:3,collegeEducated:3,timber:-1}},
+    groupMood:{businessClass:8,wealthy:5,collegeEducated:5,urban:2,timber:-2}},
   droughtWater:{name:"Drought & Water Crisis", kind:"bad", category:"event",
     desc:"A severe drought pits farms, fish, and cities against each other over water.",
-    metricEffect:{environment:-2,gdp:-0.2,loggingRate:-5}, moodAxes:{environment:-0.2}, moodMag:4, minTurns:3,
-    groupMood:{rural:-4,timber:-3}},
+    metricEffect:{environment:-2,gdp:-0.2,loggingRate:-5}, moodAxes:{environment:-0.2}, moodMag:1, minTurns:3,
+    groupMood:{rural:-7,timber:-6,liberal:-2}},
   scandal:{name:"Statehouse Scandal", kind:"bad", category:"event",
     desc:"An ethics scandal involving the administration dominates the press — your authority in Salem takes a real hit.",
-    metricEffect:{}, moodMag:7, minTurns:2, onTrigger:{capital:-6}, mandateShock:-14,
-    groupMood:{}},
+    metricEffect:{}, moodMag:4, minTurns:2, onTrigger:{capital:-6}, mandateShock:-14,
+    groupMood:{moderate:-3,liberal:-2,conservative:-2}},
   cascadiaQuake:{name:"Cascadia Earthquake", kind:"bad", category:"event",
     desc:"A major Cascadia Subduction Zone quake strikes — the Big One Oregonians have dreaded for decades. Infrastructure, ports, and bridges are damaged; recovery dominates everything.",
     costEffect:{debtAdmin:1.2,natResources:0.4},
-    metricEffect:{gdp:-0.8,health:-4,environment:-2}, moodMag:6, minTurns:4,
+    metricEffect:{gdp:-0.8,health:-4,environment:-2}, moodMag:3, minTurns:4,
     onTrigger:{capital:-8, metrics:{gdp:-3.5,environment:-8,health:-3}}, mandateShock:-8,
     indicatorEffect:{tourism:-16,businessClimate:-12,inMigration:-12,downtown:-8},
     groupMood:{}},
   klamathCrisis:{name:"Klamath Water Crisis", kind:"bad", category:"event",
     desc:"Drought collides with prior-appropriation rights — irrigation shutoffs, dead salmon, armed standoffs at the headgates. The 2001 shutoff cost farms $27–46M; the 2002 fish kill left 34,000–70,000 Chinook rotting on the banks.",
-    metricEffect:{gdp:-0.12,environment:-2}, moodMag:5, minTurns:2,
+    metricEffect:{gdp:-0.12,environment:-2}, moodMag:1, minTurns:2,
     indicatorEffect:{tourism:-5},
-    groupMood:{rural:-5,timber:-4,liberal:-2}},
+    groupMood:{rural:-9,timber:-8,liberal:-3}},
   measlesOutbreak:{name:"Measles Outbreak", kind:"bad", category:"event",
     desc:"A measles outbreak spreads through under-vaccinated schools (echoing the 2019 Clark County outbreak, 65+ cases). Oregon's nonmedical exemption rate is among the nation's highest.",
-    metricEffect:{health:-2.5}, moodMag:4, minTurns:1, onTrigger:{capital:-3},
-    groupMood:{suburban:-3,blueCollar:-2}},
+    metricEffect:{health:-2.5}, moodMag:1, minTurns:1, onTrigger:{capital:-3},
+    groupMood:{suburban:-5,blueCollar:-3,parents:-5}},
   gopWalkout:{name:"Legislative Walkout", kind:"bad", category:"condition",
     desc:"When rural alienation runs this high, Republican legislators deny quorum — the tactic that killed cap-and-trade twice (HB 2020, SB 1530). The walkout doesn't just freeze your agenda: it drains political capital every quarter while legislators sit on their hands. You can wait for alienation to cool on its own, or accept a concession demand — but concessions hand real policy wins to conservative and timber interests.",
     trigger:()=>INDICATORS.ruralAlienation.value>65,
     clear:()=>INDICATORS.ruralAlienation.value<52,
-    metricEffect:{}, moodMag:6, minTurns:2, onTrigger:{capital:-10}, onClear:{capital:4},
+    metricEffect:{}, moodMag:3, minTurns:2, onTrigger:{capital:-10}, onClear:{capital:4},
     capitalDrain:-4,
     indicatorEffect:{ruralAlienation:-8},
     moodAxes:{economic:0.2,govSize:0.2},
-    groupMood:{rural:3,timber:2,liberal:-5,publicUnions:-3}},
+    groupMood:{rural:4,timber:3,liberal:-7,publicUnions:-4,moderate:-2}},
   oilShock:{name:"Oil Price Shock", kind:"bad", category:"event",
     desc:"Global crude prices spike — every gas station marquee in Oregon becomes a referendum on your administration.",
-    metricEffect:{gasPrice:0.25,gdp:-0.15}, moodMag:4, minTurns:2,
-    groupMood:{rural:-3,blueCollar:-3,timber:-3,suburban:-2}},
+    metricEffect:{gasPrice:0.25,gdp:-0.15}, moodMag:1, minTurns:2,
+    groupMood:{rural:-6,blueCollar:-6,timber:-5,suburban:-3,motorists:-7}},
   heatDome:{name:"Heat Dome", kind:"bad", category:"event",
     desc:"A record heat dome bakes the Willamette Valley (echoing the deadly 2021 event). Cooling centers are overwhelmed; outdoor work halts.",
-    metricEffect:{health:-3}, moodMag:4, minTurns:1,
+    metricEffect:{health:-3}, moodMag:1, minTurns:1,
     indicatorEffect:{tourism:-8},
-    groupMood:{poor:-3,blueCollar:-2}},
+    groupMood:{poor:-6,blueCollar:-4,rural:-2,students:-2}},
   cyberattack:{name:"State Systems Cyberattack", kind:"bad", category:"event",
     desc:"Ransomware cripples state IT systems — benefits portals, DMV, payroll. Oregon's aging infrastructure makes it an easy target. Every department is working off paper and phone calls while IT scrambles.",
-    metricEffect:{}, moodMag:5, minTurns:4, onTrigger:{capital:-4},
+    metricEffect:{}, moodMag:2, minTurns:4, onTrigger:{capital:-4},
     indicatorEffect:{digitization:-14,businessClimate:-4,adminOverhead:22},
-    groupMood:{publicUnions:-3,poor:-3,moderate:-2}},
+    groupMood:{publicUnions:-4,poor:-6,moderate:-4,blueCollar:-2}},
   bedOvercrowding:{name:"Psychiatric System Overcrowding", kind:"bad", category:"condition",
     desc:"You've made civil commitment easy, but the psychiatric beds to hold those committed don't exist. People are warehoused in emergency rooms and jails, boarded in hallways, or cycled right back to the street. The Oregon State Hospital is over capacity and under a federal contempt order. The fix is not less commitment — it is more beds.",
-    metricEffect:{behavioralHealth:-4, psychBeds:-3}, moodMag:5, minTurns:3, onClear:{capital:2},
+    metricEffect:{behavioralHealth:-4, psychBeds:-3}, moodMag:2, minTurns:3, onClear:{capital:2},
     watch:{metric:"psychBeds", startAt:null, clearAt:null, badHigh:false},
     indicatorEffect:{},
-    groupMood:{liberal:-4, socialist:-4, libertarian:-3, publicUnions:-2},
+    groupMood:{liberal:-7, socialist:-7, libertarian:-5, publicUnions:-3, moderate:-2},
     custom:true,
     trigger:()=>{const ease=POLICIES.civilCommitment?policyLevel(POLICIES.civilCommitment):0; return ease>(METRICS.psychBeds.value/100)*1.1+0.15;},
     clear:()=>{const ease=POLICIES.civilCommitment?policyLevel(POLICIES.civilCommitment):0; return ease<=(METRICS.psychBeds.value/100)*1.1+0.05;}},
   unemploymentSystemFailure:{name:"Unemployment System Meltdown", kind:"bad", category:"event", noChoice:true,
     desc:"Just as a downturn hits, Oregon's decades-old unemployment-insurance mainframe buckles under the claim surge — exactly as it did in 2020. Benefits stall for weeks, the press is brutal, and there is nothing to decide: you simply wear it. The lesson is that the time to modernize was years ago.",
-    metricEffect:{}, moodMag:7, minTurns:2, onTrigger:{capital:-7,metrics:{disposableIncome:-3}},
+    metricEffect:{}, moodMag:3, minTurns:2, onTrigger:{capital:-7,metrics:{disposableIncome:-3}},
     indicatorEffect:{digitization:-6,businessClimate:-3},
-    groupMood:{blueCollar:-6,poor:-6,publicUnions:-3,suburban:-3}},
+    groupMood:{blueCollar:-9,poor:-9,publicUnions:-5,suburban:-4}},
   benefitsBacklog:{name:"Benefits Eligibility Backlog", kind:"bad", category:"event", noChoice:true,
     desc:"Understaffed, paper-bound eligibility systems leave Medicaid and SNAP renewals languishing. Thousands lose coverage to administrative churn rather than policy — a quiet failure of state capacity with no clean fix once it's underway.",
-    metricEffect:{health:-2}, moodMag:4, minTurns:2, onTrigger:{capital:-3},
+    metricEffect:{health:-2}, moodMag:1, minTurns:2, onTrigger:{capital:-3},
     indicatorEffect:{digitization:-4},
-    groupMood:{poor:-5,blueCollar:-3,liberal:-2}},
+    groupMood:{poor:-8,blueCollar:-5,liberal:-3}},
   doomLoop:{name:"Portland Doom Loop", kind:"bad", category:"condition",
     desc:"Empty offices, closed storefronts, and a battered reputation feed on each other — businesses leave because downtown is dying, and downtown dies because businesses leave.",
     trigger:()=>INDICATORS.downtown.value<40, clear:()=>INDICATORS.downtown.value>50, onClear:{capital:2},
     watch:{indicator:"downtown", startAt:40, clearAt:50, badHigh:false},
     metricEffect:{gdp:-0.15},
     indicatorEffect:{downtown:-5,inMigration:-6,businessClimate:-5},
-    moodAxes:{economic:0.2}, moodMag:5,
-    groupMood:{businessClass:-4,urban:-3,liberal:-2}},
+    moodAxes:{economic:0.2}, moodMag:2,
+    groupMood:{businessClass:-7,urban:-6,liberal:-3,moderate:-2}},
   taxFlightRisk:{name:"High-Earner Out-Migration", kind:"bad", category:"condition",
     desc:"Oregon's stacked taxes — income tax with no sales-tax offset, the CAT, carbon pricing, property tax reform, and Portland levies — are making the state uncompetitive. Wealthy residents, founders, and businesses are heading to Washington, Nevada, and Texas. The grievance has reached the tipping point where it changes behavior.",
     trigger:()=>INDICATORS.taxGrievance.value>70, clear:()=>INDICATORS.taxGrievance.value<58, onClear:{capital:2},
     watch:{indicator:"taxGrievance", startAt:70, clearAt:58, badHigh:true},
     metricEffect:{gdp:-0.18, unemployment:0.25},
     indicatorEffect:{inMigration:-8, businessClimate:-7},
-    moodMag:4,
-    groupMood:{wealthy:-5,businessClass:-5,suburban:-3,rural:-2,conservative:-3,libertarian:-3}},
+    moodMag:1,
+    groupMood:{wealthy:-8,businessClass:-8,suburban:-4,rural:-3,conservative:-5,libertarian:-5}},
   timberCounties:{name:"Timber Counties Fiscal Crisis", kind:"bad", category:"condition",
     desc:"As harvest revenues have collapsed, Oregon's timber-dependent counties can't fund sheriffs, schools, or roads — a slow-motion rural government failure.",
     trigger:()=>METRICS.loggingRate.value<25, clear:()=>METRICS.loggingRate.value>35, onClear:{capital:2},
     watch:{metric:"loggingRate", startAt:25, clearAt:35, badHigh:false},
     metricEffect:{propertyCrime:0.7},
-    moodAxes:{economic:0.2,environment:0.3}, moodMag:4,
-    groupMood:{timber:-6,rural:-5}},
+    moodAxes:{economic:0.2,environment:0.3}, moodMag:1,
+    groupMood:{timber:-9,rural:-8,blueCollar:-2}},
   fiscalCrisis:{name:"Structural Deficit Crisis", kind:"bad", category:"condition",
     desc:"Oregon's reserves are depleted and the state is carrying structural debt from consecutive unbalanced budgets. Borrowing costs are rising, agency heads are quietly rationing, and the bond market is watching. A reckoning is coming — every quarter this persists makes the eventual austerity cuts deeper.",
     trigger:()=>(GAME.structuralDebt||0)>0.8 || (GAME.deficitStreak||0)>=4,
     clear:()=>(GAME.structuralDebt||0)<0.3 && (GAME.deficitStreak||0)===0, onClear:{capital:4},
     watch:{metric:"balance", startAt:-0.5, clearAt:0.5, badHigh:false},
-    costEffect:{debtAdmin:0.45},    // debt service pushes admin spending higher
-    metricEffect:{gdp:-0.10},
+    costEffect:{debtAdmin:0.45},
+    metricEffect:{gdp:-0.20},
     indicatorEffect:{businessClimate:-5, inMigration:-3},
-    moodAxes:{economic:0.3,govSize:-0.2}, moodMag:5,
-    groupMood:{businessClass:-5, wealthy:-3, moderate:-3, homeowners:-2}},
+    moodAxes:{economic:0.3,govSize:-0.2}, moodMag:2,
+    groupMood:{businessClass:-8, wealthy:-5, moderate:-5, homeowners:-3, blueCollar:-2}},
   kickerPayout:{name:"Kicker Payout", kind:"good", category:"condition",
     desc:"Revenue beat the forecast by enough to trigger Oregon's constitutional kicker — taxpayers get automatic refund checks, and the surplus you were counting on walks out the door.",
     trigger:()=>GAME.lastBalance>2.2 && !POLICIES.kickerReform,
     clear:()=>GAME.lastBalance<1.2,
     watch:{metric:"balance", startAt:2.2, clearAt:1.2, badHigh:true},
-    metricEffect:{}, moodAxes:{economic:0.3,govSize:0.3}, moodMag:4,
-    groupMood:{wealthy:4,rural:3,suburban:2,publicUnions:-2}},
+    metricEffect:{}, moodAxes:{economic:0.3,govSize:0.3}, moodMag:2,
+    groupMood:{wealthy:5,rural:4,suburban:3,publicUnions:-3,libertarian:2,conservative:2}},
   corporateExodus:{name:"Corporate Exodus", kind:"bad", category:"condition",
     desc:"Oregon's business tax stack — the Corporate Activity Tax on gross receipts, rising compliance costs, and a regulatory environment perceived as hostile — is prompting major employers to shift operations out of state. Unlike the personal-income tax revolt, this targets corporate location decisions: Intel, Nike, and Adidas have all flagged Oregon's cost structure.",
     trigger:()=>INDICATORS.businessClimate.value<38&&METRICS.taxBurden.value>50,
@@ -3196,8 +3277,8 @@ const SITUATIONS={
     watch:{indicator:"businessClimate", startAt:38, clearAt:48, badHigh:false},
     metricEffect:{gdp:-0.22,unemployment:0.40},
     indicatorEffect:{businessClimate:-9,inMigration:-5},
-    moodMag:5,
-    groupMood:{businessClass:-7,wealthy:-4,blueCollar:-4,suburban:-2,timber:-2}},
+    moodMag:2,
+    groupMood:{businessClass:-9,wealthy:-7,blueCollar:-6,suburban:-3,timber:-3,moderate:-2}},
   oregonBrand:{name:"Oregon Brand Strength", kind:"good", category:"condition",
     desc:"Clean mountains, Pacific coastline, wine country, and farm-to-table culture have made 'Oregon' a genuine lifestyle brand — drawing tourists, outdoor enthusiasts, and remote workers who can live anywhere and choose here. This competitive advantage only holds when the environment is healthy and tourism stays vibrant.",
     trigger:()=>METRICS.environment.value>78&&INDICATORS.tourism.value>62,
@@ -3205,8 +3286,8 @@ const SITUATIONS={
     watch:{metric:"environment", startAt:78, clearAt:70, badHigh:false},
     metricEffect:{gdp:0.08},
     indicatorEffect:{inMigration:5,tourism:4,businessClimate:3},
-    moodMag:4, mandateShock:5,
-    groupMood:{liberal:3,students:2,transitCommuters:2,rural:2,collegeEducated:2}},
+    moodMag:2, mandateShock:5,
+    groupMood:{liberal:5,students:3,transitCommuters:3,rural:3,collegeEducated:3}},
   talentMagnet:{name:"Talent Magnet", kind:"good", category:"condition",
     desc:"Low unemployment and a quality-of-life edge over San Francisco and Seattle are drawing skilled workers and young families to Oregon. Strong in-migration is self-reinforcing — talent attracts employers who attract more talent. The dynamic sustains itself as long as jobs remain plentiful and people keep arriving.",
     trigger:()=>INDICATORS.inMigration.value>65&&METRICS.unemployment.value<4.5,
@@ -3214,8 +3295,8 @@ const SITUATIONS={
     watch:{indicator:"inMigration", startAt:65, clearAt:55, badHigh:false},
     metricEffect:{gdp:0.12,unemployment:-0.15},
     indicatorEffect:{businessClimate:5},
-    moodMag:3,
-    groupMood:{businessClass:3,liberal:2,collegeEducated:3,urban:2}},
+    moodMag:1,
+    groupMood:{businessClass:5,liberal:3,collegeEducated:5,urban:3}},
   adminCrisis:{name:"Administrative Overload", kind:"bad", category:"condition",
     desc:"Oregon's state government is stretched beyond its operating capacity. Programs are competing for the same overworked agency staff, inter-department coordination has broken down, and citizens are falling through the cracks. Permit backlogs at DEQ, enrollment failures at ODHS, and missed ODOT deadlines are all symptoms of a single structural problem: too many program commitments, too little administrative infrastructure. Businesses are citing the regulatory fog as a reason to locate elsewhere. Families report chronic enrollment failures. This will not self-correct — it persists until Administrative Overhead falls below the danger threshold, which requires either cutting active program spending or investing heavily in Government Digitization through the Government Operations budget. Until then, expect sustained economic drag, declining employer confidence, and population outflow.",
     trigger:()=>INDICATORS.adminOverhead.value>95,
@@ -3224,8 +3305,8 @@ const SITUATIONS={
     metricEffect:{gdp:-0.20, unemployment:0.25},
     indicatorEffect:{businessClimate:-9, inMigration:-6},
     capitalDrain:-1,
-    moodAxes:{govSize:-0.5, economic:-0.2}, moodMag:6,
-    groupMood:{businessClass:-6, moderate:-5, suburban:-3, rural:-3, homeowners:-2}},
+    moodAxes:{govSize:-0.5, economic:-0.2}, moodMag:2,
+    groupMood:{businessClass:-9, moderate:-7, suburban:-5, rural:-4, homeowners:-3, blueCollar:-2}},
   // national political mood is handled specially (see NATIONAL_MOOD), not here
 };
 
@@ -3310,7 +3391,13 @@ function bargainingCostMult(){
   const tier=POLICIES.collectiveBargaining?.tierIndex??2;
   return [0.83, 0.92, 1.0][tier];
 }
-const agencySpend=a=>bargainingCostMult()*(a.costMin+(a.costFull-a.costMin)*(a.funding??0.5));
+function agencySpend(a){
+  const base=bargainingCostMult()*(a.costMin+(a.costFull-a.costMin)*(a.funding??0.5));
+  // Cascadia Prep seismic premium: stricter building codes raise costs for public construction agencies
+  if(a.seismicAgency&&POLICIES.cascadiaPrep&&POLICIES.cascadiaPrep.enacted)
+    return base*(1+policyLevel(POLICIES.cascadiaPrep)*0.14);
+  return base;
+}
 
 /* human-readable real-world value of a policy's current setting:
    tax sliders show the actual RATE (e.g. "9.9%"), spending sliders and
@@ -3902,16 +3989,32 @@ function revenueBySource(){
       // tier 0 = privatized (no markup); tiers 1-3 scale gently upward from spirits-only baseline
       amt=(p&&p.tierIndex>0)?r.base*(1+(p.tierIndex-1)*0.07):0;
     }
+    if(id==="cannabisRev"){
+      const p=POLICIES.cannabis;
+      if(p&&p.mechanic==="tier"){
+        // Prohibited→$0; Home Grow→$0 (no commercial sales); Medical→$80M; Recreational→$270M
+        const revByTier=[0, 0, 0.08, 0.27];
+        amt=revByTier[p.tierIndex]??0;
+      }
+    }
     if(taxSources[id])amt*=collFactor; // collection efficiency
     if(id==="personalIncome"){
       // policy-driven growth also lifts revenue: more jobs → more filers, higher GDP → broader prosperity
       const policyEconBoost=clamp((METRICS.gdp.value-2.0)*0.025+(5.2-METRICS.unemployment.value)*0.012,-0.12,0.12);
       amt*=incomeCycle*(1+policyEconBoost);
     }
-    else if(id==="corpIncome"||id==="corpActivity")amt*=corpCycle;
+    else if(id==="corpIncome"||id==="corpActivity"){
+      // corporate profits are more GDP-sensitive than wages — policy-driven growth matters
+      const gdpBoost=clamp((METRICS.gdp.value-2.0)*0.035,-0.15,0.15);
+      amt*=corpCycle*(1+gdpBoost);
+    }
     else if(id==="salesTaxRev")amt*=salesCycle;                       // stable through downturns
     else if(id==="cannabisRev"||id==="liquorRev")amt*=sinCycle;       // sin taxes hold up
     else if(id==="lottery")amt*=sinCycle;
+    if(id==="estateRev"){
+      // estate wealth is equity-heavy — market swings move asset values more than income does
+      amt*=(1+clamp(GAME.marketLevel*0.20,-0.22,0.22));
+    }
     if(id==="federalFunds")amt*=GAME.fedIndex;   // federal shocks
     out[id]=amt;
   }
@@ -4051,7 +4154,10 @@ function runElection(){
   let yes=0,no=0,third=0,tot=0;
   const camp=GAME.campaign||{};
   for(const v of VOTERS){
-    let app=v.approval+(Math.random()-0.5)*4;
+    // Oregon D+6 structural lean: progressive voters have a baseline disposition
+    // toward the incumbent center-left governor that doesn't swing with policy approval
+    const partisanLean=clamp((-v.econ*0.55 + -v.social*0.20)*5, -4, 5);
+    let app=v.approval+(Math.random()-0.5)*3+partisanLean;
     // campaign effort nudges turnout/approval among targeted blocs
     let mob=0;
     if(camp.effort)for(const sid in camp.effort){ if((v.m[sid]||0)>0.3){ app+=camp.effort[sid]*2.2*(v.m[sid]); mob+=camp.effort[sid]*0.05*(v.m[sid]); } }
@@ -4260,8 +4366,8 @@ function campPush(kind, sid){
     msg=`✗ ${s.name} resented the ${kind==="persuade"?"messaging":"GOTV pressure"} — it backfired`;
     delta=back;
   }
-  // fatigue is randomized: success rarely causes it, failure usually does
-  const fatigueAdd=ok?(Math.random()<0.30?0.3:0):(0.4+Math.random()*0.8);
+  // fatigue is randomized: success rarely causes it, failure sometimes does
+  const fatigueAdd=ok?(Math.random()<0.12?0.25:0):(0.25+Math.random()*0.45);
   GAME.ground.fatigue[sid]=(GAME.ground.fatigue[sid]||0)+fatigueAdd;
   GAME.ground.fatigueAge[sid]=0;
   GAME.campLog.unshift({turn:GAME.turn, kind, sid, ok, msg});
@@ -4277,7 +4383,7 @@ function tickGroundGame(){
   for(const sid in GAME.ground.fatigue){
     const age=(GAME.ground.fatigueAge[sid]||0)+1;
     GAME.ground.fatigueAge[sid]=age;
-    const decay=Math.max(0.85-age*0.12, 0.35); // fades faster the longer they've been left alone
+    const decay=Math.max(0.75-age*0.12, 0.28); // fades faster the longer they've been left alone
     GAME.ground.fatigue[sid]*=decay;
     if(GAME.ground.fatigue[sid]<0.15){delete GAME.ground.fatigue[sid];delete GAME.ground.fatigueAge[sid];}
   }
@@ -4371,7 +4477,7 @@ function renderCampaign(){
           <span class="cb2-kind">Mobilize</span><span class="cb2-odds">${mc}%</span></button>
       </div>
       ${(pBoost>0.05||tBoost>0.005)?`<div class="cb2-boosts">${pBoost>0.05?`<span class="cb2-boost good">+${pBoost.toFixed(1)} perception</span>`:``}${tBoost>0.005?`<span class="cb2-boost good">+${Math.round(tBoost*100)} turnout</span>`:``}</div>`:``}
-      ${fat>0.3?`<div class="cb2-meta cb2-fat">⚠ Audience fatigue −${Math.round(fat*8)}% to odds${fat>2?` · let them breathe — resets each quarter`:``}</div>`:``}
+      ${fat>0.5?`<div class="cb2-meta cb2-fat">⚠ Audience fatigue −${Math.round(fat*8)}% to odds${fat>1.5?` · let them breathe`:``}</div>`:``}
     </div>`;
   }
   h+=`</div>`;
@@ -4660,7 +4766,7 @@ function showCampPopup(){
           <span class="cb2-kind">Mobilize</span><span class="cb2-odds">${mc}%</span></button>
       </div>
       ${(pBoost>0.05||tBoost>0.005)?`<div class="cb2-boosts">${pBoost>0.05?`<span class="cb2-boost good">+${pBoost.toFixed(1)} perception</span>`:``}${tBoost>0.005?`<span class="cb2-boost good">+${Math.round(tBoost*100)} turnout</span>`:``}</div>`:``}
-      ${fat>0.3?`<div class="cb2-meta cb2-fat">⚠ Audience fatigue −${Math.round(fat*8)}% to odds${fat>2?` · let them breathe — resets each quarter`:``}</div>`:``}
+      ${fat>0.5?`<div class="cb2-meta cb2-fat">⚠ Audience fatigue −${Math.round(fat*8)}% to odds${fat>1.5?` · let them breathe`:``}</div>`:``}
     </div>`;
   }
   h+=`</div>`;
@@ -5102,6 +5208,65 @@ function effectsBreakdownHTML(kind,obj){
     h+=`</div>`;
   }
 
+  // 2b. Budget cross-links — policies that raise/lower specific agency costs
+  if(kind==="policy"&&obj.agencyLinks){
+    const aids=Object.keys(obj.agencyLinks).filter(aid=>AGENCIES[aid]);
+    if(aids.length){
+      const lvl=policyLevel(obj);
+      const items=aids.map(aid=>{
+        const a=AGENCIES[aid],lnk=obj.agencyLinks[aid];
+        const base=a.costMin+(a.costFull-a.costMin)*(a.funding??0.5);
+        return {aid,a,lnk,delta:base*lvl*lnk.rate};
+      });
+      const sc=Math.max(0.01,...items.map(x=>Math.abs(x.delta)));
+      h+=`<div class="ebgroup-label">Also raises agency budgets</div><div class="ebgroup">`;
+      for(const {aid,a,lnk,delta} of items)
+        h+=effectBar(`${a.icon} ${a.name} — ${lnk.desc}`,delta,sc,{
+          color:delta>0?'var(--clay)':'var(--good)',link:`a_${aid}`,
+          fmt:v=>(v>=0?'+$':'-$')+Math.abs(v).toFixed(2)+'B/yr'});
+      h+=`</div>`;
+    }
+  }
+  if(kind==="agency"){
+    let agencyId=null;
+    for(const aid in AGENCIES){if(AGENCIES[aid]===obj){agencyId=aid;break;}}
+    const mods=[];
+    for(const src of [POLICIES,CATALOG]){
+      for(const pid in src){
+        const p=src[pid];
+        if(!p.agencyLinks||!p.agencyLinks[agencyId])continue;
+        if(src===CATALOG&&POLICIES[pid])continue; // already counted via POLICIES
+        mods.push({pid,p,lnk:p.agencyLinks[agencyId],enacted:src===POLICIES||(!!p.enacted)});
+      }
+    }
+    // collective bargaining affects ALL agencies when not at tier 2 (1.0 multiplier)
+    {const bTier=POLICIES.collectiveBargaining?.tierIndex??CATALOG.collectiveBargaining?.tierIndex??2;
+    const bMult=[0.83,0.92,1.0][bTier];
+    const cbp=POLICIES.collectiveBargaining||CATALOG.collectiveBargaining;
+    if(cbp&&Math.abs(bMult-1)>0.001){
+      const tierLabel=cbp.tiers?.[bTier]||'';
+      mods.unshift({pid:'collectiveBargaining',p:cbp,enacted:true,
+        lnk:{desc:`Bargaining tier "${tierLabel}" — ${bMult<1?'reduces':'raises'} all agency costs`},
+        overrideDelta:(obj.costMin+(obj.costFull-obj.costMin)*(obj.funding??0.5))*(bMult-1)});
+    }}
+    if(mods.length){
+      const pureBase=obj.costMin+(obj.costFull-obj.costMin)*(obj.funding??0.5);
+      const items=mods.map(m=>{
+        const delta=m.overrideDelta!==undefined?m.overrideDelta:pureBase*policyLevel(m.p)*m.lnk.rate;
+        return {...m,delta};
+      });
+      const sc=Math.max(0.01,...items.map(x=>Math.abs(x.delta)));
+      h+=`<div class="ebgroup-label">Budget modified by policies</div><div class="ebgroup">`;
+      for(const {pid,p,lnk,enacted,delta} of items){
+        const unenacted=enacted?'':' (not enacted)';
+        h+=effectBar(`${p.icon||'📋'} ${p.name}${unenacted} — ${lnk.desc}`,delta,sc,{
+          color:delta<0?'var(--good)':'var(--clay)',link:`p_${pid}`,
+          fmt:v=>(v>=0?'+$':'-$')+Math.abs(v).toFixed(2)+'B/yr'});
+      }
+      h+=`</div>`;
+    }
+  }
+
   // (second-order ripple effects are intentionally NOT shown — discovering
   //  the knock-on chains is part of the game)
 
@@ -5417,6 +5582,7 @@ function indTrend(key){
 let detailKey=null;
 function openDetail(key){
   if(key==="budget"){currentView="budget";detailKey=null;render();return;}
+  if(key.startsWith("sit_"))key="s_"+key.slice(4);
   settlePending();
   detailKey=key; currentView="detail";
   const snap=snapshotFor(key);
@@ -5425,6 +5591,13 @@ function openDetail(key){
   GAME.pendingLog=null;
   if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];if(a&&a.logging!==undefined)GAME.pendingLog={id:key.slice(2),snap:a.logging};}
   render();
+  // on mobile the voter-bloc strip sits above #main in the flex column — scroll past it
+  if(window.innerWidth<=820){
+    requestAnimationFrame(()=>{
+      const m=document.getElementById('main');
+      if(m)m.scrollIntoView({behavior:'smooth',block:'start'});
+    });
+  }
 }
 function renderDetail(){
   const key=detailKey;
@@ -5494,7 +5667,14 @@ function renderDetail(){
       <span class="pill dom">${DOMAINS[p.domain].name}</span></div>`;}
     // control
     h+=`<div class="ctrlbox">${policyControlHTML(id,p)}</div>`;
-    // repeal option (enacted, repealable policies only) + undo, side by side
+    // live revenue readout for tax policies linked to a REVENUE entry
+    {const revKey=Object.keys(REVENUE).find(k=>REVENUE[k].linkedPolicy===id);
+    if(revKey){const r=REVENUE[revKey];const revNow=(revenueBySource()[revKey]??0);
+    h+=`<div style="display:flex;align-items:baseline;gap:8px;margin:-8px 0 16px;padding:8px 12px;background:var(--paper-2);border:1px solid var(--line);border-radius:3px">
+      <span style="font-size:11px;color:#6b6557;text-transform:uppercase;letter-spacing:1px">${r.name}</span>
+      <span id="revLiveDisplay" style="font-family:var(--font-data);font-size:22px;font-weight:600;color:var(--good)">$${revNow.toFixed(2)}B/yr</span>
+      <span style="font-size:10px;color:#8a8270">total revenue · updates as you move the slider</span>
+    </div>`;}}
     const undoBtnHTML = pendActive ? `<button class="undobtn" id="undoBtn">↩ Undo change (no capital)</button>` : '';
     if(!p.noRepeal){
       const rc=p.repealCost!==undefined?p.repealCost:(p.capital||6);
@@ -5789,15 +5969,22 @@ function renderDetail(){
         }
       }
     }
-    // metric effects per quarter
-    const me=Object.keys(s.metricEffect||{});
-    if(me.length){
-      h+=`<div class="ebgroup-label">Ongoing effect on metrics (per quarter)</div><div class="ebgroup">`;
+    // combined metric + indicator effects (merged section)
+    {
+      const me=Object.keys(s.metricEffect||{});
+      const ie=Object.keys(s.indicatorEffect||{}).filter(k=>k&&INDICATORS[k]);
+      const items=[];
       const magOf=v=>typeof v==="object"?((v.b||0)+(v.c||0)):v;
-      const scale=Math.max(0.5,...me.map(k=>Math.abs(magOf(s.metricEffect[k]))));
       for(const k of me){const m=METRICS[k];const val=magOf(s.metricEffect[k]);const good=m&&m.invert?val<0:val>0;
-        h+=effectBar(m?((m.icon||'')+' '+m.name):k,val,scale,{color:good?'var(--good)':'var(--clay)',link:m?("m_"+k):null,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+'/q'});}
-      h+=`</div>`;
+        items.push({name:m?((m.icon||'')+' '+m.name):k,val,good,link:m?"m_"+k:null,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+'/q'});}
+      for(const k of ie){const ind=INDICATORS[k];const val=s.indicatorEffect[k];
+        items.push({name:ind?((ind.icon||'')+' '+ind.name):k,val,good:val>0,link:"i_"+k,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' pts'});}
+      if(items.length){
+        h+=`<div class="ebgroup-label">Active effects while this crisis persists</div><div class="ebgroup">`;
+        const scale=Math.max(0.5,...items.map(x=>Math.abs(x.val)));
+        for(const x of items)h+=effectBar(x.name,x.val,scale,{color:x.good?'var(--good)':'var(--clay)',link:x.link,fmt:x.fmt});
+        h+=`</div>`;
+      }
     }
     // overall + per-group opinion impact
     h+=`<div class="ebgroup-label">Effect on voter blocs</div><div class="ebgroup">`;
@@ -6078,6 +6265,14 @@ function settlePending(){
 }
 function wirePolicyControls(){
   main.querySelectorAll('[data-kind="slider"]').forEach(el=>el.addEventListener('change',e=>{const p=POLICIES[e.target.dataset.pol];if(p)p.value=parseFloat(e.target.value);render();}));
+  // live revenue readout — update display while dragging without full re-render
+  main.querySelectorAll('[data-kind="slider"]').forEach(el=>el.addEventListener('input',e=>{
+    const p=POLICIES[e.target.dataset.pol]; if(!p)return;
+    const disp=document.getElementById('revLiveDisplay'); if(!disp)return;
+    const revKey=Object.keys(REVENUE).find(k=>REVENUE[k].linkedPolicy===e.target.dataset.pol); if(!revKey)return;
+    p.value=parseFloat(e.target.value);
+    disp.textContent='$'+(revenueBySource()[revKey]??0).toFixed(2)+'B/yr';
+  }));
   main.querySelectorAll('[data-kind="intensity"]').forEach(el=>el.addEventListener('change',e=>{const p=POLICIES[e.target.dataset.pol];if(p)p.intensity=parseFloat(e.target.value);render();}));
   main.querySelectorAll('[data-kind="tier"]').forEach(el=>el.addEventListener('click',e=>{const p=POLICIES[e.target.dataset.pol],i=+e.target.dataset.i;if(!p||i===p.tierIndex)return;p.tierIndex=i;render();}));
   main.querySelectorAll('[data-kind="toggle"]').forEach(el=>el.addEventListener('click',e=>{const p=POLICIES[e.currentTarget.dataset.pol];if(p)p.enabled=!p.enabled;render();}));
