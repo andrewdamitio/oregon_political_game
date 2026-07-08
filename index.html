@@ -839,11 +839,18 @@ const INDICATORS={
       if(GAME.activeSituations.droughtWater)v-=5;
       return clamp(v,0,100);
     },
-    drivers:()=>[
-      {name:"⊕ baseline",v:52,base:true},
-      {name:METRICS.environment.icon+" Environment",v:(METRICS.environment.value-60)*0.35,link:"m_environment"},
-      {name:INDICATORS.downtown.icon+" Downtown",v:(INDICATORS.downtown.value-50)*0.18,link:"i_downtown"},
-    ],
+    drivers:()=>{
+      const items=[
+        {name:"⊕ baseline",v:52,base:true},
+        {name:METRICS.environment.icon+" Environment",v:(METRICS.environment.value-60)*0.35,link:"m_environment"},
+        {name:INDICATORS.downtown.icon+" Downtown",v:(INDICATORS.downtown.value-50)*0.18,link:"i_downtown"},
+      ];
+      const sip=sitIndicatorPush("tourism");
+      if(Math.abs(sip)>0.05)items.push({name:"⚠ Active crises",v:Math.round(sip*10)/10,link:null});
+      if(GAME.activeSituations.wildfireSeason)items.push({name:"🔥 Wildfire Season",v:-14,link:"s_wildfireSeason"});
+      if(GAME.activeSituations.droughtWater)items.push({name:"🌵 Drought",v:-5,link:"s_droughtWater"});
+      return items;
+    },
     feedback:{gdp:0.016}},                                // tourism dollars grow the economy
   digitization:{name:"Gov. Digitization", icon:"🖥️", value:40,
     desc:"The modernization and capacity of Oregon's state government — IT infrastructure, data systems, and delivery competence. Oregon's baseline is weak (the Cover Oregon exchange collapse is the cautionary tale).\n\nIt plays two roles:\n1. Efficacy multiplier: low digitization means every policy delivers weaker outcomes than its stated effect — a policy that says it cuts homelessness by 10 might only cut it by 7 if the systems to implement it are broken. High digitization lets policies land at or above full strength.\n2. Overhead reducer: better systems handle larger program portfolios without coordination meltdown, directly lowering Administrative Overhead.\n\nRaised by Government Operations (slowly, over 10 quarters) and by the Digital Government Modernization policy (directly). Crises and system disruptions can push it down.",
@@ -3058,7 +3065,7 @@ const SITUATIONS={
     startActive:true, minTurns:8, clear:()=>METRICS.drugUse.value<42 && (METRICS.behavioralHealth.value>58 || METRICS.incarcerationRate.value>68),
     costEffect:{humanServices:0.35},
     watch:{metric:"drugUse", startAt:null, clearAt:42, badHigh:true, alsoMetric:"behavioralHealth", alsoClearAt:58},
-    metricEffect:{propertyCrime:1.4,violentCrime:0.4,homelessness:1.0,drugUse:1.2,gdp:-0.15}, indicatorEffect:{inMigration:-3},
+    metricEffect:{propertyCrime:1.4,violentCrime:0.4,homelessness:1.0,drugUse:1.2,gdp:-0.15}, indicatorEffect:{inMigration:-3, tourism:-6},
     moodAxes:{social:0.2}, moodMag:1,
     groupMood:{suburban:-6,rural:-5,blueCollar:-5,liberal:-4,parents:-3,conservative:-2}},
   housingShortage:{name:"Chronic Housing Shortage", kind:"bad", category:"chronic",
@@ -3076,14 +3083,14 @@ const SITUATIONS={
     trigger:()=>METRICS.violentCrime.value>60, clear:()=>METRICS.violentCrime.value<50, onClear:{capital:2},
     watch:{metric:"violentCrime", startAt:60, clearAt:50, badHigh:true},
     costEffect:{publicSafety:0.25},
-    metricEffect:{gdp:-0.18}, moodAxes:{social:0.4}, moodMag:1,
+    metricEffect:{gdp:-0.18}, indicatorEffect:{tourism:-6, inMigration:-4}, moodAxes:{social:0.4}, moodMag:1,
     groupMood:{suburban:-6,rural:-4,businessClass:-4,conservative:-3,moderate:-2,blueCollar:-2}},
   propertySpike:{name:"Property Crime Spike", kind:"bad", category:"condition",
     desc:"Car break-ins, shoplifting, and catalytic-converter theft surge — businesses board windows and shoppers stay home.",
     trigger:()=>METRICS.propertyCrime.value>68, clear:()=>METRICS.propertyCrime.value<58, onClear:{capital:2},
     watch:{metric:"propertyCrime", startAt:68, clearAt:58, badHigh:true},
     costEffect:{publicSafety:0.15},
-    metricEffect:{gdp:-0.1}, indicatorEffect:{downtown:-6,businessClimate:-4}, moodMag:1,
+    metricEffect:{gdp:-0.1}, indicatorEffect:{downtown:-6, businessClimate:-4, tourism:-5, inMigration:-3}, moodMag:1,
     groupMood:{businessClass:-8,suburban:-5,wealthy:-4,moderate:-2,blueCollar:-2}},
   budgetShortfall:{name:"Budget Shortfall", kind:"bad", category:"condition",
     desc:"The General Fund is running a structural deficit.",
@@ -3283,15 +3290,15 @@ const SITUATIONS={
     indicatorEffect:{businessClimate:-9,inMigration:-5},
     moodMag:2,
     groupMood:{businessClass:-9,wealthy:-7,blueCollar:-6,suburban:-3,timber:-3,moderate:-2}},
-  oregonBrand:{name:"Oregon Brand Strength", kind:"good", category:"condition",
-    desc:"Clean mountains, Pacific coastline, wine country, and farm-to-table culture have made 'Oregon' a genuine lifestyle brand — drawing tourists, outdoor enthusiasts, and remote workers who can live anywhere and choose here. This competitive advantage only holds when the environment is healthy and tourism stays vibrant.",
-    trigger:()=>METRICS.environment.value>78&&INDICATORS.tourism.value>62,
-    clear:()=>METRICS.environment.value<70||INDICATORS.tourism.value<52,
-    watch:{metric:"environment", startAt:78, clearAt:70, badHigh:false},
-    metricEffect:{gdp:0.08},
-    indicatorEffect:{inMigration:5,tourism:4,businessClimate:3},
-    moodMag:2, mandateShock:5,
-    groupMood:{liberal:5,students:3,transitCommuters:3,rural:3,collegeEducated:3}},
+  oregonBrand:{name:"✦ Oregon Brand Strength", kind:"good", category:"condition",
+    desc:"Clean mountains, Pacific coastline, wine country, and farm-to-table culture have made 'Oregon' a genuine lifestyle brand — drawing tourists, outdoor enthusiasts, and remote workers who can live anywhere and choose here. The brand is alive at game start, already quietly lifting in-migration, business investment, and GDP. But it is not indestructible: visible disorder — open drug use, crime, grimy downtowns — is exactly what national media amplifies, and it eats directly into the tourism and relocation appeal the brand depends on. The addiction crisis and crime waves are already compromising it. Clean up the state and the brand rebounds; let those problems fester and the lifestyle premium erodes away.",
+    startActive:true,
+    clear:()=>METRICS.environment.value<60||INDICATORS.tourism.value<40,
+    watch:{indicator:"tourism", startAt:60, clearAt:40, badHigh:true},
+    metricEffect:{gdp:0.10, unemployment:-0.05},
+    indicatorEffect:{inMigration:5, tourism:3, businessClimate:3},
+    moodMag:4, mandateShock:5,
+    groupMood:{liberal:5, students:3, transitCommuters:3, rural:3, collegeEducated:3}},
   talentMagnet:{name:"Talent Magnet", kind:"good", category:"condition",
     desc:"Low unemployment and a quality-of-life edge over San Francisco and Seattle are drawing skilled workers and young families to Oregon. Strong in-migration is self-reinforcing — talent attracts employers who attract more talent. The dynamic sustains itself as long as jobs remain plentiful and people keep arriving.",
     trigger:()=>INDICATORS.inMigration.value>65&&METRICS.unemployment.value<4.5,
