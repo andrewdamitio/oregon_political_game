@@ -1494,7 +1494,7 @@ const POLICIES={
     // but scatters people from services, hurting behavioral health and the
     // underlying trajectory. A blunt instrument that works on the symptom.
     effects:{homelessness:{b:-1,c:-3,i:3}, behavioralHealth:{b:0,c:-4,i:3}},
-    indicatorEffects:{downtown:16},
+    indicatorEffects:{downtown:6},
     blocEffect:{homeowners:3, suburban:3, businessClass:2, liberal:-4, poor:-3},
     real:{min:0,max:100,unit:"% strictness",decimals:0,label:"enforcement strictness"},
     ideology:{social:0.4,govSize:0.1}},
@@ -1827,6 +1827,15 @@ const CATALOG={
     desc:"Frequent service, passenger rail, transit-oriented capital.",
     value:0.4, costFull:1.2, capital:6, enactCapital:11,
     effects:{environment:8,gdp:0.3,unemployment:-0.4,transitShare:10}, ideology:{environment:-0.6,economic:-0.3,govSize:-0.4}},
+  highSpeedRail:{name:"Pacific Northwest High Speed Rail", domain:"envInfra", icon:"🚄", mechanic:"slider", phaseIn:14,
+    desc:"A state commitment to electrified high-speed rail along the I-5 corridor — Portland to Eugene in under an hour, eventually connecting to Seattle. The case is real: the Pacific Northwest Rail Corridor already carries 800,000 riders/year at mediocre speeds; true high-speed service (200+ mph) would add hundreds of thousands of riders, attract corporate relocation, gut short-haul air demand, and permanently shift the region's transportation culture.\n\nThe costs are equally real. Capital construction of the Oregon segment alone runs $8–12B over 10–15 years. The state share — even assuming federal infrastructure funds — is the largest capital commitment in Oregon history. Coordination across ODOT, ODFW, tribal consultations, DEQ permitting, NEPA review, FRA oversight, local government right-of-way, and private railroad access creates an administrative load unlike any other program — this policy noticeably increases government overhead while under construction. The slider sets the ambition level: low investment funds planning and corridor preservation; full investment launches construction.\n\nBloc politics are nakedly geographic: urbanites and progressives are true believers; rural Oregon sees it as a multi-billion dollar gift to Portland, and motorists resent every dollar diverted from highways. Over a generation, it genuinely shifts how Oregonians commute — slowly shrinking the driver-majority coalition that makes green transportation policy so difficult.",
+    value:0, costFull:2.8, capital:10, enactCapital:18,
+    effects:{environment:7, gdp:0.18, unemployment:-0.7, transitShare:8},
+    indicatorEffects:{adminOverhead:14, digitization:4, tourism:7, businessClimate:3, inMigration:5},
+    sizeEffect:{motorists:-0.014, transitCommuters:0.018}, sizeRefLevel:0,
+    blocEffect:{liberal:10, urban:9, students:8, transitCommuters:14, socialist:8, moderate:3, collegeEducated:5,
+                rural:-7, motorists:-4, conservative:-5, timber:-3, blueCollar:-2},
+    ideology:{environment:-0.7, economic:-0.4, govSize:-0.7}},
   childcareSubsidy:{name:"Universal Childcare Subsidy", domain:"social", icon:"🧸", mechanic:"slider",
     desc:"Sliding-scale childcare assistance for working families.",
     value:0.5, costFull:1.5, capital:7, enactCapital:13,
@@ -2303,21 +2312,26 @@ const MEMBERSHIP_DRIVERS={
   motorists:{
     f:()=>-(METRICS.transitShare.value-8)*0.014
       -(POLICIES.modeSplit?effLevelOf(POLICIES.modeSplit)-0.35:0)*0.10
+      -(POLICIES.highSpeedRail&&POLICIES.highSpeedRail.enacted?effLevelOf(POLICIES.highSpeedRail)*0.018:0)
       -clamp((METRICS.gasPrice.value-3.6)*0.008,-0.05,0.02),
-    desc:"Shrinks as bike/transit commuting grows, gas prices rise, and the Transportation Mix tilts toward transit.",
+    desc:"Shrinks as bike/transit commuting grows, gas prices rise, the Transportation Mix tilts toward transit, and high-speed rail reshapes regional travel culture over a generation.",
     drivers:()=>{const d=[];
       d.push({name:"🚌 Transit/bike share",v:-(METRICS.transitShare.value-8)*0.014,link:"m_transitShare"});
       if(POLICIES.modeSplit)d.push({name:"🚲 Transportation Mix policy",v:-(effLevelOf(POLICIES.modeSplit)-0.35)*0.10,link:"p_modeSplit"});
+      if(POLICIES.highSpeedRail&&POLICIES.highSpeedRail.enacted)d.push({name:"🚄 High Speed Rail",v:-effLevelOf(POLICIES.highSpeedRail)*0.018,link:"p_highSpeedRail"});
       d.push({name:"⛽ Gas prices",v:-clamp((METRICS.gasPrice.value-3.6)*0.008,-0.05,0.02),link:"m_gasPrice"});
       return d;}},
   transitCommuters:{
     f:()=>(METRICS.transitShare.value-8)*0.016
-      +(POLICIES.transitInvestment&&POLICIES.transitInvestment.enacted?(policyLevel(POLICIES.transitInvestment)-0.4)*0.025:0),
-    desc:"Grows as the bike/transit commute share rises; boosted directly by Transit & Rail Investment funding.",
+      +(POLICIES.transitInvestment&&POLICIES.transitInvestment.enacted?(policyLevel(POLICIES.transitInvestment)-0.4)*0.025:0)
+      +(POLICIES.highSpeedRail&&POLICIES.highSpeedRail.enacted?effLevelOf(POLICIES.highSpeedRail)*0.022:0),
+    desc:"Grows as the bike/transit commute share rises; boosted directly by Transit & Rail Investment and (over the long run) by High Speed Rail reshaping how Oregonians travel.",
     drivers:()=>{const d=[];
       d.push({name:"🚌 Transit/bike share",v:(METRICS.transitShare.value-8)*0.016,link:"m_transitShare"});
       if(POLICIES.transitInvestment&&POLICIES.transitInvestment.enacted)
         d.push({name:"🚆 Transit & Rail Investment",v:(policyLevel(POLICIES.transitInvestment)-0.4)*0.025,link:"p_transitInvestment"});
+      if(POLICIES.highSpeedRail&&POLICIES.highSpeedRail.enacted)
+        d.push({name:"🚄 High Speed Rail",v:effLevelOf(POLICIES.highSpeedRail)*0.022,link:"p_highSpeedRail"});
       return d;}},
   publicUnions:{
     f:()=>(POLICIES.rightToWork?-(effLevelOf(POLICIES.rightToWork))*0.15:0)
@@ -3946,7 +3960,7 @@ function tickApproval(){
     // below 50, so simply holding steady erodes you and re-election must be
     // earned through visible results. Complacency adds late-term landslide
     // resistance on top of this.
-    const target=clamp(39+policyMood+metricMood(sim,sid)+sitMood
+    const target=clamp(36+policyMood+metricMood(sim,sid)+sitMood
       +groupGrudge(sid)-(sim.cynicism||0)-(sim.complacency||0)+groundPerception(sid),0,100);
     sim.approval+=(target-sim.approval)*0.3;
     sim.approval=clamp(sim.approval,0,100);
@@ -6765,11 +6779,23 @@ for(const id in SIMULANTS)SIMULANTS[id].id=id;
 // build the simulated electorate and pre-roll to equilibrium
 buildVoters();
 for(let pr=0;pr<10;pr++){tickMembership();tickVoterApproval();}
-// seed indicators, then run 8 equilibration passes so metrics start at their
-// policy-sustained equilibrium rather than at "real Oregon" values that sit
-// below equilibrium — this prevents autopilot improvement on turn 1-6
+// seed indicators, then run equilibration passes so metrics start at their
+// policy-and-situation-sustained equilibrium. 28 passes brings most metrics
+// to within ~2% of their true equilibrium (inertia 0.14 → 0.86^28 ≈ 0.018).
 for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();
-for(let _s=0;_s<8;_s++){tickMetrics();for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();}
+for(let _s=0;_s<28;_s++){tickMetrics();for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();}
+// fire condition-triggered situations (e.g. doomLoop) so they are in
+// activeSituations before approval is pre-seeded
+for(const sid in SITUATIONS){
+  const s=SITUATIONS[sid];
+  if(s.category==="condition"&&!GAME.activeSituations[sid]&&s.trigger&&s.trigger())
+    {GAME.activeSituations[sid]=true;GAME.situationAge[sid]=0;}
+}
+// pre-seed lastBalance so fiscal situation severity is correct during approval pre-run
+GAME.lastBalance=budgetBalance().balance;
+// pre-equilibrate approval so it starts at the state consistent with current
+// metrics+situations+policies — eliminates autopilot drift on early turns.
+for(let _a=0;_a<14;_a++)tickApproval();
 // reset prevMetrics/prevIndicators so turn-0 shows no spurious trend arrows
 GAME.prevMetrics={};for(const k in METRICS)GAME.prevMetrics[k]=METRICS[k].value;
 GAME.prevIndicators={};for(const id in INDICATORS)GAME.prevIndicators[id]=INDICATORS[id].value;
