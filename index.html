@@ -3023,10 +3023,12 @@ function blocTurnout(sid){
   }}
   return clamp(t,0.05,0.98);
 }
-/* voting intention: turnout-weighted share of simulated voters above 50 */
+/* voting intention: turnout-weighted expected vote share.
+   Uses a soft probability (approval≈50 = coin flip) so the gauge tracks
+   actual approval instead of collapsing at the binary 50-point cliff. */
 function votingIntention(){
   let yes=0,tot=0;
-  for(const v of VOTERS){const t=turnoutProb(v);tot+=t;if(v.approval>50)yes+=t;}
+  for(const v of VOTERS){const t=turnoutProb(v);tot+=t;yes+=t*clamp(0.5+(v.approval-50)/60,0,1);}
   return tot>0?yes/tot*100:50;
 }
 
@@ -3207,8 +3209,8 @@ const SITUATIONS={
     desc:"A severe drought pits farms, fish, and cities against each other over water.",
     metricEffect:{environment:-2,gdp:-0.2,loggingRate:-5}, moodAxes:{environment:-0.2}, moodMag:1, minTurns:3,
     groupMood:{rural:-7,timber:-6,liberal:-2}},
-  scandal:{name:"Statehouse Scandal", kind:"bad", category:"event",
-    desc:"An ethics scandal involving the administration dominates the press — your authority in Salem takes a real hit.",
+  scandal:{name:"Governor's Office Scandal", kind:"bad", category:"event",
+    desc:"An ethics scandal involving the Governor's office dominates the press — your authority in Salem takes a real hit.",
     metricEffect:{}, moodMag:4, minTurns:2, onTrigger:{capital:-6}, mandateShock:-14,
     groupMood:{moderate:-3,liberal:-2,conservative:-2}},
   cascadiaQuake:{name:"Cascadia Earthquake", kind:"bad", category:"event",
@@ -4217,21 +4219,23 @@ function runElection(){
     const t=clamp(turnoutProb(v)+mob,0.03,0.98)*(0.85+Math.random()*0.3);
     tot+=t;
     const pole=Math.max(Math.abs(v.econ),Math.abs(v.social));         // ideological intensity
-    if(app>50){
-      // Strong ideologues who only weakly approve may prefer a purer third-party option
-      // (a socialist barely warming to a centrist; a libertarian barely tolerating you).
-      // RCV makes defection safe — second preferences can flow back; without it the vote is lost.
+    // Soft probabilistic lean: at app=50 it's a coin flip; each point away from 50
+    // shifts the probability by 1/60, so approval ≈ vote share rather than collapsing
+    // at the binary cliff. Third-party logic inside each branch stays unchanged.
+    const leanGov=Math.random()<clamp(0.5+(app-50)/60,0,1);
+    if(leanGov){
+      // Leans toward governor — strong ideologues may still defect to a purer party
       const lukewarm=clamp((70-app)/25,0,1);                          // 1 near 50, 0 above 70
       const ideoDefect=Math.max(0,pole-0.45)*lukewarm*(rcv?1.8:1.1);
       if(ideoDefect>0.2+Math.random()*0.5){ third+=t; }               // defects to a purer party
       else{ yes+=t; }
-      continue;
+    } else {
+      // Leans against — may defect to a third party or back the challenger
+      const disaffection=clamp((50-app)/22,0,1);
+      const thirdPull=pole*disaffection*(rcv?1.5:0.7);                // RCV makes 3rd parties viable
+      if(thirdPull>0.30+Math.random()*0.35){ third+=t; }              // defects to a third party
+      else no+=t;                                                      // backs the challenger
     }
-    // Disaffected opposition: defect to a third party or back the challenger
-    const disaffection=clamp((50-app)/22,0,1);
-    const thirdPull=pole*disaffection*(rcv?1.5:0.7);                  // RCV makes 3rd parties viable
-    if(thirdPull>0.30+Math.random()*0.35){ third+=t; }                // defects to a third party
-    else no+=t;                                                        // backs the challenger
   }
   // Under RCV, a chunk of third-party first-preferences flow back to you on
   // later rounds if you're preferable to the challenger (you're rarely their
