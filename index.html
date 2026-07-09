@@ -1052,7 +1052,7 @@ const INDICATORS={
     ],
     feedback:{health:0.025, violentCrime:-0.018, propertyCrime:-0.012, homelessness:-0.015}},
   adminOverhead:{name:"Administrative Overhead", icon:"🗂️", value:87,
-    desc:"Coordination friction across Oregon's state government. It rises as you add programs — more policies mean more procurement cycles, inter-agency reporting, and staff overlap. Two levers bring it down: Government Digitization (better systems handle larger portfolios without breaking) and Government Operations (reduces overhead immediately, then compounds by building Digitization over time).\n\nAt 85 or below: no penalty — all programs run at full strength. Above 85: coordination friction erodes program effectiveness — up to −15% at 100. Above 95: Administrative Overload situation activates, adding economic drag and a capital drain until overhead falls back below 88.\n\nYou inherit a value of 87 — a slight structural burden. Invest in govOps to clear it; ignore it and adding more programs will push you into the penalty zone.",
+    desc:"Every dollar of active program spending directly raises this gauge — each $1B/yr of policy cost adds 5 points. Large programs dominate; the breakdown below shows which of your programs contribute most. Two levers bring it down: Government Digitization (every point subtracts 0.8) and the Government Operations policy (direct −8 reduction plus long-run Digitization gains).\n\nAt 85 or below: all programs run at full strength. Above 85: Administrative Strain activates and policy effectiveness erodes up to −15% at overhead 100. Above 95: Administrative Overload adds economic damage and −1 capital/turn on top.",
     derive:()=>{
       let policySpend=0;
       const eff=govOpsEffMult();
@@ -1069,22 +1069,33 @@ const INDICATORS={
       return Math.round(clamp(69+policySpend*5-INDICATORS.digitization.value*0.8+deregAdj+sitAdj+mhStrain,0,180));
     },
     drivers:()=>{
-      let policySpend=0;
       const govEff=govOpsEffMult();
+      const policyItems=[], directIds=new Set(Object.keys(POLICIES).filter(id=>POLICIES[id].indicatorEffects?.adminOverhead));
+      let otherPts=0, otherCt=0;
       for(const id in POLICIES){
-        const p=POLICIES[id];const pl=policyLevel(p);
+        const p=POLICIES[id];
+        const pl=policyLevel(p);
         const ef=(p.eff!==undefined?p.eff:pl);
-        const raw=pl>0?Math.max(0,policyNetCost(p))*(ef/pl):Math.max(0,policyNetCost(p));
-        policySpend+=raw*(id==="govOps"?1:govEff);
+        const spend=pl>0?Math.max(0,policyNetCost(p))*(ef/pl):Math.max(0,policyNetCost(p));
+        if(spend<=0)continue;
+        const pts=spend*(id==="govOps"?1:govEff)*5;
+        if(pts>=1.5){
+          policyItems.push({name:(p.icon||'')+" "+p.name+(directIds.has(id)?" (cost)":""), v:Math.round(pts), link:"p_"+id});
+        } else { otherPts+=pts; otherCt++; }
       }
+      policyItems.sort((a,b)=>b.v-a.v);
       const sitAdj=Math.round(sitIndicatorPush("adminOverhead"));
       const mhStrain=Math.round(Math.max(0,(50-(INDICATORS.mentalHealth?.value??45))*0.20));
       return [
-        {name:"⊕ policy spending ($"+policySpend.toFixed(1)+"B/yr)",v:Math.round(69+policySpend*5),base:true},
-        {name:"🖥️ Gov. Digitization (lowers overhead)",v:-Math.round(INDICATORS.digitization.value*0.8),link:"i_digitization"},
-        ...(mhStrain>0?[{name:"💚 Mental health crisis (ER/admin strain)",v:mhStrain,link:"i_mentalHealth"}]:[]),
-        ...Object.entries(POLICIES).filter(([,p])=>p.indicatorEffects?.adminOverhead).map(([pid,p])=>({name:(p.icon||'')+" "+p.name,v:Math.round(p.indicatorEffects.adminOverhead*effLevelOf(p)),link:"p_"+pid})).filter(x=>Math.abs(x.v)>0.1),
-        ...(sitAdj!==0?[{name:"⚠ Active crisis (system disruption)",v:sitAdj}]:[]),
+        {name:"⊕ Base administrative floor", v:69, base:true},
+        ...policyItems,
+        ...(otherCt>0?[{name:"⊕ "+otherCt+" smaller programs", v:Math.round(otherPts)}]:[]),
+        {name:"🖥️ Gov. Digitization (reduces overhead)", v:-Math.round(INDICATORS.digitization.value*0.8), link:"i_digitization"},
+        ...Object.entries(POLICIES).filter(([,p])=>p.indicatorEffects?.adminOverhead)
+          .map(([pid,p])=>({name:(p.icon||'')+" "+p.name+" (structural)", v:Math.round(p.indicatorEffects.adminOverhead*effLevelOf(p)), link:"p_"+pid}))
+          .filter(x=>Math.abs(x.v)>0.1),
+        ...(mhStrain>0?[{name:"💚 Mental health strain", v:mhStrain, link:"i_mentalHealth"}]:[]),
+        ...(sitAdj!==0?[{name:"⚠ Active crisis disruption", v:sitAdj}]:[]),
       ];
     },
     feedback:{}},
@@ -3326,7 +3337,7 @@ const SITUATIONS={
     moodMag:1,
     groupMood:{businessClass:5,liberal:3,collegeEducated:5,urban:3}},
   adminStrain:{name:"Administrative Strain", kind:"bad", category:"condition",
-    desc:"Administrative Overhead has crossed 85 — your programs are no longer running at full strength. Oregon's government apparatus has grown large enough that coordination friction is measurably eroding policy outcomes: every active policy (except revenue and the Government Operations budget itself) now delivers less than its stated level. At overhead 90, programs run ~5% weaker; at overhead 95, ~10% weaker; at 100, the penalty maxes at 15%.\n\nThis is not a crisis yet, but it is a compounding drag. Fix it by investing in the Government Operations budget — which builds Digitization capacity over time — or by trimming lower-priority program spending. Let it climb past 95 and Administrative Overload activates, adding economic damage and a capital drain on top.",
+    desc:"Administrative Overhead has crossed 85 — your programs are no longer running at full strength. Every active policy (except revenue and the Government Operations budget itself) now delivers less than its stated level: at overhead 90, ~5% weaker; at 95, ~10% weaker; at 100, the penalty maxes at 15%.\n\nOverhead rises with every dollar of program spending — large programs like the State School Fund are the biggest contributors. Open the Administrative Overhead indicator to see a policy-by-policy breakdown of what's driving it. Fix it by investing in Government Operations (builds Digitization capacity) or trimming lower-priority spending. Let it climb past 95 and Administrative Overload activates on top.",
     trigger:()=>INDICATORS.adminOverhead.value>85,
     clear:()=>INDICATORS.adminOverhead.value<82, onClear:{capital:1},
     watch:{indicator:"adminOverhead", startAt:90, clearAt:82, badHigh:true},
