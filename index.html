@@ -288,8 +288,8 @@
   .tile-sub.agency{color:var(--clay)}
   .tile.agency{background:repeating-linear-gradient(45deg,var(--paper),var(--paper) 6px,var(--paper-2) 6px,var(--paper-2) 7px)}
   /* detail page */
-  .backbtn{background:none;border:none;color:var(--slate-blue);font-family:var(--font-body);font-size:13px;cursor:pointer;padding:0;margin-bottom:14px}
-  .backbtn:hover{text-decoration:underline}
+  .backbtn{background:var(--paper-2);border:1px solid var(--line-em);color:var(--slate-blue);font-family:var(--font-body);font-size:14px;font-weight:600;cursor:pointer;padding:7px 16px;border-radius:3px;margin-bottom:16px;letter-spacing:0.01em}
+  .backbtn:hover{background:var(--hover-bg);border-color:var(--slate-blue)}
   .detailval{font-family:var(--font-data);font-size:40px;font-weight:600;margin:6px 0 14px}
   .detailrow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
   .pill{font-family:var(--font-data);font-size:11px;padding:4px 9px;border-radius:11px;background:var(--paper-2);border:1px solid var(--line)}
@@ -1531,9 +1531,9 @@ const POLICIES={
     tierSizeEffects:[{timber:0.045},{timber:0.022},{},{timber:-0.027},{timber:-0.050}],
     tierBlocEffects:[{timber:3,rural:2},{timber:2,rural:1},{},{timber:-2,rural:-1},{timber:-3,rural:-2}],
     tierIdeology:[{environment:0.8,economic:0.4},{environment:0.4,economic:0.2},{environment:-0.1},{environment:-0.5,economic:-0.2},{environment:-0.8,economic:-0.4}]},
-  incomeTax:{name:"Personal Income Tax", domain:"economy", icon:"🧾", enacted:true, mechanic:"slider", noRepeal:true,
+  incomeTax:{name:"Personal Income Tax", domain:"economy", icon:"🧾", enacted:true, mechanic:"slider",
     desc:"Oregon's top personal rate (currently 9.9% above $125k — among the nation's highest). With no sales tax, the income tax carries ~85% of the General Fund; raising it funds the state but drags growth and risks out-migration.",
-    value:0.6, revenueFull:7.0, capital:8, effects:{gdp:-1.2,unemployment:0.8,taxBurden:12},
+    value:0.6, revenueFull:7.0, capital:8, repealCost:28, effects:{gdp:-1.2,unemployment:0.8,taxBurden:12},
     real:{min:6.0,max:12.5,unit:"%",decimals:1,label:"top rate"},
     ideology:{economic:-0.8,govSize:-0.7}},
   cannabisTax:{name:"Cannabis Tax Rate", domain:"economy", icon:"💲", enacted:true, mechanic:"slider", noRepeal:true,
@@ -2587,7 +2587,7 @@ const DILEMMAS={
       {label:"Approve the deal", text:"The data center is approved.",
        apply:()=>{createGrudge("m_gdp",0.15,0.9,"Data center investment");createGrudge("v_businessClass",4,0.9,"Open for business");createGrudge("v_timber",2,0.9,"Rural jobs");createGrudge("m_environment",-0.5,0.9,"Water & power strain");createGrudge("v_liberal",-3,0.9,"Corporate giveaway");}},
       {label:"Reject it", text:"The data center is rejected.",
-       apply:()=>{createGrudge("v_liberal",3,0.9,"Held the line on water");createGrudge("v_businessClass",-4,0.9,"Hostile to investment");createGrudge("i_businessClimate",-3,0.9,"Deal rejected");}}]},
+       apply:()=>{createGrudge("v_liberal",4,0.9,"Held the line on water");createGrudge("v_socialist",3,0.9,"No corporate subsidy");createGrudge("m_environment",0.3,0.9,"Water & grid protected");createGrudge("v_businessClass",-4,0.9,"Hostile to investment");createGrudge("i_businessClimate",-3,0.9,"Deal rejected");}}]},
   campSweep:{title:"The Downtown Camps", icon:"⛺", cooldown:28,
     text:"Business owners demand the downtown encampments be swept before the holiday season. Service providers say sweeps scatter people from caseworkers and accomplish nothing. Both are right.",
     influence:()=>(INDICATORS.downtown.value<45?0.5:0)+(METRICS.homelessness.value>60?0.15:0),
@@ -5705,7 +5705,7 @@ function indTrend(key){
 /* ---------- DETAIL PAGE ---------- */
 let detailKey=null;
 function openDetail(key){
-  if(key==="budget"){currentView="budget";detailKey=null;render();return;}
+  if(key==="budget"){settlePending();currentView="budget";detailKey=null;render();return;}
   if(key.startsWith("sit_"))key="s_"+key.slice(4);
   settlePending();
   detailKey=key; currentView="detail";
@@ -5797,9 +5797,12 @@ function renderDetail(){
       const maxC=Math.round(baseCap*uFricD);
       capPillTxt=minC<maxC?`◈ ${minC}–${maxC} capital by change size`:`◈ ${maxC} capital`;
     }
+    const phaseQtrs=policyPhaseQuarters(p);
+    const phasePill=`<span class="pill" title="How long before changes reach full effect">⏱ ${phaseQtrs}q to take effect</span>`;
     h+=`<div class="detailrow">
       <span class="pill ${net<0?'rev':'spend'}">${net<0?'+$'+(-net).toFixed(2)+'B/yr revenue':'$'+net.toFixed(2)+'B/yr cost'}</span>
       <span class="pill cap">${capPillTxt}</span>
+      ${phasePill}
       <span class="pill dom">${DOMAINS[p.domain].name}</span></div>`;}
     // control
     h+=`<div class="ctrlbox">${policyControlHTML(id,p)}</div>`;
@@ -6908,7 +6911,7 @@ updateToggleGlyph();
 document.getElementById("hudApproval").parentElement.style.cursor="pointer";
 document.getElementById("hudApproval").parentElement.addEventListener('click',()=>openDetail("approval"));
 document.getElementById("hudBudget").parentElement.style.cursor="pointer";
-document.getElementById("hudBudget").parentElement.addEventListener('click',()=>{currentView="budget";detailKey=null;render();});
+document.getElementById("hudBudget").parentElement.addEventListener('click',()=>{settlePending();currentView="budget";detailKey=null;render();});
 // seed chronic Oregon conditions the governor inherits
 for(const sid in SITUATIONS){
   if(SITUATIONS[sid].startActive){GAME.activeSituations[sid]=true;GAME.situationAge[sid]=0;}
