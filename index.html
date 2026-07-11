@@ -687,15 +687,15 @@ const REVENUE={
   otherGF:{name:"Other GF (estate, misc.)", base:0.45, linkedPolicy:null,
     note:"Estate tax (10–16%), fees. No sales tax"},
   liquorRev:{name:"Liquor Revenue (OLCC)", base:0.30,
-    note:"OLCC spirits markup — 56% of net to GF; scales with alcohol control tier. Zero if privatized. Cannabis tax shows under the Cannabis Program policy."},
+    note:"OLCC spirits markup — 56% of net to GF; scales with alcohol control tier. Zero if privatized."},
   timber:{name:"State Forest Timber Receipts", base:0.25, linkedPolicy:null,
     note:"Logging revenue — scales with Forestry harvest rate"},
   salesTaxRev:{name:"Sales Tax", base:6.0, linkedPolicy:"salesTax", refLevel:0.5,
     note:"None today — Oregon has no sales tax. Revenue only if enabled."},
   estateRev:{name:"Estate Tax", base:0.42, linkedPolicy:"estateTax", refLevel:0.625,
     note:"$422.8M FY2025 — $1M exemption, lowest threshold in the nation (10–16% graduated)"},
-  cannabisRev:{name:"Cannabis Tax", base:0.27, linkedPolicy:"cannabis", refLevel:0.6,
-    note:"Measure 91 retail tax — funded Measure 110 treatment networks"},
+  cannabisRev:{name:"Cannabis Tax", base:0.27, linkedPolicy:"cannabisTax", refLevel:0.5,
+    note:"Measure 91 retail tax — funded Measure 110 treatment networks. Scales with both legalization tier and tax rate."},
   policyMisc:{name:"Other Policy Revenue", base:0, linkedPolicy:null,
     note:"Licensing & retained funds from enacted laws (psilocybin, kicker retention, carbon tax…)"},
   vehicleFees:{name:"Vehicle Registration Fees", base:0.6, linkedPolicy:"vehicleReg", refLevel:0.5,
@@ -1348,7 +1348,7 @@ const SECTION_OF={
   downtown:"welfare", taxGrievance:"taxes", ruralAlienation:"environment", pensionBurden:"taxes", localAutonomy:"pubservices", mandate:"taxes", adminOverhead:"pubservices",
   govOps:"pubservices",
   // policies & agencies — taxes
-  incomeTax:"taxes", corpTax:"taxes", salesTax:"taxes", gasTax:"taxes", vehicleReg:"taxes", evFee:"taxes", estateTax:"taxes",
+  incomeTax:"taxes", cannabisTax:"taxes", corpTax:"taxes", salesTax:"taxes", gasTax:"taxes", vehicleReg:"taxes", evFee:"taxes", estateTax:"taxes",
   carbonTax:"taxes", taxCut:"taxes", kickerReform:"taxes", propTaxReform:"taxes", preschoolForAll:"taxes", revenueDept:"taxes", treasury:"taxes", persReform:"taxes",
   // public services
   stateSchoolFund:"pubservices", universities:"pubservices", stateColleges:"pubservices", communityColleges:"pubservices",
@@ -1531,11 +1531,16 @@ const POLICIES={
     tierSizeEffects:[{timber:0.045},{timber:0.022},{},{timber:-0.027},{timber:-0.050}],
     tierBlocEffects:[{timber:3,rural:2},{timber:2,rural:1},{},{timber:-2,rural:-1},{timber:-3,rural:-2}],
     tierIdeology:[{environment:0.8,economic:0.4},{environment:0.4,economic:0.2},{environment:-0.1},{environment:-0.5,economic:-0.2},{environment:-0.8,economic:-0.4}]},
-  incomeTax:{name:"Top Marginal Income Tax", domain:"economy", icon:"🧾", enacted:true, mechanic:"slider", noRepeal:true,
+  incomeTax:{name:"Personal Income Tax", domain:"economy", icon:"🧾", enacted:true, mechanic:"slider", noRepeal:true,
     desc:"Oregon's top personal rate (currently 9.9% above $125k — among the nation's highest). With no sales tax, the income tax carries ~85% of the General Fund; raising it funds the state but drags growth and risks out-migration.",
     value:0.6, revenueFull:7.0, capital:8, effects:{gdp:-1.2,unemployment:0.8,taxBurden:12},
     real:{min:6.0,max:12.5,unit:"%",decimals:1,label:"top rate"},
     ideology:{economic:-0.8,govSize:-0.7}},
+  cannabisTax:{name:"Cannabis Tax Rate", domain:"economy", icon:"💲", enacted:true, mechanic:"slider", noRepeal:true,
+    desc:"Oregon's 17% recreational cannabis excise tax (plus up to 3% local tax). Raising the rate captures more revenue but can push buyers to unlicensed markets — undercutting the legal industry. Lowering it supports licensed operators and market integration. Revenue is zero unless the Cannabis Program is at the Recreational Dispensaries tier or above.",
+    value:0.5, revenueFull:0.54, capital:5, taxDir:"burden", effects:{taxBurden:2,gdp:-0.1},
+    real:{min:10,max:30,unit:"%",decimals:0,label:"excise rate"},
+    ideology:{economic:-0.2,govSize:-0.2}},
   corpTax:{name:"Corporate Activity Tax (CAT)", domain:"economy", icon:"🏢", enacted:true, mechanic:"slider",
     desc:"Gross-receipts tax on commercial activity over $1M (currently 0.57%), dedicated to the Fund for Student Success (schools). Critics call it a hidden sales tax; it weighs on low-margin businesses. Can be repealed.",
     value:0.5, revenueFull:2.5, capital:7, repealCost:9, effects:{gdp:-0.6,unemployment:0.4,taxBurden:8},
@@ -4101,11 +4106,13 @@ function revenueBySource(){
       amt=(p&&p.tierIndex>0)?r.base*(1+(p.tierIndex-1)*0.07):0;
     }
     if(id==="cannabisRev"){
-      const p=POLICIES.cannabis;
-      if(p&&p.mechanic==="tier"){
-        // Prohibited→$0; Home Grow→$0 (no commercial sales); Medical→$80M; Recreational→$270M
-        const revByTier=[0, 0, 0.08, 0.27];
-        amt=revByTier[p.tierIndex]??0;
+      const cp=POLICIES.cannabis, ct=POLICIES.cannabisTax;
+      if(cp&&cp.mechanic==="tier"){
+        // max revenue at full tax rate per tier: Prohibited→$0; Home Grow→$0; Medical→$160M; Recreational→$540M
+        const maxByTier=[0, 0, 0.16, 0.54];
+        const tierMax=maxByTier[cp.tierIndex]??0;
+        const taxRate=ct?ct.value:0.5;
+        amt=tierMax*taxRate;
       }
     }
     if(taxSources[id])amt*=collFactor; // collection efficiency
@@ -5775,7 +5782,19 @@ function renderDetail(){
     const net=policyNetCost(p);
     h+=`<div class="sectionhdr">${p.icon||''} ${p.name}</div><div class="sectionsub">${p.desc}</div>`;
     {const uFricD=1+Math.min(Math.max(0,(SIMULANTS.publicUnions?.size??0.07)-0.05)*2,0.25);
-    const capPillTxt=p.taxDir?`◈ ${Math.round(p.capital*uFricD*0.55)} cut / ${Math.round(p.capital*uFricD*1.45)} hike`:`◈ ${p.capital} capital to change`;
+    const baseCap=p.capital||5;
+    let capPillTxt;
+    if(p.mechanic==="toggle"||p.mechanic==="law"){
+      capPillTxt=`◈ ${Math.round(baseCap*uFricD)} capital to change`;
+    } else if(p.taxDir){
+      const minC=Math.max(1,Math.round(baseCap*0.35*0.55*uFricD));
+      const maxC=Math.round(baseCap*1.45*uFricD);
+      capPillTxt=`◈ ${minC}–${maxC} capital (small cut → large hike)`;
+    } else {
+      const minC=Math.max(1,Math.round(baseCap*0.35*uFricD));
+      const maxC=Math.round(baseCap*uFricD);
+      capPillTxt=minC<maxC?`◈ ${minC}–${maxC} capital by change size`:`◈ ${maxC} capital`;
+    }
     h+=`<div class="detailrow">
       <span class="pill ${net<0?'rev':'spend'}">${net<0?'+$'+(-net).toFixed(2)+'B/yr revenue':'$'+net.toFixed(2)+'B/yr cost'}</span>
       <span class="pill cap">${capPillTxt}</span>
@@ -6322,19 +6341,40 @@ function restoreFrom(key,snap){
   else if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];if(a)a.funding=d.f;}
   else if(key==="landuse")LANDUSE.index=d.i;
 }
+function magScale(mag){
+  // 3-tier cost by magnitude of change: small tweak → 35%, moderate → 65%, major → 100%
+  if(mag<0.15)return 0.35;
+  if(mag<0.50)return 0.65;
+  return 1.0;
+}
 function chargeFor(key, origSnap, curSnap){
   const uSize = SIMULANTS.publicUnions?.size ?? 0.07;
   const uFriction = 1 + Math.min(Math.max(0, uSize - 0.05) * 2, 0.25);
   if(key.startsWith("p_")){
     const p=POLICIES[key.slice(2)]; if(!p)return 0;
     let mult=uFriction;
-    if(p.taxDir && origSnap && curSnap){
+    if(origSnap && curSnap){
       const ov=JSON.parse(origSnap), cv=JSON.parse(curSnap);
-      const oldV=ov.v??ov.t??0, newV=cv.v??cv.t??0;
-      const isCut=p.taxDir==="burden"?newV<oldV:newV>oldV;
-      mult*=isCut?0.55:1.45;
+      // magnitude scaling (skip for toggle/law — binary change, always full cost)
+      if(p.mechanic!=="toggle" && p.mechanic!=="law"){
+        let mag=1.0;
+        if(p.mechanic==="tier"&&p.tiers){
+          const n=Math.max(1,p.tiers.length-1);
+          mag=Math.abs((cv.t??0)-(ov.t??0))/n;
+        } else {
+          const oldV=ov.v??ov.i??0, newV=cv.v??cv.i??0;
+          mag=Math.abs(newV-oldV);
+        }
+        mult*=magScale(mag);
+      }
+      // cut/hike asymmetry for tax policies
+      if(p.taxDir){
+        const oldV=ov.v??ov.t??0, newV=cv.v??cv.t??0;
+        const isCut=p.taxDir==="burden"?newV<oldV:newV>oldV;
+        mult*=isCut?0.55:1.45;
+      }
     }
-    return Math.round((p.capital||5)*mult);
+    return Math.max(1, Math.round((p.capital||5)*mult));
   }
   if(key.startsWith("a_")){
     const a=AGENCIES[key.slice(2)]; if(!a)return 0;
@@ -6517,23 +6557,28 @@ function renderBudget(){
   h+=`<div><h3 style="font-family:var(--font-display);font-size:16px;border-bottom:2px solid var(--good);padding-bottom:5px;margin-bottom:10px">Revenue by Source</h3>`;
   for(const id of revRows){
     const r=REVENUE[id], amt=rev[id], pct=amt/b.revenue*100;
-    h+=`<div class="ledger"><div class="lrow"><span class="lname">${r.name}</span><span class="lamt good">$${amt.toFixed(2)}B</span></div>
+    const pol=r.linkedPolicy?POLICIES[r.linkedPolicy]:null;
+    const linkAttr=pol?` data-detail="p_${r.linkedPolicy}" style="cursor:pointer"`:'';
+    h+=`<div class="ledger"${linkAttr}><div class="lrow"><span class="lname">${r.name}</span><span class="lamt good">$${amt.toFixed(2)}B</span></div>
       <div class="lbar"><i style="width:${pct}%;background:var(--good)"></i></div>
-      <div class="lnote">${r.note}${r.linkedPolicy?' · adjustable':''}</div></div>`;
+      <div class="lnote">${r.note}${pol?` <span style="color:var(--slate-blue);font-weight:600;pointer-events:none">→ adjust</span>`:''}</div></div>`;
   }
   h+=`<div class="ltotal"><span>Total Revenue</span><span class="good">$${b.revenue.toFixed(2)}B</span></div></div>`;
   // spending column
   h+=`<div><h3 style="font-family:var(--font-display);font-size:16px;border-bottom:2px solid var(--clay);padding-bottom:5px;margin-bottom:10px">Spending by Program Area</h3>`;
   for(const id of spdRows){
     const a=SPENDING[id], amt=spd[id], pct=amt/b.spend*100;
+    const enacted=a.policies.filter(pid=>POLICIES[pid]);
+    const polLinks=enacted.map(pid=>`<span data-detail="p_${pid}" style="font-size:10.5px;color:var(--slate-blue);cursor:pointer;white-space:nowrap">${POLICIES[pid].icon||''} ${POLICIES[pid].name} →</span>`).join('');
     h+=`<div class="ledger"><div class="lrow"><span class="lname">${a.name}</span><span class="lamt spend">$${amt.toFixed(2)}B</span></div>
       <div class="lbar"><i style="width:${pct}%;background:var(--clay)"></i></div>
-      <div class="lnote">${a.note}${a.policies.length?' · adjustable':''}</div></div>`;
+      <div class="lnote">${a.note}</div>${polLinks?`<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:8px">${polLinks}</div>`:''}</div>`;
   }
   h+=`<div class="ltotal"><span>Total Spending</span><span class="spend">$${b.spend.toFixed(2)}B</span></div></div>`;
   h+=`</div>`;
   h+=`<div class="sectionsub" style="margin-top:20px">Oregon's constitution requires a balanced budget. Surpluses above the 2% line trigger the <b>kicker</b> — the entire surplus refunds to taxpayers unless you've enacted Kicker Reform. Deficits draw down reserves; once exhausted, forced cuts hit education, health, and your political capital. The economic cycle, PERS escalation, and federal-funds shocks are all live above.</div>`;
   main.innerHTML=h;
+  main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
 }
 function renderSidebar(){
   // keep the rail's active highlight in sync with the actual view (detail
