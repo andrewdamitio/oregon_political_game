@@ -1543,19 +1543,19 @@ const POLICIES={
     ideology:{economic:-0.2,govSize:-0.2}},
   corpTax:{name:"Corporate Activity Tax (CAT)", domain:"economy", icon:"🏢", enacted:true, mechanic:"slider",
     desc:"Gross-receipts tax on commercial activity over $1M (currently 0.57%), dedicated to the Fund for Student Success (schools). Critics call it a hidden sales tax; it weighs on low-margin businesses. Can be repealed.",
-    value:0.5, revenueFull:2.5, capital:7, repealCost:9, effects:{gdp:-0.6,unemployment:0.4,taxBurden:8},
-    real:{min:0,max:1.14,unit:"%",decimals:2,label:"rate"},
+    value:0.5, revenueFull:2.5, capital:7, repealCost:9, sliderFloor:0.05, effects:{gdp:-0.6,unemployment:0.4,taxBurden:8},
+    real:{min:0.06,max:1.14,unit:"%",decimals:2,label:"rate"},
     ideology:{economic:-0.6,govSize:-0.5}},
   vehicleReg:{name:"Vehicle Registration Fees", domain:"envInfra", icon:"🚗", enacted:true, mechanic:"slider",
     desc:"Registration and title fees funding ODOT. Raising them shores up the transportation budget; drivers grumble.",
-    value:0.5, revenueFull:0.6, capital:5, repealCost:6, taxDir:"burden", effects:{taxBurden:4},
-    real:{min:0,max:2.0,unit:"× base",decimals:2,label:"fee level"},
+    value:0.5, revenueFull:0.6, capital:5, repealCost:6, taxDir:"burden", sliderFloor:0.05, effects:{taxBurden:4},
+    real:{min:0.1,max:2.0,unit:"× base",decimals:2,label:"fee level"},
     ideology:{economic:-0.2,govSize:-0.2}},
   gasTax:{name:"State Gas Tax", domain:"envInfra", icon:"⛽", enacted:true, mechanic:"slider",
     desc:"Oregon's per-gallon fuel tax (currently 40¢), constitutionally dedicated to roads. Raising it funds ODOT but shows up at every pump in the state — the most visible tax there is.",
-    value:0.5, revenueFull:0.9, capital:6, repealCost:8, taxDir:"burden", effects:{gasPrice:0.7,taxBurden:6},
+    value:0.5, revenueFull:0.9, capital:6, repealCost:8, taxDir:"burden", sliderFloor:0.05, effects:{gasPrice:0.7,taxBurden:6},
     blocEffect:{motorists:-5, rural:-4, suburban:-3, timber:-3, transitCommuters:1, liberal:1},
-    real:{min:0,max:80,unit:"¢/gal",decimals:0,label:"per-gallon tax"},
+    real:{min:4,max:80,unit:"¢/gal",decimals:0,label:"per-gallon tax"},
     ideology:{economic:-0.25,govSize:-0.2}},
   evFee:{name:"EV Road Usage Charge", domain:"envInfra", icon:"🔌", enacted:true, mechanic:"slider",
     desc:"Oregon pioneered per-mile road usage charging for EVs through the voluntary OReGO program (2015). Expanding it to a mandatory statewide charge closes the gas-tax gap as the fleet electrifies — the 'user pays' principle applied to clean vehicles. EV owners (skewing affluent and urban) resist; rural and conservative voters see it as fairer than a gas-only system.",
@@ -1967,7 +1967,9 @@ const CATALOG={
   outdoorRec:{name:"Outdoor Recreation Investment", domain:"envInfra", icon:"🏕️", mechanic:"slider",
     desc:"State parks, trails, coast and Columbia Gorge access, Travel Oregon marketing. Drives tourism and rural jobs.",
     value:0.5, costFull:0.4, capital:5, enactCapital:8,
-    effects:{environment:4,gdp:0.2}, indicatorEffects:{tourism:12}, ideology:{environment:-0.4,economic:-0.2}},
+    effects:{environment:4,gdp:0.2}, indicatorEffects:{tourism:12},
+    directBlocMood:{conservative:1, rural:2, timber:1},
+    ideology:{environment:-0.1}},
   wolfRecovery:{name:"Wolf Recovery Program", domain:"envInfra", icon:"🐺", mechanic:"law",
     desc:"Oregon's wolf population rebounded naturally from Idaho after 2009 and now numbers ~175 animals statewide. The contested question is the state's active posture: fund ODFW monitoring and livestock coexistence programs, restrict lethal removal to a last resort, and protect dispersal corridors into the Coast Range and Cascades — or defer to counties and ranchers on lethal control. Ranchers in Wallowa, Union, and Grant counties bear the direct cost in livestock predation; urban environmentalists and ecotourists reap the benefit. The politics are almost perfectly reversed from the Willamette Valley.",
     enabled:true, costFull:0.05, enactCapital:11, repealCost:9,
@@ -3451,7 +3453,7 @@ const EVENT_POOL=[
 const NATIONAL_MOOD={ value:0, drift:0 };
 
 const GAME={
-  turn:0, startYear:2025, capital:40, capitalPerTurn:6,
+  turn:0, startYear:2025, capital:50, capitalPerTurn:7,
   lastMargin:0, crisesResolved:0, uturnCount:0, mandateShock:0,
   campaign:{effort:{},promises:[],pool:10}, activePromises:[], campaignDone:false, skipReport:false, skipCampaign:false,
   // ---- ground game: ongoing campaigning, independent of governing capital ----
@@ -4633,7 +4635,7 @@ function renderCampaign(){
     GAME.activePromises=c.promises.map(pid=>({id:pid, madeTerm:GAME.term}));
     GAME.campaignDone=true;
     GAME.campaign={effort:{}, promises:c.promises, pool:10};
-    GAME.capitalPerTurn=+(4+INDICATORS.mandate.value/100*9).toFixed(1);
+    GAME.capitalPerTurn=+(5+INDICATORS.mandate.value/100*10).toFixed(1);
     GAME.capital=Math.round(clamp(GAME.capital+GAME.capitalPerTurn,0,100));
     GAME.turn++; pushHistory();
     GAME.campaignDone=false;
@@ -4765,7 +4767,7 @@ function _calcCapital(){
   const unionBlock = (uSize > 0.05 && uApproval < 35)
     ? Math.max(0.45, 1 - Math.min(uSize - 0.05, 0.20) * 4 * Math.max(0, 35 - uApproval) / 35)
     : 1.0;
-  GAME.capitalPerTurn=+((4+mand/100*9)*starvationFactor*unionBlock).toFixed(1);
+  GAME.capitalPerTurn=+((5+mand/100*10)*starvationFactor*unionBlock).toFixed(1);
   GAME.capital=Math.round(clamp(GAME.capital+GAME.capitalPerTurn,0,100));
   if(GAME.activists){for(const act of Object.values(GAME.activists)){
     GAME.capital=Math.round(clamp(GAME.capital-(act.capitalDrain||0)+(act.capitalGain||0),0,100));
@@ -6194,8 +6196,17 @@ function renderDetail(){
   };
   const doUndo=()=>{
     const key=detailKey;
-    if(key&&GAME.pending&&GAME.pending.key===key){restoreFrom(key,GAME.pending.snap);GAME.pending=null;}
-    if(GAME.pendingLog){const a=AGENCIES[GAME.pendingLog.id];if(a)a.logging=GAME.pendingLog.snap;GAME.pendingLog=null;}
+    if(key&&GAME.pending&&GAME.pending.key===key){
+      restoreFrom(key,GAME.pending.snap);
+      // re-arm at restored state so any further changes on this page still cost capital
+      const resnap=snapshotFor(key);
+      GAME.pending=resnap!==null?{key,snap:resnap}:null;
+    }
+    if(GAME.pendingLog){
+      const a=AGENCIES[GAME.pendingLog.id];
+      if(a)a.logging=GAME.pendingLog.snap;
+      // keep pendingLog armed so subsequent logging changes are still tracked
+    }
     try{render();}catch(err){}
   };
   const bb=document.getElementById("backBtn"); if(bb)bb.onclick=goBack;
@@ -6209,7 +6220,8 @@ function renderDetail(){
 function policyControlHTML(id,p){
   if(p.mechanic==="slider"||p.mechanic==="allocation"){
     const lbl=p.real?(p.real.label||"rate"):"spending";
-    return `<span class="mono" style="font-size:11px;color:var(--muted-2)">${lbl}</span><input type="range" min="0" max="1" step="0.05" value="${p.value}" data-pol="${id}" data-kind="slider"><span class="mono">${policyRealLabel(p)}</span>`;
+    const sFloor=p.sliderFloor||0;
+    return `<span class="mono" style="font-size:11px;color:var(--muted-2)">${lbl}</span><input type="range" min="${sFloor}" max="1" step="0.05" value="${Math.max(p.value,sFloor)}" data-pol="${id}" data-kind="slider"><span class="mono">${policyRealLabel(p)}</span>`;
   }
   if(p.mechanic==="tier"){let s=`<div class="tiers">`;p.tiers.forEach((t,i)=>s+=`<span class="tier ${i===p.tierIndex?'on':''}" data-pol="${id}" data-kind="tier" data-i="${i}">${t}</span>`);return s+`</div>`;}
   if(p.mechanic==="intensity")
