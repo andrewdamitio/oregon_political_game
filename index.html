@@ -712,7 +712,7 @@ const REVENUE={
    (their costs are pulled from policyNetCost). Human Services is the
    largest area (OHA Medicaid + DHS); K-12 is the State School Fund. */
 const SPENDING={
-  humanServices:{name:"Human Services (caseloads)", base:1.0, agencies:["dhs","oha"],
+  humanServices:{name:"Human Services (caseloads)", base:0.35, agencies:["dhs","oha"],
     policies:["homelessServices","behavioralHealth","ohpBlockGrant"],
     note:"Caseload growth on top of DHS + OHA agency budgets"},
   k12:{name:"K-12 Education", base:0.0, agencies:[], policies:["stateSchoolFund","phoneBanSchools"],
@@ -731,7 +731,7 @@ const SPENDING={
     note:"DEQ, Transportation, Forestry, Parks, wildfire fund"},
   social:{name:"Social Programs", base:0.0, agencies:[], policies:["abortion","childcareSubsidy","sexWorkDecrim","gunStorage","universalMeals","rankedChoice","rightToRepair","psilocybin","paidLeave","motorVoter","middleHousing","deathWithDignity","minWageTiers","safeConsumption"],
     note:"Reproductive health, childcare, civil programs"},
-  debtAdmin:{name:"Debt Service & Administration", base:0.85, agencies:[], policies:["kickerReform","govOps"],
+  debtAdmin:{name:"Debt Service & Administration", base:0.50, agencies:[], policies:["kickerReform","govOps"],
     note:"Bond debt service, central government"},
 };
 
@@ -1045,13 +1045,13 @@ const INDICATORS={
   justiceEffectiveness:{name:"Justice Pipeline Effectiveness", icon:"⚖️", value:50,
     desc:"How well Oregon's justice system functions end-to-end. Crime reduction from incapacitation is limited by the weakest of three pillars: police (arrests), judiciary (prosecution), and corrections (jail capacity). All three must be adequately funded for the chain to work. Police retain a prevention benefit even when the pipeline is broken.",
     derive:()=>{
-      const police = effLevelOf(POLICIES.policing);
+      const police = POLICIES.policing?effLevelOf(POLICIES.policing):0.25;
       const prosecution = AGENCIES.judiciary?.funding??0.5;
       const jail = AGENCIES.corrections?.funding??0.5;
       return clamp(Math.min(police, prosecution, jail)*100, 0, 100);
     },
     drivers:()=>[
-      {name:POLICIES.policing.icon+" "+POLICIES.policing.name,v:(effLevelOf(POLICIES.policing))*100,link:"p_policing"},
+      {name:"🚓 Public Safety Funding",v:(POLICIES.policing?effLevelOf(POLICIES.policing):0.25)*100,link:"p_policing"},
       {name:AGENCIES.judiciary.icon+" "+AGENCIES.judiciary.name,v:(AGENCIES.judiciary?.funding??0.5)*100,link:"a_judiciary"},
       {name:AGENCIES.corrections.icon+" "+AGENCIES.corrections.name,v:(AGENCIES.corrections?.funding??0.5)*100,link:"a_corrections"},
     ],
@@ -1127,7 +1127,7 @@ const INDICATORS={
       const deregAdj=indPolicyBoost("adminOverhead");
       const sitAdj=sitIndicatorPush("adminOverhead");
       const mhStrain=Math.max(0,(50-(INDICATORS.mentalHealth?.value??45))*0.20);
-      return Math.round(clamp(69+policySpend*5-INDICATORS.digitization.value*0.8+deregAdj+sitAdj+mhStrain,0,180));
+      return Math.round(clamp(62+policySpend*5-INDICATORS.digitization.value*0.8+deregAdj+sitAdj+mhStrain,0,180));
     },
     drivers:()=>{
       const govEff=govOpsEffMult();
@@ -1148,7 +1148,7 @@ const INDICATORS={
       const sitAdj=Math.round(sitIndicatorPush("adminOverhead"));
       const mhStrain=Math.round(Math.max(0,(50-(INDICATORS.mentalHealth?.value??45))*0.20));
       return [
-        {name:"⊕ Base administrative floor", v:69, base:true},
+        {name:"⊕ Base administrative floor", v:62, base:true},
         ...policyItems,
         ...(otherCt>0?[{name:"⊕ "+otherCt+" smaller programs", v:Math.round(otherPts)}]:[]),
         {name:"🖥️ Gov. Digitization (reduces overhead)", v:-Math.round(INDICATORS.digitization.value*0.8), link:"i_digitization"},
@@ -1453,7 +1453,7 @@ const POLICIES={
     sizeEffect:{students:0.025}, sizeRefLevel:0.5,
     instTier:"communityCollege",
     ideology:{economic:-0.4,govSize:-0.4}},
-  policing:{name:"Public Safety Funding", domain:"social", icon:"🚓", enacted:true, mechanic:"slider",
+  policing:{name:"Public Safety Funding", domain:"social", icon:"🚓", enacted:true, mechanic:"slider", noRepeal:true,
     desc:"State police, local grants, and DA offices. Police provide a direct prevention benefit regardless of the rest of the system — deterrence, patrol, rapid response. But incapacitation (locking people up) requires the full pipeline: arrests must be prosecuted (Judicial Dept.) and sentences must be servable (Corrections). Crime reduction from incapacitation is capped by the WEAKEST of the three pillars — investing in police without funding courts and prisons produces arrests that don't stick. Watch the ⚖️ Justice Pipeline Effectiveness indicator.",
     value:0.5, costFull:1.0, capital:5, effects:{violentCrime:{b:0,c:-3,i:2},propertyCrime:{b:0,c:-3,i:2},homelessness:{b:0,c:-3,i:3},drugUse:{b:0,c:-3,i:3}},
     blocEffect:{moderate:2, conservative:3, suburban:2, retirees:2, homeowners:1, socialist:-3, liberal:-2},
@@ -1569,7 +1569,6 @@ const POLICIES={
     effects:{homelessness:{b:-1,c:-1,i:3}, behavioralHealth:{b:0,c:-12,i:3}, inequality:1.5},
     indicatorEffects:{downtown:6},
     blocEffect:{homeowners:4, suburban:4, businessClass:3, conservative:5, liberal:-5, poor:-6, socialist:-10},
-    directBlocMood:{socialist:-5, liberal:-2, poor:-3, homeowners:2, suburban:2, conservative:3},
     real:{min:0,max:100,unit:"% strictness",decimals:0,label:"enforcement strictness"},
     ideology:{social:0.6,govSize:0.4}},
   prisonRegimen:{name:"Prison Regimen", domain:"social", icon:"⛓️", enacted:true, mechanic:"tier", noRepeal:true,
@@ -1947,7 +1946,7 @@ const CATALOG={
     effects:{disposableIncome:1.5,gdp:-0.05}, indicatorEffects:{businessClimate:-1}, ideology:{economic:-0.3,govSize:-0.3}},
   rankedChoice:{name:"Ranked-Choice Voting", domain:"social", icon:"🗳", mechanic:"law", niche:true,
     desc:"Adopt RCV for state elections (Oregon voters narrowly rejected Measure 117 in 2024). Cheap to run; lifts turnout and civic trust over time, eases the spoiler effect — and crucially makes third-party and independent candidacies viable, reshaping who can splinter the vote at election time.",
-    enabled:false, costFull:0.08, capital:7, enactCapital:10,
+    enabled:true, costFull:0.08, capital:7, enactCapital:10,
     effects:{},
     indicatorEffects:{ruralAlienation:-2},
     blocEffect:{liberal:2, socialist:2, libertarian:3, moderate:1},
@@ -3254,11 +3253,11 @@ const SITUATIONS={
     groupMood:{rural:-8,timber:-9,students:-3,liberal:-2,blueCollar:-2}},
   businessExodus:{name:"Business Climate Collapse", kind:"bad", category:"condition",
     desc:"Oregon's stacked costs and regulatory burden have crossed a tipping point. Companies are announcing relocations to Washington and Idaho — and the exodus feeds itself: as anchor firms leave, their suppliers and service vendors follow, Oregon's anti-business reputation hardens, and the remaining talent pool thins. Reversing it requires meaningfully improving the business climate, not just stopping the slide.",
-    trigger:()=>INDICATORS.businessClimate.value<35, onClear:{capital:3},
-    clear:()=>INDICATORS.businessClimate.value>47,
-    watch:{indicator:"businessClimate", startAt:35, clearAt:47, badHigh:false},
+    trigger:()=>INDICATORS.businessClimate.value<30, onClear:{capital:3},
+    clear:()=>INDICATORS.businessClimate.value>40,
+    watch:{indicator:"businessClimate", startAt:30, clearAt:40, badHigh:false},
     metricEffect:{gdp:-0.30, unemployment:0.4},
-    indicatorEffect:{inMigration:-6, businessClimate:-4},
+    indicatorEffect:{inMigration:-6},
     moodMag:2, moodAxes:{economic:0.3}, minTurns:3,
     onTrigger:{capital:-3},
     groupMood:{businessClass:-10, wealthy:-7, suburban:-4, blueCollar:-4, rural:-3}},
@@ -3372,7 +3371,7 @@ const SITUATIONS={
     trigger:()=>INDICATORS.downtown.value<40, clear:()=>INDICATORS.downtown.value>50, onClear:{capital:2},
     watch:{indicator:"downtown", startAt:40, clearAt:50, badHigh:false},
     metricEffect:{gdp:-0.15},
-    indicatorEffect:{downtown:-5,inMigration:-6,businessClimate:-5},
+    indicatorEffect:{inMigration:-6,businessClimate:-5},
     moodAxes:{economic:0.2}, moodMag:2,
     groupMood:{businessClass:-7,urban:-6,liberal:-3,moderate:-2}},
   taxFlightRisk:{name:"High-Earner Out-Migration", kind:"bad", category:"condition",
@@ -3413,12 +3412,13 @@ const SITUATIONS={
     clear:()=>INDICATORS.businessClimate.value>48||METRICS.taxBurden.value<44, onClear:{capital:3},
     watch:{indicator:"businessClimate", startAt:38, clearAt:48, badHigh:false},
     metricEffect:{gdp:-0.22,unemployment:0.40},
-    indicatorEffect:{businessClimate:-9,inMigration:-5},
+    indicatorEffect:{businessClimate:-3,inMigration:-5},
     moodMag:2,
     groupMood:{businessClass:-9,wealthy:-7,blueCollar:-6,suburban:-3,timber:-3,moderate:-2}},
   oregonBrand:{name:"✦ Oregon Brand Strength", kind:"good", category:"condition",
     desc:"Clean mountains, Pacific coastline, wine country, and farm-to-table culture have made 'Oregon' a genuine lifestyle brand — drawing tourists, outdoor enthusiasts, and remote workers who can live anywhere and choose here. The brand is alive at game start, already quietly lifting in-migration, business investment, and GDP. But it is not indestructible: visible disorder — open drug use, crime, grimy downtowns — is exactly what national media amplifies, and it eats directly into the tourism and relocation appeal the brand depends on. The addiction crisis and crime waves are already compromising it. Clean up the state and the brand rebounds; let those problems fester and the lifestyle premium erodes away.",
     startActive:true,
+    trigger:()=>METRICS.environment.value>66&&INDICATORS.tourism.value>50,
     clear:()=>METRICS.environment.value<60||INDICATORS.tourism.value<40,
     watch:{indicator:"tourism", startAt:60, clearAt:40, badHigh:true},
     metricEffect:{gdp:0.10, unemployment:-0.05},
@@ -3716,11 +3716,17 @@ function metricTarget(k){
     if(s&&s.metricEffect&&s.metricEffect[k]!==undefined)
       t+=effExpr(s.metricEffect[k],sitSeverity(sid),"s:"+sid+":"+k)/m.inertia;
   }
-  // indicator feedback (deviation from neutral 50)
+  // indicator feedback — relative to each indicator's CALIBRATED starting level,
+  // so only movement away from the inherited status quo propagates. (Measuring
+  // against an absolute 50 made crisis-level indicators a permanent, compounding
+  // drag: downtown at 21 pulled GDP down, which pulled downtown down, forever.)
   for(const iid in INDICATORS){
     const ind=INDICATORS[iid];
-    if(ind.feedback&&ind.feedback[k]!==undefined)t+=(ind.value-50)*ind.feedback[k]/m.inertia;
+    if(ind.feedback&&ind.feedback[k]!==undefined)t+=(ind.value-(ind.base0!==undefined?ind.base0:50))*ind.feedback[k]/m.inertia;
   }
+  // calibration offset: fixed at init so the default policy mix sustains the
+  // REAL Oregon starting values — policy effects are deltas from the status quo
+  t+=(m.calib||0);
   // --- Civil commitment × psychiatric beds interaction ---------------------
   // Commitment only works if beds exist to receive people. Its effect on
   // homelessness/drug-use/disorder SCALES with bed availability, and is a
@@ -3777,7 +3783,7 @@ function metricContributors(k){
   for(const iid in INDICATORS){
     const ind=INDICATORS[iid];
     if(ind.feedback&&ind.feedback[k]!==undefined){
-      const e=(ind.value-50)*ind.feedback[k]/m.inertia;
+      const e=(ind.value-(ind.base0!==undefined?ind.base0:50))*ind.feedback[k]/m.inertia;
       if(Math.abs(e)>0.05)out.push({name:ind.icon+' '+ind.name, v:e, link:"i_"+iid});
     }
   }
@@ -4040,15 +4046,21 @@ function blocImpactHTML(key){
   h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Approval points this is currently contributing to each bloc, given their sensitivities and the metric's current value. Click a bloc to see its full approval breakdown.</div></div>`;
   return h;
 }
-function tickApproval(){
-  for(const sid in SIMULANTS){
+/* the approval level bloc `sid` is currently drifting toward */
+function approvalTarget(sid){
     const sim=SIMULANTS[sid];
     let policyMood=0;
+    const ideoW=ideoReactW(sim);   // interest blocs feel pure ideology weakly (matches the UI preview)
     for(const id in POLICIES){
       const p=POLICIES[id], lvl=policyLevel(p);
       if(lvl<=0&&p.mechanic!=="tier")continue;
-      policyMood+=dot(policyIdeology(p),sim.ideology)*lvl*5;
+      policyMood+=(p.niche?0:dot(policyIdeology(p),sim.ideology)*lvl*5*ideoW);
       if(p.directBlocMood&&p.directBlocMood[sid]!==undefined)policyMood+=p.directBlocMood[sid]*lvl;
+      // explicit per-bloc reactions — previously shown in the UI but never applied
+      if(p.blocEffect&&p.blocEffect[sid]!==undefined)
+        policyMood+=p.blocEffect[sid]*((p.mechanic==="slider"||p.mechanic==="toggle")?lvl:1);
+      if(p.mechanic==="tier"&&p.tierBlocEffects&&p.tierBlocEffects[p.tierIndex]&&p.tierBlocEffects[p.tierIndex][sid]!==undefined)
+        policyMood+=p.tierBlocEffects[p.tierIndex][sid];
     }
     // agencies with an ideological read (scaled by funding above baseline)
     for(const id in AGENCIES){
@@ -4086,13 +4098,17 @@ function tickApproval(){
     // below 50, so simply holding steady erodes you and re-election must be
     // earned through visible results. Complacency adds late-term landslide
     // resistance on top of this.
-    const target=clamp(30+policyMood+metricMood(sim,sid)+sitMood
+    return clamp(30+(sim.calib||0)+policyMood+metricMood(sim,sid)+sitMood
       +groupGrudge(sid)-(sim.cynicism||0)-(sim.complacency||0)+groundPerception(sid),0,100);
-    sim.approval+=(target-sim.approval)*0.3;
+}
+function tickApproval(){
+  for(const sid in SIMULANTS){
+    const sim=SIMULANTS[sid];
+    sim.approval+=(approvalTarget(sid)-sim.approval)*0.3;
     sim.approval=clamp(sim.approval,0,100);
   }
   // (overlap contagion now happens mechanically: real shared members in
-  //  the simulated electorate carry their mood into every identity they hold)
+  //  the simulated electorate carry their mood into both groups they belong to)
 }
 function turnoutOf(s,sid){return s.turnout+motorVoterTurnoutBoost(sid||'');}
 function overallApproval(){
@@ -4198,6 +4214,8 @@ function tickEconomy(){
   GAME.persRate = Math.min(9.35, GAME.persRate + 0.085);
   GAME.fedIndex += (1.0-GAME.fedIndex)*0.03;   // slow recovery toward baseline
 }
+const _SPEND_CLAIMED=(()=>{const s=new Set();for(const id in SPENDING)for(const p of SPENDING[id].policies)s.add(p);return s;})();
+const _DOMAIN_AREA={economy:"economy",social:"social",eduHealth:"humanServices",envInfra:"natResources"};
 function spendingByArea(){
   const out={};
   for(const id in SPENDING){
@@ -4234,6 +4252,14 @@ function spendingByArea(){
     }
     out[id]=amt;
   }
+  // catch-all: enacted spending policies not claimed by any area still cost money
+  for(const pid in POLICIES){
+    if(_SPEND_CLAIMED.has(pid))continue;
+    const p=POLICIES[pid];
+    if(!p||!p.enacted)continue;
+    const c=policyNetCost(p);
+    if(c>0)out[_DOMAIN_AREA[p.domain]||"debtAdmin"]+=c*(pid==="govOps"?1:govOpsEffMult());
+  }
   return out;
 }
 function budgetBalance(){
@@ -4248,13 +4274,11 @@ function budgetBalance(){
    2% line (research: entire surplus refunded, not just the excess), reform
    redirects it, and reserves/deficits are reconciled. */
 function settleFiscal(){
-  const {balance}=budgetBalance();
+  const {revenue,spend,balance:annualBal}=budgetBalance();
   GAME.pendingKicker=0;        // consumed this cycle
-  const {revenue,spend}=budgetBalance();
-  const surplusPct=(revenue-spend)/Math.max(1,spend);
-  // quarterly interest on structural debt (~4%/yr = 1%/qtr)
-  if((GAME.structuralDebt||0)>0)
-    GAME.structuralDebt=+(GAME.structuralDebt*1.01).toFixed(2);
+  const surplusPct=annualBal/Math.max(1,spend);
+  const balance=annualBal/4;   // the ledger is $B/YR — one quarter of cash settles per turn
+  // (debt interest is charged once, as the visible Debt Service line in spendingByArea)
   if(balance>0){
     GAME.deficitStreak=0;
     let surplus=balance;
@@ -4270,7 +4294,7 @@ function settleFiscal(){
     }
     if(surplus>0.01){
       if(surplusPct>=0.02 && !POLICIES.kickerReform){
-        GAME.pendingKicker=surplus;
+        GAME.pendingKicker=surplus*4;   // annualized — the budget ledger runs in $B/yr
         GAME.log.push("💸 Kicker triggered — $"+surplus.toFixed(2)+"B refunds to taxpayers next quarter");
       } else {
         const toRD=surplus*0.6, toEd=surplus*0.4;
@@ -4283,16 +4307,16 @@ function settleFiscal(){
     let gap=-balance;
     const fromRD=Math.min(GAME.rainyDay,gap); GAME.rainyDay-=fromRD; gap-=fromRD;
     if(gap>0){const fromEd=Math.min(GAME.eduStability,gap);GAME.eduStability-=fromEd;gap-=fromEd;}
-    if(gap>0.05){
+    if(gap>0.0125){
       // reserves exhausted — deficit accrues as structural debt; lighter immediate cuts
       // since the debt mechanic now carries the long-term pressure
       GAME.structuralDebt=+((GAME.structuralDebt||0)+gap).toFixed(2);
       GAME.deficitStreak=(GAME.deficitStreak||0)+1;
-      const bite=Math.min(gap,2);
+      const bite=Math.min(gap*2,2);
       GAME.log.push("🔴 Deficit $"+gap.toFixed(2)+"B — borrowed against future budgets (structural debt: $"+GAME.structuralDebt.toFixed(1)+"B)");
       METRICS.education.value=clamp(METRICS.education.value-bite*0.4,0,100);
       METRICS.health.value=clamp(METRICS.health.value-bite*0.3,0,100);
-      GAME.capital=Math.round(clamp(GAME.capital-Math.min(gap*2,8),0,100));
+      GAME.capital=Math.round(clamp(GAME.capital-Math.min(gap*6,8),0,100));
     }
   }
 }
@@ -4441,9 +4465,9 @@ const PROMISES={
   fixInfrastructure:{label:"Fix Oregon's roads and bridges", bloc:["suburban","rural","motorists","blueCollar"],
     criteria:[
       {label:"ODOT funded at 65%+ of capacity", check:()=>AGENCIES.odot&&AGENCIES.odot.funding>=0.65},
-      {label:"GDP index ≥ 55 (economy can support the investment)", check:()=>METRICS.gdp.value>=55}
+      {label:"GDP index ≥ 55 (economy can support the investment)", check:()=>effective("gdp")>=55}
     ],
-    check:()=>AGENCIES.odot&&AGENCIES.odot.funding>=0.65 && METRICS.gdp.value>=55},
+    check:()=>AGENCIES.odot&&AGENCIES.odot.funding>=0.65 && effective("gdp")>=55},
   balanceBudget:{label:"Balance the budget and build reserves", bloc:["conservative","homeowners","businessClass","moderate"],
     criteria:[
       {label:"Budget balanced (revenue covers spending)", check:()=>budgetBalance().balance>=0},
@@ -4491,7 +4515,10 @@ function campChance(kind, sid){
     const dist=Math.abs(s.approval-50);
     base -= dist*0.006;                         // far from 50 (love or hate) = harder
     if(s.approval<35) base -= 0.10;             // deeply hostile: very hard
-    base -= (s.intensity||0.5-0.5)*0.05;
+    // ideologically intense blocs resist persuasion
+    const ideo=s.ideology||{};
+    const partisan=Math.max(Math.abs(ideo.economic||0),Math.abs(ideo.social||0));
+    base -= partisan*0.08;
   } else {
     // mobilization works best where there's latent enthusiasm to tap
     base += (s.approval-50)*0.004;              // friendly blocs turn out easier
@@ -4552,8 +4579,9 @@ function groundTurnout(sid){ return GAME.ground.turnout[sid]||0; }
 
 function renderCampaign(){
   const c=GAME.campaign;
-  const isElection = GAME.turn>0 && (GAME.turn % GAME.termLengthTurns)===(GAME.termLengthTurns-1);
-  const yearsLeft = GAME.termLengthTurns - (GAME.turn % GAME.termLengthTurns) - 1;
+  const nextInto=(GAME.turn+1)-(GAME.term-1)*GAME.termLengthTurns;
+  const isElection = nextInto>=GAME.termLengthTurns-1;   // same test endTurn uses
+  const yearsLeft = Math.max(0, GAME.termLengthTurns-1-(GAME.turn-(GAME.term-1)*GAME.termLengthTurns));
   let h=`<div class="sectionhdr">🗳 Campaign</div>
     <div class="sectionsub">Your permanent ground game. Run targeted pushes at voter blocs all term long — <b>persuasion</b> to win them over, <b>mobilization</b> to drive their turnout on election day. Every push has a success chance, and pushing the same bloc too often makes them tired of you. Boosts fade over a few quarters, so they need upkeep. ${isElection?`<b style="color:var(--clay)">This is the final quarter — the election is now.</b>`:`Next election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`}</div>`;
   // energy meter
@@ -4666,14 +4694,10 @@ function renderCampaign(){
   }));
   const runBtn=document.getElementById("campRun");
   if(runBtn)runBtn.onclick=()=>{
-    GAME.activePromises=c.promises.map(pid=>({id:pid, madeTerm:GAME.term}));
-    GAME.campaignDone=true;
+    // same flow as the End Quarter popup: stage pledges, then run the election turn
+    GAME.nextPromises=c.promises.slice();
     GAME.campaign={effort:{}, promises:c.promises, pool:10};
-    GAME.capitalPerTurn=+(5+INDICATORS.mandate.value/100*10).toFixed(1);
-    GAME.capital=Math.round(clamp(GAME.capital+GAME.capitalPerTurn,0,100));
-    GAME.turn++; pushHistory();
-    GAME.campaignDone=false;
-    render(); showElection(runElection());
+    doElectionTurn();
   };
 }
 
@@ -4783,7 +4807,9 @@ function showElection(r){
     if(r.won){
       GAME.term++;GAME.capital=clamp(GAME.capital+15,0,100);GAME.log.push("★ Term "+GAME.term+" begins");
       GAME.skipReport=false; GAME.skipCampaign=false; // reports and campaign popup resume each new term
-      evaluatePromises();                 // judge last campaign's promises as the new term opens
+      // the pledges staged during the campaign now bind for the term ahead
+      GAME.activePromises=(GAME.nextPromises||[]).map(pid=>({id:pid, madeTerm:GAME.term}));
+      GAME.nextPromises=[];
       GAME.campaign={effort:{},promises:[],pool:10};
     }
     else location.reload();
@@ -4838,7 +4864,9 @@ function doEndTurn(){
 }
 /* election quarter — ticks run for the campaign quarter, then the election fires */
 function doElectionTurn(){
-  _runTicks();
+  evaluatePromises();          // judge the promises made at the LAST election, before votes are cast
+  _runTicks();                 // promise grudges then flow into approval for the election
+
   _calcCapital();
   GAME.turn++; pushHistory();   // campaign quarter
   GAME.turn++; pushHistory();   // election turn
@@ -4984,7 +5012,7 @@ function showCampPopup(){
     if(skipChk&&skipChk.checked)GAME.skipCampaign=true;
     document.getElementById("campPopupModal").classList.add("hidden");
     if(isElecQ){
-      GAME.activePromises=c.promises.map(pid=>({id:pid, madeTerm:GAME.term}));
+      GAME.nextPromises=c.promises.slice();   // pledges for the NEXT term — judged at the NEXT election
       GAME.campaign={effort:{}, promises:c.promises, pool:10};
       doElectionTurn();
     } else {
@@ -4992,13 +5020,7 @@ function showCampPopup(){
     }
   };
   const _skipChk=document.getElementById("campSkipChk");
-  if(_skipChk)_skipChk.onchange=()=>{
-    GAME.skipCampaign=_skipChk.checked;
-    if(_skipChk.checked){
-      document.getElementById("campPopupModal").classList.add("hidden");
-      doEndTurn();
-    }
-  };
+  if(_skipChk)_skipChk.onchange=()=>{ GAME.skipCampaign=_skipChk.checked; };
 }
 function endTurn(){
   if(GAME.gameOver)return;
@@ -6204,7 +6226,7 @@ function renderDetail(){
       const scale=Math.max(0.02,...fb.map(k=>Math.abs(ind.feedback[k])));
       for(const k of fb){const m=METRICS[k];const good=m&&m.invert?ind.feedback[k]<0:ind.feedback[k]>0;
         h+=effectBar(m?m.name:k, ind.feedback[k]*100, scale*100, {color:good?'var(--good)':'var(--clay)', link:m?"m_"+k:null, fmt:v=>(v>=0?'+':'')+(v/100).toFixed(3)+'/pt'});}
-      h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Each point this indicator sits above 50 nudges these metrics per quarter (and vice-versa below 50).</div></div>`;
+      h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Each point this indicator moves above its starting level nudges these metrics per quarter (and vice-versa below it).</div></div>`;
     }
     h+=`<div class="sectionsub" style="margin-top:12px">This indicator is computed from the state of your metrics and active situations — improve the underlying conditions and it follows, with some lag.</div>`;
     h+=blocImpactHTML(id);
@@ -6727,7 +6749,7 @@ function buildWebEdges(){
   }
   for(const iid in INDICATORS){
     const ind=INDICATORS[iid];
-    for(const k in (ind.feedback||{})){const v=(ind.value-50)*ind.feedback[k];E.push({a:"i_"+iid,b:"m_"+k,good:goodFor(k,v!==0?v:ind.feedback[k]),w:Math.max(0.3,Math.abs(v))});}
+    for(const k in (ind.feedback||{})){const v=(ind.value-(ind.base0!==undefined?ind.base0:50))*ind.feedback[k];E.push({a:"i_"+iid,b:"m_"+k,good:goodFor(k,v!==0?v:ind.feedback[k]),w:Math.max(0.3,Math.abs(v))});}
   }
   for(const k in LANDUSE.effects){const v=LANDUSE.effects[k][LANDUSE.index]; if(Math.abs(v)>0.3)E.push({a:"landuse",b:"m_"+k,good:goodFor(k,v),w:Math.abs(v)});}
   // indicator derive inputs (hand-mapped to the formulas)
@@ -6952,23 +6974,35 @@ for(const id in SIMULANTS)SIMULANTS[id].id=id;
 // build the simulated electorate and pre-roll to equilibrium
 buildVoters();
 for(let pr=0;pr<10;pr++){tickMembership();tickVoterApproval();}
-// seed indicators, then run equilibration passes so metrics start at their
-// policy-and-situation-sustained equilibrium. 28 passes brings most metrics
-// to within ~2% of their true equilibrium (inertia 0.14 → 0.86^28 ≈ 0.018).
-for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();
-for(let _s=0;_s<28;_s++){tickMetrics();for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();}
-// fire condition-triggered situations (e.g. doomLoop) so they are in
-// activeSituations before approval is pre-seeded
+// seed indicators from the REAL starting metrics (two passes so cross-derived
+// indicators like In-Migration ← Downtown settle)
+for(let _i=0;_i<3;_i++)for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();
+// fire the condition crises Oregon starts inside (homeless emergency, doom loop…)
+// BEFORE calibration so their drag is part of the inherited status quo
 for(const sid in SITUATIONS){
   const s=SITUATIONS[sid];
   if(s.category==="condition"&&!GAME.activeSituations[sid]&&s.trigger&&s.trigger())
     {GAME.activeSituations[sid]=true;GAME.situationAge[sid]=0;}
 }
-// pre-seed lastBalance so fiscal situation severity is correct during approval pre-run
+// CALIBRATION: anchor each metric so that, at the default policy mix — WITH the
+// inherited chronic and condition crises active — its equilibrium IS its
+// real-world seed value. Policy changes then move the world relative to actual
+// 2025 Oregon: resolve a crisis and things improve BEYOND today; neglect the
+// structural pressures (PERS, deficits) and they get worse.
+for(const id in INDICATORS)INDICATORS[id].base0=INDICATORS[id].value;   // feedback anchor
+for(const k in METRICS)METRICS[k].calib=0;
+for(const k in METRICS)METRICS[k].calib=METRICS[k].value-metricTarget(k);
+for(let _i=0;_i<2;_i++)for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();
+// pre-seed lastBalance so fiscal situation severity is correct during approval calibration
 GAME.lastBalance=budgetBalance().balance;
-// pre-equilibrate approval so it starts at the state consistent with current
-// metrics+situations+policies — eliminates autopilot drift on early turns.
-for(let _a=0;_a<14;_a++)tickApproval();
+// APPROVAL CALIBRATION: anchor every bloc so its equilibrium at the inherited
+// status quo equals its authored seed approval (a realistic new-governor spread),
+// mirroring the metric calibration. From here, approval moves only in response
+// to what the player actually does and to how conditions change.
+for(const sid in SIMULANTS)SIMULANTS[sid].calib=0;
+for(const sid in SIMULANTS){const s=SIMULANTS[sid];s.calib=s.approval-approvalTarget(sid);}
+for(let _a=0;_a<4;_a++)tickApproval();
+tickVoterApproval();   // blend the equilibrated bloc moods into the 2,000 voters
 // reset prevMetrics/prevIndicators so turn-0 shows no spurious trend arrows
 GAME.prevMetrics={};for(const k in METRICS)GAME.prevMetrics[k]=METRICS[k].value;
 GAME.prevIndicators={};for(const id in INDICATORS)GAME.prevIndicators[id]=INDICATORS[id].value;
