@@ -6349,6 +6349,7 @@ function enactPolicy(id){
   POLICIES[id]=p;
   delete CATALOG[id];
   GAME.log.push("★ Enacted "+p.name);
+  syncCannabisTab();
   openDetail("p_"+id);
 }
 /* Repeal an enacted policy: costs political capital, moves it back to the
@@ -6381,7 +6382,25 @@ function repealPolicy(id){
   const ghost=Object.assign({},p); ghost.eff=effLevelOf(p);
   GAME.fading[id]=ghost?{pol:ghost}:null;
   GAME.log.push("✘ Repealed "+p.name+" — effects fading over "+policyPhaseQuarters(p)+" quarters");
+  syncCannabisTab();
   currentView="board"; render();
+}
+/* When cannabis drops below the Dispensaries tier (or is repealed),
+   there is no legal market to tax — remove cannabisTax from the active
+   policy list. Restore it when dispensaries come back. */
+function syncCannabisTab(){
+  const cp=POLICIES.cannabis;
+  const taxable=cp&&cp.tierIndex>=2;
+  if(taxable&&CATALOG.cannabisTax){
+    const p=Object.assign({},CATALOG.cannabisTax);
+    p.enacted=true; if(p.eff===undefined)p.eff=policyLevel(p);
+    POLICIES.cannabisTax=p; delete CATALOG.cannabisTax;
+  } else if(!taxable&&POLICIES.cannabisTax){
+    const back=Object.assign({},POLICIES.cannabisTax);
+    delete back.enacted; delete back.eff;
+    back.enactCapital=back.capital||5;
+    CATALOG.cannabisTax=back; delete POLICIES.cannabisTax;
+  }
 }
 /* ============================================================
    CAPITAL ON EXIT — adjusting a policy/agency/land-use no longer
@@ -6478,6 +6497,7 @@ function settlePending(){
       else{a.logging=pendL.snap;GAME.log.push("✗ Not enough capital — "+a.name+" harvest level reverted");}
     }
   }
+  syncCannabisTab();
 }
 function wirePolicyControls(){
   main.querySelectorAll('[data-kind="slider"]').forEach(el=>el.addEventListener('change',e=>{const p=POLICIES[e.target.dataset.pol];if(p)p.value=parseFloat(e.target.value);render();}));
@@ -6970,6 +6990,7 @@ for(const id in CATALOG){
 }
 for(const id in POLICIES){POLICIES[id]._id=id;POLICIES[id].eff=policyLevel(POLICIES[id]);}
 for(const id in CATALOG)CATALOG[id]._id=id;
+syncCannabisTab();
 for(const id in SIMULANTS)SIMULANTS[id].id=id;
 // build the simulated electorate and pre-roll to equilibrium
 buildVoters();
