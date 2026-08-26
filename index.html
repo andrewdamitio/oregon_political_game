@@ -66,8 +66,9 @@
   .hud .stat .label{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#9aa3a0}
   .hud .stat .val{font-family:var(--font-data);font-size:16px;font-weight:600}
   .val.gold{color:var(--gold)} .val.blue{color:#9fc0e0}
-  .turnbtn{background:var(--gold);color:var(--ink);border:none;font-family:var(--font-display);font-size:15px;font-weight:600;padding:9px 20px;cursor:pointer;border-radius:2px}
+  .turnbtn{background:var(--gold);color:var(--ink);border:none;font-family:var(--font-display);font-size:15px;font-weight:600;padding:9px 20px;cursor:pointer;border-radius:2px;transition:transform .08s,background .12s}
   .turnbtn:hover{background:#dcae4a}
+  .turnbtn:active{transform:scale(.94);background:#c99a3a}
   .wrap{display:grid;grid-template-columns:168px 224px 1fr 300px;min-height:calc(100vh - 58px);position:relative;transition:grid-template-columns .22s ease}
   .wrap.novoters{grid-template-columns:168px 0px 1fr 300px}
   .wrap.novoters.collapsed{grid-template-columns:168px 0px 1fr 0px}
@@ -345,7 +346,7 @@
   .blg svg{flex:none}
   /* key-metrics priority header above the board graph */
   .keystat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px;margin:4px 0 10px}
-  .keystat{display:flex;align-items:center;gap:9px;background:var(--paper-2);border:1px solid var(--line);border-left-width:4px;border-radius:5px;padding:8px 11px;cursor:pointer;transition:transform .1s,box-shadow .1s}
+  .keystat{position:relative;display:flex;align-items:center;gap:9px;background:var(--paper-2);border:1px solid var(--line);border-left-width:4px;border-radius:5px;padding:8px 11px;cursor:pointer;transition:transform .1s,box-shadow .1s}
   .keystat:hover{transform:translateY(-1px);box-shadow:0 2px 6px rgba(28,37,38,.12)}
   .keystat.kgood{border-left-color:var(--good)}
   .keystat.kbad{border-left-color:var(--clay)}
@@ -466,6 +467,9 @@
   @keyframes floatUp{0%{opacity:0;transform:translateY(4px)}15%{opacity:1}100%{opacity:0;transform:translateY(-18px)}}
   @keyframes ringPulse{0%{box-shadow:0 0 0 0 rgba(28,37,38,.0)}30%{box-shadow:0 0 0 4px rgba(74,123,86,.45)}100%{box-shadow:0 0 0 0 rgba(74,123,86,0)}}
   @keyframes edgeFlow{to{stroke-dashoffset:-12}}
+  @keyframes crisisPopBad{0%{transform:scale(.92);box-shadow:0 0 0 0 rgba(176,86,58,0)}40%{transform:scale(1.035);box-shadow:0 0 0 6px rgba(176,86,58,.4)}100%{transform:scale(1);box-shadow:0 0 0 0 rgba(176,86,58,0)}}
+  @keyframes crisisPopGood{0%{transform:scale(.92);box-shadow:0 0 0 0 rgba(74,123,86,0)}40%{transform:scale(1.035);box-shadow:0 0 0 6px rgba(74,123,86,.4)}100%{transform:scale(1);box-shadow:0 0 0 0 rgba(74,123,86,0)}}
+  @keyframes turnFlip{0%{opacity:0;transform:translateY(-6px)}100%{opacity:1;transform:translateY(0)}}
   .modal:not(.hidden){animation:backdropIn .18s ease}
   .modal:not(.hidden) .card{animation:modalIn .26s cubic-bezier(.2,.8,.2,1)}
   .val-up{animation:valuePulseUp .9s ease-out}
@@ -473,6 +477,9 @@
   .pulse-good{animation:ringPulse .8s ease-out}
   .floatlbl{position:absolute;font-family:var(--font-data);font-size:12px;font-weight:700;pointer-events:none;z-index:30;animation:floatUp 1.1s ease-out forwards}
   .reveal>*{animation:cardIn .32s ease both}
+  .crisis-card.crisis-new{animation:crisisPopBad .6s ease-out}
+  .crisis-card.crisis-new.good{animation:crisisPopGood .6s ease-out}
+  #hudTurn.turn-flip{animation:turnFlip .35s ease-out}
   .ic-bubble.stat,.ic-bubble.pol,.ic-bubble.agency{transition:border-color .12s,box-shadow .12s,transform .12s}
   .sparkempty{font-size:12px;color:var(--muted-3);font-style:italic;padding:8px 0}
   /* catalog */
@@ -929,7 +936,7 @@ const INDICATORS={
       if(Math.abs(sip)>0.05)items.push({name:"⚠ Active crisis (system disruption)",v:sip});
       return items;
     },
-    feedback:{collectionRate:0.15}},                        // better systems collect tax more efficiently
+    feedback:{collectionRate:0.05}},                        // better systems collect tax more efficiently
   taxGrievance:{name:"Tax-Burden Grievance", icon:"🧾", value:42,
     desc:"How resentful businesses and higher earners feel about Oregon's stacked tax load — income tax with no offsetting sales-tax relief, the CAT, gas and carbon taxes. Research shows this grievance is politically potent and PARTLY DECOUPLED from whether anyone is actually leaving: the perception drives politics regardless. Feeds business climate and the out-migration narrative.",
     derive:()=>{
@@ -5542,16 +5549,17 @@ function renderBoard(){
     return rank(a)-rank(b);
   });
   if(crises.length){
-    h+=`<div class="crisis-strip">`;
-    for(const sid of crises){
-      const s=SITUATIONS[sid], age=(GAME.situationAge[sid]||0)+1;
+    h+=`<div class="crisis-strip reveal">`;
+    crises.forEach((sid,ci)=>{
+      const s=SITUATIONS[sid], sitAge=GAME.situationAge[sid]||0, age=sitAge+1;
+      const isNew=sitAge===0;
       const tag=s.category==="chronic"?"CHRONIC":s.category==="event"?"EVENT":"FLARE-UP";
-      h+=`<div class="crisis-card ${s.kind} ${s.category}" data-detail="s_${sid}">
+      h+=`<div class="crisis-card ${s.kind} ${s.category}${isNew?' crisis-new':''}" data-detail="s_${sid}" style="animation-delay:${ci*45}ms">
         <div class="crisis-top"><span class="crisis-tag">${tag}</span><span class="crisis-age">${age}q</span></div>
         <div class="crisis-name">${s.kind==="good"?"✦":"⚠"} ${s.name}</div>
         <div class="crisis-desc">${s.desc}</div>
       </div>`;
-    }
+    });
     h+=`</div>`;
   }
 
@@ -5702,17 +5710,16 @@ function renderBoard(){
   const keyMetrics=[["gdp","GDP Growth Rate"],["unemployment","Unemployment"],["violentCrime","Violent Crime"],
     ["propertyCrime","Property Crime"],["homelessness","Homelessness"],["health","Health"],
     ["education","Education"],["environment","Environment"]];
-  let kh=`<div class="keystat-row">`;
-  for(const [k,label] of keyMetrics){
-    const m=METRICS[k]; if(!m)continue;
-    const val=fmtMetric(m);
+  let kh=`<div class="keystat-row reveal">`;
+  keyMetrics.forEach(([k,label],ki)=>{
+    const m=METRICS[k]; if(!m)return;
     const good=m.invert?(m.value<m.baseline+3):(m.value>m.baseline-3);
     const trend=trendArrow(k);
-    kh+=`<div class="keystat ${good?'kgood':'kbad'}" data-detail="m_${k}">
+    kh+=`<div class="keystat ${good?'kgood':'kbad'}" data-detail="m_${k}" style="animation-delay:${ki*35}ms">
       <div class="ks-ico">${m.icon||"📊"}</div>
       <div class="ks-body"><div class="ks-label">${label}</div>
-      <div class="ks-val">${val}${trend}</div></div></div>`;
-  }
+      <div class="ks-val"><span class="ks-val-num" data-k="${k}"></span>${trend}</div></div></div>`;
+  });
   kh+=`</div>`;
   h+=kh;
   // legend for the graph node types — sits between the key metrics and the map
@@ -5724,6 +5731,26 @@ function renderBoard(){
   h+=`<div class="websearch" style="margin-top:10px"><input type="search" id="boardSearch" placeholder="Search policies, metrics, agencies…" autocomplete="off"></div>`;
   h+=`<div class="boardgraph">${svg}</div>`;
   main.innerHTML=h;
+
+  // tween the key-metric numbers in (rather than snapping), with a floating
+  // +/- delta label when a stat actually moved since last quarter
+  for(const [k] of keyMetrics){
+    const m=METRICS[k]; if(!m)continue;
+    const numEl=main.querySelector(`.ks-val-num[data-k="${k}"]`); if(!numEl)continue;
+    const dp=m.fmt==="usd"?2:m.fmt==="pctRaw"?1:0;
+    const opts=m.fmt==="usd"?{dp,pre:"$"}:(m.fmt==="pct"||m.fmt==="pctRaw")?{dp,suf:"%"}:{dp};
+    tweenNum(numEl,"ks_"+k,m.value,opts);
+    const prev=GAME.prevMetrics[k];
+    if(prev!==undefined && Math.abs(m.value-prev)>=0.05){
+      const d=m.value-prev, good=m.invert?d<0:d>0;
+      const lbl=document.createElement("span");
+      lbl.className="floatlbl";
+      lbl.style.cssText=`right:8px;top:2px;color:${good?'var(--good)':'var(--clay)'}`;
+      lbl.textContent=(d>0?"+":"")+d.toFixed(dp);
+      const tile=numEl.closest(".keystat");
+      if(tile){tile.appendChild(lbl); setTimeout(()=>lbl.remove(),1200);}
+    }
+  }
 
   // interactions: hover lights up connections (green helps / red hurts), click opens
   const svgEl=document.getElementById("boardSvg");
@@ -6759,7 +6786,14 @@ function tweenNum(el, key, to, opts={}){
 }
 
 function renderHUD(){
-  const tEl=document.getElementById("hudTurn"); if(tEl)tEl.textContent=turnLabel(GAME.turn);
+  const tEl=document.getElementById("hudTurn");
+  if(tEl){
+    const newLabel=turnLabel(GAME.turn);
+    if(tEl.textContent!==newLabel){
+      tEl.textContent=newLabel;
+      tEl.classList.remove("turn-flip"); void tEl.offsetWidth; tEl.classList.add("turn-flip");
+    }
+  }
   tweenNum(document.getElementById("hudApproval"),"hudApproval",overallApproval(),{dp:0,suf:"%"});
   const capEl=document.getElementById("hudCapital");
   if(capEl){
