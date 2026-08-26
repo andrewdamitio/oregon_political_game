@@ -1124,7 +1124,7 @@ const INDICATORS={
     ],
     feedback:{health:0.025, violentCrime:-0.018, propertyCrime:-0.012, homelessness:-0.015}},
   adminOverhead:{name:"Administrative Overhead", icon:"🗂️", value:87,
-    desc:"Every dollar of active program spending directly raises this gauge — each $1B/yr of policy cost adds 5 points. Large programs dominate; the breakdown below shows which of your programs contribute most. Two levers bring it down: Government Digitization (every point subtracts 0.8) and the Government Operations policy (direct −8 reduction plus long-run Digitization gains).\n\nAt 85 or below: all programs run at full strength. Above 85: Administrative Strain activates and policy effectiveness erodes up to −15% at overhead 100. Above 95: Administrative Overload adds economic damage and −1 capital/turn on top.",
+    desc:"Every dollar of active program spending directly raises this gauge — each $1B/yr of policy cost adds 5 points. Large programs dominate; the breakdown below shows which of your programs contribute most. Agencies count too, but only for funding you dial ABOVE or BELOW their inherited default — the standing bureaucracy itself is priced into the base floor below; ramping an agency's budget up is what adds new coordination burden. Two levers bring it down: Government Digitization (every point subtracts 0.8) and the Government Operations policy (direct −8 reduction plus long-run Digitization gains).\n\nAt 85 or below: all programs run at full strength. Above 85: Administrative Strain activates and policy effectiveness erodes up to −15% at overhead 100. Above 95: Administrative Overload adds economic damage and −1 capital/turn on top.",
     derive:()=>{
       let policySpend=0;
       const eff=govOpsEffMult();
@@ -1135,10 +1135,15 @@ const INDICATORS={
         const raw=pl>0?Math.max(0,policyNetCost(p))*(ef/pl):Math.max(0,policyNetCost(p));
         policySpend+=raw*(id==="govOps"?1:eff);
       }
+      let agencyDev=0;
+      for(const id in AGENCIES){
+        const a=AGENCIES[id];
+        agencyDev+=((a.funding??0.5)-(a.fundingBase??0.5))*(a.costFull-a.costMin)*eff;
+      }
       const deregAdj=indPolicyBoost("adminOverhead");
       const sitAdj=sitIndicatorPush("adminOverhead");
       const mhStrain=Math.max(0,(50-(INDICATORS.mentalHealth?.value??45))*0.20);
-      return Math.round(clamp(62+policySpend*5-INDICATORS.digitization.value*0.8+deregAdj+sitAdj+mhStrain,0,180));
+      return Math.round(clamp(62+(policySpend+agencyDev)*5-INDICATORS.digitization.value*0.8+deregAdj+sitAdj+mhStrain,0,180));
     },
     drivers:()=>{
       const govEff=govOpsEffMult();
@@ -1156,12 +1161,21 @@ const INDICATORS={
         } else { otherPts+=pts; otherCt++; }
       }
       policyItems.sort((a,b)=>b.v-a.v);
+      const agencyItems=[];
+      for(const id in AGENCIES){
+        const a=AGENCIES[id];
+        const dev=(a.funding??0.5)-(a.fundingBase??0.5);
+        const pts=dev*(a.costFull-a.costMin)*govEff*5;
+        if(Math.abs(pts)>=1)agencyItems.push({name:(a.icon||'')+" "+a.name+(pts>0?" (overfunded)":" (underfunded)"), v:Math.round(pts), link:"a_"+id});
+      }
+      agencyItems.sort((a,b)=>b.v-a.v);
       const sitAdj=Math.round(sitIndicatorPush("adminOverhead"));
       const mhStrain=Math.round(Math.max(0,(50-(INDICATORS.mentalHealth?.value??45))*0.20));
       return [
         {name:"⊕ Base administrative floor", v:62, base:true},
         ...policyItems,
         ...(otherCt>0?[{name:"⊕ "+otherCt+" smaller programs", v:Math.round(otherPts)}]:[]),
+        ...agencyItems,
         {name:"🖥️ Gov. Digitization (reduces overhead)", v:-Math.round(INDICATORS.digitization.value*0.8), link:"i_digitization"},
         ...Object.entries(POLICIES).filter(([,p])=>p.indicatorEffects?.adminOverhead)
           .map(([pid,p])=>({name:(p.icon||'')+" "+p.name+" (structural)", v:Math.round(p.indicatorEffects.adminOverhead*effLevelOf(p)), link:"p_"+pid}))
@@ -7080,6 +7094,7 @@ for(const sid in SITUATIONS){
 // 2025 Oregon: resolve a crisis and things improve BEYOND today; neglect the
 // structural pressures (PERS, deficits) and they get worse.
 for(const id in INDICATORS)INDICATORS[id].base0=INDICATORS[id].value;   // feedback anchor
+for(const id in AGENCIES)AGENCIES[id].fundingBase=AGENCIES[id].funding; // overhead anchor — only funding CHANGES from the inherited default add coordination burden
 for(const k in METRICS)METRICS[k].calib=0;
 for(const k in METRICS)METRICS[k].calib=METRICS[k].value-metricTarget(k);
 for(let _i=0;_i<2;_i++)for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();
