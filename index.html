@@ -4062,7 +4062,7 @@ const EVENT_POOL=[
      const resFactor=1-(resil-0.5)*0.5;                                 // funded resilience program trims odds
      return envFactor*resFactor;
    }},
-  {id:"recession", prob:0.18, gate:()=>GAME.econCycle<-0.35 || (GAME.overheat||0)>0.6, probMult:()=>1+(GAME.overheat||0)*1.4},
+  {id:"recession", prob:0.18, gate:()=>GAME.econCycle<-0.35 || (GAME.overheat||0)>0.72, probMult:()=>1+(GAME.overheat||0)*1.1},
   {id:"federalWindfall", prob:0.06, gate:()=>true},
   {id:"droughtWater", prob:0.06, gate:()=>true, seasonal:[2,3],
    probMult:()=>{
@@ -4504,13 +4504,13 @@ function startSituation(sid){
   }
   // a recession that follows an overheated boom hits harder — the correction is
   // proportional to how far the economy got ahead of itself
-  if(sid==="recession"&&(GAME.overheat||0)>0.2){
+  if(sid==="recession"&&(GAME.overheat||0)>0.25){
     const o=GAME.overheat;
-    GAME.econCycle=clamp(GAME.econCycle-o*0.5,-1,1);
-    GAME.marketLevel=clamp(GAME.marketLevel-o*0.7,-1.2,1.2);   // the froth pops
-    if(METRICS.gdp)METRICS.gdp.value=clamp(METRICS.gdp.value-o*2.6,METRICS.gdp.min,METRICS.gdp.max);
-    GAME.mandateShock=(GAME.mandateShock||0)-Math.round(o*4);
-    GAME.log.push(ico('chart-down')+" The downturn is amplified by the preceding boom — the correction runs deep");
+    GAME.econCycle=clamp(GAME.econCycle-o*0.32,-1,1);
+    GAME.marketLevel=clamp(GAME.marketLevel-o*0.45,-1.2,1.2);   // the froth pops
+    if(METRICS.gdp)METRICS.gdp.value=clamp(METRICS.gdp.value-o*1.6,METRICS.gdp.min,METRICS.gdp.max);
+    GAME.mandateShock=(GAME.mandateShock||0)-Math.round(o*2.5);
+    GAME.log.push(ico('chart-down')+" The downturn is amplified by the preceding boom — the correction runs deeper than usual");
   }
   if(sid==="recession")GAME.overheat=Math.max(0,(GAME.overheat||0)-0.6); // a bust bleeds off the pressure
   // no-choice events surface a notification splash so the player sees the hit
@@ -4929,11 +4929,13 @@ function tickEconomy(){
   let heat=0;
   heat+=clamp((gi-66)/16,0,1.2);                                   // GDP index above ~trend
   heat+=clamp(GAME.econCycle-0.25,0,0.75);                         // cycle already running hot
-  if(GAME.activeSituations.gdpBoom)heat+=0.5;
-  if(GAME.activeSituations.boomingEconomy)heat+=0.4;
-  if(GAME.activeSituations.techBoom)heat+=0.35;
-  if(GAME.activeSituations.brainGain)heat+=0.2;
-  if(heat>0.15) GAME.overheat=clamp((GAME.overheat||0)+heat*0.12,0,1);
+  if(GAME.activeSituations.gdpBoom)heat+=0.35;
+  if(GAME.activeSituations.boomingEconomy)heat+=0.30;
+  if(GAME.activeSituations.techBoom)heat+=0.22;
+  if(GAME.activeSituations.brainGain)heat+=0.15;
+  // cap the per-quarter accrual so overlapping booms don't slam overheat to its
+  // ceiling in a couple of turns — you get several quarters to cool things off
+  if(heat>0.15) GAME.overheat=clamp((GAME.overheat||0)+Math.min(heat,1.5)*0.09,0,1);
   else          GAME.overheat=Math.max(0,(GAME.overheat||0)-0.06);
   // the correction pull: extended overheating drags the next cycle step down —
   // this is what turns a boom into a bust (the sharper crash lands as a one-off
@@ -6352,7 +6354,7 @@ function renderBoard(){
     const leverBase=92+ (Math.ceil(stats.length/(Math.ceil(Math.sqrt(stats.length)*1.1)||1)))*106 + 32;
     placeBlock(levers, leverBase, 1);          // beyond the stats
   });
-  for(const id in otherSec){ /* any unsectioned nodes: drop near center */ }
+  // any nodes not claimed by a section: drop them on a small ring near the centre
   [...otherSec.stats,...otherSec.levers].forEach((id,i,arr)=>{const a2=i*2*Math.PI/Math.max(1,arr.length);nodes[id].x=cx+60*Math.cos(a2);nodes[id].y=cy+60*Math.sin(a2);});
 
   // WIDE FORMAT: the board now spans the full window, so squash the map
