@@ -223,6 +223,24 @@
   .confetti-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:60}
   .confetti-layer i{position:absolute;top:-14px;width:9px;height:15px;opacity:.92;animation-name:confettiFall;animation-timing-function:linear;animation-fill-mode:forwards}
   @keyframes confettiFall{0%{transform:translateY(-16px) rotate(0)}100%{transform:translateY(115vh) rotate(680deg)}}
+  /* grand election-result takeover */
+  .modal.grand{padding:0;align-items:stretch;justify-content:stretch}
+  .modal.grand>.card{max-width:none;width:100%;height:100vh;max-height:100vh;border-radius:0;border-top:6px solid var(--gold);padding:0}
+  .egrand{min-height:100vh;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:safe center;gap:11px;padding:30px 18px;text-align:center;overflow-y:auto}
+  .egrand .eg-kicker{font-family:var(--font-display);letter-spacing:3px;font-size:11px;color:var(--muted-2)}
+  .egrand .eg-result{font-family:var(--font-display);font-weight:700;font-size:clamp(40px,12vw,84px);line-height:1;letter-spacing:2px;animation:winPop .7s cubic-bezier(.2,1.5,.35,1) both}
+  .egrand .eg-result.win{color:var(--good)} .egrand .eg-result.lose{color:var(--clay)}
+  .egrand .eg-sub{font-size:15px;color:var(--muted-1)}
+  .egrand .eg-bar{width:min(560px,92vw);height:30px;display:flex;border:2px solid var(--ink);background:var(--paper-2);overflow:hidden}
+  .egrand .eg-bar i{height:100%;transition:width 1.5s cubic-bezier(.2,.85,.2,1)}
+  .egrand .eg-legend{display:flex;gap:16px;font-size:11px;color:var(--muted-2)}
+  .egrand .eg-legend i{display:inline-block;width:11px;height:11px;margin-right:5px;vertical-align:-1px}
+  .egrand .eg-map-svg{margin-top:2px;width:min(330px,84vw);height:auto}
+  .egrand .eg-map-svg .cty{transform-box:fill-box;transform-origin:center}
+  .egrand .eg-map-svg .cty.cty-in{animation:countyIn .34s ease forwards}
+  @keyframes countyIn{from{opacity:0;transform:scale(.35)}to{opacity:1;transform:scale(1)}}
+  .egrand .eg-third{max-width:600px;font-size:12px}
+  .egrand button{margin-top:8px}
   .modal button:not(.dilemma-opt){margin-top:16px;background:var(--ink);color:var(--paper);border:none;padding:10px 22px;font-family:var(--font-display);font-size:15px;cursor:pointer;border-radius:2px}
   .hidden{display:none}
   .ledger{margin-bottom:11px}
@@ -3743,7 +3761,7 @@ function resolveDilemma(optIndex){
     if(g.target.startsWith("v_")&&SIMULANTS[g.target.slice(2)])who=SIMULANTS[g.target.slice(2)].name;
     else if(g.target.startsWith("m_")&&METRICS[g.target.slice(2)])who=METRICS[g.target.slice(2)].name;
     else if(g.target.startsWith("i_")&&INDICATORS[g.target.slice(2)])who=INDICATORS[g.target.slice(2)].name;
-    fx.push({who, val:g.value, label:g.label, kind:g.target.split("_")[0]});
+    fx.push({who, val:g.value, label:g.label, kind:g.target.split("_")[0], key:g.target.slice(2)});
   }
   if(Math.abs(capDelta)>0.01)fx.push({who:"Political Capital", val:capDelta, kind:"cap"});
   GAME.log.push("❖ "+d.title+" — chose: "+d.options[optIndex].label);
@@ -5031,10 +5049,10 @@ function startSituation(sid){
     const fx=[];
     if(s.onTrigger){
       if(s.onTrigger.capital)fx.push({who:"Political Capital",val:s.onTrigger.capital,kind:"cap"});
-      for(const m in (s.onTrigger.metrics||{}))if(METRICS[m])fx.push({who:METRICS[m].name,val:s.onTrigger.metrics[m],kind:"m"});
+      for(const m in (s.onTrigger.metrics||{}))if(METRICS[m])fx.push({who:METRICS[m].name,val:s.onTrigger.metrics[m],kind:"m",key:m});
     }
-    for(const m in (s.metricEffect||{})){const mm=METRICS[m];if(mm)fx.push({who:mm.name+" (ongoing)",val:(typeof s.metricEffect[m]==="object"?(s.metricEffect[m].b||0):s.metricEffect[m]),kind:"m"});}
-    for(const i in (s.indicatorEffect||{}))if(INDICATORS[i])fx.push({who:INDICATORS[i].name,val:s.indicatorEffect[i],kind:"i"});
+    for(const m in (s.metricEffect||{})){const mm=METRICS[m];if(mm)fx.push({who:mm.name+" (ongoing)",val:(typeof s.metricEffect[m]==="object"?(s.metricEffect[m].b||0):s.metricEffect[m]),kind:"m",key:m});}
+    for(const i in (s.indicatorEffect||{}))if(INDICATORS[i])fx.push({who:INDICATORS[i].name,val:s.indicatorEffect[i],kind:"i",key:i});
     GAME.lastDilemmaResult={title:s.name, icon:"warning", choice:"No decision — this one you simply absorb", fx, noChoice:true, desc:s.desc};
   }
 }
@@ -6264,7 +6282,7 @@ function showMidterm(m){
   const outlook=m.favorable
     ? "A friendlier chamber and a clearer public mandate mean your bills move more easily and cost less capital to push for the rest of the term."
     : m.deltaPts<-0.5
-      ? "A weakened mandate starves you of the capital to act — committees stall your priorities and concessions get more expensive until the general election. Let your mandate fall far enough and capital income is cut sharply on top."
+      ? "Your Political Mandate — the authority gauge on the Governing Board that sets how much political capital flows to you each quarter — takes the hit above. If it sinks below 25, that quarterly income is choked down toward a fifth of normal: a governor the legislature has stopped fearing can barely move a bill."
       : "No decisive shift either way — you carry roughly the same authority into the second half of the term.";
   card.innerHTML=`<h2>${ico('ballot')} Midterm Elections — ${m.year}</h2>
     <div class="sectionsub">Halfway through your term, control of the legislature and Oregon's seats in Congress are on the ballot. Your name is not — but the result is read everywhere as a referendum on your administration, and it resets how much authority you carry in Salem for the rest of the term.</div>
@@ -6291,6 +6309,59 @@ function showMidterm(m){
   setTimeout(()=>{try{document.getElementById("midtermContinue").focus();}catch(e){}},30);
 }
 
+/* Oregon's 36 counties as a stylised grid map: [name, abbr, gridX, gridY,
+   partisan lean (−1 progressive .. +1 conservative, ~2020 vote), population 000s].
+   Positions are geographically suggestive, not exact — a "results board", not a
+   survey map. Swap in real geometry by replacing this table + countyMapSVG. */
+const OR_COUNTIES=[
+ ["Clatsop","CLT",0,0,-0.30,41],["Columbia","CLM",1,0,-0.12,52],["Multnomah","MUL",2,0,-0.85,815],
+ ["Hood River","HDR",3,0,-0.38,24],["Sherman","SHR",4,0,0.72,2],["Gilliam","GIL",5,0,0.60,2],
+ ["Morrow","MRW",6,0,0.55,12],["Umatilla","UMA",7,0,0.55,80],["Union","UNI",8,0,0.60,26],["Wallowa","WLW",9,0,0.72,7],
+ ["Tillamook","TIL",0,1,0.00,27],["Washington","WSH",1,1,-0.25,600],["Clackamas","CLK",2,1,-0.08,420],
+ ["Wasco","WSC",3,1,-0.05,27],["Wheeler","WHL",5,1,0.66,1.5],["Grant","GRN",6,1,0.82,7],["Baker","BAK",8,1,0.72,17],
+ ["Lincoln","LNC",0,2,-0.28,50],["Yamhill","YAM",1,2,-0.18,108],["Marion","MRN",2,2,-0.06,345],
+ ["Jefferson","JEF",3,2,0.42,25],["Crook","CRK",4,2,0.70,25],["Harney","HRN",6,2,0.80,7],["Malheur","MLH",8,2,0.72,32],
+ ["Benton","BEN",1,3,-0.42,95],["Polk","POL",2,3,0.12,87],["Linn","LNN",3,3,0.42,130],
+ ["Deschutes","DES",4,3,0.00,200],["Lake","LAK",5,3,0.80,8],
+ ["Coos","COO",0,4,0.02,65],["Lane","LAN",1,4,-0.26,383],["Douglas","DGL",2,4,0.55,111],["Klamath","KLA",4,4,0.58,70],
+ ["Curry","CUR",0,5,0.28,23],["Josephine","JOS",1,5,0.34,88],["Jackson","JAC",2,5,-0.05,223],
+];
+function countyResults(r){
+  const g=govIdeologyPoint();
+  const govLeft=(g.economic+g.social)<0;
+  const rows=OR_COUNTIES.map(c=>{
+    const [name,abbr,gx,gy,lean,popK]=c;
+    const align = govLeft ? -lean : lean;           // +1 = this county matches how you govern
+    let you = r.share + align*0.185 + (Math.random()-0.5)*0.07;
+    const tw = 0.65 + Math.abs(lean)*0.55;          // third parties over-perform toward the poles
+    return {name,abbr,gx,gy,popK, you:clamp(you,0.04,0.94),
+            thL:(r.thirdShareL||0)*tw, thR:(r.thirdShareR||0)*tw};
+  });
+  // reconcile the population-weighted mean of your county shares to the statewide result
+  let sw=0,sp=0; for(const x of rows){sw+=x.you*x.popK;sp+=x.popK;}
+  const corr=r.share-(sp>0?sw/sp:r.share);
+  for(const x of rows){
+    x.you=clamp(x.you+corr,0.03,0.97);
+    x.opp=clamp(1-x.you-x.thL-x.thR,0,1);
+    const mx=Math.max(x.you,x.opp,x.thL,x.thR);
+    x.win = mx===x.you?"you" : mx===x.opp?"opp" : "third";
+  }
+  return rows;
+}
+function countyMapSVG(rows){
+  const CELL=30,PAD=6,W=10*CELL+PAD*2,H=6*CELL+PAD*2;
+  const col={you:"var(--moss)",opp:"var(--clay)",third:"var(--gold)"};
+  let cells="";
+  rows.forEach((c,i)=>{
+    const x=PAD+c.gx*CELL, y=PAD+c.gy*CELL;
+    cells+=`<g transform="translate(${x+CELL/2},${y+CELL/2})"><title>${c.name}</title>
+      <rect x="${-CELL/2+1.5}" y="${-CELL/2+1.5}" width="${CELL-3}" height="${CELL-3}" fill="var(--paper-2)" stroke="var(--line)" stroke-width="1"/>
+      <rect class="cty" data-i="${i}" x="${-CELL/2+1.5}" y="${-CELL/2+1.5}" width="${CELL-3}" height="${CELL-3}" fill="${col[c.win]}" opacity="0"/>
+      <text y="3" text-anchor="middle" font-size="6.5" font-family="var(--font-data)" fill="var(--ink)" opacity="0.8">${c.abbr}</text></g>`;
+  });
+  return `<svg class="eg-map-svg" viewBox="0 0 ${W} ${H}">${cells}</svg>`;
+}
+
 function showElection(r){
   GAME.gameOver=!r.won;
   const card=document.getElementById("electionCard");
@@ -6307,35 +6378,67 @@ function showElection(r){
       +`</div>`;
   }
   const marginPts=(r.share-0.5)*200;
-  const winWord=marginPts>=20?'LANDSLIDE':marginPts>=8?'RE-ELECTED':'RE-ELECTED — NARROWLY';
-  const resTxt=r.won?`★ ${winWord} ★ · ${(r.share*100).toFixed(1)}% vs ${(100-r.share*100).toFixed(1)}%`
-    :`DEFEATED · ${(r.share*100).toFixed(1)}% vs ${(100-r.share*100).toFixed(1)}%`;
-  card.innerHTML=`<h2>Election — ${GAME.startYear+GAME.term*4}</h2>
-    <div class="sectionsub">End of term ${GAME.term}.</div>
-    <div class="res ${r.won?'win':'lose'}">${resTxt}</div>
-    <div style="font-size:13px;color:var(--muted-2);margin:6px 0 2px">Voter turnout: <b>${(r.turnout*100).toFixed(0)}%</b> &nbsp;·&nbsp; Final approval: ${r.approval.toFixed(1)}%</div>
-    ${thirdLine}
-    <button id="electionContinue">${r.won?'Begin Next Term ▸':'New Game'}</button>`;
+  const won=r.won;
+  const bigWord = won ? "RE-ELECTED" : "DEFEATED";
+  const flavour = won
+    ? (marginPts>=22?"A commanding win" : marginPts>=8?"A solid win" : "Held on by a whisker")
+    : (marginPts<=-14?"A decisive loss" : "Lost by a hair");
+  const third=r.thirdShare||0, oppTotal=clamp(1-r.share-third,0,1);
+  const yr=GAME.startYear+GAME.term*4;
+  const cRows=countyResults(r);
+  const wonCty=cRows.filter(c=>c.win==="you").length;
+  card.innerHTML=`<div class="egrand">
+    <div class="eg-kicker">GENERAL ELECTION · ${yr}</div>
+    <div class="eg-result ${won?'win':'lose'}">${bigWord}</div>
+    <div class="eg-sub">${flavour} — <b>${(r.share*100).toFixed(1)}%</b> to <b>${(oppTotal*100).toFixed(1)}%</b></div>
+    <div class="eg-bar" aria-hidden="true">
+      <i data-w="${(r.share*100).toFixed(1)}" style="width:0;background:var(--moss)"></i>
+      <i data-w="${(third*100).toFixed(1)}" style="width:0;background:var(--gold)"></i>
+      <i data-w="${(oppTotal*100).toFixed(1)}" style="width:0;background:var(--clay)"></i>
+    </div>
+    <div class="eg-legend"><span><i style="background:var(--moss)"></i>You</span><span><i style="background:var(--gold)"></i>Third parties</span><span><i style="background:var(--clay)"></i>Challenger</span></div>
+    <div class="eg-sub" style="font-size:13px">Turnout <b>${(r.turnout*100).toFixed(0)}%</b> · Final approval <b>${r.approval.toFixed(1)}%</b> · <span id="egReporting">0% reporting</span> · you carried <b id="egCty">0</b> / 36 counties</div>
+    ${countyMapSVG(cRows)}
+    <div class="eg-third">${thirdLine}</div>
+    <button id="electionContinue" class="enactbtn">${won?'Begin Next Term ▸':'New Game'}</button>
+  </div>`;
   const modal=document.getElementById("electionModal");
+  modal.classList.add("grand");
   modal.classList.remove("hidden");
+  // animate: vote bar fills, then counties "report in" fastest-counting first
+  setTimeout(()=>{ card.querySelectorAll('.eg-bar i').forEach(b=>{ b.style.width=b.dataset.w+"%"; }); }, 180);
+  const ctyEls=[...card.querySelectorAll('.cty')];
+  const order=cRows.map((c,i)=>i).sort((a,b)=>cRows[a].popK-cRows[b].popK);
+  const repEl=card.querySelector("#egReporting"), ctyEl=card.querySelector("#egCty");
+  let reported=0, carried=0;
+  order.forEach((idx,k)=>setTimeout(()=>{
+    const el=ctyEls[idx]; if(el)el.classList.add("cty-in");
+    reported++; if(cRows[idx].win==="you")carried++;
+    if(repEl)repEl.textContent=Math.round(reported/order.length*100)+"% reporting";
+    if(ctyEl)ctyEl.textContent=carried;
+  }, 260+k*38));
   try{
-    if(r.won){ if(window.SFX)SFX.win(); if(window.confettiBurst){ confettiBurst(modal); if(marginPts>=20)setTimeout(()=>confettiBurst(modal),650); } }
+    if(won){ if(window.SFX)SFX.win(); if(window.confettiBurst){ confettiBurst(modal); if(marginPts>=22)setTimeout(()=>confettiBurst(modal),650); } }
     else if(window.SFX)SFX.lose();
   }catch(e){}
-  document.getElementById("electionContinue").onclick=()=>{
-    document.getElementById("electionModal").classList.add("hidden");
+  const proceed=()=>{
+    if(window._elecKey){document.removeEventListener("keydown",window._elecKey,true);window._elecKey=null;}
+    modal.classList.add("hidden"); modal.classList.remove("grand");
     GAME.lastMargin=clamp((r.share-0.5)*2,-1,1);
-    if(r.won){
+    if(won){
       GAME.term++;GAME.capital=clamp(GAME.capital+15,0,100);GAME.log.push("★ Term "+GAME.term+" begins");
       GAME.skipReport=false; GAME.skipCampaign=false; // reports and campaign popup resume each new term
-      // the pledges staged during the campaign now bind for the term ahead
       GAME.activePromises=(GAME.nextPromises||[]).map(pid=>({id:pid, madeTerm:GAME.term}));
       GAME.nextPromises=[];
       GAME.campaign={effort:{},promises:[],pool:10};
-    }
-    else location.reload();
-    render();
+      render();
+    } else location.reload();
   };
+  document.getElementById("electionContinue").onclick=proceed;
+  if(window._elecKey)document.removeEventListener("keydown",window._elecKey,true);
+  window._elecKey=(e)=>{ if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); proceed(); } };
+  document.addEventListener("keydown",window._elecKey,true);
+  setTimeout(()=>{try{document.getElementById("electionContinue").focus();}catch(e){}},30);
 }
 /* shared capital-income calc used by both doEndTurn and doElectionTurn */
 function _calcCapital(){
@@ -8667,14 +8770,18 @@ function renderDilemma(){
       h+=`<div class="splash-label">What it set in motion</div><div class="splash-fx">`;
       // group: capital + metric/indicator pushes vs voter-bloc reactions
       const sortFx=r.fx.slice().sort((a,b)=>Math.abs(b.val)-Math.abs(a.val));
+      const IND_BAD_HIGH=new Set(["adminOverhead","taxGrievance","ruralAlienation","pensionBurden","incarcerationRate"]);
       for(const f of sortFx){
-        const good=f.val>0, cls=f.kind==="v"?"vbloc":(f.kind==="cap"?"cap":"stat");
-        const arrow=good?"▲":"▼";
-        let line=f.who;
-        if((f.kind==="m"||f.kind==="i"||f.kind==="cap")&&f.label&&f.label!==f.who)line=f.who;
+        // "good" respects DIRECTION: for a lower-is-better metric/indicator, a
+        // negative change is the improvement. The arrow shows the raw direction.
+        let good;
+        if(f.kind==="m"&&f.key&&METRICS[f.key])good = METRICS[f.key].invert ? f.val<0 : f.val>0;
+        else if(f.kind==="i") good = IND_BAD_HIGH.has(f.key) ? f.val<0 : f.val>0;
+        else good = f.val>0;
+        const arrow=f.val>0?"▲":"▼";
         h+=`<div class="splash-row ${good?'pos':'neg'}"><span class="srow-who">${f.who}</span>
           <span class="srow-tag">${f.kind==="v"?"voters":f.kind==="cap"?"capital":f.kind==="i"?"gauge":"statistic"}</span>
-          <span class="srow-val">${arrow} ${good?'+':''}${f.val.toFixed(f.kind==="cap"?0:1)}</span></div>`;
+          <span class="srow-val">${arrow} ${f.val>0?'+':''}${f.val.toFixed(f.kind==="cap"?0:1)}</span></div>`;
       }
       h+=`</div><div class="splash-foot">Voter reactions fade gradually over the coming quarters; statistics and gauges shift over the same window.</div>`;
     } else {
@@ -8683,8 +8790,16 @@ function renderDilemma(){
     h+=`<button class="splash-ok" id="splashOk">Continue ▸</button>`;
     card.innerHTML=h;
     modal.classList.remove("hidden");
+    const closeSplash=()=>{
+      if(window._splashKey){document.removeEventListener("keydown",window._splashKey,true);window._splashKey=null;}
+      GAME.lastDilemmaResult=null; render();
+    };
     const ok=document.getElementById("splashOk");
-    if(ok)ok.addEventListener('click',()=>{GAME.lastDilemmaResult=null;render();});
+    if(ok)ok.addEventListener('click',closeSplash);
+    if(window._splashKey)document.removeEventListener("keydown",window._splashKey,true);
+    window._splashKey=(e)=>{ if(GAME.lastDilemmaResult&&(e.key==="Enter"||e.key==="Escape")){ e.preventDefault(); e.stopPropagation(); closeSplash(); } };
+    document.addEventListener("keydown",window._splashKey,true);
+    setTimeout(()=>{try{ok&&ok.focus();}catch(e){}},30);
     return;
   }
   if(!GAME.pendingDilemma){modal.classList.add("hidden");return;}
