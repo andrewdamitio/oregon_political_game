@@ -882,6 +882,7 @@ const INDICATORS={
       v-=(METRICS.violentCrime.value-40)*0.15;
       v+=(INDICATORS.inMigration.value-50)*0.25;         // talent availability
       v+=(METRICS.education.value-60)*0.20;
+      v-=Math.pow(Math.max(0,3.8-METRICS.unemployment.value),2)*1.4;   // tapped-out labor market — can't staff up
       if(GAME.activeSituations.techBoom)v+=10;
       if(GAME.activeSituations.recession)v-=10;
       if(GAME.activeSituations.taxRevolt)v-=6;
@@ -896,6 +897,7 @@ const INDICATORS={
       {name:METRICS.violentCrime.icon+" Violent Crime",v:-(METRICS.violentCrime.value-40)*0.15,link:"m_violentCrime"},
       {name:INDICATORS.inMigration.icon+" Talent (in-migration)",v:(INDICATORS.inMigration.value-50)*0.25,link:"i_inMigration"},
       {name:METRICS.education.icon+" Educational Attainment",v:(METRICS.education.value-60)*0.20,link:"m_education"},
+      ...(METRICS.unemployment.value<3.8?[{name:"👷 Labor shortage (tight hiring)",v:-Math.pow(3.8-METRICS.unemployment.value,2)*1.4,link:"m_unemployment"}]:[]),
     ],
     feedback:{gdp:0.015, unemployment:-0.012}},          // good climate grows GDP, cuts joblessness
   tourism:{name:"Tourism Appeal", icon:"🏔️", value:58,
@@ -2603,6 +2605,49 @@ const DILEMMAS={
          GAME.log.push("💸 Austerity: income & corporate taxes raised — $1.6B off the deficit");
        }}
     ]},
+  boomDividend:{title:"The Boom Dividend", icon:"💰", cooldown:900,
+    text:"The boom is filling the treasury faster than the forecasters can revise their numbers — capital-gains and corporate receipts are pouring in ahead of every projection. Every advocate in Salem has a claim on the surge, and the window to shape what the boom does to Oregon is now, while the money is still on the table.",
+    influence:()=>(GAME.activeSituations.gdpBoom||GAME.activeSituations.brainGain)?0.95:-1,
+    options:[
+      {label:"Tax the windfall for housing", text:"A temporary surcharge on high earners and capital gains funds land acquisition and an affordable-housing push while the money is there. Renters and the left cheer; business and the wealthy call it a penalty on success.",
+       apply:()=>{
+         createGrudge("i_housingAffordability",4,0.9,"Boom windfall → housing fund");
+         createGrudge("m_homelessness",-1.6,0.9,"Boom-funded housing");
+         createGrudge("m_inequality",-1.2,0.9,"Windfall surcharge");
+         createGrudge("m_taxBurden",1.5,0.9,"Boom windfall surcharge");
+         createGrudge("v_renters",6,0.9,"Boom taxed for housing");
+         createGrudge("v_poor",4,0.9,"Boom taxed for housing");
+         createGrudge("v_liberal",4,0.9,"Boom taxed for housing");
+         createGrudge("v_socialist",4,0.9,"Boom taxed for housing");
+         createGrudge("v_businessClass",-5,0.9,"Surcharge on success");
+         createGrudge("v_wealthy",-5,0.9,"Surcharge on success");
+         GAME.log.push("💰 Boom Dividend: windfall surcharge funds housing");
+       }},
+      {label:"Let the boom run", text:"No new taxes — ride the growth and let private investment do its work. Business and moderates are delighted; the housing squeeze intensifies and the left seethes at a squandered window.",
+       apply:()=>{
+         createGrudge("i_housingAffordability",-4,0.9,"Boom left unchecked");
+         createGrudge("m_homelessness",1.6,0.9,"Unchecked boomtown rents");
+         createGrudge("m_inequality",1.4,0.9,"Boom gains concentrate");
+         createGrudge("i_businessClimate",4,0.9,"No boom tax");
+         createGrudge("v_businessClass",6,0.9,"Boom left to run");
+         createGrudge("v_wealthy",5,0.9,"Boom left to run");
+         createGrudge("v_moderate",2,0.9,"No new taxes");
+         createGrudge("v_renters",-5,0.9,"Nothing done on rents");
+         createGrudge("v_liberal",-4,0.9,"Windfall squandered");
+         createGrudge("capital",3,undefined,"Rode the boom");
+         GAME.log.push("💰 Boom Dividend: no new taxes, boom left to run");
+       }},
+      {label:"Bank it in the reserves", text:"Sweep the surge into the Rainy Day and Education Stability funds before the next downturn erases it. Fiscally cautious; nobody's problem gets solved today.",
+       apply:()=>{
+         GAME.rainyDay=(GAME.rainyDay||0)+1.4;
+         createGrudge("v_conservative",5,0.9,"Boom banked, not spent");
+         createGrudge("v_homeowners",3,0.9,"Fiscal prudence");
+         createGrudge("v_moderate",2,0.9,"Fiscal prudence");
+         createGrudge("v_liberal",-3,0.9,"Hoarded the surplus");
+         createGrudge("v_poor",-3,0.9,"Surge banked, needs unmet");
+         GAME.log.push("💰 Boom Dividend: $1.4B swept into reserves");
+       }}
+    ]},
   wildfireMap:{title:"The Wildfire Risk Map", icon:"🗺️",
     text:"Your agencies finished the statewide wildfire risk map (SB 762). Publishing it means honest risk pricing — and rural homeowners discovering their insurance just exploded. Withdrawing it (as Oregon actually did in 2022) keeps the peace and buries the data.",
     influence:()=>(GAME.activeSituations.wildfireSeason?0.5:0)+(METRICS.environment.value<55?0.2:0),
@@ -3075,12 +3120,34 @@ function ELECTORATE_SHIFT(){
     add("liberal",0.15); add("socialist",0.13);
     add("conservative",-0.06); add("libertarian",-0.05);
   }
-  // knowledge-economy boom: educated, urban, progressive newcomers pour in
-  // faster than any backlash pushes back — the "winner" spiral that entrenches
-  // an incumbent, at the cost of a widening urban/rural split
-  if(GAME.activeSituations.knowledgeBoom){
-    add("liberal",0.22); add("socialist",0.10); add("urban",0.26);
-    add("conservative",-0.10); add("rural",-0.20); add("moderate",-0.04);
+  // an overheating economy reassures the center and the business class
+  if(GAME.activeSituations.gdpBoom){ add("moderate",0.10); add("conservative",-0.03); }
+  // brain-gain: educated, urban, progressive professionals pour in faster than
+  // any backlash pushes back — the "winner" spiral that entrenches an incumbent,
+  // at the cost of a widening urban/rural split
+  if(GAME.activeSituations.brainGain){
+    add("liberal",0.20); add("socialist",0.09); add("urban",0.24);
+    add("conservative",-0.09); add("rural",-0.19); add("moderate",-0.04);
+  }
+  // DISPLACEMENT: a sustained affordability collapse alongside high inequality
+  // prices working and poor families out of the state entirely. The electorate
+  // left behind is wealthier, older, more homeowner, more suburban/exurban, and
+  // at the margin more conservative — it perversely stabilizes an incumbent's
+  // numbers while the underlying problem is at its worst.
+  const squeeze=clamp((44-INDICATORS.housingAffordability.value)/24,0,1)
+              * clamp((METRICS.inequality.value-58)/22,0,1);
+  if(squeeze>0){
+    add("poor",-0.30*squeeze); add("middleIncome",0.04*squeeze); add("wealthy",0.12*squeeze);
+    add("urban",-0.14*squeeze); add("suburban",0.06*squeeze); add("rural",0.10*squeeze);
+    add("socialist",-0.16*squeeze); add("liberal",-0.10*squeeze);
+    add("moderate",0.06*squeeze); add("conservative",0.10*squeeze);
+  }
+  // graduate underemployment: the young and credentialed leave for opportunity
+  // elsewhere; those who stay curdle toward economic populism
+  if(GAME.activeSituations.gradGlut){
+    add("urban",-0.14); add("liberal",-0.08);
+    add("socialist",0.12); add("moderate",0.04);
+    add("suburban",0.05); add("rural",0.04);
   }
   return sw;
 }
@@ -3393,9 +3460,15 @@ const SITUATIONS={
     metricEffect:{gdp:-0.6,unemployment:0.5,loggingRate:-8}, moodMag:2, minTurns:3,
     groupMood:{blueCollar:-7,businessClass:-6,poor:-6,middleIncome:-3,moderate:-2}},
   transportCliff:{name:"Transportation Funding Cliff", kind:"bad", category:"condition",
-    desc:"Oregon's transportation funding is structurally underfunded — the same cliff that triggered ODOT's historic 2025 layoffs and a $354M annual shortfall. Gas tax revenue erodes as the fleet electrifies. Three levers can close the gap: raise the gas tax (strongest), raise vehicle registration fees (stable), or enact the EV Road Usage Charge (closes the EV gap). Watch the 🛣️ Transportation Revenue Health indicator — it needs to reach ~70 to resolve this crisis. Any combination of the three levers works.",
-    trigger:()=>{const g=policyLevel(POLICIES.gasTax),r=policyLevel(POLICIES.vehicleReg),e=POLICIES.evFee?policyLevel(POLICIES.evFee):0;return GAME.turn>4&&(g*0.9+r*0.6+e*0.2)<0.75;},
-    clear:()=>{const g=policyLevel(POLICIES.gasTax),r=policyLevel(POLICIES.vehicleReg),e=POLICIES.evFee?policyLevel(POLICIES.evFee):0;return (g*0.9+r*0.6+e*0.2)>=0.85;},
+    desc:"Oregon's transportation funding is structurally underfunded — the same cliff that triggered ODOT's historic 2025 layoffs and a $354M annual shortfall. Gas tax revenue erodes as the fleet electrifies. Three levers can close the gap: raise the gas tax (strongest), raise vehicle registration fees (stable), or enact the EV Road Usage Charge (closes the EV gap). Watch the 🛣️ Transportation Revenue Health indicator — it needs to reach ~70 to resolve this crisis. Any combination of the three levers works. During an economic or brain-gain boom, heavy in-migration outpaces road and transit capacity — the bar to stay off the cliff rises with the newcomers.",
+    trigger:()=>{const g=policyLevel(POLICIES.gasTax),r=policyLevel(POLICIES.vehicleReg),e=POLICIES.evFee?policyLevel(POLICIES.evFee):0;
+      const boom=GAME.activeSituations.gdpBoom||GAME.activeSituations.brainGain||GAME.activeSituations.techBoom;
+      const strain=boom?clamp((INDICATORS.inMigration.value-58)/22,0,1)*0.16:0;
+      return GAME.turn>4&&(g*0.9+r*0.6+e*0.2)<(0.75+strain);},
+    clear:()=>{const g=policyLevel(POLICIES.gasTax),r=policyLevel(POLICIES.vehicleReg),e=POLICIES.evFee?policyLevel(POLICIES.evFee):0;
+      const boom=GAME.activeSituations.gdpBoom||GAME.activeSituations.brainGain||GAME.activeSituations.techBoom;
+      const strain=boom?clamp((INDICATORS.inMigration.value-58)/22,0,1)*0.16:0;
+      return (g*0.9+r*0.6+e*0.2)>=(0.85+strain);},
     watch:{indicator:"transportFunding", startAt:62, clearAt:70, badHigh:false},
     metricEffect:{gdp:-0.2,unemployment:0.3}, moodMag:2, minTurns:3,
     onTrigger:{capital:-4}, onClear:{capital:2},
@@ -3419,17 +3492,37 @@ const SITUATIONS={
     metricEffect:{gdp:0.25,unemployment:-0.2,inequality:0.8}, moodMag:2, minTurns:3, mandateShock:7,
     indicatorEffect:{businessClimate:6,inMigration:4},
     groupMood:{businessClass:8,wealthy:5,collegeEducated:5,urban:2,timber:-2}},
-  knowledgeBoom:{name:"Knowledge-Economy Boom", kind:"good", category:"condition",
-    desc:"A top-tier education system and a red-hot economy have crossed the threshold that made Seattle and the Bay Area national talent magnets. Employers chase the workforce, the workforce chases the jobs, capital chases both, and your approval rides the wave — a genuine self-reinforcing 'winner' spiral. But the same magnetism drives rents and land prices up faster than wages, hollows out the middle, strains the environment, and deepens the gulf between a prosperous urban core and a rural Oregon that feels none of it. Ignored, the boom manufactures the housing and inequality crises that end booms. It holds while GDP Index stays ≥ 72 and Educational Attainment ≥ 74; it breaks below GDP Index 64 or Attainment 70.",
-    trigger:()=>GAME.turn>6 && effective("gdp")>=72 && METRICS.education.value>=74,
-    clear:()=>effective("gdp")<64 || METRICS.education.value<70,
-    minTurns:4, mandateShock:3,
-    metricEffect:{gdp:0.05, unemployment:-0.08, inequality:0.25, homelessness:0.18, environment:-0.18},
-    indicatorEffect:{inMigration:2, businessClimate:1.5, housingAffordability:-3, ruralAlienation:2, taxGrievance:1.2},
-    costEffect:{humanServices:0.12, housing:0.12},
+  gdpBoom:{name:"Overheating Economy", kind:"good", category:"condition",
+    desc:"Growth has crossed into overdrive — GDP Index above 74 (roughly 3%+ real growth). Capital and employers pour in, joblessness falls, your approval rides the wave, and the surging tax base funds everything (including the schools that feed the Brain-Gain Magnet). But an overheating economy runs hot: rents and land prices outpace wages, the gains concentrate at the top, fixed-income Oregonians feel the squeeze, and every service contract costs more to run. Holds while GDP Index ≥ 74; breaks below 66.",
+    trigger:()=>GAME.turn>6 && effective("gdp")>=74,
+    clear:()=>effective("gdp")<66,
+    minTurns:4, mandateShock:2,
+    metricEffect:{gdp:0.04, unemployment:-0.07, inequality:0.22, homelessness:0.14, environment:-0.16, education:0.15},
+    indicatorEffect:{inMigration:2, businessClimate:1.5, housingAffordability:-2.5, taxGrievance:1.5},
+    costEffect:{humanServices:0.08, housing:0.10},
     moodMag:1.5,
-    groupMood:{collegeEducated:5, businessClass:4, wealthy:3, urban:3, liberal:3, moderate:1,
-               renters:-4, poor:-4, blueCollar:-3, rural:-5, timber:-3}},
+    groupMood:{businessClass:6, wealthy:5, moderate:2, collegeEducated:2, blueCollar:1,
+               renters:-4, poor:-4, retirees:-2}},
+  brainGain:{name:"Brain-Gain Magnet", kind:"good", category:"condition",
+    desc:"Educational attainment above 80 has turned Oregon into a national talent magnet — the Seattle / Austin dynamic. Educated professionals move in, lifting the economy (they compound GDP growth), the business climate, and state capacity. But the same newcomers bid up housing faster than it can be built, and the prosperity concentrates in the urban core while rural Oregon feels none of it — the widening split that entrenches an urban-progressive majority. Holds while Educational Attainment ≥ 80; breaks below 74.",
+    trigger:()=>GAME.turn>6 && METRICS.education.value>=80,
+    clear:()=>METRICS.education.value<74,
+    minTurns:4, mandateShock:2,
+    metricEffect:{gdp:0.08, inequality:0.15, homelessness:0.12},
+    indicatorEffect:{inMigration:3, businessClimate:2, housingAffordability:-3, ruralAlienation:3, digitization:2},
+    costEffect:{housing:0.10},
+    moodMag:1.5,
+    groupMood:{collegeEducated:7, liberal:4, urban:4, businessClass:3, students:2,
+               rural:-5, timber:-3, blueCollar:-3}},
+  gradGlut:{name:"Graduate Underemployment", kind:"bad", category:"condition",
+    desc:"Oregon has built a highly credentialed workforce faster than its economy can absorb one. Degree‑holders are stuck in jobs that don't require the degree, the wage premium for education is eroding, and the sharpest young graduates are leaving for Seattle, the Bay, and Denver where the matching jobs are. Voters who took on debt — or paid taxes — for that education see a broken bargain. Resolves when growth catches up to the credential base (GDP Index within 10 of Educational Attainment) or attainment slips back below 68.",
+    trigger:()=>GAME.turn>8 && METRICS.education.value>=74 && (METRICS.education.value-effective("gdp"))>=18,
+    clear:()=>(METRICS.education.value-effective("gdp"))<=10 || METRICS.education.value<68,
+    minTurns:4, onTrigger:{capital:-2},
+    metricEffect:{inequality:0.3, gdp:-0.05, education:-0.08},
+    indicatorEffect:{inMigration:-3, businessClimate:-2, ruralAlienation:2},
+    moodMag:2, moodAxes:{economic:-0.15},
+    groupMood:{collegeEducated:-8, students:-7, parents:-4, liberal:-3, urban:-2, blueCollar:1}},
   droughtWater:{name:"Drought & Water Crisis", kind:"bad", category:"event",
     desc:"A severe drought pits farms, fish, and cities against each other over water.",
     metricEffect:{environment:-2,gdp:-0.2,loggingRate:-5}, moodAxes:{environment:-0.2}, moodMag:1, minTurns:3,
@@ -3600,24 +3693,24 @@ const EVENT_POOL=[
      const resFactor=1-(resil-0.5)*0.5;                                 // funded resilience program trims odds
      return envFactor*resFactor;
    }},
-  {id:"recession", prob:0.18, gate:()=>GAME.econCycle<-0.35},
+  {id:"recession", prob:0.18, gate:()=>GAME.econCycle<-0.35 || (GAME.overheat||0)>0.6, probMult:()=>1+(GAME.overheat||0)*1.4},
   {id:"federalWindfall", prob:0.06, gate:()=>true},
   {id:"droughtWater", prob:0.06, gate:()=>true, seasonal:[2,3],
    probMult:()=>{
      const wr=POLICIES.waterRights?policyLevel(POLICIES.waterRights):0;
-     return 1-wr*0.4;                                                    // groundwater/instream-flow reform eases drought severity
+     return (1-wr*0.4)*(1+growthResourceStrain()*0.7);                  // reform eases it; water/power-hungry growth worsens it
    }},
   {id:"scandal", prob:0.035, gate:()=>true},
   {id:"cascadiaQuake", prob:0.0023, gate:()=>true},
-  {id:"heatDome", prob:0.07, gate:()=>true, seasonal:[2]},
+  {id:"heatDome", prob:0.07, gate:()=>true, seasonal:[2], probMult:()=>1+growthResourceStrain()*0.5},
   {id:"oilShock", prob:0.05, gate:()=>true},
-  {id:"klamathCrisis", prob:0.05, gate:()=>!POLICIES.waterRights||policyLevel(POLICIES.waterRights)<0.5, seasonal:[2,3]},
+  {id:"klamathCrisis", prob:0.05, gate:()=>!POLICIES.waterRights||policyLevel(POLICIES.waterRights)<0.5, seasonal:[2,3], probMult:()=>1+growthResourceStrain()*0.6},
   {id:"measlesOutbreak", prob:0.045, gate:()=>!POLICIES.vaccineMandate},
   {id:"federalShock", prob:0.04, gate:()=>true},
   {id:"cyberattack", prob:0.055, gate:()=>INDICATORS.digitization.value<55},
   {id:"unemploymentSystemFailure", prob:0.06, gate:()=>INDICATORS.digitization.value<48 && (GAME.activeSituations.recession||METRICS.unemployment.value>7)},
   {id:"benefitsBacklog", prob:0.045, gate:()=>INDICATORS.digitization.value<45},
-  {id:"teacherStrike", prob:0.055, gate:()=>(SIMULANTS.publicUnions?.approval??50)<44},
+  {id:"teacherStrike", prob:0.055, gate:()=>(SIMULANTS.publicUnions?.approval??50)<44 || boomWageGap()>0.5, probMult:()=>1+boomWageGap()*1.2},
 ];
 
 /* NATIONAL_MOOD — a persistent background variable doing a random walk.
@@ -3644,7 +3737,10 @@ const GAME={
   structuralDebt:0,     // accumulated unresolved deficit ($B) — accrues when reserves are exhausted
   deficitStreak:0,      // consecutive quarters carrying a gap after reserves are drained
   econCycle:0,          // -1 deep recession .. +1 boom; random walk each quarter
+  overheat:0,           // 0..1 accumulated boom pressure — drags the next cycle down (boom→bust)
   marketLevel:0,        // equity-market sub-variable; swings high-earner cap-gains
+  expectations:0,       // hedonic treadmill: standing "we've had it good a while" grumble
+  adaptedBaseline:{},   // per-domain level voters have normalized to (loss aversion vs this)
   persRate:5.26,        // PERS employer contributions ($B/biennium-equiv), escalating
   fedIndex:1.0,         // federal-funds multiplier; shocked by federal events
   pendingKicker:0,      // kicker owed, paid out next cycle
@@ -3891,6 +3987,16 @@ function metricTarget(k){
   // cooling centers and emergency comms funded by cascadiaPrep blunt heat dome's health toll
   if(k==="health"&&GAME.activeSituations.heatDome&&POLICIES.cascadiaPrep)
     t+=policyLevel(POLICIES.cascadiaPrep)*1.5;
+  // FULL-EMPLOYMENT CEILING: below ~3.8% unemployment the labor market is tapped
+  // out — employers can't staff up, wage-price pressure builds, and expansion
+  // stalls. A small wage-compression benefit flows to inequality. Overheating
+  // (very tight labor AND hot growth) feeds cost-of-living inflation.
+  {
+    const tight=Math.max(0,3.8-METRICS.unemployment.value);
+    if(k==="gdp")             t-=tight*tight*0.13;
+    if(k==="inequality")      t-=tight*0.6;
+    if(k==="disposableIncome")t-=Math.max(0,3.5-METRICS.unemployment.value)*Math.max(0,METRICS.gdp.value-2.5)*0.8;
+  }
   return t;
 }
 /* itemized version of metricTarget for the metric detail page:
@@ -3929,6 +4035,14 @@ function metricContributors(k){
     if(ind.feedback&&ind.feedback[k]!==undefined){
       const e=(ind.value-(ind.base0!==undefined?ind.base0:50))*ind.feedback[k]/m.inertia;
       if(Math.abs(e)>0.05)out.push({name:ind.icon+' '+ind.name, v:e, link:"i_"+iid});
+    }
+  }
+  {
+    const tight=Math.max(0,3.8-METRICS.unemployment.value);
+    if(tight>0){
+      if(k==="gdp")             out.push({name:"👷 Labor shortage (full-employment ceiling)", v:-tight*tight*0.13, link:"m_unemployment"});
+      if(k==="inequality")      out.push({name:"👷 Tight labor market (wage compression)", v:-tight*0.6, link:"m_unemployment"});
+      if(k==="disposableIncome"){const infl=Math.max(0,3.5-METRICS.unemployment.value)*Math.max(0,METRICS.gdp.value-2.5)*0.8; if(infl>0.03)out.push({name:"🔥 Overheating (cost-of-living inflation)", v:-infl, link:"m_gdp"});}
     }
   }
   return out;
@@ -4003,6 +4117,16 @@ function startSituation(sid){
     if(s.onTrigger.fedHit){GAME.fedIndex=clamp(GAME.fedIndex-0.12,0.6,1.1);GAME.log.push("🇺🇸 Federal funds cut ~12% — auto-conformity bites the General Fund");}
     for(const m in (s.onTrigger.metrics||{}))if(METRICS[m])METRICS[m].value=clamp(METRICS[m].value+s.onTrigger.metrics[m],METRICS[m].min,METRICS[m].max);
   }
+  // a recession that follows an overheated boom hits harder — the correction is
+  // proportional to how far the economy got ahead of itself
+  if(sid==="recession"&&(GAME.overheat||0)>0.2){
+    const o=GAME.overheat;
+    GAME.econCycle=clamp(GAME.econCycle-o*0.5,-1,1);
+    if(METRICS.gdp)METRICS.gdp.value=clamp(METRICS.gdp.value-o*2.6,METRICS.gdp.min,METRICS.gdp.max);
+    GAME.mandateShock=(GAME.mandateShock||0)-Math.round(o*4);
+    GAME.log.push("📉 The downturn is amplified by the preceding boom — the correction runs deep");
+  }
+  if(sid==="recession")GAME.overheat=Math.max(0,(GAME.overheat||0)-0.6); // a bust bleeds off the pressure
   // no-choice events surface a notification splash so the player sees the hit
   if(s.noChoice){
     const fx=[];
@@ -4060,6 +4184,46 @@ function effective(k){
   if(m.fmt==="pctRaw"&&m.invert)return 100-m.value*6.5;
   if(k==="gdp")return 50+m.value*8;
   return m.invert?100-m.value:m.value;
+}
+/* PROSPERITY EXPECTATIONS — the hedonic treadmill. Voters normalize good times:
+   a domain that has sat high for a while stops earning credit, and any slide
+   from that adapted-to level hurts extra (loss aversion). On top of that sits a
+   standing "we've had it good a while, what's next" grumble that scales with
+   how many fronts are simultaneously prosperous. */
+function _prosperityLevels(){
+  return {
+    gdp:effective("gdp"),
+    education:METRICS.education.value,
+    employment:effective("unemployment"),                       // 0..~90, higher = better
+    safety:100-(METRICS.violentCrime.value*0.6+METRICS.propertyCrime.value*0.4),
+  };
+}
+function tickExpectations(){
+  GAME.adaptedBaseline=GAME.adaptedBaseline||{};
+  const cur=_prosperityLevels();
+  for(const k in cur){
+    const b=GAME.adaptedBaseline[k]!==undefined?GAME.adaptedBaseline[k]:cur[k];
+    // adapt up fairly briskly, ratchet down slowly — once earned, the bar stays high
+    GAME.adaptedBaseline[k]=b+(cur[k]-b)*(cur[k]>b?0.06:0.02);
+  }
+  let p=0;
+  p+=clamp((effective("gdp")-60)/20,0,1);
+  p+=clamp((METRICS.education.value-64)/20,0,1);
+  p+=clamp((effective("unemployment")-78)/16,0,1);
+  p+=clamp((cur.safety-52)/16,0,1);
+  const tgt=p*2.4;                                              // 0..~9.6
+  GAME.expectations=(GAME.expectations||0)+(tgt-(GAME.expectations||0))*0.05;
+}
+function hedonicMood(){
+  const b=GAME.adaptedBaseline||{}, cur=_prosperityLevels();
+  let drag=0;
+  for(const k in cur){
+    const base=b[k]!==undefined?b[k]:cur[k];
+    const gap=cur[k]-base;
+    drag += gap>=0 ? gap*0.010 : gap*0.055;                     // gains barely register; slippage bites
+  }
+  drag -= (GAME.expectations||0)*0.55;                          // the standing grumble
+  return drag;
 }
 function metricMood(sim, sid){
   const s=sim.sensitivities||{};
@@ -4131,7 +4295,31 @@ function metricMood(sim, sid){
   mood+=(INDICATORS.inMigration.value-50)*0.03;
   // business-minded groups weight the business climate even more
   if(s.gdp!==undefined&&s.gdp>1.0)mood+=(INDICATORS.businessClimate.value-50)*0.03*(s.gdp-0.5);
+  // hedonic treadmill: sustained prosperity raises the bar and backsliding stings
+  mood+=hedonicMood();
+  // public-sector wage expectations: in a rich, booming state public workers
+  // expect raises to track private gains; falling behind sours them
+  if(sid==="publicUnions")mood-=boomWageGap()*10;
   return mood;
+}
+/* 0..1 — economy running hot AND public pay (State School Fund proxy) lagging.
+   Drives public-union mood and teacher-strike odds. */
+function boomWageGap(){
+  const hot=clamp((METRICS.gdp.value-2.2)/1.8,0,1);
+  const pay=POLICIES.stateSchoolFund?policyLevel(POLICIES.stateSchoolFund):0.5;
+  return clamp(hot*(0.72-pay)*2.2,0,1);
+}
+/* 0..1 — how hard growth is pressing on Oregon's water and power: a hot economy,
+   heavy in-migration, and water/power-hungry fabs push it up; a strict
+   data-center energy framework pulls it back. Feeds drought / heat / Klamath odds. */
+function growthResourceStrain(){
+  let s=0;
+  s+=clamp((METRICS.gdp.value-2.5)/2,0,1)*0.35;
+  s+=clamp((INDICATORS.inMigration.value-58)/25,0,1)*0.22;
+  if(POLICIES.rndTaxCredit)s+=policyLevel(POLICIES.rndTaxCredit)*0.22;
+  if(GAME.activeSituations.gdpBoom||GAME.activeSituations.techBoom)s+=0.15;
+  if(POLICIES.dataCenterEnergy)s-=(policyLevel(POLICIES.dataCenterEnergy)-0.4)*0.30;
+  return clamp(s,0,1);
 }
 // Returns the approval-point contribution of a single metric or indicator key
 // to a specific simulant, mirroring metricMood(). Returns null when that key
@@ -4348,9 +4536,25 @@ function revenueBySource(){
 /* economic cycle as a mean-reverting random walk with rare shocks.
    This is the engine behind Oregon's boom-bust revenue. */
 function tickEconomy(){
+  // OVERHEATING MEMORY (boom→bust): the longer and hotter the boom runs, the
+  // more pressure builds toward a correction. Accrues on a hot cycle / high GDP /
+  // active booms; bleeds off in neutral or cool conditions.
+  const gi=50+(METRICS.gdp?METRICS.gdp.value:1.3)*8;
+  let heat=0;
+  heat+=clamp((gi-66)/16,0,1.2);                                   // GDP index above ~trend
+  heat+=clamp(GAME.econCycle-0.25,0,0.75);                         // cycle already running hot
+  if(GAME.activeSituations.gdpBoom)heat+=0.5;
+  if(GAME.activeSituations.boomingEconomy)heat+=0.4;
+  if(GAME.activeSituations.techBoom)heat+=0.35;
+  if(GAME.activeSituations.brainGain)heat+=0.2;
+  if(heat>0.15) GAME.overheat=clamp((GAME.overheat||0)+heat*0.12,0,1);
+  else          GAME.overheat=Math.max(0,(GAME.overheat||0)-0.06);
+  // the correction pull: extended overheating drags the next cycle step down and
+  // makes the equity swing meaner — this is what turns a boom into a bust
+  const pull=(GAME.overheat||0)*0.22;
   // momentum + reversion toward 0
-  GAME.econCycle = clamp(GAME.econCycle*0.82 + (Math.random()-0.5)*0.35, -1, 1);
-  GAME.marketLevel = clamp(GAME.marketLevel*0.80 + GAME.econCycle*0.15 + (Math.random()-0.5)*0.45, -1.2, 1.2);
+  GAME.econCycle = clamp(GAME.econCycle*0.82 + (Math.random()-0.5)*0.35 - pull, -1, 1);
+  GAME.marketLevel = clamp(GAME.marketLevel*0.80 + GAME.econCycle*0.15 + (Math.random()-0.5)*0.45 - (GAME.overheat||0)*0.35, -1.2, 1.2);
   // GDP metric tracks the cycle so the rest of the sim feels it
   if(METRICS.gdp){
     METRICS.gdp.eq = 1.3 + GAME.econCycle*0.7;
@@ -4991,7 +5195,7 @@ function _runTicks(){
   tickMetrics();
   GAME.lastBalance=budgetBalance().balance;
   settleFiscal(); tickNationalMood(); tickSituations(); maybeFireDilemma();
-  tickIndicators(); tickGrudges(); tickCynComp(); tickGroundGame();
+  tickIndicators(); tickGrudges(); tickCynComp(); tickExpectations(); tickGroundGame();
   tickApproval(); tickVoterApproval(); checkActivistTriggers();
 }
 /* regular quarter advancement — called by the campaign popup "Next Quarter" button */
@@ -6177,6 +6381,8 @@ function renderDetail(){
       {let bc=(INDICATORS.businessClimate.value-50)*0.06;if(ss.gdp!==undefined&&ss.gdp>1.0)bc+=(INDICATORS.businessClimate.value-50)*0.03*(ss.gdp-0.5);add("Business Climate",bc,'i_businessClimate');}
       add("Downtown Vitality",(INDICATORS.downtown.value-50)*0.04,'i_downtown');
       add("Population Growth",(INDICATORS.inMigration.value-50)*0.03,'i_inMigration');
+      add("Prosperity Expectations (hedonic treadmill)",hedonicMood(),null);
+      if(sid==="publicUnions")add("Public-Sector Wage Lag (boom)",-boomWageGap()*10,'m_gdp');
       if(s.ideology&&s.ideology.social>0.3)add("Rural Alienation",-(INDICATORS.ruralAlienation.value-45)*0.05*s.ideology.social,'i_ruralAlienation');
       if(ss.govSpend!==undefined){const spd=budgetBalance().spend;add("Gov. Spending Level",(spd-20)*1.2*ss.govSpend,'budget');}
       for(const id in POLICIES){const r=blocReaction("policy",POLICIES[id],s);if(r!==null&&Math.abs(r)>0.05)mc.push({lbl:(POLICIES[id].icon||'')+' '+POLICIES[id].name,v:r,lnk:"p_"+id});}
@@ -6218,7 +6424,7 @@ function renderDetail(){
         const sw=ELECTORATE_SHIFT();
         const shift=sw[sid]||0;
         if(Math.abs(shift)>0.03)h+=effectBar("Current conditions pull",shift*100,25,{color:shift>=0?'var(--good)':'var(--clay)',fmt:v=>(v>=0?'+':'')+v.toFixed(1)+'%'});
-        h+=`<div class="threshline" style="margin-top:4px">Core share is shaped by how voters' own economic and social leanings align with this ideology. Lasting conditions gradually tilt the ideological makeup of the electorate: addiction, homelessness, crime, and downtown decay grow the right; inequality unrest and the nonprofit complex grow the left; fiscal and business collapse feed the small-government right; a knowledge-economy boom and heavy in-migration grow the urban left.</div>`;
+        h+=`<div class="threshline" style="margin-top:4px">Core share is shaped by how voters' own economic and social leanings align with this ideology. Lasting conditions gradually tilt the ideological makeup of the electorate: addiction, homelessness, crime, and downtown decay grow the right; inequality unrest and the nonprofit complex grow the left; fiscal and business collapse feed the small-government right; a brain-gain boom and heavy in-migration grow the urban left; an affordability collapse displaces the poor out of state; graduate underemployment scatters the young and credentialed.</div>`;
       }
       if(!md&&!isIncomeMob&&!isIdeology){
         h+=`<div class="threshline">Membership tracks voter demographics — urbanity, income, age, and homeownership rates — which shift gradually as Oregon's economic and social conditions evolve.</div>`;
