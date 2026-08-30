@@ -5680,6 +5680,10 @@ function runElection(){
   let yes=0,no=0,thirdL=0,thirdR=0,tot=0;
   const camp=GAME.campaign||{};
   const g=govIdeologyPoint();
+  const govLeft=(g.economic+g.social)<0;
+  // per-county tallies: the SAME voters, re-summed by county affinity (v.cw)
+  const byC=OR_COUNTIES.map(()=>({y:0,n:0,l:0,r:0,tot:0,elig:0,pl:0}));
+  let plSum=0;
   for(const v of VOTERS){
     // Structural lean toward the governor's ACTUAL record — proximity to what
     // you've enacted, in whichever direction it runs — plus a small flat
@@ -5687,6 +5691,7 @@ function runElection(){
     // lean against; nobody is assumed a partisan of any party.
     const rdist=Math.abs((v.econ||0)-g.economic)*0.62 + Math.abs((v.social||0)-g.social)*0.30;
     const partisanLean=clamp((0.85-rdist)*3.8 + 0.35, -4, 5);
+    plSum+=partisanLean;
     let app=v.approval+(Math.random()-0.5)*3+partisanLean;
     // campaign effort nudges turnout/approval among targeted blocs
     let mob=0;
@@ -5707,27 +5712,31 @@ function runElection(){
     // Flatter slope + hard floor/ceiling: no matter how popular you are, a
     // partisan bloc of the electorate will never vote for you, and vice versa.
     const leanGov=Math.random()<clamp(0.5+(app-50)/95,0.08,0.92);
+    let bucket;
     if(leanGov){
       // Leans toward governor — strong ideologues may still defect to a purer party
       const lukewarm=clamp((70-app)/25,0,1);                          // 1 near 50, 0 above 70
       const ideoDefect=Math.max(0,pole-0.42)*lukewarm*(rcv?2.4:1.1);
-      if(ideoDefect>(rcv?0.12:0.20)+Math.random()*0.5){ addThird(t); } // defects to a purer party
-      else{ yes+=t; }
+      if(ideoDefect>(rcv?0.12:0.20)+Math.random()*0.5){ addThird(t); bucket=splinter==="R"?"r":"l"; } // defects to a purer party
+      else{ yes+=t; bucket="y"; }
     } else {
       // Leans against — may defect to a third party or back the challenger
       const disaffection=clamp((50-app)/22,0,1);
       const thirdPull=pole*disaffection*(rcv?2.0:0.7);                // RCV lets them vote conscience without spoiling
-      if(thirdPull>(rcv?0.18:0.30)+Math.random()*0.35){ addThird(t); } // defects to a third party
-      else no+=t;                                                      // backs the challenger
+      if(thirdPull>(rcv?0.18:0.30)+Math.random()*0.35){ addThird(t); bucket=splinter==="R"?"r":"l"; } // defects to a third party
+      else { no+=t; bucket="n"; }                                     // backs the challenger
     }
+    // fan this voter's ballot out across the counties they belong to
+    const cw=v.cw;
+    if(cw)for(let ci=0;ci<cw.length;ci++){ const wq=cw[ci]; if(wq<=0)continue; const b=byC[ci]; b.elig+=wq; b.pl+=wq*partisanLean; const wt=wq*t; b.tot+=wt; b[bucket]+=wt; }
   }
+  const plMean=plSum/(VOTERS.length||1);
   // Under RCV, third-party first-preferences flow back on later rounds to
   // whichever of you and the challenger is closer. A left-governing incumbent
   // recovers most of the LEFT splinter; a right-governing one recovers the
   // RIGHT splinter. Without RCV, splinter votes are simply lost to you.
   let fromThird=0;
   if(rcv){
-    const govLeft = (g.economic + g.social) < 0;
     fromThird = thirdL*(govLeft?0.55:0.16) + thirdR*(govLeft?0.16:0.55);
     yes += fromThird;
   }
@@ -5745,8 +5754,44 @@ function runElection(){
   const anchor=clamp(0.55 - misfit*0.14, 0.42, 0.54);
   share=clamp(share*0.66 + anchor*0.34, 0.03, 0.97);
   const turnoutPct=tot/VOTERS.length;
+  // ---- per-county results, from those same tallies ----
+  // Head-to-head first (you vs challenger among major-candidate ballots), then
+  // third parties layered on proportionally. This keeps the you/opp ordering
+  // stable across counties — ideologically sorted counties concentrate intense
+  // voters who bleed to a splinter, and that shouldn't flip the two-way read.
+  const swThL = tot>0 ? thirdL/tot : 0, swThR = tot>0 ? thirdR/tot : 0;
+  const counties=OR_COUNTIES.map((c,ci)=>{
+    const b=byC[ci];
+    const backL = rcv ? b.l*(govLeft?0.55:0.16) : 0;
+    const backR = rcv ? b.r*(govLeft?0.16:0.55) : 0;
+    const y=b.y+backL+backR, thl=Math.max(0,b.l-backL), thr=Math.max(0,b.r-backR);
+    const major=y+b.n, ctot=y+b.n+thl+thr;
+    // base consolidation: a county whose actual voters sit closer to the governor
+    // than the statewide average breaks a little harder toward the incumbent than
+    // runElection's deliberately flat coin-flip captures (and vice versa)
+    const plGap = b.elig>0 ? (b.pl/b.elig - plMean) : 0;
+    // third-party share: mostly the statewide rate, with some geographic texture
+    // (a sorted county over-concentrates intense voters, overstating its splinter)
+    return { name:c[0], abbr:c[1], popK:c[6],
+             _h2h: (major>0 ? y/major : 0.5) + clamp(plGap*0.06,-0.16,0.16),
+             _thL: 0.45*(ctot>0?thl/ctot:0) + 0.55*swThL,
+             _thR: 0.45*(ctot>0?thr/ctot:0) + 0.55*swThR,
+             turnout: b.elig>0 ? b.tot/b.elig : turnoutPct };
+  });
+  // reconcile the population-weighted county head-to-head mean to the statewide share
+  let csw=0,csp=0; for(const c of counties){ csw+=c._h2h*c.popK; csp+=c.popK; }
+  const cadj = share - (csp>0 ? csw/csp : share);
+  for(const c of counties){
+    const h=clamp(c._h2h+cadj,0.02,0.98);
+    const thd=clamp(c._thL+c._thR,0,0.6);
+    c.share=h*(1-thd); c.opp=(1-h)*(1-thd);
+    c.thL=c._thL; c.thR=c._thR;
+    delete c._h2h; delete c._thL; delete c._thR;
+    const mx=Math.max(c.share,c.opp,c.thL,c.thR);
+    c.win = mx===c.share ? "you" : mx===c.opp ? "opp" : "third";
+  }
   return {won:share>=0.5, share, approval:overallApproval(), intention:votingIntention(),
-          turnout:turnoutPct, rcv,
+          turnout:turnoutPct, rcv, counties,
           thirdShare:tot>0?third/tot:0,
           thirdShareL:tot>0?thirdL/tot:0, thirdShareR:tot>0?thirdR/tot:0};
 }
@@ -6352,27 +6397,113 @@ const OR_COUNTIES=[
  ["Wheeler","WHE","M248.5 91L242.8 91.1L242.8 86.2L209.1 86.3L210.1 97.1L211.9 98L211 99.9L215 102.9L213.4 104.8L214.3 107L214.3 129L232 128.7L232 132L237.9 132L238 137.6L249.7 137.5L248.5 91Z",231.4,109.2,0.66,1.5],
  ["Yamhill","YAM","M96.9 71.7L96 71.7L96.1 67.8L94.2 67.8L94.2 65.8L91.3 65.7L88.5 61.7L84.6 61.6L83.7 59.6L68 59.1L67.5 73.7L52.2 73.1L51.9 82.6L86 83.9L89.6 81.2L87.9 79.1L89.5 77.9L88.7 75.7L87.1 74.8L89.7 74L89.9 71.2L91.4 69.9L94.5 71.9L96.9 71.7Z",75,72.9,-0.18,108]
 ];
-function countyResults(r){
-  const g=govIdeologyPoint();
-  const govLeft=(g.economic+g.social)<0;
-  const rows=OR_COUNTIES.map(c=>{
-    const [name,abbr,d,cx,cy,lean,popK]=c;
-    const align = govLeft ? -lean : lean;           // +1 = this county matches how you govern
-    let you = r.share + align*0.185 + (Math.random()-0.5)*0.07;
-    const tw = 0.65 + Math.abs(lean)*0.55;          // third parties over-perform toward the poles
-    return {name,abbr,d,cx,cy,popK, you:clamp(you,0.04,0.94),
-            thL:(r.thirdShareL||0)*tw, thR:(r.thirdShareR||0)*tw};
-  });
-  // reconcile the population-weighted mean of your county shares to the statewide result
-  let sw=0,sp=0; for(const x of rows){sw+=x.you*x.popK;sp+=x.popK;}
-  const corr=r.share-(sp>0?sw/sp:r.share);
-  for(const x of rows){
-    x.you=clamp(x.you+corr,0.03,0.97);
-    x.opp=clamp(1-x.you-x.thL-x.thR,0,1);
-    const mx=Math.max(x.you,x.opp,x.thL,x.thR);
-    x.win = mx===x.you?"you" : mx===x.opp?"opp" : "third";
+/* Per-county electoral profile, as PERCENTILES of the simulated electorate
+   (0.5 = the median voter; 0 / 1 = the extremes present in the 2,000-voter model).
+   ideo: left→right political lean (0 = most progressive county, 1 = most
+   conservative), anchored on recent statewide results. urb: urban/suburban vs
+   rural. col: college / knowledge-economy share. age: senior skew. res: resource
+   economy (timber / farm / ranch / fishing). Voter traits are rank-normalised to
+   the same 0..1 scale before matching, so these numbers are directly comparable.
+   Nothing here assumes the player's party — ideo only says which voters LIVE in a
+   county; who they then vote for is proximity to the governor's record. Edit freely. */
+const COUNTY_PROFILE={
+  Baker:{ideo:.87,urb:.36,col:.36,age:.72,res:.84},
+  Benton:{ideo:.10,urb:.60,col:.95,age:.32,res:.30},
+  Clackamas:{ideo:.41,urb:.78,col:.55,age:.46,res:.24},
+  Clatsop:{ideo:.34,urb:.46,col:.46,age:.64,res:.44},
+  Columbia:{ideo:.60,urb:.40,col:.35,age:.50,res:.46},
+  Coos:{ideo:.64,urb:.44,col:.34,age:.74,res:.66},
+  Crook:{ideo:.85,urb:.40,col:.30,age:.60,res:.68},
+  Curry:{ideo:.66,urb:.40,col:.42,age:.90,res:.52},
+  Deschutes:{ideo:.45,urb:.72,col:.60,age:.52,res:.22},
+  Douglas:{ideo:.83,urb:.40,col:.32,age:.72,res:.78},
+  Gilliam:{ideo:.86,urb:.16,col:.34,age:.66,res:.90},
+  Grant:{ideo:.93,urb:.20,col:.36,age:.76,res:.96},
+  Harney:{ideo:.95,urb:.20,col:.34,age:.62,res:.97},
+  "Hood River":{ideo:.24,urb:.46,col:.68,age:.42,res:.50},
+  Jackson:{ideo:.43,urb:.66,col:.48,age:.56,res:.34},
+  Jefferson:{ideo:.70,urb:.40,col:.26,age:.48,res:.72},
+  Josephine:{ideo:.78,urb:.44,col:.34,age:.74,res:.52},
+  Klamath:{ideo:.80,urb:.46,col:.33,age:.58,res:.76},
+  Lake:{ideo:.92,urb:.18,col:.33,age:.62,res:.95},
+  Lane:{ideo:.17,urb:.68,col:.58,age:.38,res:.32},
+  Lincoln:{ideo:.31,urb:.44,col:.42,age:.80,res:.46},
+  Linn:{ideo:.72,urb:.46,col:.33,age:.50,res:.56},
+  Malheur:{ideo:.84,urb:.40,col:.22,age:.36,res:.88},
+  Marion:{ideo:.48,urb:.75,col:.40,age:.40,res:.38},
+  Morrow:{ideo:.77,urb:.28,col:.24,age:.40,res:.86},
+  Multnomah:{ideo:.03,urb:.99,col:.85,age:.30,res:.05},
+  Polk:{ideo:.62,urb:.48,col:.45,age:.48,res:.42},
+  Sherman:{ideo:.90,urb:.14,col:.34,age:.66,res:.90},
+  Tillamook:{ideo:.52,urb:.32,col:.36,age:.74,res:.66},
+  Umatilla:{ideo:.74,urb:.46,col:.27,age:.40,res:.74},
+  Union:{ideo:.76,urb:.44,col:.46,age:.48,res:.62},
+  Wallowa:{ideo:.82,urb:.26,col:.46,age:.78,res:.93},
+  Wasco:{ideo:.50,urb:.42,col:.44,age:.54,res:.60},
+  Washington:{ideo:.28,urb:.93,col:.82,age:.36,res:.14},
+  Wheeler:{ideo:.88,urb:.12,col:.32,age:.82,res:.95},
+  Yamhill:{ideo:.58,urb:.52,col:.45,age:.48,res:.44},
+};
+/* Softly assign every simulated voter to counties. Each voter carries a weight
+   vector v.cw (one entry per county, summing to 1) = county population × how well
+   that county's profile matches the voter's own latent traits and ideology. The
+   election then re-sums the SAME per-voter ballots by these weights, so a county's
+   result is a genuine bottom-up tally and the statewide number is their sum.
+   Computed once from immutable latent traits — voters don't move when policy
+   changes. Nothing here assumes the player's party; county e/s only attracts
+   like-minded voters, and who they then back is decided by proximity to the
+   governor's actual record in runElection(). */
+function assignVoterCounties(){
+  const names=OR_COUNTIES.map(c=>c[0]);
+  const prof=names.map(n=>COUNTY_PROFILE[n]||{ideo:.5,urb:.5,col:.5,age:.5,res:.5});
+  // rank-normalise each voter driver to a 0..1 percentile so it is directly
+  // comparable to the county profile percentiles
+  const rankPctl=(vals)=>{
+    const idx=vals.map((v,i)=>i).sort((a,b)=>vals[a]-vals[b]);
+    const out=new Array(vals.length);
+    idx.forEach((i,k)=>{ out[i]=vals.length>1 ? k/(vals.length-1) : 0.5; });
+    return out;
+  };
+  const pIdeo=rankPctl(VOTERS.map(v=>(v.econ||0)*0.55+(v.social||0)*0.45));
+  const pUrb =rankPctl(VOTERS.map(v=>v.urban));
+  const pCol =rankPctl(VOTERS.map(v=>v.m.collegeEducated||0));
+  const pAge =rankPctl(VOTERS.map(v=>v.age));
+  const pRes =rankPctl(VOTERS.map(v=>(v.m.timber||0)*1.3+(v.m.rural||0)*0.6+(v.m.blueCollar||0)*0.2));
+  for(let vi=0;vi<VOTERS.length;vi++){
+    const vId=pIdeo[vi], vU=pUrb[vi], vC=pCol[vi], vA=pAge[vi], vR=pRes[vi];
+    const raw=new Array(names.length); let mx=0;
+    for(let i=0;i<names.length;i++){
+      const p=prof[i];
+      const d = Math.abs(vId-p.ideo)*2.6 + Math.abs(vU-p.urb)*1.25 + Math.abs(vC-p.col)*1.0
+              + Math.abs(vA-p.age)*0.6 + Math.abs(vR-p.res)*1.0;
+      const fit=Math.exp(-d*2.0);
+      raw[i]=fit; if(fit>mx)mx=fit;
+    }
+    // cw = pure demographic affinity: each voter's best-fitting counties,
+    // normalised to 1. Population is carried by popK in the geometry table
+    // wherever size matters, so it is deliberately absent here.
+    const ord=raw.map((f,i)=>i).sort((a,b)=>raw[b]-raw[a]);
+    const w=new Array(names.length).fill(0); let wsum=0;
+    for(let k=0;k<12;k++){ const i=ord[k]; w[i]=raw[i]+mx*0.03; wsum+=w[i]; }
+    for(let i=0;i<w.length;i++) w[i]/=wsum;
+    VOTERS[vi].cw=w; VOTERS[vi].county=names[ord[0]];
   }
-  return rows;
+}
+/* Merge the per-county tallies from runElection() with the geometry table for
+   the election-night map. */
+function countyResults(r){
+  const geo={}; for(const c of OR_COUNTIES) geo[c[0]]=c;
+  if(r && r.counties && r.counties.length){
+    return r.counties.map(c=>{
+      const g=geo[c.name]||[];
+      return {name:c.name, abbr:c.abbr, d:g[2], cx:g[3], cy:g[4], popK:c.popK,
+              you:c.share, opp:c.opp, thL:c.thL, thR:c.thR, win:c.win, turnout:c.turnout};
+    });
+  }
+  // fallback (no per-county data): flat statewide share everywhere
+  const s=r?r.share:0.5;
+  return OR_COUNTIES.map(c=>({name:c[0],abbr:c[1],d:c[2],cx:c[3],cy:c[4],popK:c[6],
+    you:s,opp:1-s,thL:0,thR:0,win:s>=0.5?"you":"opp",turnout:r?r.turnout:0.6}));
 }
 function countyMapSVG(rows){
   const col={you:"var(--moss)",opp:"var(--clay)",third:"var(--gold)"};
@@ -6380,7 +6511,8 @@ function countyMapSVG(rows){
   let base="",fills="",labels="";
   rows.forEach((c,i)=>{
     base+=`<path d="${c.d}" fill="var(--paper-2)" stroke="var(--line)" stroke-width="0.5"/>`;
-    fills+=`<path class="cty" data-i="${i}" d="${c.d}" fill="${col[c.win]}" stroke="var(--paper)" stroke-width="0.4" opacity="0"><title>${c.name} County — carried by ${who[c.win]}</title></path>`;
+    const tn=c.turnout!=null?` · ${Math.round(c.turnout*100)}% turnout`:"";
+    fills+=`<path class="cty" data-i="${i}" d="${c.d}" fill="${col[c.win]}" stroke="var(--paper)" stroke-width="0.4" opacity="0"><title>${c.name} County — carried by ${who[c.win]}${tn}</title></path>`;
     labels+=`<text x="${c.cx}" y="${c.cy+2}" text-anchor="middle" font-size="6" font-family="var(--font-data)" fill="#1c1a17" stroke="rgba(255,255,255,0.7)" stroke-width="1.4" paint-order="stroke" style="pointer-events:none">${c.abbr}</text>`;
   });
   return `<svg class="eg-map-svg" viewBox="${OR_MAP_VIEWBOX}">${base}${fills}${labels}</svg>`;
@@ -8898,6 +9030,7 @@ for(const id in SIMULANTS)SIMULANTS[id].id=id;
 // build the simulated electorate and pre-roll to equilibrium
 buildVoters();
 for(let pr=0;pr<10;pr++){tickMembership();tickVoterApproval();}
+assignVoterCounties();   // soft-assign the electorate to Oregon's 36 counties for the results map
 // seed indicators from the REAL starting metrics (two passes so cross-derived
 // indicators like In-Migration ← Downtown settle)
 for(let _i=0;_i<3;_i++)for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();
