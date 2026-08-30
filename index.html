@@ -1272,6 +1272,23 @@ function govOpsEffMult(){
   const lvl=policyLevel(POLICIES.govOps||{value:0.3});
   return clamp(1.08-lvl*0.20, 0.80, 1.15);
 }
+/* NONPROFIT INDUSTRIAL COMPLEX drag: while that situation is active, the
+   contracted service ecosystem skims effectiveness off every homelessness /
+   childcare / housing service dollar. Scales with crisis severity; a serious
+   Government Operations build-out claws most of it back (state capacity to
+   run the contracts directly). Applied on top of every other multiplier in
+   policyEffect(). */
+const NONPROFIT_DRAG_POLICIES=new Set(["homelessServices","childcareSubsidy","preschoolForAll",
+  "affordableHousing","behavioralHealth","downtownRevitalization","officeConversion",
+  "deflectionProgram","universalMeals","rentStabilization","safeConsumption"]);
+function nonprofitDragMult(p){
+  if(!GAME.activeSituations.nonprofitComplex||!p||!NONPROFIT_DRAG_POLICIES.has(p._id))return 1;
+  const sev=sitSeverity("nonprofitComplex");
+  const admin=policyLevel(POLICIES.govOps||{value:0.3});
+  const mitig=clamp((admin-0.3)/0.7,0,1);            // 0 at default govOps, 1 at max
+  const drag=0.40*sev*(1-0.7*mitig);                 // up to −40% efficacy; ~−12% with full admin investment
+  return clamp(1-drag, 0.55, 1);
+}
 
 const METRIC_LINKS=[
   {from:"unemployment", to:"propertyCrime",coef:0.55, ref:5.0},
@@ -2995,16 +3012,48 @@ function tickCynComp(){
 function ELECTORATE_SHIFT(){
   const sw={};
   const add=(id,v)=>sw[id]=(sw[id]||0)+v;
-  // prolonged addiction / overdose / disorder crisis: disillusionment shrinks
-  // the progressive left and grows conservatism (the real post-M110 backlash)
+  // prolonged addiction / overdose / crime / street-disorder crisis:
+  // disillusionment and fear-of-crime shrink the progressive left and grow
+  // conservatism — the real post-M110 backlash, plus the classic law-and-order
+  // realignment when crime and downtown decay dominate the headlines
   let disorder=0;
   if(GAME.activeSituations.addictionCrisis)disorder+=1;
   if(GAME.activeSituations.homelessEmergency)disorder+=0.7;
+  if(GAME.activeSituations.crimeWave)disorder+=0.8;
+  if(GAME.activeSituations.propertySpike)disorder+=0.45;
+  if(GAME.activeSituations.doomLoop)disorder+=0.6;
   disorder+=clamp((METRICS.drugUse.value-62)/30,0,1)*0.6;
+  disorder+=clamp((METRICS.violentCrime.value-58)/28,0,1)*0.5;
   disorder+=clamp((INDICATORS.downtown.value<40?(40-INDICATORS.downtown.value):0)/40,0,1)*0.5;
+  disorder=Math.min(disorder,3);
   if(disorder>0){
     add("liberal",-0.38*disorder); add("socialist",-0.46*disorder);
     add("conservative",0.34*disorder); add("moderate",0.14*disorder);
+  }
+  // sustained inequality & economic unrest: the populist-left realignment —
+  // visible hardship grows the socialist bloc and thins the center and the
+  // pro-market right
+  let populism=0;
+  if(GAME.activeSituations.inequalityUnrest)populism+=1;
+  populism+=clamp((METRICS.inequality.value-66)/24,0,1)*0.7;
+  populism=Math.min(populism,2);
+  if(populism>0){
+    add("socialist",0.40*populism); add("liberal",0.12*populism);
+    add("moderate",-0.16*populism); add("conservative",-0.12*populism); add("libertarian",-0.10*populism);
+  }
+  // prolonged fiscal / business collapse: austerity and decline discredit the
+  // big-government agenda and feed the small-government right, while the educated
+  // professional class that anchors the urban left starts to leave
+  let decline=0;
+  if(GAME.activeSituations.fiscalCrisis)decline+=1;
+  if(GAME.activeSituations.businessExodus)decline+=0.8;
+  if(GAME.activeSituations.corporateExodus)decline+=0.7;
+  if(GAME.activeSituations.recession)decline+=0.5;
+  decline=Math.min(decline,2.5);
+  if(decline>0){
+    add("conservative",0.22*decline); add("libertarian",0.18*decline);
+    add("socialist",-0.24*decline); add("liberal",-0.14*decline);
+    add("urban",-0.10*decline); add("rural",0.06*decline);
   }
   // strong in-migration + prosperity: newcomers skew young, urban, liberal
   const inflow=clamp((INDICATORS.inMigration.value-55)/30,0,1);
@@ -3020,6 +3069,19 @@ function ELECTORATE_SHIFT(){
   add("libertarian",clamp((INDICATORS.taxGrievance.value-60)/40,0,1)*0.20);
   // a booming economy reassures the center
   if(GAME.activeSituations.techBoom){ add("moderate",0.12); add("liberal",0.10); }
+  // the nonprofit / social-services complex is itself a progressive machine:
+  // while it runs it mobilizes and expands the left, and hardens the fiscal right
+  if(GAME.activeSituations.nonprofitComplex){
+    add("liberal",0.15); add("socialist",0.13);
+    add("conservative",-0.06); add("libertarian",-0.05);
+  }
+  // knowledge-economy boom: educated, urban, progressive newcomers pour in
+  // faster than any backlash pushes back — the "winner" spiral that entrenches
+  // an incumbent, at the cost of a widening urban/rural split
+  if(GAME.activeSituations.knowledgeBoom){
+    add("liberal",0.22); add("socialist",0.10); add("urban",0.26);
+    add("conservative",-0.10); add("rural",-0.20); add("moderate",-0.04);
+  }
   return sw;
 }
 function tickMembership(){
@@ -3266,6 +3328,26 @@ const SITUATIONS={
     watch:{metric:"health", startAt:45, clearAt:55, badHigh:false},
     metricEffect:{gdp:-0.15}, mandateShock:-4, moodAxes:{social:0.2}, moodMag:2,
     groupMood:{poor:-7,blueCollar:-5,parents:-4,liberal:-3,retirees:-3}},
+  nonprofitComplex:{name:"Nonprofit Industrial Complex", kind:"bad", category:"condition",
+    desc:"Years of climbing homelessness spending and childcare appropriations have been routed through an ever-thickening layer of contracted nonprofits, pass-through intermediaries, and grant-compliance staff. Each additional dollar now buys less shelter and less childcare than the last — overhead compounds, providers multiply and overlap, and outcomes flatline even as the budget lines grow. The contracts have outrun the state's capacity to manage them. Politically it is self-entrenching: the sector is a progressive constituency in its own right — advocacy shops, service-worker locals, and grant-funded organizers who mobilize for the administration that feeds them, and who help draw like-minded residents into the electorate — even as fiscal conservatives and business recoil at the waste. Only a serious build-out of administrative muscle — Government Operations investment and digitization — re-takes control of procurement and restores delivery. Maxing Government Operations prevents it from taking hold at all.",
+    trigger:()=>{
+      const cc=(POLICIES.childcareSubsidy?Math.max(0,policyNetCost(POLICIES.childcareSubsidy)):0)
+              +(POLICIES.preschoolForAll?Math.max(0,policyNetCost(POLICIES.preschoolForAll)):0);
+      return GAME.turn>5 && METRICS.homelessness.value>60 && cc>0.85
+        && policyLevel(POLICIES.govOps||{value:0.3})<0.85;
+    },
+    clear:()=>{
+      const cc=(POLICIES.childcareSubsidy?Math.max(0,policyNetCost(POLICIES.childcareSubsidy)):0)
+              +(POLICIES.preschoolForAll?Math.max(0,policyNetCost(POLICIES.preschoolForAll)):0);
+      return (METRICS.homelessness.value<50 && cc<0.9)
+        || (policyLevel(POLICIES.govOps||{value:0.3})>0.8 && (INDICATORS.adminOverhead?.value??87)<80);
+    },
+    onClear:{capital:3}, onTrigger:{capital:-3}, minTurns:5,
+    watch:{metric:"homelessness", startAt:60, clearAt:50, badHigh:true},
+    costEffect:{humanServices:0.55, social:0.50, housing:0.35},
+    metricEffect:{}, moodAxes:{economic:0.25, govSize:0.55}, moodMag:2,
+    groupMood:{libertarian:-8,conservative:-6,businessClass:-6,wealthy:-4,moderate:-3,rural:-3,blueCollar:-1,
+               liberal:6,socialist:8,publicUnions:6,urban:3,students:3}},
   // ---- positive conditions ----
   boomingEconomy:{name:"Booming Economy", kind:"good", category:"condition",
     desc:"Strong growth and low joblessness lift confidence statewide.",
@@ -3337,6 +3419,17 @@ const SITUATIONS={
     metricEffect:{gdp:0.25,unemployment:-0.2,inequality:0.8}, moodMag:2, minTurns:3, mandateShock:7,
     indicatorEffect:{businessClimate:6,inMigration:4},
     groupMood:{businessClass:8,wealthy:5,collegeEducated:5,urban:2,timber:-2}},
+  knowledgeBoom:{name:"Knowledge-Economy Boom", kind:"good", category:"condition",
+    desc:"A top-tier education system and a red-hot economy have crossed the threshold that made Seattle and the Bay Area national talent magnets. Employers chase the workforce, the workforce chases the jobs, capital chases both, and your approval rides the wave — a genuine self-reinforcing 'winner' spiral. But the same magnetism drives rents and land prices up faster than wages, hollows out the middle, strains the environment, and deepens the gulf between a prosperous urban core and a rural Oregon that feels none of it. Ignored, the boom manufactures the housing and inequality crises that end booms. It holds while GDP Index stays ≥ 72 and Educational Attainment ≥ 74; it breaks below GDP Index 64 or Attainment 70.",
+    trigger:()=>GAME.turn>6 && effective("gdp")>=72 && METRICS.education.value>=74,
+    clear:()=>effective("gdp")<64 || METRICS.education.value<70,
+    minTurns:4, mandateShock:3,
+    metricEffect:{gdp:0.05, unemployment:-0.08, inequality:0.25, homelessness:0.18, environment:-0.18},
+    indicatorEffect:{inMigration:2, businessClimate:1.5, housingAffordability:-3, ruralAlienation:2, taxGrievance:1.2},
+    costEffect:{humanServices:0.12, housing:0.12},
+    moodMag:1.5,
+    groupMood:{collegeEducated:5, businessClass:4, wealthy:3, urban:3, liberal:3, moderate:1,
+               renters:-4, poor:-4, blueCollar:-3, rural:-5, timber:-3}},
   droughtWater:{name:"Drought & Water Crisis", kind:"bad", category:"event",
     desc:"A severe drought pits farms, fish, and cities against each other over water.",
     metricEffect:{environment:-2,gdp:-0.2,loggingRate:-5}, moodAxes:{environment:-0.2}, moodMag:1, minTurns:3,
@@ -3713,7 +3806,7 @@ function policyEffect(p,k){
   } else {
     raw=(p.effects&&p.effects[k]!==undefined)?effExpr(p.effects[k],eff,"p:"+(p._id||p.name)+":"+k):0;
   }
-  return raw*efficacy()*(p.revenueFull||p.noOverhead?1:govOverheadMult());
+  return raw*efficacy()*(p.revenueFull||p.noOverhead?1:govOverheadMult())*nonprofitDragMult(p);
 }
 function tickPhase(){
   // Large public unions slow implementation: institutional resistance and bargaining requirements
@@ -5868,6 +5961,11 @@ function renderDetail(){
     h+=`<div class="sectionhdr">${m.name}</div><div class="sectionsub">${m.realNote||''}</div>`;
     h+=`<div class="detailrow"><span class="pill dom">State statistic</span><span class="pill">Measured condition — moved by policy, agencies, crises, and other statistics</span></div>`;
     h+=`<div class="detailval">${fmtMetric(m)} ${trendArrow(k)}</div>`;
+    if(k==="gdp"){
+      const gi=Math.round(effective("gdp"));
+      const giCol=gi>=66?'var(--good)':gi>=52?'var(--warn)':'var(--bad)';
+      h+=`<div class="detailrow"><span class="pill">📊 GDP Index: <b style="color:${giCol}">${gi}</b>/100</span><span class="pill">The 0–100 economic-strength score campaign promises track — <b>50 + growth×8</b> (≈60 at trend growth, ≈66 at 2%). "GDP Index ≥ 60" means growth at or above ~1.25%.</span></div>`;
+    }
     h+=`<div class="chartbox"><div class="charttitle">Value over time</div>
       ${sparkline(GAME.history["m_"+k],{axis:true, marks:policyMarksFor(k), color:m.invert?'var(--clay)':'var(--moss)',fmt:v=>m.fmt==="pctRaw"?v.toFixed(1)+"%":Math.round(v)})}
       <div class="chartnote">Dashed lines mark when policies affecting this statistic were enacted.</div></div>`;
@@ -6120,7 +6218,7 @@ function renderDetail(){
         const sw=ELECTORATE_SHIFT();
         const shift=sw[sid]||0;
         if(Math.abs(shift)>0.03)h+=effectBar("Current conditions pull",shift*100,25,{color:shift>=0?'var(--good)':'var(--clay)',fmt:v=>(v>=0?'+':'')+v.toFixed(1)+'%'});
-        h+=`<div class="threshline" style="margin-top:4px">Core share is shaped by how voters' own economic and social leanings align with this ideology. Active crises (addiction, homelessness, tax revolt, tech boom, in-migration) gradually tilt the ideological makeup of the electorate.</div>`;
+        h+=`<div class="threshline" style="margin-top:4px">Core share is shaped by how voters' own economic and social leanings align with this ideology. Lasting conditions gradually tilt the ideological makeup of the electorate: addiction, homelessness, crime, and downtown decay grow the right; inequality unrest and the nonprofit complex grow the left; fiscal and business collapse feed the small-government right; a knowledge-economy boom and heavy in-migration grow the urban left.</div>`;
       }
       if(!md&&!isIncomeMob&&!isIdeology){
         h+=`<div class="threshline">Membership tracks voter demographics — urbanity, income, age, and homeownership rates — which shift gradually as Oregon's economic and social conditions evolve.</div>`;
@@ -6243,6 +6341,21 @@ function renderDetail(){
         const scale=Math.max(0.5,...items.map(x=>Math.abs(x.val)));
         for(const x of items)h+=effectBar(x.name,x.val,scale,{color:x.good?'var(--good)':'var(--clay)',link:x.link,fmt:x.fmt});
         h+=`</div>`;
+      }
+      // program-cost inflation (caseloads, response, contract overhead)
+      const cparts=Object.entries(s.costEffect||{}).filter(([a])=>SPENDING[a]);
+      if(cparts.length){
+        const sev=sitSeverity(sid);
+        h+=`<div class="ebgroup-label">Added program cost while active</div><div class="ebgroup">`;
+        const cscale=Math.max(0.3,...cparts.map(([,v])=>Math.abs(v)));
+        for(const [a,v] of cparts)
+          h+=effectBar("💵 "+SPENDING[a].name,v*sev,cscale,{color:'var(--clay)',fmt:x=>'+$'+x.toFixed(2)+'B/yr'});
+        h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Scales with crisis severity — shown at the current level.</div></div>`;
+      }
+      if(sid==="nonprofitComplex"){
+        const sev=sitSeverity(sid), admin=policyLevel(POLICIES.govOps||{value:0.3});
+        const mitig=clamp((admin-0.3)/0.7,0,1), drag=Math.round(40*sev*(1-0.7*mitig));
+        h+=`<div class="ebgroup-label">Service delivery drag</div><div class="ebnote">Homelessness, childcare, and housing service policies are currently delivering about <b>−${drag}%</b> of their nominal effect (contract overhead and provider fragmentation). Raising <b>Government Operations</b> investment claws this back — at maximum it falls to roughly −${Math.round(40*sev*0.3)}%.</div>`;
       }
     }
     // overall + per-group opinion impact
