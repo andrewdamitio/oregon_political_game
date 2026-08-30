@@ -1810,7 +1810,7 @@ const SECTION_OF={
   // public services
   stateSchoolFund:"pubservices", universities:"pubservices", stateColleges:"pubservices", communityColleges:"pubservices",
   higherEd:"pubservices", oregonPromise:"pubservices", phoneBanSchools:"pubservices", digitalGov:"pubservices", odot:"pubservices", motorVoter:"pubservices",
-  rankedChoice:"pubservices", fullTimeLegislature:"pubservices",
+  rankedChoice:"pubservices", fullTimeLegislature:"pubservices", quorumReform:"pubservices",
   // law & order
   policing:"laworder", prisonRegimen:"laworder", measure11:"laworder", corrections:"laworder", judiciary:"laworder", civilCommitment:"laworder", pretrialDetention:"laworder",
   gunStorage:"laworder", sexWorkDecrim:"laworder", cannabis:"laworder", campingPolicy:"laworder", eVerify:"laworder",
@@ -2523,6 +2523,12 @@ const CATALOG={
     effects:{}, indicatorEffects:{taxGrievance:2},
     blocEffect:{collegeEducated:3, publicUnions:3, liberal:2, socialist:1, moderate:1, urban:1, conservative:-4, libertarian:-6, rural:-4, businessClass:-2},
     ideology:{govSize:0.4, economic:-0.1}},
+  quorumReform:{name:"Simple-Majority Quorum", domain:"economy", icon:"columns", mechanic:"law", reform:true,
+    desc:"A constitutional amendment lowering the legislative quorum from two-thirds to a simple majority — the reform that renders denial-of-quorum walkouts pointless. The minority can still debate, delay, and take it to the voters, but it can no longer shut the building down. Ends legislative walkouts for good and lets an active one collapse immediately. Rural and eastern Oregon treat it as the Portland majority pulling up the ladder — a standing bump to rural alienation that never fully fades.",
+    enabled:true, capital:18, enactCapital:22, repealCost:14,
+    effects:{}, indicatorEffects:{ruralAlienation:5},
+    blocEffect:{liberal:3, urban:3, publicUnions:3, collegeEducated:2, socialist:2, moderate:1, conservative:-7, libertarian:-5, rural:-8, timber:-5, businessClass:-2},
+    ideology:{govSize:0.2, economic:-0.1}},
   preschoolForAll:{name:"Universal Preschool", domain:"economy", icon:"cap", mechanic:"law",
     desc:"State-funded universal pre-K for all Oregon 3- and 4-year-olds. The evidence base is strong — high-quality early childhood education produces the highest return of any education investment, raising graduation rates, reducing crime, and compressing lifetime inequality. But it is expensive — over $1B/biennium — and, like Multnomah's Preschool for All, it is delivered through a patchwork of contracted providers, so it feeds the Nonprofit Industrial Complex: while that crisis runs, a large share of the appropriation is skimmed by overhead and its outcomes are dragged down.",
     enabled:true, costFull:1.2, enactCapital:12, repealCost:11,
@@ -3275,10 +3281,12 @@ const DILEMMAS={
     ]},
   walkoutConcessions:{
     title:"Walkout: Caucus Demands",
-    text:"Republican legislators are in Idaho and your floor staff can't move a single bill. Their caucus is circulating a list of demands. You can offer a real concession and end this — or hold out and keep burning capital every quarter waiting for alienation to cool.",
+    icon:"columns",
+    text:"Republican legislators are in Idaho and your floor staff can't move a single bill. Their caucus is circulating a list of demands. You can offer a real concession and end this, hold out and keep burning capital every quarter waiting for alienation to cool, or refuse to engage at all and govern around them.",
     influence:()=>GAME.activeSituations.gopWalkout?0.95:0,
     options:[
       {label:"Roll back the Forest Practices Act",
+       avail:()=>POLICIES.forestPractices && POLICIES.forestPractices.tierIndex>0,
        text:"The Forest Practices Act drops one tier — loosening private forest harvest restrictions. A direct, tangible win for timber country. Caucus returns to the chamber; environmentalists and urbanites feel genuinely betrayed.",
        apply:()=>{
          const fp=POLICIES.forestPractices;
@@ -3296,6 +3304,7 @@ const DILEMMAS={
          GAME.log.push("🪵 Forest Practices rolled back one tier — walkout ends");
        }},
       {label:"Restrict public sector collective bargaining",
+       avail:()=>POLICIES.collectiveBargaining && POLICIES.collectiveBargaining.tierIndex>0,
        text:"Collective bargaining rights drop to 'Limited Rights' — public employees can still negotiate wages but not benefits or conditions. A major concession to fiscal conservatives. Organized labor is furious.",
        apply:()=>{
          const cb=POLICIES.collectiveBargaining;
@@ -3315,7 +3324,8 @@ const DILEMMAS={
          GAME.log.push("✊ Collective bargaining restricted to Limited Rights — walkout ends");
        }},
       {label:"Restore philosophical vaccine exemptions",
-       text:"The End Nonmedical Vaccine Exemptions law is repealed — or shelved if it hasn't passed yet. Philosophical and religious exemptions return to Oregon schools. Rural and conservative legislators claim a culture-war win. Public health advocates are alarmed.",
+       avail:()=>!!POLICIES.vaccineMandate,
+       text:"The End Nonmedical Vaccine Exemptions law is repealed. Philosophical and religious exemptions return to Oregon schools. Rural and conservative legislators claim a culture-war win. Public health advocates are alarmed.",
        apply:()=>{
          if(POLICIES.vaccineMandate){
            const p=Object.assign({},POLICIES.vaccineMandate);
@@ -3336,6 +3346,7 @@ const DILEMMAS={
          GAME.log.push("💉 Philosophical vaccine exemptions restored — walkout ends");
        }},
       {label:"Enact the Business Deregulation Package",
+       avail:()=>!!CATALOG.deregulation || (POLICIES.deregulation && (POLICIES.deregulation.value||0)<0.9),
        text:"Oregon's sweeping deregulation package passes — permitting rollbacks, environmental rule loosening, licensing cuts. Business cheers; labor and environmentalists are furious. Rural legislators claim a win for the economy they represent.",
        apply:()=>{
          if(CATALOG.deregulation){
@@ -3364,8 +3375,8 @@ const DILEMMAS={
          endSituation("gopWalkout");
          GAME.log.push("✂️ Business Deregulation Package enacted — walkout ends");
        }},
-      {label:"Hold the line — no concessions",
-       text:"No deal. The walkout continues draining capital every quarter. Rural alienation may cool on its own — eventually. Your progressive base respects the refusal to cave, for now.",
+      {label:"Hold the line — wait them out",
+       text:"No deal, but you keep the quorum call live and the pressure on. The walkout continues draining capital every quarter until rural alienation cools on its own. Your progressive base respects the refusal to cave, for now.",
        apply:()=>{
          GAME.capital=clamp(GAME.capital-6,0,100);
          createGrudge("i_ruralAlienation",-4,0.88,"Walkout standoff continues");
@@ -3374,6 +3385,22 @@ const DILEMMAS={
          createGrudge("v_rural",-5,0.90,"Governor refuses any deal");
          createGrudge("v_timber",-3,0.88,"No concessions from Salem");
          GAME.log.push("⚔ Held the line — walkout continues, ◈ 6 drained");
+       }},
+      {label:"Ignore them — govern by executive action",
+       text:"You stop negotiating and stop waiting. No concessions, no daily quorum call — you run the state by executive order and let the caucus sit in Idaho until they get bored. The building goes dark for months: almost nothing moves through Salem and your political-capital income all but dries up for the next several quarters. Your base loves the defiance; moderates and business call it a governance crisis.",
+       apply:()=>{
+         endSituation("gopWalkout");
+         GAME.walkoutFreeze=Math.max(GAME.walkoutFreeze||0,4);
+         GAME.walkoutIgnoredUntil=GAME.turn+6;
+         createGrudge("v_liberal",8,0.90,"Refused to negotiate with the walkout");
+         createGrudge("v_socialist",9,0.90,"Governed straight around the caucus");
+         createGrudge("v_urban",4,0.90,"Stood up to the walkout");
+         createGrudge("v_rural",-9,0.90,"Governor rules by decree");
+         createGrudge("v_conservative",-8,0.90,"Executive overreach");
+         createGrudge("v_moderate",-6,0.90,"Alarmed by the standoff");
+         createGrudge("v_businessClass",-5,0.90,"Salem paralysed");
+         createGrudge("i_ruralAlienation",6,0.86,"Legislature bypassed entirely");
+         GAME.log.push(ico('columns')+" Ignored the walkout — governing by executive action; capital income frozen for ~4 quarters");
        }},
     ]},
   ransomware:{title:"Ransomware Demand", icon:"monitor", cooldown:24,
@@ -4077,9 +4104,19 @@ const SITUATIONS={
     metricEffect:{health:-2.5}, moodMag:1, minTurns:1, onTrigger:{capital:-3},
     groupMood:{suburban:-5,blueCollar:-3,parents:-5}},
   gopWalkout:{name:"Legislative Walkout", kind:"bad", category:"condition",
-    desc:"When rural alienation runs this high, Republican legislators deny quorum — the tactic that killed cap-and-trade twice (HB 2020, SB 1530). The walkout doesn't just freeze your agenda: it drains political capital every quarter while legislators sit on their hands. You can wait for alienation to cool on its own, or accept a concession demand — but concessions hand real policy wins to conservative and timber interests.",
-    trigger:()=>INDICATORS.ruralAlienation.value>65,
-    clear:()=>INDICATORS.ruralAlienation.value<52,
+    desc:"When rural alienation runs high and the conservative caucus is furious, Republican legislators deny quorum — the tactic that killed cap-and-trade twice (HB 2020, SB 1530). The walkout doesn't just freeze your agenda: it drains political capital every quarter while legislators sit on their hands. The angrier rural and conservative Oregon get, the likelier it is to start. You can wait for alienation to cool, accept a concession demand (a real policy win for conservative and timber interests), or refuse to engage entirely and govern by executive action — which cuts off almost all your capital income for several quarters. A Simple-Majority Quorum amendment removes the tactic for good.",
+    trigger:()=>{
+      if(POLICIES.quorumReform) return false;                       // amendment ended denial-of-quorum
+      if(GAME.turn < (GAME.walkoutIgnoredUntil||0)) return false;    // you already chose to ignore this round
+      const ra=INDICATORS.ruralAlienation.value;
+      if(ra<56) return false;
+      const angry=sid=>{const s=SIMULANTS[sid]; if(!s)return 0;
+        return clamp((46-(s.approval??50))/40,0,1) + clamp((s.cynicism||0)*0.02,0,0.4);};
+      const caucus = angry("rural")*0.45 + angry("conservative")*0.40 + angry("timber")*0.15;
+      const heat = clamp((ra-56)/20,0,1)*0.55 + caucus*0.60;
+      return Math.random() < clamp(0.03 + heat*0.32, 0, 0.55);
+    },
+    clear:()=>POLICIES.quorumReform || INDICATORS.ruralAlienation.value<52,
     metricEffect:{}, moodMag:3, minTurns:2, onTrigger:{capital:-10}, onClear:{capital:4},
     capitalDrain:-4,
     indicatorEffect:{ruralAlienation:-8},
@@ -4259,7 +4296,7 @@ const GAME={
   ground:{perception:{}, turnout:{}, fatigue:{}, fatigueAge:{}}, campLog:[],
   activists:{}, activistCooldowns:{},
   termLengthTurns:16, midtermTurn:8, term:1,
-  activeSituations:{}, situationAge:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null, prisonLaborVoteHeld:false,
+  activeSituations:{}, situationAge:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null, prisonLaborVoteHeld:false, walkoutFreeze:0, walkoutIgnoredUntil:0,
   // ---- FISCAL MODEL (research: income-tax dependence + kicker + reserves) ----
   rainyDay:1.87,        // Rainy Day Fund ($B) — real 2023-25 end balance
   eduStability:1.0,     // Education Stability Fund ($B)
@@ -5717,7 +5754,7 @@ function showQuarterReport(){
     <div class="rrow"><span class="rlabel">Balance</span><span class="rdelta ${balClass}">${b.balance>=0?'+':''}$${b.balance.toFixed(1)}B</span></div>
     <div class="rrow"><span class="rlabel">Reserves (Rainy Day)</span><span class="rval">$${GAME.rainyDay.toFixed(1)}B</span></div>
     ${debtLine}
-    <div class="rrow"><span class="rlabel">Capital income</span><span class="rval">◈ ${GAME.capitalPerTurn}/qtr</span></div></div>`;
+    <div class="rrow"><span class="rlabel">Capital income</span><span class="rval">◈ ${GAME.capitalPerTurn}/qtr${(GAME.walkoutFreeze||0)>0?` <span style="color:var(--clay)">(walkout freeze · ${GAME.walkoutFreeze}q left)</span>`:''}</span></div></div>`;
   const events=(GAME.log||[]).slice(-6).filter(l=>/began|RESOLVED|Midterms|kicker|Kicker|Reserves|Promise|Scandal|boom|Windfall|Federal|Deficit|debt|Austerity/i.test(l));
   const eventBlock=events.length?`<div class="rsection"><div class="rsec-h">${ico('doc')} This Quarter</div>${events.map(e=>`<div class="revent">${e}</div>`).join("")}</div>`:"";
   const cyc=GAME.econCycle;
@@ -5786,7 +5823,10 @@ function _calcCapital(){
   // a full-time professional legislature is a standing partner in Salem —
   // continuous sessions and real staff mean more gets done every quarter
   const legBonus = POLICIES.fullTimeLegislature ? 3 : 0;
-  GAME.capitalPerTurn=+((5+mand/100*10+legBonus)*starvationFactor*unionBlock).toFixed(1);
+  let cpt=(5+mand/100*10+legBonus)*starvationFactor*unionBlock;
+  // a walkout you chose to ignore: the chamber won't function for you for a while
+  if((GAME.walkoutFreeze||0)>0){ cpt*=0.18; GAME.walkoutFreeze--; }
+  GAME.capitalPerTurn=+cpt.toFixed(1);
   GAME.capital=Math.round(clamp(GAME.capital+GAME.capitalPerTurn,0,100));
   if(GAME.activists){for(const act of Object.values(GAME.activists)){
     GAME.capital=Math.round(clamp(GAME.capital-(act.capitalDrain||0)+(act.capitalGain||0),0,100));
@@ -8108,6 +8148,7 @@ function renderDilemma(){
   let h=`<div class="dilemma-icon">${ico(d.icon)}</div><h2>${d.title}</h2>
     <div class="dilemma-text">${d.text}</div><div class="dilemma-opts">`;
   d.options.forEach((o,i)=>{
+    if(o.avail && !o.avail())return;   // hide options that would be a no-op (e.g. concession already made / policy already passed)
     h+=`<button class="dilemma-opt" data-opt="${i}"><span class="do-label">${o.label}</span><span class="do-sub">${o.text}</span></button>`;
   });
   h+=`</div><div class="dilemma-foot">You must decide before the quarter ends. There is no clean choice — both sides will remember.</div>`;
