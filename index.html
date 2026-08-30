@@ -139,6 +139,8 @@
   .tiers{display:flex;gap:5px;flex-wrap:wrap}
   .tier{padding:4px 10px;border:1px solid var(--line);border-radius:2px;cursor:pointer;font-size:12px;background:var(--paper)}
   .tier.on{background:var(--moss);color:var(--paper);border-color:var(--moss)}
+  .tier.locked{opacity:.45;cursor:not-allowed;color:var(--muted-3);background:repeating-linear-gradient(45deg,var(--paper),var(--paper) 4px,var(--paper-2) 4px,var(--paper-2) 5px)}
+  .tier.locked .ico{width:.85em;height:.85em;vertical-align:-.12em;margin-right:3px}
   .toggle{width:42px;height:22px;border-radius:11px;background:var(--line);position:relative;cursor:pointer;flex:none}
   .toggle.on{background:var(--moss)}
   .toggle i{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--paper);transition:left .15s}
@@ -1945,20 +1947,21 @@ const POLICIES={
     real:{min:0,max:100,unit:"% strictness",decimals:0,label:"enforcement strictness"},
     ideology:{social:0.6,govSize:0.4}},
   prisonRegimen:{name:"Prison Regimen", domain:"social", icon:"chains", enacted:true, mechanic:"tier", noRepeal:true,
-    desc:"The operating posture of Oregon's prisons — from a harsh, punitive regime to a rehabilitative, programming-rich one. You can't abolish corrections, only set its character. Harsher cuts costs and pleases law-and-order voters but worsens recidivism and health; lighter costs more but lowers long-run crime.",
-    tiers:["Harsh / Punitive","Standard","Rehabilitative","Restorative"],
-    tierIndex:1, costByTier:[0,0.15,0.4,0.6], capital:7,
+    desc:"The operating posture of Oregon's prisons — a slider you can move but never switch off. At one end, hard labor: work crews and prison industries that all but pay for themselves and please law-and-order voters, but that churn out re-offenders and undercut free labor. At the other, the Nordic model: small units, education, treatment, normal wages for prison work, staff trained as mentors — expensive, but the recidivism evidence is overwhelming. In between sit the punitive and rehabilitative middle. Effects phase in slowly as the prison population turns over.",
+    tiers:["Hard Labor","Punitive","Rehabilitative","Nordic Model"],
+    tierIndex:1, costByTier:[0,0.12,0.5,0.9], capital:7,
     effects:{},
-    // recidivism is the channel: a punitive regime churns out re-offenders
-    // (crime up, health down); rehabilitation and restorative justice cut
-    // long-run crime meaningfully — Oregon's own recidivism research backs the
-    // direction. Effects phase in slowly (prison populations turn over gradually).
     tierEffects:[
-      {violentCrime:5,propertyCrime:4,health:-4,incarcerationRate:3},
+      {violentCrime:6,propertyCrime:5,health:-5,incarcerationRate:4},
       {violentCrime:0,propertyCrime:0,health:0,incarcerationRate:0},
       {violentCrime:-5,propertyCrime:-6,health:4,incarcerationRate:-3},
-      {violentCrime:-8,propertyCrime:-9,health:6,incarcerationRate:-6}],
-    tierIdeology:[{social:0.7,govSize:0.2},{social:0.2},{social:-0.4,govSize:-0.2},{social:-0.7,govSize:-0.3}]},
+      {violentCrime:-9,propertyCrime:-10,health:7,incarcerationRate:-7}],
+    tierIdeology:[{social:0.7,economic:0.2,govSize:0.2},{social:0.2},{social:-0.4,govSize:-0.2},{social:-0.8,govSize:-0.4}],
+    tierBlocEffects:[
+      {conservative:4, libertarian:2, businessClass:3, rural:2, blueCollar:-2, moderate:1, socialist:-6, liberal:-5},
+      {conservative:2, moderate:1, socialist:-2, liberal:-2},
+      {liberal:3, socialist:2, publicUnions:2, collegeEducated:1, moderate:1, conservative:-2},
+      {liberal:5, socialist:5, publicUnions:2, collegeEducated:3, conservative:-5, libertarian:-3, rural:-3, businessClass:-2}]},
   bottleBill:{name:"Bottle Bill", domain:"envInfra", icon:"recycle", enacted:true, mechanic:"law",
     desc:"Oregon's landmark 1971 Bottle Bill — the first in the nation. The 10¢ deposit drives ~86% redemption, the best rate in the country, run by the nonprofit OBRC. Repealing it would be a notorious environmental retreat.",
     enabled:true, costFull:0.1, capital:4, repealCost:7,
@@ -2506,8 +2509,9 @@ const AGENCIES={
     effects:{}, indicatorEffects:{businessClimate:3}, ideology:{}},
   corrections:{name:"Dept. of Corrections", domain:"social", icon:"lock",
     funding:0.5, costMin:0.7, costFull:1.5, capital:4, cutSurcharge:1.3,
-    desc:"State prisons and community supervision. The final link in the justice pipeline: without bed capacity, convictions produce early releases and courts resort to plea deals that skip incarceration entirely. Funding also reduces recidivism through programming. Crucially, crime reduction from incapacitation is capped by the weakest of police, prosecution, and jail capacity — a full prison negates the gains from both arrests and convictions.",
-    effects:{}, ideology:{social:0.3,govSize:0.2}},
+    desc:"State prisons and community supervision. Two jobs. First, it is the final link in the justice pipeline: without bed capacity, convictions produce early releases and courts resort to plea deals that skip incarceration entirely — so cutting it drags down Justice Pipeline Effectiveness alongside police and the courts. Second, on its own, the programming budget (education, treatment, job training, reentry) drives recidivism: fund it above the baseline and released people re-offend less; starve it and the same beds churn out more crime. The Prison Regimen policy sets how that budget is spent.",
+    effects:{violentCrime:{b:2,c:-6,i:5}, propertyCrime:{b:2,c:-7,i:5}, health:{b:0,c:3,i:4}},
+    ideology:{social:0.3,govSize:0.2}},
   judiciary:{name:"Judicial Department", domain:"social", icon:"columns",
     funding:0.5, costMin:0.20, costFull:0.55, capital:4, cutSurcharge:1.2,
     desc:"Courts, prosecutors, and sentencing capacity. The middle link: arrests that aren't prosecuted don't reduce crime. Higher capacity increases incarceration and drives down violent and property crime. But incapacitation is bottlenecked by the weakest of police, prosecution, and jail capacity — underfund the courts and even heavy policing and a full prison lose their leverage. Civil-liberties voters push back on high incarceration regardless.",
@@ -3037,6 +3041,51 @@ const DILEMMAS={
          createGrudge("v_moderate",-2,0.9,"Tolerated the waste");
          createGrudge("capital",2);
          GAME.log.push("The prosecutions are shelved — the service sector keeps its contracts");
+       }}
+    ]},
+  prisonLaborBan:{title:"Ballot Measure: Ban Involuntary Prison Labor", icon:"chains", cooldown:900,
+    text:"A citizen initiative has qualified for the ballot: strike the 'except as punishment for crime' clause from the state constitution, ending forced, unpaid prison labor and requiring that inmates who work be paid. It is Oregon's real Measure 112. Corrections‑industries revenue and the Hard Labor regimen are on the table; so is your standing with reformers and with law‑and‑order voters. Whatever you do, the voters get the final say.",
+    influence:()=>(GAME.turn>7 && !GAME.prisonLaborVoteHeld)
+      ? 0.30 + ((POLICIES.prisonRegimen&&POLICIES.prisonRegimen.tierIndex<=1)?0.35:0.05) : -1,
+    options:[
+      {label:"Champion the amendment", text:"You put the office behind it. It passes comfortably. Forced prison labor is gone for good — the Hard Labor regimen can never be set again — and correctional industries must pay a wage.",
+       apply:()=>{
+         GAME.prisonLaborVoteHeld=true;
+         if(POLICIES.prisonRegimen){ POLICIES.prisonRegimen.tierMin=1; if(POLICIES.prisonRegimen.tierIndex<1)POLICIES.prisonRegimen.tierIndex=1; }
+         createGrudge("v_socialist",6,0.9,"Championed prison-labor abolition");
+         createGrudge("v_liberal",5,0.9,"Championed prison-labor abolition");
+         createGrudge("v_publicUnions",3,0.9,"Championed prison-labor abolition");
+         createGrudge("v_collegeEducated",2,0.9,"Championed prison-labor abolition");
+         createGrudge("v_conservative",-4,0.9,"Backed the prison-labor ban");
+         createGrudge("v_libertarian",-2,0.9,"Backed the prison-labor ban");
+         createGrudge("v_rural",-3,0.9,"Backed the prison-labor ban — prison-town jobs");
+         createGrudge("v_businessClass",-3,0.9,"Lost cheap correctional-industries labor");
+         createGrudge("capital",-3);
+         GAME.log.push(ico('chains')+" Measure passes — involuntary prison labor abolished; Hard Labor regimen barred for good");
+       }},
+      {label:"Stay neutral — let the voters decide", text:"You take no position. It passes anyway, the way it did in real life. You get little credit and little blame, but the Hard Labor regimen is barred all the same.",
+       apply:()=>{
+         GAME.prisonLaborVoteHeld=true;
+         if(POLICIES.prisonRegimen){ POLICIES.prisonRegimen.tierMin=1; if(POLICIES.prisonRegimen.tierIndex<1)POLICIES.prisonRegimen.tierIndex=1; }
+         createGrudge("v_socialist",2,0.9,"Prison-labor ban passed");
+         createGrudge("v_liberal",2,0.9,"Prison-labor ban passed");
+         createGrudge("v_conservative",-1,0.9,"Prison-labor ban passed");
+         GAME.log.push(ico('chains')+" Measure passes on its own — Hard Labor regimen barred");
+       }},
+      {label:"Campaign against it", text:"You spend real capital fighting it, and it narrowly fails. Hard Labor stays available and the correctional-industries revenue is safe — but the reform coalition will remember this.",
+       apply:()=>{
+         GAME.prisonLaborVoteHeld=true;
+         createGrudge("v_conservative",5,0.9,"Defeated the prison-labor ban");
+         createGrudge("v_businessClass",4,0.9,"Kept correctional-industries labor");
+         createGrudge("v_rural",3,0.9,"Kept prison-town jobs");
+         createGrudge("v_libertarian",2,0.9,"Defeated the ban");
+         createGrudge("v_socialist",-8,0.9,"Fought to keep forced prison labor");
+         createGrudge("v_liberal",-6,0.9,"Fought to keep forced prison labor");
+         createGrudge("v_collegeEducated",-3,0.9,"Fought to keep forced prison labor");
+         if(SIMULANTS.liberal)SIMULANTS.liberal.cynicism=(SIMULANTS.liberal.cynicism||0)+3;
+         if(SIMULANTS.socialist)SIMULANTS.socialist.cynicism=(SIMULANTS.socialist.cynicism||0)+3;
+         createGrudge("capital",-4);
+         GAME.log.push(ico('chains')+" Measure defeated — forced prison labor stays on the books");
        }}
     ]},
   publicStrike:{title:"The Public Employee Strike", icon:"handshake",
@@ -4120,7 +4169,7 @@ const GAME={
   ground:{perception:{}, turnout:{}, fatigue:{}, fatigueAge:{}}, campLog:[],
   activists:{}, activistCooldowns:{},
   termLengthTurns:16, midtermTurn:8, term:1,
-  activeSituations:{}, situationAge:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null,
+  activeSituations:{}, situationAge:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null, prisonLaborVoteHeld:false,
   // ---- FISCAL MODEL (research: income-tax dependence + kicker + reserves) ----
   rainyDay:1.87,        // Rainy Day Fund ($B) — real 2023-25 end balance
   eduStability:1.0,     // Education Stability Fund ($B)
@@ -7146,7 +7195,16 @@ function policyControlHTML(id,p){
     const sFloor=p.sliderFloor||0;
     return `<span class="mono" style="font-size:11px;color:var(--muted-2)">${lbl}</span><input type="range" min="${sFloor}" max="1" step="0.05" value="${Math.max(p.value,sFloor)}" data-pol="${id}" data-kind="slider"><span class="mono">${policyRealLabel(p)}</span>`;
   }
-  if(p.mechanic==="tier"){let s=`<div class="tiers">`;p.tiers.forEach((t,i)=>s+=`<span class="tier ${i===p.tierIndex?'on':''}" data-pol="${id}" data-kind="tier" data-i="${i}">${t}</span>`);return s+`</div>`;}
+  if(p.mechanic==="tier"){
+    const lo=p.tierMin||0;
+    let s=`<div class="tiers">`;
+    p.tiers.forEach((t,i)=>{
+      const locked=i<lo;
+      s+=`<span class="tier ${i===p.tierIndex?'on':''}${locked?' locked':''}" data-pol="${id}" ${locked?'':`data-kind="tier"`} data-i="${i}"${locked?' title="Barred by ballot measure"':''}>${locked?ico('lock'):''}${t}</span>`;
+    });
+    if(lo>0)s+=`<span class="threshline" style="width:100%;margin-top:4px">Settings below <b>${p.tiers[lo]}</b> are barred by ballot measure.</span>`;
+    return s+`</div>`;
+  }
   if(p.mechanic==="intensity")
     return `<div class="toggle ${p.enabled?'on':''}" data-pol="${id}" data-kind="toggle"><i></i></div><input type="range" min="0" max="1" step="0.05" value="${p.intensity}" data-pol="${id}" data-kind="intensity" ${p.enabled?'':'disabled'}><span class="mono">${p.enabled?policyRealLabel(p):'off'}</span>`;
   if(p.mechanic==="toggle")
@@ -7291,7 +7349,7 @@ function snapshotFor(key){
 }
 function restoreFrom(key,snap){
   const d=JSON.parse(snap);
-  if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];if(!p)return;p.value=d.v;p.tierIndex=d.t;p.enabled=d.e;p.intensity=d.i;if(d.ch&&p.channels)p.channels.forEach((c,i)=>c.share=d.ch[i]);}
+  if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];if(!p)return;p.value=d.v;p.tierIndex=Math.max(d.t||0,p.tierMin||0);p.enabled=d.e;p.intensity=d.i;if(d.ch&&p.channels)p.channels.forEach((c,i)=>c.share=d.ch[i]);}
   else if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];if(a)a.funding=d.f;}
   else if(key==="landuse")LANDUSE.index=d.i;
 }
@@ -7384,7 +7442,7 @@ function wirePolicyControls(){
     disp.textContent='$'+(revenueBySource()[revKey]??0).toFixed(2)+'B/yr';
   }));
   main.querySelectorAll('[data-kind="intensity"]').forEach(el=>el.addEventListener('change',e=>{const p=POLICIES[e.target.dataset.pol];if(p)p.intensity=parseFloat(e.target.value);render();}));
-  main.querySelectorAll('[data-kind="tier"]').forEach(el=>el.addEventListener('click',e=>{const p=POLICIES[e.target.dataset.pol],i=+e.target.dataset.i;if(!p||i===p.tierIndex)return;p.tierIndex=i;render();}));
+  main.querySelectorAll('[data-kind="tier"]').forEach(el=>el.addEventListener('click',e=>{const p=POLICIES[e.target.dataset.pol],i=+e.target.dataset.i;if(!p||i===p.tierIndex||i<(p.tierMin||0))return;p.tierIndex=i;render();}));
   main.querySelectorAll('[data-kind="toggle"]').forEach(el=>el.addEventListener('click',e=>{const p=POLICIES[e.currentTarget.dataset.pol];if(p)p.enabled=!p.enabled;render();}));
   // agency funding
   main.querySelectorAll('[data-agency]').forEach(el=>el.addEventListener('change',e=>{
