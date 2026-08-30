@@ -1514,7 +1514,7 @@ const INDICATORS={
     ],
     feedback:{health:0.025, violentCrime:-0.018, propertyCrime:-0.012, homelessness:-0.015}},
   adminOverhead:{name:"Administrative Overhead", icon:"folder", value:87,
-    desc:"Every dollar of active program spending directly raises this gauge — each $1B/yr of policy cost adds 5 points. Large programs dominate; the breakdown below shows which of your programs contribute most. Agencies count too, but only for funding you dial ABOVE or BELOW their inherited default — the standing bureaucracy itself is priced into the base floor below; ramping an agency's budget up is what adds new coordination burden. Two levers bring it down: Government Digitization (every point subtracts 0.8) and the Government Operations policy (direct −8 reduction plus long-run Digitization gains).\n\nAt 85 or below: all programs run at full strength. Above 85: Administrative Strain activates and policy effectiveness erodes up to −15% at overhead 100. Above 95: Administrative Overload adds economic damage and −1 capital/turn on top.",
+    desc:"Every dollar of active program spending directly raises this gauge — each $1B/yr of policy cost adds 5 points. Large programs dominate; the breakdown below shows which of your programs contribute most. Agencies count too, but only for funding you dial ABOVE or BELOW their inherited default — the standing bureaucracy itself is priced into the base floor below; ramping an agency's budget up is what adds new coordination burden. Two levers bring it down: Government Digitization (every point subtracts 0.8) and the Government Operations policy (direct −8 reduction plus long-run Digitization gains).\n\nAt 85 or below: all programs run at full strength. Above 85, Administrative Strain activates and, scaling toward overhead ~100: policy effectiveness on the statistics erodes up to −15%, voters give up to that much less approval for the programs you fund, and every program area's cost inflates up to ~+18%. Above 95, Administrative Overload adds GDP damage and −1 capital/turn on top. A one-off operational shock (e.g. a ransomware rebuild) piles an extra acute penalty on for a few quarters.",
     derive:()=>{
       let policySpend=0;
       const eff=govOpsEffMult();
@@ -1654,6 +1654,19 @@ function govOverheadMult(){
   const ov=INDICATORS.adminOverhead?.value??80;
   if(ov<=85)return 1.0;
   return Math.max(0.85,1-(ov-85)*0.01);
+}
+/* SERVICE STRAIN — how badly a strained apparatus degrades delivery. Combines
+   the standing Administrative Overhead penalty with any acute operational
+   disruption (e.g. a ransomware rebuild). Returns a 0.72..1.0 multiplier that
+   is applied to program-spending effectiveness on the STATISTICS and on the
+   CREDIT voters give for it, and drives a matching cost inflation across every
+   program area in spendingByArea. */
+function serviceStrainMult(){
+  const ov=INDICATORS.adminOverhead?.value??80;
+  let m=1.0;
+  if(ov>85)m-=Math.min((ov-85)*0.01,0.15);       // same curve the overhead penalty always used
+  if((GAME.serviceDisrupt||0)>0)m-=0.10;         // acute disruption on top
+  return clamp(m,0.72,1.0);
 }
 /* GOVERNMENT OPERATIONS EFFICIENCY: higher govOps investment lowers what every
    spending policy costs to run — better procurement, less waste, less duplication.
@@ -3601,18 +3614,24 @@ const DILEMMAS={
          createGrudge("v_poor",3,0.90,"Benefits portals restored — rent and food aid resumed");
          createGrudge("v_publicUnions",3,0.90,"Workers' systems and payroll restored quickly");
          createGrudge("v_moderate",2,0.90,"Pragmatic call — people needed help now");
+         // systems back inside 48 hours — let the underlying cyberattack clear early
+         if(GAME.situationAge.cyberattack!==undefined)GAME.situationAge.cyberattack=99;
+         GAME.serviceDisrupt=0;
          GAME.log.push(ico('cash-fly')+" Ransom paid — benefits portals and state systems restored; ◈ 3 spent");
        }},
-      {label:"Refuse and rebuild", text:"Oregon refuses to pay. Emergency IT contractors are brought in. Full recovery takes weeks — public frustration runs high, but Oregon won't fund the next attack.",
+      {label:"Refuse and rebuild", text:"Oregon refuses to pay. Emergency IT contractors are brought in and every department works off paper for months. Full recovery drags on — the backlog clogs enrollment, licensing, and payroll, admin overhead spikes, and program delivery runs degraded for a few quarters — but Oregon won't fund the next attack.",
        apply:()=>{
          GAME.capital=Math.max(0,GAME.capital-5);
+         GAME.serviceDisrupt=4;   // ~4 quarters of degraded delivery + inflated program costs
+         createGrudge("i_adminOverhead",12,0.78,"Manual processing backlog after the ransomware rebuild");
+         createGrudge("m_collectionRate",-1.5,0.80,"Tax systems slow to come back online");
          createGrudge("v_conservative",5,0.90,"Didn't pay the criminals");
          createGrudge("v_libertarian",4,0.90,"Principled stand against extortion");
          createGrudge("v_businessClass",2,0.90,"Right call — no precedent set");
          createGrudge("v_poor",-4,0.88,"Benefits delayed for weeks");
          createGrudge("v_publicUnions",-4,0.88,"Workers left scrambling longer");
          createGrudge("v_moderate",-3,0.88,"Weeks of disruption was avoidable");
-         GAME.log.push("🔒 Ransom refused — emergency rebuild underway; ◈ 5 spent");
+         GAME.log.push(ico('warning')+" Ransom refused — emergency rebuild underway; administrative strain rises, services degraded for ~4 quarters; ◈ 5 spent");
        }},
     ]},
 };
@@ -4449,12 +4468,12 @@ const SITUATIONS={
     moodMag:1,
     groupMood:{businessClass:5,liberal:3,collegeEducated:5,urban:3}},
   adminStrain:{name:"Administrative Strain", kind:"bad", category:"condition",
-    desc:"Administrative Overhead has crossed 85 — your programs are no longer running at full strength. Every active policy (except revenue and the Government Operations budget itself) now delivers less than its stated level: at overhead 90, ~5% weaker; at 95, ~10% weaker; at 100, the penalty maxes at 15%.\n\nOverhead rises with every dollar of program spending — large programs like the State School Fund are the biggest contributors. Open the Administrative Overhead indicator to see a policy-by-policy breakdown of what's driving it. Fix it by investing in Government Operations (builds Digitization capacity) or trimming lower-priority spending. Let it climb past 95 and Administrative Overload activates on top.",
+    desc:"Administrative Overhead has crossed 85 and the apparatus is buckling. Three things happen at once, all scaling with how far over 85 you are (maxing around overhead 100):\n\n1. Delivery weakens — every active policy (except revenue and Government Operations itself) moves the statistics less than its stated level, up to ~15% weaker.\n2. Credit dries up — voters give less approval for the programs you fund, because the benefit isn't reaching them.\n3. Costs inflate — every program area's budget rises (overtime, duplicated work, emergency contractors, coordination failures), up to ~+18%.\n\nOverhead rises with every dollar of program spending — large programs like the State School Fund are the biggest contributors. Fix it by investing in Government Operations (builds Digitization capacity) or trimming lower-priority spending. Past 95, Administrative Overload activates on top.",
     trigger:()=>INDICATORS.adminOverhead.value>85,
     clear:()=>INDICATORS.adminOverhead.value<82, onClear:{capital:1},
     watch:{indicator:"adminOverhead", startAt:90, clearAt:82, badHigh:true},
     moodAxes:{govSize:-0.2}, moodMag:1,
-    groupMood:{businessClass:-3, moderate:-2, suburban:-1}},
+    groupMood:{businessClass:-3, moderate:-2, poor:-2, parents:-2, suburban:-1}},
   adminCrisis:{name:"Administrative Overload", kind:"bad", category:"condition",
     desc:"Administrative Overhead has crossed 95 — the strain that was already eroding policy effectiveness has now broken into a full operational crisis. Inter-agency coordination has collapsed, permit backlogs have paralyzed DEQ, and enrollment failures are spreading through ODHS. On top of the policy effectiveness penalty already in effect, you are now losing 1 capital per turn to bureaucratic friction and the economic drag is visible in GDP and employer confidence.\n\nThis will not self-correct. It persists until Administrative Overhead falls below 88, which requires cutting active program spending, investing in Government Digitization, or boosting the Government Operations budget.",
     trigger:()=>INDICATORS.adminOverhead.value>95,
@@ -4521,7 +4540,7 @@ const GAME={
   ground:{perception:{}, turnout:{}, fatigue:{}, fatigueAge:{}}, campLog:[],
   activists:{}, activistCooldowns:{},
   termLengthTurns:16, midtermTurn:8, term:1,
-  activeSituations:{}, situationAge:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null, prisonLaborVoteHeld:false, walkoutFreeze:0, walkoutIgnoredUntil:0, agendaBaseline:0, protestCrackdowns:0, protestIgnoredUntil:0, compassStart:{ec:0,so:0},
+  activeSituations:{}, situationAge:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null, prisonLaborVoteHeld:false, walkoutFreeze:0, walkoutIgnoredUntil:0, agendaBaseline:0, protestCrackdowns:0, protestIgnoredUntil:0, compassStart:{ec:0,so:0}, serviceDisrupt:0,
   // ---- FISCAL MODEL (research: income-tax dependence + kicker + reserves) ----
   rainyDay:1.87,        // Rainy Day Fund ($B) — real 2023-25 end balance
   eduStability:1.0,     // Education Stability Fund ($B)
@@ -4696,7 +4715,7 @@ function policyEffect(p,k){
   } else {
     raw=(p.effects&&p.effects[k]!==undefined)?effExpr(p.effects[k],eff,"p:"+(p._id||p.name)+":"+k):0;
   }
-  return raw*efficacy()*(p.revenueFull||p.noOverhead?1:govOverheadMult())*nonprofitDragMult(p,k);
+  return raw*efficacy()*(p.revenueFull||p.noOverhead?1:serviceStrainMult())*nonprofitDragMult(p,k);
 }
 function tickPhase(){
   // Large public unions slow implementation: institutional resistance and bargaining requirements
@@ -5296,6 +5315,11 @@ function approvalTarget(sid){
         policyMood+=pref*(policyLevel(p)-0.5)*6;
       }
     }
+    // A strained apparatus doesn't deliver: when Administrative Overhead is high
+    // (or an acute disruption is running), voters give less credit for the
+    // programs you're funding — the benefit isn't reaching them. Only the
+    // positive side is blunted; a failing state doesn't soften opposition.
+    if(policyMood>0)policyMood*=serviceStrainMult();
     let sitMood=0;
     for(const s2 in GAME.activeSituations){
       const s=SITUATIONS[s2], sev=sitSeverity(s2);
@@ -5520,6 +5544,17 @@ function spendingByArea(){
     if(!p||!p.enacted)continue;
     const c=policyNetCost(p);
     if(c>0)out[_DOMAIN_AREA[p.domain]||"debtAdmin"]+=c*(pid==="govOps"?1:govOpsEffMult());
+  }
+  // Administrative strain burns money everywhere: overtime, duplicated work,
+  // emergency contractors, coordination failures, manual workarounds. Every
+  // program area's cost inflates while the apparatus is strained (debt service
+  // is contractual, so it's exempt).
+  {
+    const sm=serviceStrainMult();
+    if(sm<0.95){                                       // only real strain (overhead ~90+) inflates costs
+      const inflate=1+Math.min((0.95-sm)*1.4,0.12);   // up to +12% in full operational crisis
+      for(const id in out)if(id!=="debtAdmin")out[id]*=inflate;
+    }
   }
   // Prevailing-Wage Repeal: public construction gets cheaper, so the capital-
   // heavy program areas deliver the same build for less money.
@@ -6256,6 +6291,7 @@ function _runTicks(){
   settleFiscal(); tickNationalMood(); tickSituations(); maybeFireDilemma();
   tickIndicators(); tickGrudges(); tickCynComp(); tickExpectations(); tickGroundGame();
   tickApproval(); tickVoterApproval(); checkActivistTriggers();
+  if((GAME.serviceDisrupt||0)>0)GAME.serviceDisrupt--;   // acute operational disruption bleeds off
 }
 /* regular quarter advancement — called by the campaign popup "Next Quarter" button */
 function doEndTurn(){
