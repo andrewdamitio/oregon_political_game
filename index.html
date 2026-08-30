@@ -715,7 +715,7 @@
   /* landscape map: the layout is squashed vertically so it renders short and
      wide — one screen, little top-to-bottom scrolling. Zoom to inspect. */
   .boardgraph{position:relative;max-height:90vh}
-  #boardSvg{min-width:0;width:100%;transition:width .15s ease}
+  #boardSvg{min-width:0;width:100%;display:block;margin:0 auto;transition:width .15s ease}
   .board-zoom{position:sticky;top:8px;z-index:6;display:inline-flex;margin:8px 0 0 8px}
   .board-zoom button{width:30px;height:30px;border:2px solid var(--ink);background:var(--paper);color:var(--ink);
     font-family:var(--font-display);font-size:17px;line-height:1;cursor:pointer}
@@ -6570,11 +6570,21 @@ function renderBoard(){
   if(!svgEl||!svgEl.querySelectorAll)return;
   const edgeEls=Array.from(svgEl.querySelectorAll(".webedge")), nodeEls=Array.from(svgEl.querySelectorAll(".boardnode"));
   // zoom controls (SVG scales; the board box scrolls)
-  let _bz=1.0; const _applyBz=()=>{ svgEl.style.width=(_bz*100)+"%"; };
+  let _bz=1.0;
+  const _applyBz=(recentre)=>{
+    svgEl.style.width=(_bz*100)+"%";
+    if(!recentre)return;
+    // keep the view centred on zoom rather than letting the map drift to a corner
+    const bg=svgEl.parentElement;
+    setTimeout(()=>{ if(!bg)return;
+      bg.scrollLeft=Math.max(0,(bg.scrollWidth-bg.clientWidth)/2);
+      bg.scrollTop=Math.max(0,(bg.scrollHeight-bg.clientHeight)/2);
+    },170);
+  };
   main.querySelectorAll(".board-zoom button").forEach(b=>b.addEventListener("click",()=>{
     const a=b.dataset.z;
     _bz = a==="in"?Math.min(3,_bz+0.25) : a==="out"?Math.max(0.7,_bz-0.25) : 1.0;
-    _applyBz();
+    _applyBz(true);
   }));
   _applyBz();
   // hover card — big, readable name/kind/value for whatever tile you're on
@@ -6760,8 +6770,9 @@ function renderDetail(){
     }
     const phaseQtrs=policyPhaseQuarters(p);
     const phasePill=`<span class="pill" title="How long before changes reach full effect">⏱ ${phaseQtrs}q to take effect</span>`;
+    const isRevPol=p.revenueFull!==undefined||p.revenue!==undefined||net<0;
     h+=`<div class="detailrow">
-      <span class="pill ${net<0?'rev':'spend'}">${net<0?'+$'+(-net).toFixed(2)+'B/yr revenue':'$'+net.toFixed(2)+'B/yr cost'}</span>
+      <span class="pill ${isRevPol?'rev':'spend'}">${isRevPol?'+$'+Math.max(0,-net).toFixed(2)+'B/yr revenue':'$'+net.toFixed(2)+'B/yr cost'}</span>
       <span class="pill cap">${capPillTxt}</span>
       ${phasePill}
       <span class="pill dom">${DOMAINS[p.domain].name}</span></div>`;}
@@ -7223,13 +7234,14 @@ function renderPolicies(){
   if(!avail.length){ main.innerHTML=h+`<div class="empty">No new policies available — all enacted.</div>`; return; }
   const renderCard=(id)=>{
     const p=CATALOG[id], net=policyNetCost(p);
-    const costLabel=net<0?`+$${(-net).toFixed(1)}B/yr`:`$${net.toFixed(1)}B/yr`;
+    const isRevPol=p.revenueFull!==undefined||p.revenue!==undefined||net<0;
+    const costLabel=isRevPol?`+$${Math.max(0,-net).toFixed(1)}B/yr`:`$${net.toFixed(1)}B/yr`;
     const afford=GAME.capital>=p.enactCapital;
     return `<div class="catcard" style="--qaccent:${DOMAINS[p.domain].accent}">
       <div class="cat-top"><span class="cat-icon">${ico(p.icon)}</span>
         <div><div class="cat-name">${p.name}</div><div class="cat-dom">${DOMAINS[p.domain].name}</div></div></div>
       <div class="cat-desc">${p.desc}</div>
-      <div class="cat-meta"><span class="pill ${net<0?'rev':'spend'}">${costLabel}</span>
+      <div class="cat-meta"><span class="pill ${isRevPol?'rev':'spend'}">${costLabel}</span>
         <span class="pill cap">◈ ${p.enactCapital} to enact</span></div>
       <button class="ebtoggle" data-eb="${id}">▸ Projected effects if enacted</button>
       <div class="cat-eb hidden" id="eb_${id}">${effectsBreakdownHTML("policy",p)}</div>
