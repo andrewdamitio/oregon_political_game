@@ -3524,6 +3524,9 @@ function ELECTORATE_SHIFT(){
     add("socialist",0.12); add("moderate",0.04);
     add("suburban",0.05); add("rural",0.04);
   }
+  // in a deep multi-crisis game many of the pulls above can stack on one bloc;
+  // bound each so a family can't be driven to zero or triple in a single tick
+  for(const id in sw)sw[id]=clamp(sw[id],-0.85,1.4);
   return sw;
 }
 function tickMembership(){
@@ -3777,7 +3780,6 @@ const SITUATIONS={
       return (METRICS.homelessness.value<48 && nonprofitSpend()<0.7)
         || nonprofitControl()>0.78;
     },
-    watch:{metric:"homelessness", startAt:62, clearAt:48, badHigh:true},
     costEffect:{humanServices:0.34, social:0.30, housing:0.22},
     metricEffect:{homelessness:0.6}, moodAxes:{economic:0.25, govSize:0.55}, moodMag:2,
     groupMood:{libertarian:-8,conservative:-6,businessClass:-6,wealthy:-4,moderate:-3,rural:-3,blueCollar:-1,
@@ -4366,11 +4368,14 @@ function metricTarget(k){
     if(k==="disposableIncome")t-=Math.max(0,3.5-METRICS.unemployment.value)*Math.max(0,METRICS.gdp.value-2.5)*0.8;
   }
   // OUTCOME-BASED CONTRACTING J-curve on service delivery: worse for the first
-  // year or two as providers retool, then better as pay-for-results bites
+  // year or two as providers retool, then better as pay-for-results bites.
+  // Only while the complex it targets is still running — after it clears, a
+  // smaller residual benefit stands in for the reformed contracting system.
   if(POLICIES.outcomeContracting){
     const f=outcomeContractingFactor();
-    if(k==="homelessness")     t-=f*3.5;   // f<0 → raises homelessness; f>0 → lowers it
-    if(k==="behavioralHealth") t+=f*2.5;
+    const scale=GAME.activeSituations.nonprofitComplex?1:0.35;
+    if(k==="homelessness")     t-=f*3.5*scale;   // f<0 → raises homelessness; f>0 → lowers it
+    if(k==="behavioralHealth") t+=f*2.5*scale;
   }
   return t;
 }
@@ -4421,9 +4426,9 @@ function metricContributors(k){
     }
   }
   if(POLICIES.outcomeContracting){
-    const f=outcomeContractingFactor();
-    if(k==="homelessness"&&Math.abs(f)>0.05)     out.push({name:ico('handshake')+" Outcome-Based Contracting "+(f<0?"(provider disruption)":"(delivering)"), v:-f*3.5, link:"p_outcomeContracting"});
-    if(k==="behavioralHealth"&&Math.abs(f)>0.05) out.push({name:ico('handshake')+" Outcome-Based Contracting "+(f<0?"(provider disruption)":"(delivering)"), v:f*2.5, link:"p_outcomeContracting"});
+    const f=outcomeContractingFactor(), sc=GAME.activeSituations.nonprofitComplex?1:0.35;
+    if(k==="homelessness"&&Math.abs(f*sc)>0.05)     out.push({name:ico('handshake')+" Outcome-Based Contracting "+(f<0?"(provider disruption)":"(delivering)"), v:-f*3.5*sc, link:"p_outcomeContracting"});
+    if(k==="behavioralHealth"&&Math.abs(f*sc)>0.05) out.push({name:ico('handshake')+" Outcome-Based Contracting "+(f<0?"(provider disruption)":"(delivering)"), v:f*2.5*sc, link:"p_outcomeContracting"});
   }
   return out;
 }
@@ -4502,6 +4507,7 @@ function startSituation(sid){
   if(sid==="recession"&&(GAME.overheat||0)>0.2){
     const o=GAME.overheat;
     GAME.econCycle=clamp(GAME.econCycle-o*0.5,-1,1);
+    GAME.marketLevel=clamp(GAME.marketLevel-o*0.7,-1.2,1.2);   // the froth pops
     if(METRICS.gdp)METRICS.gdp.value=clamp(METRICS.gdp.value-o*2.6,METRICS.gdp.min,METRICS.gdp.max);
     GAME.mandateShock=(GAME.mandateShock||0)-Math.round(o*4);
     GAME.log.push(ico('chart-down')+" The downturn is amplified by the preceding boom — the correction runs deep");
@@ -4929,12 +4935,15 @@ function tickEconomy(){
   if(GAME.activeSituations.brainGain)heat+=0.2;
   if(heat>0.15) GAME.overheat=clamp((GAME.overheat||0)+heat*0.12,0,1);
   else          GAME.overheat=Math.max(0,(GAME.overheat||0)-0.06);
-  // the correction pull: extended overheating drags the next cycle step down and
-  // makes the equity swing meaner — this is what turns a boom into a bust
+  // the correction pull: extended overheating drags the next cycle step down —
+  // this is what turns a boom into a bust (the sharper crash lands as a one-off
+  // shock when the recession actually fires; see startSituation)
   const pull=(GAME.overheat||0)*0.22;
   // momentum + reversion toward 0
   GAME.econCycle = clamp(GAME.econCycle*0.82 + (Math.random()-0.5)*0.35 - pull, -1, 1);
-  GAME.marketLevel = clamp(GAME.marketLevel*0.80 + GAME.econCycle*0.15 + (Math.random()-0.5)*0.45 - (GAME.overheat||0)*0.35, -1.2, 1.2);
+  // an overheated market runs frothier (wider swings), setting up a bigger drop
+  const froth=1+(GAME.overheat||0)*0.6;
+  GAME.marketLevel = clamp(GAME.marketLevel*0.80 + GAME.econCycle*0.15 + (Math.random()-0.5)*0.45*froth, -1.2, 1.2);
   // GDP metric tracks the cycle so the rest of the sim feels it
   if(METRICS.gdp){
     METRICS.gdp.eq = 1.3 + GAME.econCycle*0.7;
@@ -6492,7 +6501,7 @@ function renderBoard(){
   let _bz=1.0; const _applyBz=()=>{ svgEl.style.width=(_bz*100)+"%"; };
   main.querySelectorAll(".board-zoom button").forEach(b=>b.addEventListener("click",()=>{
     const a=b.dataset.z;
-    _bz = a==="in"?Math.min(3,_bz+0.25) : a==="out"?Math.max(0.7,_bz-0.25) : 1.15;
+    _bz = a==="in"?Math.min(3,_bz+0.25) : a==="out"?Math.max(0.7,_bz-0.25) : 1.0;
     _applyBz();
   }));
   _applyBz();
