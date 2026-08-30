@@ -235,7 +235,7 @@
   .crisis-card.good .crisis-tag{color:var(--good)}
   .crisis-age{font-family:var(--font-data);font-size:9px;color:var(--muted-3)}
   .crisis-name{font-family:var(--font-display);font-size:14px;font-weight:600;margin-bottom:3px}
-  .crisis-desc{font-size:11px;color:var(--muted-2);line-height:1.3}
+  .crisis-desc{font-size:11px;color:var(--muted-2);line-height:1.3;display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
   .threshline{font-size:11px;color:var(--muted-2);line-height:1.4}
   /* State of the State indicator panel */
   .sos-panel{background:var(--paper-2);border:1px solid var(--line);border-radius:4px;padding:13px 15px;margin-bottom:20px}
@@ -710,8 +710,10 @@
   #boardSvg .bn-lbl{font-family:var(--font-display);font-size:12px;font-weight:500;letter-spacing:.2px}
   .bn-hub{opacity:.10}
   /* big scrollable viewport + zoom */
-  .boardgraph{position:relative;max-height:86vh}
-  #boardSvg{min-width:900px;transition:width .15s ease}
+  /* landscape map: the layout is squashed vertically so it renders short and
+     wide — one screen, little top-to-bottom scrolling. Zoom to inspect. */
+  .boardgraph{position:relative;max-height:90vh}
+  #boardSvg{min-width:0;width:100%;transition:width .15s ease}
   .board-zoom{position:sticky;top:8px;z-index:6;display:inline-flex;margin:8px 0 0 8px}
   .board-zoom button{width:30px;height:30px;border:2px solid var(--ink);background:var(--paper);color:var(--ink);
     font-family:var(--font-display);font-size:17px;line-height:1;cursor:pointer}
@@ -6344,19 +6346,24 @@ function renderBoard(){
   for(const id in otherSec){ /* any unsectioned nodes: drop near center */ }
   [...otherSec.stats,...otherSec.levers].forEach((id,i,arr)=>{const a2=i*2*Math.PI/Math.max(1,arr.length);nodes[id].x=cx+60*Math.cos(a2);nodes[id].y=cy+60*Math.sin(a2);});
 
+  // WIDE FORMAT: the board now spans the full window, so squash the map
+  // vertically into a landscape ellipse — far less top-to-bottom scrolling.
+  for(const id in nodes){ if(nodes[id].y!==undefined) nodes[id].y = cy + (nodes[id].y - cy)*0.64; }
+
   // COLLISION RELAXATION: nudge any two tiles that ended up too close apart, so
-  // no bubble sits on top of another. Runs once per render; O(n^2) is fine at ~60 nodes.
+  // no bubble sits on top of another. Vertical pushes are damped so overlaps
+  // resolve mostly sideways, keeping the landscape shape. O(n^2) at ~60 nodes.
   {
     const pids=Object.keys(nodes).filter(id=>nodes[id].x!==undefined&&!nodes[id].hub);
-    const MIN=110;
-    for(let it=0; it<80; it++){
+    const MIN=108;
+    for(let it=0; it<90; it++){
       let moved=false;
       for(let i=0;i<pids.length;i++)for(let j=i+1;j<pids.length;j++){
         const a=nodes[pids[i]], b=nodes[pids[j]];
         let dx=b.x-a.x, dy=b.y-a.y, d=Math.hypot(dx,dy)||0.01;
         if(d<MIN){
           const push=(MIN-d)/2; dx/=d; dy/=d;
-          a.x-=dx*push; a.y-=dy*push; b.x+=dx*push; b.y+=dy*push;
+          a.x-=dx*push; a.y-=dy*push*0.5; b.x+=dx*push; b.y+=dy*push*0.5;
           moved=true;
         }
       }
@@ -6369,7 +6376,7 @@ function renderBoard(){
   // content is wider/taller than the nominal canvas) with padding for labels
   let bx0=1e9,by0=1e9,bx1=-1e9,by1=-1e9;
   for(const id in nodes){const n=nodes[id]; if(n.x===undefined)continue; bx0=Math.min(bx0,n.x);by0=Math.min(by0,n.y);bx1=Math.max(bx1,n.x);by1=Math.max(by1,n.y);}
-  const pad=70; const vbx=bx0-pad, vby=by0-pad, vbw=(bx1-bx0)+pad*2, vbh=(by1-by0)+pad*2;
+  const pad=58; const vbx=bx0-pad, vby=by0-pad, vbw=(bx1-bx0)+pad*2, vbh=(by1-by0)+pad*2;
   let svg=`<svg id="boardSvg" viewBox="${vbx.toFixed(0)} ${vby.toFixed(0)} ${vbw.toFixed(0)} ${vbh.toFixed(0)}" xmlns="http://www.w3.org/2000/svg">`;
   // faint radial dividers between adjacent domain clusters (drawn first, behind
   // everything) so each domain reads as its own separated wedge of the map
