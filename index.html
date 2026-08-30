@@ -1562,17 +1562,26 @@ function nonprofitSpend(){
   }
   return t;
 }
+/* 0..1 — how much of the contract layer the state has actually re-taken
+   control of. Three constructive levers, any of which helps:
+   Government Operations (competent procurement), Government Digitization
+   (you can see what you're buying), and the Public Service Delivery Corps
+   (state employees deliver directly instead of contractors). */
+function nonprofitControl(){
+  const admin=clamp((policyLevel(POLICIES.govOps||{value:0.3})-0.3)/0.7,0,1);
+  const dig=clamp((INDICATORS.digitization.value-40)/45,0,1);         // 40→0 .. 85→1
+  const pd=POLICIES.publicDelivery?policyLevel(POLICIES.publicDelivery):0;
+  return clamp(admin*0.42 + dig*0.30 + pd*0.55, 0, 1);
+}
 /* Severity of the Nonprofit Industrial Complex — driven MAINLY by how much money
    you pour through it (the money feeds the beast), plus visible homelessness,
-   minus the state capacity (Government Operations) to run contracts in-house.
+   minus how far the state has re-taken control of delivery (nonprofitControl).
    Can exceed 1: an overfunded complex is genuinely worse than the base case. */
 function nonprofitSeverity(){
   if(!GAME.activeSituations.nonprofitComplex)return 0;
   const hl=clamp((METRICS.homelessness.value-45)/25,0,1);        // 45→0 .. 70→1
   const spend=clamp((nonprofitSpend()-0.5)/1.8,0,1);             // ramps from ~$0.5B/yr, maxes ~$2.3B — SPEND is the driver
-  const admin=policyLevel(POLICIES.govOps||{value:0.3});
-  const mitig=clamp((admin-0.3)/0.7,0,1);
-  return clamp((0.30 + hl*0.35 + spend*0.95)*(1-0.45*mitig), 0.15, 1.7);
+  return clamp((0.30 + hl*0.35 + spend*0.95)*(1-0.7*nonprofitControl()), 0.15, 1.7);
 }
 /* efficacy multiplier on a drag-set policy's effect. For the homelessness metric
    it can go NEGATIVE past a point — an overfunded complex captures the money and
@@ -1703,7 +1712,7 @@ const SECTION_OF={
   // welfare & housing
   homelessServices:"welfare", ohcs:"welfare", affordableHousing:"welfare", behavioralHealth:"welfare", childcareSubsidy:"welfare",
   paidLeave:"welfare", minWageTiers:"welfare", universalMeals:"welfare", middleHousing:"welfare", rentStabilization:"welfare",
-  officeConversion:"welfare", dhs:"welfare", downtownRevitalization:"welfare", singleStair:"welfare", housingPackage:"welfare",
+  officeConversion:"welfare", dhs:"welfare", downtownRevitalization:"welfare", singleStair:"welfare", housingPackage:"welfare", publicDelivery:"welfare",
   // economy & jobs
   rndTaxCredit:"economy", deregulation:"economy", rightToWork:"economy", collectiveBargaining:"economy", rightToRepair:"economy", schoolChoice:"pubservices",
   nuclearRepeal:"economy", tortReform:"economy", jordanCoveLNG:"environment",
@@ -2403,11 +2412,18 @@ const CATALOG={
     blocEffect:{wealthy:-3,businessClass:-3,homeowners:-4,rural:-2,conservative:-2,retirees:-10},
     ideology:{economic:-0.6,govSize:-0.6}},
   preschoolForAll:{name:"Universal Preschool", domain:"economy", icon:"cap", mechanic:"law",
-    desc:"State-funded universal pre-K for all Oregon 3- and 4-year-olds. The evidence base is strong — high-quality early childhood education produces the highest return of any education investment, raising graduation rates, reducing crime, and compressing lifetime inequality. Requires a significant ongoing General Fund appropriation and a major expansion of the early-childhood workforce.",
-    enabled:true, costFull:0.35, enactCapital:12, repealCost:11,
+    desc:"State-funded universal pre-K for all Oregon 3- and 4-year-olds. The evidence base is strong — high-quality early childhood education produces the highest return of any education investment, raising graduation rates, reducing crime, and compressing lifetime inequality. But it is expensive — over $1B/biennium — and, like Multnomah's Preschool for All, it is delivered through a patchwork of contracted providers, so it feeds the Nonprofit Industrial Complex: while that crisis runs, a large share of the appropriation is skimmed by overhead and its outcomes are dragged down.",
+    enabled:true, costFull:1.2, enactCapital:12, repealCost:11,
     effects:{education:4,eduOutcomes:2,inequality:-3}, indicatorEffects:{taxGrievance:1},
     blocEffect:{parents:6, poor:4, liberal:3, publicUnions:3, socialist:2, collegeEducated:2, moderate:1, businessClass:-2, conservative:-2, wealthy:-1, libertarian:-2},
     ideology:{economic:-0.4,govSize:-0.5}},
+  publicDelivery:{name:"Public Service Delivery Corps", domain:"social", icon:"columns", mechanic:"slider", reform:true, phaseIn:9,
+    desc:"Stand up state-run shelter, outreach, behavioral-health, and early-childhood operations that deliver services directly with public employees instead of the contracted-nonprofit layer. It builds slowly and grows the state payroll — and a program this size carries its own coordination load — but the money does not leak through grant overhead. It is the way to keep spending on services WITHOUT feeding the Nonprofit Industrial Complex: its outcomes bypass the drag entirely and its budget doesn't count toward the routed spend. The existing provider ecosystem, and the progressives aligned with it, fight it hard.",
+    value:0, costFull:1.5, capital:9, enactCapital:16, repealCost:13,
+    effects:{homelessness:{b:-2,c:-12,i:4}, behavioralHealth:{b:0,c:6,i:4}, education:{b:0,c:3,i:5}},
+    indicatorEffects:{adminOverhead:7},
+    blocEffect:{publicUnions:9, socialist:3, moderate:1, blueCollar:1, liberal:-3, businessClass:-3, conservative:-4, libertarian:-7},
+    ideology:{economic:-0.6, govSize:-0.9}},
   nuclearRepeal:{name:"Repeal Nuclear Moratorium", domain:"envInfra", icon:"atom", mechanic:"law", reform:true,
     desc:"Repeal Oregon's 1980 voter-approved ban on new nuclear plants (in place until a federal waste repository exists). Opens the door to carbon-free baseload power — splitting environmentalists between climate hawks and anti-nuclear traditionalists.",
     enabled:true, costFull:0, capital:12, enactCapital:20, repealCost:14,
@@ -3735,14 +3751,14 @@ const SITUATIONS={
     metricEffect:{gdp:-0.15}, mandateShock:-4, moodAxes:{social:0.2}, moodMag:2,
     groupMood:{poor:-7,blueCollar:-5,parents:-4,liberal:-3,retirees:-3}},
   nonprofitComplex:{name:"Nonprofit Industrial Complex", kind:"bad", category:"chronic",
-    desc:"The governor inherits a decade of homelessness and childcare money routed through an ever-thickening layer of contracted nonprofits and grant-compliance staff. Here money is the problem, not the solution: every additional dollar poured through the routed programs (homeless services, childcare, affordable housing, behavioral health, deflection, meals) deepens the overhead, widens the drag on delivery, and pushes homelessness the wrong way — the sector is now its own entrenched progressive constituency. It breaks one of three ways: starve it — cut the routed spending back and drive homelessness down through the direct levers (commitment, beds, enforcement, housing production); build administrative muscle (Government Operations plus digitization) to re-take the contracts and run delivery in-house; or a political reckoning that dismantles the sector by force.",
+    desc:"The governor inherits a decade of homelessness, childcare, and universal pre-K money routed through an ever-thickening layer of contracted nonprofits and grant-compliance staff. Here money is the problem, not the solution: every additional dollar poured through the routed programs (homeless services, childcare, pre-K, affordable housing, behavioral health, deflection, meals) deepens the overhead, widens the drag on delivery, and pushes homelessness the wrong way — the sector is now its own entrenched progressive constituency. It eases as the state re-takes control of delivery — competent procurement (Government Operations), a real coordinated-data system (Government Digitization), or standing up a Public Service Delivery Corps to run services with state employees instead of contractors. It fully breaks when you cut the routed spending back and drive homelessness down with the direct levers, when state control of the contract layer is near-total, or through a political reckoning that dismantles the sector by force.",
     startActive:true, minTurns:6,
     clear:()=>{
       return (METRICS.homelessness.value<48 && nonprofitSpend()<0.7)
-        || (policyLevel(POLICIES.govOps||{value:0.3})>0.8 && (INDICATORS.adminOverhead?.value??87)<78);
+        || nonprofitControl()>0.78;
     },
     watch:{metric:"homelessness", startAt:62, clearAt:48, badHigh:true},
-    costEffect:{humanServices:0.42, social:0.36, housing:0.26},
+    costEffect:{humanServices:0.34, social:0.30, housing:0.22},
     metricEffect:{homelessness:0.6}, moodAxes:{economic:0.25, govSize:0.55}, moodMag:2,
     groupMood:{libertarian:-8,conservative:-6,businessClass:-6,wealthy:-4,moderate:-3,rural:-3,blueCollar:-1,
                liberal:6,socialist:8,publicUnions:6,urban:3,students:3}},
@@ -6924,10 +6940,10 @@ function renderDetail(){
         h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Scales with crisis severity — shown at the current level.</div></div>`;
       }
       if(sid==="nonprofitComplex"){
-        const sev=nonprofitSeverity(), spend=nonprofitSpend();
+        const sev=nonprofitSeverity(), spend=nonprofitSpend(), ctl=Math.round(nonprofitControl()*100);
         const hm=clamp(1-0.95*sev,-0.40,1);           // multiplier on service policies' effect ON homelessness
         const hpct=Math.round((1-hm)*100);
-        h+=`<div class="ebgroup-label">Service delivery drag</div><div class="ebnote">You are routing about <b>$${spend.toFixed(2)}B/yr</b> through the contracted-nonprofit programs. Their effect on <b>homelessness</b> is currently scaled to <b>${(hm*100).toFixed(0)}%</b> of nominal${hm<0?` — i.e. that spending now nets out to <b>raising</b> homelessness`:` (a −${hpct}% haircut)`}, and the crisis itself pushes homelessness up on top of that. <b>Pouring in more money makes it worse.</b> It eases only when you <b>cut the routed spending back</b> (and drive homelessness down with the direct levers), or build <b>Government Operations</b> to run the contracts in-house.</div>`;
+        h+=`<div class="ebgroup-label">Service delivery drag</div><div class="ebnote">You are routing about <b>$${spend.toFixed(2)}B/yr</b> through the contracted-nonprofit programs (homeless services, childcare, pre-K, affordable housing, behavioral health, deflection, meals). Their effect on <b>homelessness</b> is currently scaled to <b>${(hm*100).toFixed(0)}%</b> of nominal${hm<0?` — i.e. that spending now nets out to <b>raising</b> homelessness`:` (a −${hpct}% haircut)`}, and the crisis pushes homelessness up on top of that. <b>Pouring in more money makes it worse.</b><br><br>State control of the contract layer: <b>${ctl}%</b> (from Government Operations, Government Digitization, and the Public Service Delivery Corps). Raising it shrinks every effect above. The crisis clears when you cut the routed spend below ~$0.7B and get homelessness under 48, when state control passes ~78%, or through the prosecution route.</div>`;
       }
     }
     // overall + per-group opinion impact
