@@ -996,6 +996,7 @@
 <div id="dilemmaModal" class="modal hidden"><div class="card" id="dilemmaCard"></div></div>
 <div id="reportModal" class="modal hidden"><div class="card reportcard" id="reportCard"></div></div>
 <div id="midtermModal" class="modal hidden"><div class="card" id="midtermCard"></div></div>
+<div id="surplusModal" class="modal hidden"><div class="card" id="surplusCard"></div></div>
 <div id="campPopupModal" class="modal hidden"><div class="camp-popup-card" id="campPopupCard"></div></div>
 
 <script>
@@ -4627,7 +4628,7 @@ const GAME={
   persRate:5.26,        // PERS employer contributions ($B/biennium-equiv), escalating
   fedIndex:1.0,         // federal-funds multiplier; shocked by federal events
   pendingKicker:0,      // kicker owed, paid out next cycle
-  shieldSurplus:false,  // player-armed: redirect a kicker-bound surplus into reserves for political capital
+  pendingSurplus:null,  // {surplus} — a kicker-eligible surplus awaiting the player's end-of-quarter choice
   history:{}, // { metricKey: [{turn,value}], policyId: [{turn,level,cost}], approval:[...] }
 };
 function pushHistory(){
@@ -5687,17 +5688,10 @@ function settleFiscal(){
     }
     if(surplus>0.01){
       if(surplusPct>=0.02 && !POLICIES.kickerReform){
-        if(GAME.shieldSurplus && GAME.capital>=6){
-          // player spent political capital to protect the surplus from the kicker
-          GAME.capital=Math.round(clamp(GAME.capital-6,0,100));
-          const toRD=surplus*0.7, toEd=surplus*0.3;
-          GAME.rainyDay+=toRD; GAME.eduStability+=toEd;
-          GAME.log.push(ico('bank')+" Surplus shield: $"+surplus.toFixed(2)+"B redirected to reserves & schools instead of a kicker refund (−◈6)");
-        } else {
-          if(GAME.shieldSurplus)GAME.log.push(ico('cash-fly')+" Surplus shield disarmed — not enough political capital to fund it");
-          GAME.pendingKicker=surplus*4;   // annualized — the budget ledger runs in $B/yr
-          GAME.log.push(ico('cash-fly')+" Kicker triggered — $"+surplus.toFixed(2)+"B refunds to taxpayers next quarter");
-        }
+        // a kicker-eligible surplus — don't settle it here. Stash it for the
+        // end-of-quarter popup, which lets the player move part of it into the
+        // emergency reserves before the kicker refunds the rest.
+        GAME.pendingSurplus={surplus};
       } else {
         const toRD=surplus*0.6, toEd=surplus*0.4;
         GAME.rainyDay+=toRD; GAME.eduStability+=toEd;
@@ -6441,6 +6435,58 @@ function showMidterm(m){
   setTimeout(()=>{try{document.getElementById("midtermContinue").focus();}catch(e){}},30);
 }
 
+/* settle a kicker-eligible surplus once the player has chosen. `fraction` of the
+   surplus is moved into the emergency reserves (70% Rainy Day / 30% Education
+   Stability) for `capCost` political capital; the remainder refunds via the
+   kicker next quarter. */
+function _resolveSurplus(fraction, capCost){
+  const p=GAME.pendingSurplus; GAME.pendingSurplus=null;
+  if(!p)return;
+  const dedicate=p.surplus*fraction, refundQ=p.surplus-dedicate;
+  if(dedicate>0.001){
+    GAME.capital=Math.round(clamp(GAME.capital-capCost,0,100));
+    GAME.rainyDay+=dedicate*0.7; GAME.eduStability+=dedicate*0.3;
+    GAME.log.push(ico('bank')+" Moved $"+dedicate.toFixed(2)+"B of the surplus into the emergency reserves before the kicker"+(capCost?" (−◈"+capCost+")":""));
+  }
+  if(refundQ>0.001){
+    GAME.pendingKicker=refundQ*4;   // annualized — the budget ledger runs in $B/yr
+    GAME.log.push(ico('cash-fly')+" Kicker triggered — $"+refundQ.toFixed(2)+"B refunds to taxpayers next quarter");
+  }
+}
+/* end-of-quarter popup: a surplus cleared the kicker line and you have the
+   political capital to act. Offer to move part of it into the emergency
+   reserves before the kicker refunds the rest. */
+function showSurplusChoice(next){
+  const p=GAME.pendingSurplus;
+  if(!p){ if(next)next(); return; }
+  // pushing a dedication through the legislature costs real capital — no capital,
+  // no choice: the kicker simply fires.
+  if(GAME.capital<6){ _resolveSurplus(0,0); if(next)next(); return; }
+  const s=p.surplus;
+  const card=document.getElementById("surplusCard");
+  card.innerHTML=`<h2>${ico('cash-fly')} Revenue Beat the Forecast</h2>
+    <div class="sectionsub">General Fund revenue came in more than 2% over forecast, so Oregon's constitutional <b>kicker</b> is triggered — the whole <b>$${s.toFixed(2)}B</b> surplus is set to refund to taxpayers next quarter. Before it does, you can spend political capital to move part of it into the state's emergency reserves — the Rainy Day and Education Stability funds. Whatever you don't move is refunded, and it's gone.</div>
+    <div class="dilemma-opts" style="margin-top:14px">
+      <button class="dilemma-opt" data-f="1" data-c="6"><span class="do-label">Dedicate all of it</span><span class="do-sub">$${s.toFixed(2)}B → emergency reserves · −◈6 political capital</span></button>
+      <button class="dilemma-opt" data-f="0.5" data-c="3"><span class="do-label">Dedicate half</span><span class="do-sub">$${(s*0.5).toFixed(2)}B to reserves, $${(s*0.5).toFixed(2)}B refunds · −◈3 political capital</span></button>
+      <button class="dilemma-opt" data-f="0" data-c="0"><span class="do-label">Let the kicker refund all of it</span><span class="do-sub">$${s.toFixed(2)}B back to taxpayers · no capital spent</span></button>
+    </div>`;
+  const modal=document.getElementById("surplusModal");
+  modal.classList.remove("hidden");
+  const done=(f,c)=>{
+    _resolveSurplus(f,c);
+    modal.classList.add("hidden");
+    document.removeEventListener("keydown",onKey,true);
+    render();
+    if(next)next();
+  };
+  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return;
+    if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(0,0); } };
+  card.querySelectorAll('.dilemma-opt').forEach(b=>b.addEventListener('click',()=>done(+b.dataset.f,+b.dataset.c)));
+  document.addEventListener("keydown",onKey,true);
+  // no autofocus — this is a real choice; a stray Enter shouldn't spend capital. Esc = let it refund.
+}
+
 /* Oregon’s 36 counties as real outlines (EPSG:2992 -> linear SVG, ~4200ft simplified):
    [name, abbr, pathData, labelX, labelY, partisan lean (-1 progressive .. +1
    conservative, ~2020 vote), population 000s]. Reprojected + name-matched from a
@@ -6900,13 +6946,18 @@ function doEndTurn(){
   }
   if(GAME.log.length>8)GAME.log=GAME.log.slice(-8);
   render();
-  if(GAME.pendingMidterm){ const mt=GAME.pendingMidterm; GAME.pendingMidterm=null; showMidterm(mt); }
-  else if(!GAME.skipReport)showQuarterReport();
+  const afterSurplus=()=>{
+    if(GAME.pendingMidterm){ const mt=GAME.pendingMidterm; GAME.pendingMidterm=null; showMidterm(mt); }
+    else if(!GAME.skipReport)showQuarterReport();
+  };
+  if(GAME.pendingSurplus) showSurplusChoice(afterSurplus);
+  else afterSurplus();
 }
 /* election quarter — ticks run for the campaign quarter, then the election fires */
 function doElectionTurn(){
   evaluatePromises();          // judge the promises made at the LAST election, before votes are cast
   _runTicks();                 // promise grudges then flow into approval for the election
+  if(GAME.pendingSurplus)_resolveSurplus(0,0);   // no room for a popup before the election — the kicker fires
 
   _calcCapital();
   GAME.turn++; pushHistory();   // campaign quarter
@@ -8855,14 +8906,11 @@ function renderBudget(){
     h+=`<div class="fcard"><div class="fname">${ico('bank')} Rainy Day Fund</div><div class="fval" style="color:${rdCol}">$${GAME.rainyDay.toFixed(2)}B</div>
       <div class="fnote">Filled by sub-2% surpluses; drawn down to cover deficits.</div></div>`;
     if(POLICIES.kickerReform){
-      h+=`<div class="fcard"><div class="fname">${ico('bank')} Surplus Shield</div><div class="fval" style="color:var(--good)">Automatic</div>
-        <div class="fnote">Kicker repealed — every surplus over the 2% line already flows straight to reserves &amp; schools. Nothing to arm.</div></div>`;
+      h+=`<div class="fcard"><div class="fname">${ico('cash-fly')} Kicker</div><div class="fval" style="color:var(--good)">Repealed</div>
+        <div class="fnote">Every surplus over the 2% line flows straight to reserves &amp; schools — no refund, no decision.</div></div>`;
     } else {
-      const on=!!GAME.shieldSurplus;
-      h+=`<div class="fcard" data-shield="1" style="cursor:pointer;border-left-color:${on?'var(--good)':'#8a8270'}">
-        <div class="fname">${ico('bank')} Surplus Shield <span style="float:right;font-family:var(--font-data);font-size:11px;color:${on?'var(--good)':'#8a8270'}">${on?'ARMED':'OFF'}</span></div>
-        <div class="fval" style="color:${on?'var(--good)':'#8a8270'}">${on?'−◈6 when it fires':'kicker refunds'}</div>
-        <div class="fnote">When armed, a surplus that would trigger the kicker is redirected into reserves &amp; the Education Stability Fund instead of refunding to taxpayers — costing <b>◈6 political capital</b> each quarter it actually fires. Click to ${on?'disarm':'arm'}.</div></div>`;
+      h+=`<div class="fcard"><div class="fname">${ico('cash-fly')} Kicker</div><div class="fval" style="color:#8a8270">Active</div>
+        <div class="fnote">A surplus above the 2% line refunds in full to taxpayers. When one clears the line and you hold <b>◈6</b> to spend, you'll be asked at quarter's end whether to move part of it into the emergency reserves first.</div></div>`;
     }
     h+=`<div class="fcard"><div class="fname">${ico('cap')} Education Stability Fund</div><div class="fval">$${GAME.eduStability.toFixed(2)}B</div>
       <div class="fnote">Second-line reserve, tapped after the Rainy Day Fund.</div></div>`;
@@ -8907,8 +8955,6 @@ function renderBudget(){
   h+=`<div class="sectionsub" style="margin-top:20px">Oregon's constitution requires a balanced budget. Surpluses above the 2% line trigger the <b>kicker</b> — the entire surplus refunds to taxpayers unless you've enacted Kicker Reform. Deficits draw down reserves; once exhausted, forced cuts hit education, health, and your political capital. The economic cycle, PERS escalation, and federal-funds shocks are all live above.</div>`;
   main.innerHTML=h;
   main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
-  const shieldEl=main.querySelector('[data-shield]');
-  if(shieldEl)shieldEl.addEventListener('click',()=>{GAME.shieldSurplus=!GAME.shieldSurplus;renderBudget();});
 }
 /* Term progress + National Political Mood + Economic Climate readouts.
    prefix "" targets the side-panel ids; "b" targets the Governing Board strip. */
