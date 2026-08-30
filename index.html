@@ -83,6 +83,11 @@
   .wrap.novoters .vpanel{padding:0;border-right:none;overflow:hidden;min-width:0}
   .wrap.novoters .vpanel>*{display:none}
   .wrap.collapsed{grid-template-columns:168px 224px 1fr 0px}
+  /* Governing Board: give the living map the full width — collapse both flanks */
+  .wrap.boardwide{grid-template-columns:168px 0px 1fr 0px}
+  .wrap.boardwide .vpanel,.wrap.boardwide #aside{padding:0;border:none;overflow:hidden;min-width:0}
+  .wrap.boardwide .vpanel>*,.wrap.boardwide #aside>*{display:none}
+  .wrap.boardwide #asideToggle{display:none}
   nav.rail{background:var(--paper-2);border-right:1px solid var(--line);padding:14px 0}
   .vpanel{background:var(--paper);border-right:1px solid var(--line);padding:16px 14px;overflow-y:auto;overflow-x:hidden}
   .vpanel h3{margin:0 0 2px}
@@ -705,7 +710,7 @@
   #boardSvg .bn-lbl{font-family:var(--font-display);font-size:12px;font-weight:500;letter-spacing:.2px}
   .bn-hub{opacity:.10}
   /* big scrollable viewport + zoom */
-  .boardgraph{position:relative;max-height:82vh}
+  .boardgraph{position:relative;max-height:86vh}
   #boardSvg{min-width:900px;transition:width .15s ease}
   .board-zoom{position:sticky;top:8px;z-index:6;display:inline-flex;margin:8px 0 0 8px}
   .board-zoom button{width:30px;height:30px;border:2px solid var(--ink);background:var(--paper);color:var(--ink);
@@ -6326,6 +6331,26 @@ function renderBoard(){
   for(const id in otherSec){ /* any unsectioned nodes: drop near center */ }
   [...otherSec.stats,...otherSec.levers].forEach((id,i,arr)=>{const a2=i*2*Math.PI/Math.max(1,arr.length);nodes[id].x=cx+60*Math.cos(a2);nodes[id].y=cy+60*Math.sin(a2);});
 
+  // COLLISION RELAXATION: nudge any two tiles that ended up too close apart, so
+  // no bubble sits on top of another. Runs once per render; O(n^2) is fine at ~60 nodes.
+  {
+    const pids=Object.keys(nodes).filter(id=>nodes[id].x!==undefined&&!nodes[id].hub);
+    const MIN=110;
+    for(let it=0; it<80; it++){
+      let moved=false;
+      for(let i=0;i<pids.length;i++)for(let j=i+1;j<pids.length;j++){
+        const a=nodes[pids[i]], b=nodes[pids[j]];
+        let dx=b.x-a.x, dy=b.y-a.y, d=Math.hypot(dx,dy)||0.01;
+        if(d<MIN){
+          const push=(MIN-d)/2; dx/=d; dy/=d;
+          a.x-=dx*push; a.y-=dy*push; b.x+=dx*push; b.y+=dy*push;
+          moved=true;
+        }
+      }
+      if(!moved)break;
+    }
+  }
+
   const drawn=buildWebEdges().filter(e=>nodes[e.a]&&nodes[e.b]);
   // fit the viewBox to the actual node extent (the clusters fan outward, so the
   // content is wider/taller than the nominal canvas) with padding for labels
@@ -6441,7 +6466,7 @@ function renderBoard(){
   if(!svgEl||!svgEl.querySelectorAll)return;
   const edgeEls=Array.from(svgEl.querySelectorAll(".webedge")), nodeEls=Array.from(svgEl.querySelectorAll(".boardnode"));
   // zoom controls (SVG scales; the board box scrolls)
-  let _bz=1.15; const _applyBz=()=>{ svgEl.style.width=(_bz*100)+"%"; };
+  let _bz=1.0; const _applyBz=()=>{ svgEl.style.width=(_bz*100)+"%"; };
   main.querySelectorAll(".board-zoom button").forEach(b=>b.addEventListener("click",()=>{
     const a=b.dataset.z;
     _bz = a==="in"?Math.min(3,_bz+0.25) : a==="out"?Math.max(0.7,_bz-0.25) : 1.15;
@@ -7749,9 +7774,12 @@ function render(){
   window.scrollTo(0,0);
   // the Voter Blocs panel belongs to the Governing Board (and its detail pages);
   // hide it on the other tabs, which have their own full-width content
-  const showVoters = currentView==="board" || currentView==="detail";
+  const showVoters = currentView==="detail";
   const wrap=document.getElementById("wrap");
-  if(wrap)wrap.classList.toggle("novoters",!showVoters);
+  if(wrap){
+    wrap.classList.toggle("boardwide",currentView==="board");   // full-width living map
+    wrap.classList.toggle("novoters",!showVoters);
+  }
   ({board:renderBoard,detail:renderDetail,policies:renderPolicies,voters:renderVoters,budget:renderBudget,web:renderWeb,campaign:renderCampaign}[currentView]||renderBoard)();
   renderDilemma();
 }
