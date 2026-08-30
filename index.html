@@ -701,8 +701,27 @@
   /* paper halo behind every label so text stays legible over lines and neighbours */
   #boardSvg .bn-lbl,#boardSvg .bn-hub,#boardSvg .bn-val{paint-order:stroke;stroke:var(--paper);stroke-width:3.5px;stroke-linejoin:round}
   /* condensed label type — narrower, so fewer collisions */
-  #boardSvg .bn-lbl{font-family:var(--font-display);font-size:10.5px;font-weight:500;letter-spacing:.2px}
+  #boardSvg .bn-lbl{font-family:var(--font-display);font-size:12px;font-weight:500;letter-spacing:.2px}
   .bn-hub{opacity:.10}
+  /* big scrollable viewport + zoom */
+  .boardgraph{position:relative;max-height:82vh}
+  #boardSvg{min-width:900px;transition:width .15s ease}
+  .board-zoom{position:sticky;top:8px;z-index:6;display:inline-flex;margin:8px 0 0 8px}
+  .board-zoom button{width:30px;height:30px;border:2px solid var(--ink);background:var(--paper);color:var(--ink);
+    font-family:var(--font-display);font-size:17px;line-height:1;cursor:pointer}
+  .board-zoom button+button{border-left:none}
+  .board-zoom button:hover{background:var(--ink);color:var(--paper)}
+  .board-zoom button[data-z=reset]{width:auto;padding:0 10px;font-size:10.5px;text-transform:uppercase;letter-spacing:1px}
+  /* hover card */
+  .board-tip{position:fixed;z-index:60;pointer-events:none;background:var(--paper);border:2px solid var(--ink);
+    box-shadow:4px 4px 0 var(--ink);padding:8px 12px;max-width:270px}
+  .board-tip .bt-name{font-family:var(--font-display);font-size:16px;font-weight:600;letter-spacing:.3px;display:flex;align-items:center;gap:7px}
+  .board-tip .bt-name .ico{width:17px;height:17px}
+  .board-tip .bt-meta{font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted-2);margin-top:3px}
+  .board-tip .bt-val{font-family:var(--font-data);font-size:12px;margin-top:4px;color:var(--muted-1)}
+  /* labels: metrics & crises stay on; policy/agency labels appear on hover/focus/search */
+  /* all labels stay on; the focused node's label just gets bigger */
+  #boardSvg .boardnode.focus .bn-lbl{font-size:15px;font-weight:700}
 </style>
 </head>
 <body>
@@ -1533,13 +1552,31 @@ function govOpsEffMult(){
 const NONPROFIT_DRAG_POLICIES=new Set(["homelessServices","childcareSubsidy","preschoolForAll",
   "affordableHousing","behavioralHealth","downtownRevitalization","officeConversion",
   "deflectionProgram","universalMeals","rentStabilization","safeConsumption"]);
+/* $B/yr currently routed through the contracted-nonprofit service ecosystem */
+function nonprofitSpend(){
+  let t=0;
+  for(const id of NONPROFIT_DRAG_POLICIES){
+    const p=POLICIES[id];
+    if(p&&p.enacted)t+=Math.max(0,policyNetCost(p));
+  }
+  return t;
+}
+/* Severity of the Nonprofit Industrial Complex — driven MAINLY by how much money
+   you pour through it (the money feeds the beast), plus visible homelessness,
+   minus the state capacity (Government Operations) to run contracts in-house.
+   Can exceed 1: an overfunded complex is genuinely worse than the base case. */
+function nonprofitSeverity(){
+  if(!GAME.activeSituations.nonprofitComplex)return 0;
+  const hl=clamp((METRICS.homelessness.value-45)/25,0,1);        // 45→0 .. 70→1
+  const spend=clamp((nonprofitSpend()-0.8)/2.2,0,1);             // ramps past ~$0.8B/yr, maxes ~$3B
+  const admin=policyLevel(POLICIES.govOps||{value:0.3});
+  const mitig=clamp((admin-0.3)/0.7,0,1);
+  return clamp((0.35 + hl*0.45 + spend*0.75)*(1-0.45*mitig), 0.15, 1.5);
+}
 function nonprofitDragMult(p){
   if(!GAME.activeSituations.nonprofitComplex||!p||!NONPROFIT_DRAG_POLICIES.has(p._id))return 1;
-  const sev=sitSeverity("nonprofitComplex");
-  const admin=policyLevel(POLICIES.govOps||{value:0.3});
-  const mitig=clamp((admin-0.3)/0.7,0,1);            // 0 at default govOps, 1 at max
-  const drag=0.40*sev*(1-0.7*mitig);                 // up to −40% efficacy; ~−12% with full admin investment
-  return clamp(1-drag, 0.55, 1);
+  // severity already folds in spend and the Government Operations offset
+  return clamp(1-0.42*nonprofitSeverity(), 0.40, 1);
 }
 
 const METRIC_LINKS=[
@@ -2914,6 +2951,52 @@ const DILEMMAS={
        apply:()=>{createGrudge("m_homelessness",-0.6,0.92,"Low-barrier shelter open");createGrudge("v_suburban",-5,0.9,"Shelter sited over objections");createGrudge("v_homeowners",-4,0.9,"Shelter sited over objections");createGrudge("v_liberal",3,0.9,"Housing first");}},
       {label:"Block it", text:"The shelter is not built.",
        apply:()=>{createGrudge("v_suburban",3,0.9,"Neighborhood protected");createGrudge("v_homeowners",3,0.9,"Neighborhood protected");createGrudge("v_liberal",-5,0.9,"Blocked the shelter");createGrudge("v_poor",-3,0.9,"Blocked the shelter");createGrudge("m_homelessness",0.3,0.92,"Shelter blocked");}}]},
+  nonprofitCrackdown:{title:"Prosecute the Nonprofit Executives", icon:"gavel", cooldown:900,
+    text:"A DOJ task force has spent two years inside the homelessness-services contracting world and is ready to move: self-dealing boards, related-party leases, phantom case managers, and grant money cycled back into political organizing. Indictments would shatter the contracting complex overnight — and shatter your coalition with it.",
+    influence:()=>(GAME.activeSituations.nonprofitComplex && GAME.turn>3) ? 0.9 : -1,
+    options:[
+      {label:"Indict the executives", text:"Charges are filed against a dozen contractor heads. The complex is dismantled by force — but half the service network freezes for a year and the progressive base is in open revolt.",
+       apply:()=>{
+         endSituation("nonprofitComplex");
+         if(POLICIES.homelessServices)POLICIES.homelessServices.intensity=+(Math.max(0,(POLICIES.homelessServices.intensity||0.45)-0.25)).toFixed(2);
+         createGrudge("m_homelessness",2.4,0.85,"Service networks frozen by the prosecutions");
+         createGrudge("i_adminOverhead",-5,0.9,"Contract sprawl broken up");
+         createGrudge("v_liberal",-8,0.9,"Prosecuted the service sector");
+         createGrudge("v_socialist",-10,0.9,"Prosecuted the service sector");
+         createGrudge("v_publicUnions",-8,0.9,"Prosecuted the service sector");
+         createGrudge("v_urban",-4,0.9,"Prosecuted the service sector");
+         createGrudge("v_students",-4,0.9,"Prosecuted the service sector");
+         if(SIMULANTS.liberal)SIMULANTS.liberal.cynicism=(SIMULANTS.liberal.cynicism||0)+3;
+         createGrudge("v_conservative",6,0.9,"Cleaned out the grift");
+         createGrudge("v_businessClass",5,0.9,"Cleaned out the grift");
+         createGrudge("v_moderate",3,0.9,"Cleaned out the grift");
+         createGrudge("v_libertarian",4,0.9,"Cleaned out the grift");
+         createGrudge("capital",-4);
+         GAME.log.push("⚖ Nonprofit executives indicted — the contracting complex is broken up; homeless services reel");
+       }},
+      {label:"Forensic audit & rebid every contract", text:"No arrests — a top-to-bottom audit, the weakest contractors cut, the rest put out to open bid. Slower, cleaner, and the complex survives it leaner.",
+       apply:()=>{
+         createGrudge("i_digitization",4,0.92,"Contract data cleaned and consolidated");
+         createGrudge("i_adminOverhead",-3,0.92,"Weakest contractors cut");
+         createGrudge("m_homelessness",-0.8,0.9,"Tighter contracts, marginally better delivery");
+         createGrudge("v_liberal",-2,0.9,"Audit unsettles the sector");
+         createGrudge("v_businessClass",3,0.9,"Accountability for the spending");
+         createGrudge("v_moderate",2,0.9,"Accountability for the spending");
+         createGrudge("capital",-3);
+         GAME.log.push("📋 Forensic audit ordered — worst contractors cut, the rest rebid; the complex persists but leaner");
+       }},
+      {label:"Shelve it — the sector delivers votes", text:"The task force is stood down. The contractors keep their grants, and their organizers keep turning out your voters.",
+       apply:()=>{
+         createGrudge("v_liberal",3,0.9,"Stood by the service sector");
+         createGrudge("v_socialist",3,0.9,"Stood by the service sector");
+         createGrudge("v_publicUnions",4,0.9,"Stood by the service sector");
+         createGrudge("v_conservative",-3,0.9,"Tolerated the waste");
+         createGrudge("v_businessClass",-3,0.9,"Tolerated the waste");
+         createGrudge("v_moderate",-2,0.9,"Tolerated the waste");
+         createGrudge("capital",2);
+         GAME.log.push("The prosecutions are shelved — the service sector keeps its contracts");
+       }}
+    ]},
   publicStrike:{title:"The Public Employee Strike", icon:"handshake",
     text:"SEIU walks out statewide over pay that's lagged inflation. Concede and the budget bleeds; hold the line and your union base watches you break a strike.",
     influence:()=>(SIMULANTS.publicUnions.approval<42?0.5:0)+(budgetBalance().balance<-0.5?0.15:0),
@@ -3646,17 +3729,15 @@ const SITUATIONS={
     metricEffect:{gdp:-0.15}, mandateShock:-4, moodAxes:{social:0.2}, moodMag:2,
     groupMood:{poor:-7,blueCollar:-5,parents:-4,liberal:-3,retirees:-3}},
   nonprofitComplex:{name:"Nonprofit Industrial Complex", kind:"bad", category:"chronic",
-    desc:"The governor inherits a decade of homelessness and childcare money routed through an ever-thickening layer of contracted nonprofits and grant-compliance staff — each dollar now buys less shelter and less childcare than the last, while overhead compounds and the sector becomes its own entrenched progressive constituency. It breaks one of two ways: drive homelessness down far enough that the caseload contracts, or build serious administrative muscle (Government Operations plus digitization) to re-take the contracts and run delivery in-house.",
+    desc:"The governor inherits a decade of homelessness and childcare money routed through an ever-thickening layer of contracted nonprofits and grant-compliance staff. Here money is the problem, not the solution: every additional dollar poured through the routed programs (homeless services, childcare, affordable housing, behavioral health, deflection, meals) deepens the overhead, widens the drag on delivery, and pushes homelessness the wrong way — the sector is now its own entrenched progressive constituency. It breaks one of three ways: starve it — cut the routed spending back and drive homelessness down through the direct levers (commitment, beds, enforcement, housing production); build administrative muscle (Government Operations plus digitization) to re-take the contracts and run delivery in-house; or a political reckoning that dismantles the sector by force.",
     startActive:true, minTurns:6,
     clear:()=>{
-      const cc=(POLICIES.childcareSubsidy?Math.max(0,policyNetCost(POLICIES.childcareSubsidy)):0)
-              +(POLICIES.preschoolForAll?Math.max(0,policyNetCost(POLICIES.preschoolForAll)):0);
-      return (METRICS.homelessness.value<48 && cc<0.9)
-        || (policyLevel(POLICIES.govOps||{value:0.3})>0.8 && (INDICATORS.adminOverhead?.value??87)<80);
+      return (METRICS.homelessness.value<48 && nonprofitSpend()<0.7)
+        || (policyLevel(POLICIES.govOps||{value:0.3})>0.8 && (INDICATORS.adminOverhead?.value??87)<78);
     },
     watch:{metric:"homelessness", startAt:62, clearAt:48, badHigh:true},
     costEffect:{humanServices:0.42, social:0.36, housing:0.26},
-    metricEffect:{}, moodAxes:{economic:0.25, govSize:0.55}, moodMag:2,
+    metricEffect:{homelessness:0.5}, moodAxes:{economic:0.25, govSize:0.55}, moodMag:2,
     groupMood:{libertarian:-8,conservative:-6,businessClass:-6,wealthy:-4,moderate:-3,rural:-3,blueCollar:-1,
                liberal:6,socialist:8,publicUnions:6,urban:3,students:3}},
   // ---- positive conditions ----
@@ -4099,6 +4180,7 @@ function effExpr(raw,x,key){
 function sitSeverity(sid){
   const st=SITUATIONS[sid];
   if(!st||!GAME.activeSituations[sid])return 0;
+  if(sid==="nonprofitComplex")return nonprofitSeverity();   // spend-driven, can exceed 1
   const w=st.watch;
   if(!w)return 1;                                   // events run at full strength
   const cur=w.metric==="balance"?GAME.lastBalance
@@ -6172,7 +6254,7 @@ function renderBoard(){
   // little system, and cross-domain connections arc between clusters.
   const secList=secOrder.filter(s=>(bySec[s].stats.length+bySec[s].levers.length)>0);
   const nSec=secList.length;
-  const clusterR=Math.min(W,H)*0.30;           // distance of each cluster center from middle
+  const clusterR=Math.min(W,H)*0.335;           // distance of each cluster center from middle
   secList.forEach((sid,si)=>{
     const ca=-Math.PI/2 + si*2*Math.PI/nSec;    // this cluster's angle around the center
     const ccx=cx+clusterR*Math.cos(ca), ccy=cy+clusterR*Math.sin(ca);
@@ -6187,8 +6269,8 @@ function renderBoard(){
         const row=Math.floor(i/perRow), col=i%perRow;
         const rowCount=Math.min(perRow, ids.length-row*perRow);
         const t=rowCount===1?0:(col/(rowCount-1)-0.5);     // -0.5..0.5 across the row
-        const along=t*(94*rowCount);                        // tangential spacing
-        const out=facing*(baseRad+row*90);                  // outward by row
+        const along=t*(112*rowCount);                        // tangential spacing
+        const out=facing*(baseRad+row*106);                  // outward by row
         nodes[id].x=ccx+Math.cos(ca)*out+Math.cos(tang)*along;
         nodes[id].y=ccy+Math.sin(ca)*out+Math.sin(tang)*along;
       });
@@ -6196,8 +6278,8 @@ function renderBoard(){
     // both stats and levers fan OUTWARD from the cluster center (stats on the
     // inner rows nearest the cluster hub, levers beyond them), keeping the
     // canvas center empty so neighbouring clusters never collide there.
-    placeBlock(stats, 78, 1);                  // inner band of the cluster
-    const leverBase=78+ (Math.ceil(stats.length/(Math.ceil(Math.sqrt(stats.length)*1.1)||1)))*90 + 26;
+    placeBlock(stats, 92, 1);                  // inner band of the cluster
+    const leverBase=92+ (Math.ceil(stats.length/(Math.ceil(Math.sqrt(stats.length)*1.1)||1)))*106 + 32;
     placeBlock(levers, leverBase, 1);          // beyond the stats
   });
   for(const id in otherSec){ /* any unsectioned nodes: drop near center */ }
@@ -6241,9 +6323,9 @@ function renderBoard(){
     const n=nodes[id]; if(n.x===undefined||n.hub)continue;
     const isStat=n.kind==="stat", isInd=n.kind==="indicator", isSit=n.kind==="situation";
     const isLeverNode=n.kind==="policy"||n.kind==="agency";
-    const r=(isStat||isInd)?25:30;
+    const r=(isStat||isInd)?29:35;
     const below=n.y>=cy;
-    const ly=below?(r+13):(-r-7);
+    const ly=below?(r+15):(-r-9);
     let shapeEl;
     if(isLeverNode){
       const s=r*2-6;
@@ -6256,8 +6338,8 @@ function renderBoard(){
     }
     svg+=`<g class="boardnode ${n.kind}" data-node="${id}" data-detail="${id}" transform="translate(${n.x.toFixed(0)},${n.y.toFixed(0)})">
       ${shapeEl}
-      ${icoNode(n.icon,0,0,(isStat||isInd)?23:26)}
-      <text class="bn-lbl" y="${ly}" text-anchor="middle">${n.label.length>22?n.label.slice(0,21)+"…":n.label}</text>
+      ${icoNode(n.icon,0,0,(isStat||isInd)?30:34)}
+      <text class="bn-lbl" y="${ly}" text-anchor="middle">${n.label.length>28?n.label.slice(0,27)+"…":n.label}</text>
     </g>`;
   }
   svg+=`</svg>`;
@@ -6284,7 +6366,7 @@ function renderBoard(){
       <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="#f6e9e4" stroke="var(--bad)" stroke-width="3.5" stroke-dasharray="5 3"/></svg>Active crisis</span>
     </div>`;
   h+=`<div class="websearch" style="margin-top:10px"><svg class="sbico" aria-hidden="true"><use href="#ic-search"/></svg><input type="search" id="boardSearch" placeholder="Search policies, metrics, agencies…" autocomplete="off"></div>`;
-  h+=`<div class="boardgraph">${svg}</div>`;
+  h+=`<div class="boardgraph"><div class="board-zoom"><button data-z="out" title="Zoom out">−</button><button data-z="in" title="Zoom in">+</button><button data-z="reset">Reset</button></div>${svg}<div id="boardTip" class="board-tip" hidden></div></div>`;
   main.innerHTML=h;
 
   // tween the key-metric numbers in (rather than snapping), with a floating
@@ -6313,9 +6395,37 @@ function renderBoard(){
   main.querySelectorAll('.keystat').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
   if(!svgEl||!svgEl.querySelectorAll)return;
   const edgeEls=Array.from(svgEl.querySelectorAll(".webedge")), nodeEls=Array.from(svgEl.querySelectorAll(".boardnode"));
+  // zoom controls (SVG scales; the board box scrolls)
+  let _bz=1.15; const _applyBz=()=>{ svgEl.style.width=(_bz*100)+"%"; };
+  main.querySelectorAll(".board-zoom button").forEach(b=>b.addEventListener("click",()=>{
+    const a=b.dataset.z;
+    _bz = a==="in"?Math.min(3,_bz+0.25) : a==="out"?Math.max(0.7,_bz-0.25) : 1.15;
+    _applyBz();
+  }));
+  _applyBz();
+  // hover card — big, readable name/kind/value for whatever tile you're on
+  const tip=document.getElementById("boardTip");
+  const KIND={stat:"Statistic",indicator:"Indicator",policy:"Policy",agency:"Agency",situation:"Active crisis"};
+  const showTip=(id,ev)=>{
+    if(!tip)return; const n=nodes[id]; if(!n)return;
+    tip.innerHTML=`<div class="bt-name">${ico(n.icon)}${n.label}</div>`
+      +`<div class="bt-meta">${KIND[n.kind]||"Item"}</div>`
+      +(n.val?`<div class="bt-val">${n.val}</div>`:``);
+    tip.hidden=false; moveTip(ev);
+  };
+  const moveTip=ev=>{ if(!tip||tip.hidden)return;
+    const w=tip.offsetWidth||240, h=tip.offsetHeight||60;
+    let x=ev.clientX+18, y=ev.clientY+18;
+    if(x+w>innerWidth-8)x=ev.clientX-w-18;
+    if(y+h>innerHeight-8)y=ev.clientY-h-18;
+    tip.style.left=Math.max(8,x)+"px"; tip.style.top=Math.max(8,y)+"px";
+  };
+  const hideTip=()=>{ if(tip)tip.hidden=true; };
   nodeEls.forEach(g=>{
     const id=g.dataset.node;
-    g.addEventListener("mouseenter",()=>{
+    g.addEventListener("mousemove",ev=>moveTip(ev));
+    g.addEventListener("mouseenter",ev=>{
+      showTip(id,ev);
       const sign={};  // neighbor id -> 'good'|'bad'|'neutral'
       edgeEls.forEach(p=>{
         const on=p.dataset.a===id||p.dataset.b===id;
@@ -6332,6 +6442,7 @@ function renderBoard(){
       svgEl.classList.add("focus");
     });
     g.addEventListener("mouseleave",()=>{
+      hideTip();
       edgeEls.forEach(p=>p.classList.remove("hot"));
       nodeEls.forEach(n2=>n2.classList.remove("dim","focus","nbgood","nbbad","nbneutral"));
       svgEl.classList.remove("focus");
@@ -6803,9 +6914,8 @@ function renderDetail(){
         h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Scales with crisis severity — shown at the current level.</div></div>`;
       }
       if(sid==="nonprofitComplex"){
-        const sev=sitSeverity(sid), admin=policyLevel(POLICIES.govOps||{value:0.3});
-        const mitig=clamp((admin-0.3)/0.7,0,1), drag=Math.round(40*sev*(1-0.7*mitig));
-        h+=`<div class="ebgroup-label">Service delivery drag</div><div class="ebnote">Homelessness, childcare, and housing service policies are currently delivering about <b>−${drag}%</b> of their nominal effect (contract overhead and provider fragmentation). Raising <b>Government Operations</b> investment claws this back — at maximum it falls to roughly −${Math.round(40*sev*0.3)}%.</div>`;
+        const sev=nonprofitSeverity(), spend=nonprofitSpend(), drag=Math.round(42*sev);
+        h+=`<div class="ebgroup-label">Service delivery drag</div><div class="ebnote">You are routing about <b>$${spend.toFixed(2)}B/yr</b> through the contracted-nonprofit programs. At the current severity, those service policies deliver roughly <b>−${drag}%</b> of their nominal effect and the crisis is pushing homelessness <i>up</i>. <b>Every extra dollar you pour in makes this worse.</b> It eases only when you cut the routed spending back, or build <b>Government Operations</b> to run the contracts in-house.</div>`;
       }
     }
     // overall + per-group opinion impact
