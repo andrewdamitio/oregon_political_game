@@ -671,7 +671,8 @@
   .websearch input:focus{border-color:var(--clay);box-shadow:none}
 
   /* ---- inline SVG icon set (replaces the emoji) ---- */
-  .ico,.bnico-use,svg.sbico{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .ico,.bnico-use,svg.sbico{fill:none;stroke:currentColor;stroke-width:2.3;stroke-linecap:round;stroke-linejoin:round}
+  #boardSvg .bnico-use{stroke-width:2.5}
   .ico{width:1.15em;height:1.15em;display:inline-block;vertical-align:-0.22em;flex:none}
   .eblabel .ico,.srow-who .ico,.rlabel .ico,.lname .ico{width:1em;height:1em;vertical-align:-0.15em;margin-right:.15em}
   .sectionhdr .ico{width:.9em;height:.9em;vertical-align:baseline;margin-right:.15em}
@@ -926,7 +927,7 @@ const _ICO_ALIAS={
 };
 function _icoName(n){ if(!n)return "dot"; n=String(n); if(document.getElementById("ic-"+n))return n; return _ICO_ALIAS[n]||"dot"; }
 function ico(n,cls){ return '<svg class="ico'+(cls?' '+cls:'')+'" aria-hidden="true"><use href="#ic-'+_icoName(n)+'"/></svg>'; }
-function icoNode(n,x,y,size){ const s=size||20; return '<use href="#ic-'+_icoName(n)+'" x="'+(x-s/2).toFixed(1)+'" y="'+(y-s/2).toFixed(1)+'" width="'+s+'" height="'+s+'" class="bnico-use"/>'; }
+function icoNode(n,x,y,size,color){ const s=size||20; return '<use href="#ic-'+_icoName(n)+'" x="'+(x-s/2).toFixed(1)+'" y="'+(y-s/2).toFixed(1)+'" width="'+s+'" height="'+s+'" class="bnico-use"'+(color?' style="color:'+color+'"':'')+'/>'; }
 /* =====================================================================
    STATECRAFT — v1
    Data grounded in real Oregon figures (2025-27 biennium).
@@ -1568,15 +1569,20 @@ function nonprofitSpend(){
 function nonprofitSeverity(){
   if(!GAME.activeSituations.nonprofitComplex)return 0;
   const hl=clamp((METRICS.homelessness.value-45)/25,0,1);        // 45→0 .. 70→1
-  const spend=clamp((nonprofitSpend()-0.8)/2.2,0,1);             // ramps past ~$0.8B/yr, maxes ~$3B
+  const spend=clamp((nonprofitSpend()-0.5)/1.8,0,1);             // ramps from ~$0.5B/yr, maxes ~$2.3B — SPEND is the driver
   const admin=policyLevel(POLICIES.govOps||{value:0.3});
   const mitig=clamp((admin-0.3)/0.7,0,1);
-  return clamp((0.35 + hl*0.45 + spend*0.75)*(1-0.45*mitig), 0.15, 1.5);
+  return clamp((0.30 + hl*0.35 + spend*0.95)*(1-0.45*mitig), 0.15, 1.7);
 }
-function nonprofitDragMult(p){
+/* efficacy multiplier on a drag-set policy's effect. For the homelessness metric
+   it can go NEGATIVE past a point — an overfunded complex captures the money and
+   manages the caseload rather than shrinking it, so more spending nets out to
+   *worse* homelessness. Other outcomes are only weakened, not inverted. */
+function nonprofitDragMult(p,k){
   if(!GAME.activeSituations.nonprofitComplex||!p||!NONPROFIT_DRAG_POLICIES.has(p._id))return 1;
-  // severity already folds in spend and the Government Operations offset
-  return clamp(1-0.42*nonprofitSeverity(), 0.40, 1);
+  const sev=nonprofitSeverity();                       // folds in spend + Government Operations offset
+  if(k==="homelessness")return clamp(1-0.95*sev,-0.40,1);
+  return clamp(1-0.42*sev,0.35,1);
 }
 
 const METRIC_LINKS=[
@@ -3737,7 +3743,7 @@ const SITUATIONS={
     },
     watch:{metric:"homelessness", startAt:62, clearAt:48, badHigh:true},
     costEffect:{humanServices:0.42, social:0.36, housing:0.26},
-    metricEffect:{homelessness:0.5}, moodAxes:{economic:0.25, govSize:0.55}, moodMag:2,
+    metricEffect:{homelessness:0.6}, moodAxes:{economic:0.25, govSize:0.55}, moodMag:2,
     groupMood:{libertarian:-8,conservative:-6,businessClass:-6,wealthy:-4,moderate:-3,rural:-3,blueCollar:-1,
                liberal:6,socialist:8,publicUnions:6,urban:3,students:3}},
   // ---- positive conditions ----
@@ -4228,7 +4234,7 @@ function policyEffect(p,k){
   } else {
     raw=(p.effects&&p.effects[k]!==undefined)?effExpr(p.effects[k],eff,"p:"+(p._id||p.name)+":"+k):0;
   }
-  return raw*efficacy()*(p.revenueFull||p.noOverhead?1:govOverheadMult())*nonprofitDragMult(p);
+  return raw*efficacy()*(p.revenueFull||p.noOverhead?1:govOverheadMult())*nonprofitDragMult(p,k);
 }
 function tickPhase(){
   // Large public unions slow implementation: institutional resistance and bargaining requirements
@@ -6323,22 +6329,26 @@ function renderBoard(){
     const n=nodes[id]; if(n.x===undefined||n.hub)continue;
     const isStat=n.kind==="stat", isInd=n.kind==="indicator", isSit=n.kind==="situation";
     const isLeverNode=n.kind==="policy"||n.kind==="agency";
-    const r=(isStat||isInd)?29:35;
+    const r=(isStat||isInd)?31:37;
     const below=n.y>=cy;
     const ly=below?(r+15):(-r-9);
-    let shapeEl;
+    let shapeEl, icoSize, icoCol;
     if(isLeverNode){
       const s=r*2-6;
-      shapeEl=`<rect class="bn-ring" x="${-(s/2)}" y="${-(s/2)}" width="${s}" height="${s}" fill="var(--paper-2)" stroke="${n.stroke}" stroke-width="2.4"/>`;
+      shapeEl=`<rect class="bn-ring" x="${-(s/2)}" y="${-(s/2)}" width="${s}" height="${s}" fill="var(--paper-2)" stroke="${n.stroke}" stroke-width="2.8"/>`;
+      icoSize=42; icoCol="var(--ink)";
     } else if(isSit){
       const sitFill=n.stroke==='var(--good)'?"var(--tint-good)":"var(--tint-bad)";
       shapeEl=`<circle class="bn-ring" r="${r}" fill="${sitFill}" stroke="${n.stroke}" stroke-width="3.5" stroke-dasharray="5 3"/>`;
+      icoSize=34; icoCol=n.stroke;
     } else {
-      shapeEl=`<circle class="bn-ring" r="${r}" fill="var(--paper-2)" stroke="${n.stroke}" stroke-width="2.2"/>`;
+      const statFill=n.stroke==='var(--clay)'?"var(--tint-bad)":"var(--tint-good)";
+      shapeEl=`<circle class="bn-ring" r="${r}" fill="${statFill}" stroke="${n.stroke}" stroke-width="2.8"/>`;
+      icoSize=38; icoCol="var(--ink)";
     }
     svg+=`<g class="boardnode ${n.kind}" data-node="${id}" data-detail="${id}" transform="translate(${n.x.toFixed(0)},${n.y.toFixed(0)})">
       ${shapeEl}
-      ${icoNode(n.icon,0,0,(isStat||isInd)?30:34)}
+      ${icoNode(n.icon,0,0,icoSize,icoCol)}
       <text class="bn-lbl" y="${ly}" text-anchor="middle">${n.label.length>28?n.label.slice(0,27)+"…":n.label}</text>
     </g>`;
   }
@@ -6914,8 +6924,10 @@ function renderDetail(){
         h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Scales with crisis severity — shown at the current level.</div></div>`;
       }
       if(sid==="nonprofitComplex"){
-        const sev=nonprofitSeverity(), spend=nonprofitSpend(), drag=Math.round(42*sev);
-        h+=`<div class="ebgroup-label">Service delivery drag</div><div class="ebnote">You are routing about <b>$${spend.toFixed(2)}B/yr</b> through the contracted-nonprofit programs. At the current severity, those service policies deliver roughly <b>−${drag}%</b> of their nominal effect and the crisis is pushing homelessness <i>up</i>. <b>Every extra dollar you pour in makes this worse.</b> It eases only when you cut the routed spending back, or build <b>Government Operations</b> to run the contracts in-house.</div>`;
+        const sev=nonprofitSeverity(), spend=nonprofitSpend();
+        const hm=clamp(1-0.95*sev,-0.40,1);           // multiplier on service policies' effect ON homelessness
+        const hpct=Math.round((1-hm)*100);
+        h+=`<div class="ebgroup-label">Service delivery drag</div><div class="ebnote">You are routing about <b>$${spend.toFixed(2)}B/yr</b> through the contracted-nonprofit programs. Their effect on <b>homelessness</b> is currently scaled to <b>${(hm*100).toFixed(0)}%</b> of nominal${hm<0?` — i.e. that spending now nets out to <b>raising</b> homelessness`:` (a −${hpct}% haircut)`}, and the crisis itself pushes homelessness up on top of that. <b>Pouring in more money makes it worse.</b> It eases only when you <b>cut the routed spending back</b> (and drive homelessness down with the direct levers), or build <b>Government Operations</b> to run the contracts in-house.</div>`;
       }
     }
     // overall + per-group opinion impact
