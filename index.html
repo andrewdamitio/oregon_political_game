@@ -74,6 +74,21 @@
   .hud .stat .label{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#9aa3a0}
   .hud .stat .val{font-family:var(--font-data);font-size:16px;font-weight:600}
   .val.gold{color:var(--gold)} .val.blue{color:#9fc0e0}
+  /* compact term/mood/climate cluster locked into the topbar; expands on hover */
+  .hud-climate{position:relative;padding:3px 9px;border:1px solid rgba(255,255,255,.16);border-radius:3px;cursor:default}
+  .hud-climate .hcl-mini{display:flex;flex-direction:column;gap:3px}
+  .hud-climate .hcl-row{display:flex;align-items:center;gap:6px;line-height:1}
+  .hud-climate .hcl-tag{font-family:var(--font-display);font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:var(--chrome-fg);opacity:.5;width:26px;text-align:right}
+  .hud-climate .hcl-bar{width:70px;flex:0 0 auto;position:relative}
+  .hud-climate .termbar.hcl-bar{margin:0;height:6px;background:rgba(255,255,255,.2)}
+  .hud-climate .nmtrack.hcl-bar{height:7px}
+  .hud-climate .nmtrack.hcl-bar i{top:-3px;height:12px}
+  .hud-climate .hcl-pop{position:absolute;top:calc(100% + 7px);right:0;z-index:60;display:none;flex-direction:column;gap:10px;min-width:310px;padding:13px 15px;background:var(--paper);border:2px solid var(--ink);border-radius:5px;box-shadow:4px 4px 0 rgba(24,36,55,.22);color:var(--ink)}
+  .hud-climate:hover .hcl-pop{display:flex}
+  .hud-climate .hcl-pop-row{display:flex;flex-direction:column;gap:4px}
+  .hud-climate .hcl-pop-row .hcl-pl{font-family:var(--font-display);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted-1)}
+  .hud-climate .hcl-pop-row .mono{font-size:11px;color:var(--muted-2)}
+  @media (max-width:900px){.hud-climate{display:none}}
   .turnbtn{background:var(--gold);color:var(--ink);border:none;font-family:var(--font-display);font-size:15px;font-weight:600;padding:9px 20px;cursor:pointer;border-radius:2px;transition:transform .08s,background .12s}
   .turnbtn:hover{background:#dcae4a}
   .turnbtn:active{transform:scale(.94);background:#c99a3a}
@@ -857,6 +872,18 @@
     <div class="stat"><div class="label">Approval</div><div class="val" id="hudApproval">50%</div></div>
     <div class="stat"><div class="label">Pol. Capital</div><div class="val gold" id="hudCapital">40</div></div>
     <div class="stat"><div class="label">Gen. Fund Bal.</div><div class="val blue" id="hudBudget">+0.0B</div></div>
+    <div class="hud-climate" id="hudClimate" title="Term progress · national political mood · economic climate">
+      <div class="hcl-mini">
+        <div class="hcl-row"><span class="hcl-tag">Term</span><div class="termbar hcl-bar"><i id="hTermFill"></i></div></div>
+        <div class="hcl-row"><span class="hcl-tag">Mood</span><div class="nmtrack hcl-bar"><i id="hNmFill"></i></div></div>
+        <div class="hcl-row"><span class="hcl-tag">Econ</span><div class="nmtrack hcl-bar"><i id="hEcoFill"></i></div></div>
+      </div>
+      <div class="hcl-pop">
+        <div class="hcl-pop-row"><span class="hcl-pl">Term Progress</span><div class="termbar"><i id="hpTermFill"></i></div><span class="mono" id="hpTermInfo"></span></div>
+        <div class="hcl-pop-row"><span class="hcl-pl">National Political Mood</span><div class="nmbar"><span class="nmend">−</span><div class="nmtrack"><i id="hpNmFill"></i></div><span class="nmend">+</span></div><span class="mono" id="hpNmLabel"></span></div>
+        <div class="hcl-pop-row"><span class="hcl-pl">Economic Climate</span><div class="nmbar"><span class="nmend">▼</span><div class="nmtrack"><i id="hpEcoFill"></i></div><span class="nmend">▲</span></div><span class="mono" id="hpEcoLabel"></span></div>
+      </div>
+    </div>
     <button id="sfxToggle" title="Sound effects on/off" style="background:none;border:1px solid rgba(255,255,255,.22);color:var(--chrome-fg);padding:5px 11px;border-radius:2px;cursor:pointer;font-size:14px;margin-right:6px;line-height:1;opacity:0.85"><svg class="ico" aria-hidden="true"><use href="#ic-volume"/></svg></button><button id="themeToggle" title="Toggle dark/light mode" style="background:none;border:1px solid rgba(255,255,255,.22);color:var(--chrome-fg);padding:5px 11px;border-radius:2px;cursor:pointer;font-size:14px;margin-right:6px;line-height:1;opacity:0.85"><svg class="ico" aria-hidden="true"><use href="#ic-moon"/></svg></button><button class="turnbtn" id="endTurn">End Quarter ▸</button>
   </div>
 </header>
@@ -3776,11 +3803,13 @@ function turnoutProb(v){
   const mvBoost=POLICIES.motorVoter
     ? 0.07*Math.max(0.3, 1-0.6*Math.max(Math.abs(v.econ||0),Math.abs(v.social||0))-0.25*Math.min((v.age||0)/1.5,1))
     : 0;
-  const base=0.34+mvBoost+turnoutMobilization();
-  // enthusiasm: voters who feel strongly (either way) turn out more than the indifferent.
-  // Coefficient kept moderate (0.32) so the enthusiasm gap doesn't swamp demographic turnout
-  // signals — a 47% approval game should still feel like a close race, not a blowout.
-  return clamp(base+0.32*Math.abs(v.approval-50)/50+v.age*0.18,0.05,0.97);
+  const base=0.30+mvBoost+turnoutMobilization();
+  // enthusiasm: voters who feel strongly turn out far more than the indifferent, and
+  // the effect is convex — the adoring base and the enraged opposition spike hardest,
+  // while the lukewarm middle stays home. A polarised electorate votes; a sleepy
+  // consensus one doesn't.
+  const d=Math.abs(v.approval-50)/50;
+  return clamp(base+0.30*d+0.26*d*d+v.age*0.18,0.05,0.97);
 }
 /* system-wide turnout mobilization from civic policy and the political moment.
    Ranked-choice voting and motor-voter lift participation; deep cynicism and
@@ -3825,8 +3854,10 @@ function blocTurnout(sid){
    actual approval instead of collapsing at the binary 50-point cliff. */
 function votingIntention(){
   let yes=0,tot=0;
-  for(const v of VOTERS){const t=turnoutProb(v);tot+=t;yes+=t*clamp(0.5+(v.approval-50)/60,0,1);}
-  return tot>0?yes/tot*100:50;
+  for(const v of VOTERS){const t=turnoutProb(v);tot+=t;yes+=t*clamp(0.5+(v.approval-50)/95,0.08,0.92);}
+  const raw=tot>0?yes/tot:0.5;
+  // mirror runElection's realism anchor so the gauge matches the result
+  return clamp(raw*0.65 + 0.52*0.35, 0.03, 0.97)*100;
 }
 
 /* ============================================================
@@ -5033,8 +5064,14 @@ function approvalTarget(sid){
     // below 50, so simply holding steady erodes you and re-election must be
     // earned through visible results. Complacency adds late-term landslide
     // resistance on top of this.
-    return clamp(30+(sim.calib||0)+policyMood+metricMood(sim,sid)+sitMood
-      +groupGrudge(sid)-(sim.cynicism||0)-(sim.complacency||0)+groundPerception(sid),0,100);
+    let a=30+(sim.calib||0)+policyMood+metricMood(sim,sid)+sitMood
+      +groupGrudge(sid)-(sim.cynicism||0)-(sim.complacency||0)+groundPerception(sid);
+    // diminishing returns near the extremes — even a bloc that loves you has a
+    // realistic ceiling (you can't govern a group to unanimous adoration), and even
+    // one that loathes you keeps a small floor of "eh, could be worse".
+    if(a>68) a=68+(a-68)*0.6;
+    if(a<24) a=24-(24-a)*0.8;
+    return clamp(a,0,100);
 }
 function tickApproval(){
   for(const sid in SIMULANTS){
@@ -5334,18 +5371,20 @@ function runElection(){
     // Soft probabilistic lean: at app=50 it's a coin flip; each point away from 50
     // shifts the probability by 1/60, so approval ≈ vote share rather than collapsing
     // at the binary cliff. Third-party logic inside each branch stays unchanged.
-    const leanGov=Math.random()<clamp(0.5+(app-50)/60,0,1);
+    // Flatter slope + hard floor/ceiling: no matter how popular you are, a
+    // partisan bloc of the electorate will never vote for you, and vice versa.
+    const leanGov=Math.random()<clamp(0.5+(app-50)/95,0.08,0.92);
     if(leanGov){
       // Leans toward governor — strong ideologues may still defect to a purer party
       const lukewarm=clamp((70-app)/25,0,1);                          // 1 near 50, 0 above 70
-      const ideoDefect=Math.max(0,pole-0.45)*lukewarm*(rcv?1.8:1.1);
-      if(ideoDefect>0.2+Math.random()*0.5){ third+=t; }               // defects to a purer party
+      const ideoDefect=Math.max(0,pole-0.42)*lukewarm*(rcv?2.4:1.1);
+      if(ideoDefect>(rcv?0.12:0.20)+Math.random()*0.5){ third+=t; }   // defects to a purer party
       else{ yes+=t; }
     } else {
       // Leans against — may defect to a third party or back the challenger
       const disaffection=clamp((50-app)/22,0,1);
-      const thirdPull=pole*disaffection*(rcv?1.5:0.7);                // RCV makes 3rd parties viable
-      if(thirdPull>0.30+Math.random()*0.35){ third+=t; }              // defects to a third party
+      const thirdPull=pole*disaffection*(rcv?2.0:0.7);                // RCV lets them vote conscience without spoiling
+      if(thirdPull>(rcv?0.18:0.30)+Math.random()*0.35){ third+=t; }   // defects to a third party
       else no+=t;                                                      // backs the challenger
     }
   }
@@ -5353,9 +5392,13 @@ function runElection(){
   // later rounds if you're preferable to the challenger (you're rarely their
   // last choice). Without RCV, third-party votes are simply lost to you.
   let fromThird=0;
-  if(rcv&&third>0){ fromThird=third*0.45; yes+=fromThird; }
+  if(rcv&&third>0){ fromThird=third*0.40; yes+=fromThird; }
   const eff=yes+no+(rcv?third-fromThird:third);
-  const share=clamp(eff>0?yes/eff:0.5,0,1);
+  let share=clamp(eff>0?yes/eff:0.5,0,1);
+  // Realism anchor: Oregon's D+6 structural baseline pins the plausible centre.
+  // Blend the performance result toward it so a strong record wins comfortably
+  // (~55-70%) rather than in a 80% landslide, and a weak one still holds a floor.
+  share=clamp(share*0.65 + 0.52*0.35, 0.03, 0.97);
   const turnoutPct=tot/VOTERS.length;
   return {won:share>=0.5, share, approval:overallApproval(), intention:votingIntention(),
           turnout:turnoutPct, thirdShare:tot>0?third/tot:0, rcv};
@@ -5760,9 +5803,20 @@ function showQuarterReport(){
   const cyc=GAME.econCycle;
   const fc=cyc>0.25?"Good news — the economy is expanding, lifting revenue and GDP.":cyc<-0.25?"Storm clouds — the economy is contracting; expect revenue to soften.":"The economy is steady this quarter.";
   const forecastBlock=`<div class="rsection"><div class="rsec-h">${ico('globe')} Forecast</div><div class="rforecast">${fc}</div></div>`;
+  const nm=NATIONAL_MOOD.value;
+  const nmTxt=nm>4?"Favorable":nm>1?"Mild tailwind":nm<-4?"Hostile":nm<-1?"Mild headwind":"Neutral";
+  const ecTxt=cyc>0.33?"Boom":cyc>0.10?"Expanding":cyc<-0.33?"Recession":cyc<-0.10?"Slowing":"Steady";
+  const climateBlock=`<div class="rsection"><div class="rsec-h">${ico('chart-up')} Term &amp; Climate</div>
+    <div class="rrow"><span class="rlabel">Term progress</span><span class="rval">Term ${GAME.term} · Q${into+1}/${GAME.termLengthTurns}</span></div>
+    <div class="termbar" style="margin:3px 0 9px"><i style="width:${into/GAME.termLengthTurns*100}%"></i></div>
+    <div class="rrow"><span class="rlabel">National political mood</span><span class="rval" style="color:${nm>1?'var(--good)':nm<-1?'var(--clay)':'inherit'}">${nmTxt} (${nm>=0?'+':''}${nm.toFixed(1)})</span></div>
+    <div class="nmbar" style="margin:3px 0 9px"><span class="nmend">−</span><div class="nmtrack"><i style="left:${(nm+10)/20*100}%"></i></div><span class="nmend">+</span></div>
+    <div class="rrow"><span class="rlabel">Economic climate</span><span class="rval" style="color:${cyc>0.1?'var(--good)':cyc<-0.1?'var(--clay)':'inherit'}">${ecTxt}</span></div>
+    <div class="nmbar" style="margin:3px 0 0"><span class="nmend">▼</span><div class="nmtrack"><i style="left:${(cyc+1)/2*100}%"></i></div><span class="nmend">▲</span></div></div>`;
   card.innerHTML=`<div class="rhead"><h2>Quarterly Report</h2>
     <div class="sectionsub">Q${qtr} ${yr} · Term ${GAME.term}, quarter ${into+1} of ${GAME.termLengthTurns}. How the state moved last quarter.</div></div>
     <div class="rgrid">${rows}</div>
+    ${climateBlock}
     <div class="rcols">${budgetBlock}${forecastBlock}</div>
     ${eventBlock}
     <label class="rskip"><input type="checkbox" id="rskipChk"> Skip these reports for the rest of the term</label>
@@ -7424,6 +7478,9 @@ function renderDetail(){
     try{ settlePending(); }catch(err){/* never block navigation */}
     currentView="board"; detailKey=null;
     try{render();}catch(err){ try{renderBoard();renderHUD();renderSidebar();}catch(e2){} }
+    // land on the issue web, not scrolled up past the crisis strip and key metrics
+    setTimeout(()=>{ const t=document.querySelector('.boardlegend')||document.querySelector('.boardgraph');
+      if(t)try{ t.scrollIntoView({block:"start",behavior:"auto"}); }catch(e){} },40);
   };
   const doUndo=()=>{
     const key=detailKey;
@@ -7951,6 +8008,8 @@ function renderHUD(){
   }
   const b=budgetBalance();
   tweenNum(document.getElementById("hudBudget"),"hudBudget",b.balance,{dp:1,pre:b.balance>=0?"+":"",suf:"B"});
+  paintClimateReadouts("h");    // compact bars locked in the topbar
+  paintClimateReadouts("hp");   // full readout in the hover popover
 }
 /* ============================================================
    ISSUE WEB — Democracy-style bubble map. Every metric, indicator,
