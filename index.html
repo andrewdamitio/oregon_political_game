@@ -923,6 +923,7 @@
 <div id="electionModal" class="modal hidden"><div class="card" id="electionCard"></div></div>
 <div id="dilemmaModal" class="modal hidden"><div class="card" id="dilemmaCard"></div></div>
 <div id="reportModal" class="modal hidden"><div class="card reportcard" id="reportCard"></div></div>
+<div id="midtermModal" class="modal hidden"><div class="card" id="midtermCard"></div></div>
 <div id="campPopupModal" class="modal hidden"><div class="camp-popup-card" id="campPopupCard"></div></div>
 
 <script>
@@ -4157,7 +4158,7 @@ const SITUATIONS={
     metricEffect:{violentCrime:0.6,propertyCrime:0.6,gdp:-0.10}, moodAxes:{economic:-0.4}, moodMag:1,
     groupMood:{poor:-8,blueCollar:-6,liberal:-5,wealthy:2,socialist:-4}},
   leftProtests:{name:"Progressive Protest Wave", kind:"bad", category:"condition",
-    desc:"A Democratic governor has spent real political capital moving the state's agenda visibly rightward — and the coalition that elected you has taken to the streets. Marches in Portland, Eugene, and Salem; sit-ins at the Capitol; a running encampment on the mall. It bleeds a little growth and tourism, keeps downtown on edge, and drains your political capital every quarter it runs. It fades on its own if you steer the agenda back toward where you started; otherwise the Caucus Demands–style dilemma lets you cut a deal with organizers, order police to clear the streets (fast, but it radicalises your base and the footage travels), or let it burn itself out over a few quarters.",
+    desc:"You have spent real political capital moving the state's agenda visibly to the right of where you started — and the coalition on your left has taken to the streets. Marches in Portland, Eugene, and Salem; sit-ins at the Capitol; a running encampment on the mall. It bleeds a little growth and tourism, keeps downtown on edge, and drains your political capital every quarter it runs. It fades on its own if you steer the agenda back toward where you started; otherwise the Caucus Demands–style dilemma lets you cut a deal with organizers, order police to clear the streets (fast, but it radicalises your base and the footage travels), or let it burn itself out over a few quarters.",
     trigger:()=>{
       if(GAME.turn<=4) return false;
       if(GAME.turn < (GAME.protestIgnoredUntil||0)) return false;
@@ -4531,7 +4532,7 @@ const NATIONAL_MOOD={ value:0, drift:0 };
 
 const GAME={
   turn:0, startYear:2025, capital:50, capitalPerTurn:7,
-  lastMargin:0, crisesResolved:0, uturnCount:0, mandateShock:0,
+  lastMargin:0, crisesResolved:0, uturnCount:0, mandateShock:0, pendingMidterm:null,
   campaign:{effort:{},promises:[],pool:10}, activePromises:[], campaignDone:false, skipReport:false, skipCampaign:false,
   // ---- ground game: ongoing campaigning, independent of governing capital ----
   // campEnergy refills each quarter; perception/turnout boosts decay over time;
@@ -4784,6 +4785,15 @@ function agendaVector(){
     add(a.ideology,((a.funding??0.5)-0.5)*2);
   }
   return {ec, so};
+}
+/* the governor's enacted record mapped into the same [-1,1] ideology space that
+   voters and blocs live in (economic axis, social axis). This is what "aligned
+   with the administration" means — proximity to what you have ACTUALLY done, in
+   whatever direction, not an assumed party. Divisors chosen so the inherited
+   Oregon status quo lands around center-left (~-0.39 econ, ~-0.26 social). */
+function govIdeologyPoint(){
+  const v=agendaVector();
+  return { economic: clamp(v.ec/24, -1, 1), social: clamp(v.so/12, -1, 1) };
 }
 /* metricTarget: the level metric k settles toward. EVERYTHING shapes the
    target — policies, agencies, land use, inter-metric links, active
@@ -5328,11 +5338,16 @@ function approvalTarget(sid){
       // per-group extra reaction (a wildfire hits rural/timber harder, etc.)
       if(s.groupMood&&s.groupMood[sid]!==undefined)sitMood+=s.groupMood[sid]*sev;
     }
-    // national political mood: shifts approval, weighted by how partisan-aligned
-    // the bloc is with your (progressive-leaning) administration. Aligned blocs
-    // rise/fall WITH the national tide; opposed blocs move opposite.
-    const lean = -(sim.ideology.economic+sim.ideology.social)/2; // +1 = aligned w/ progressive admin
-    sitMood += NATIONAL_MOOD.value*lean*0.6;
+    // national political mood: a tide toward or away from the KIND of politics
+    // you are practising — measured against your enacted record, not an assumed
+    // party. Blocs close to your record ride the tide with you; distant blocs
+    // move against it. Govern left and the left is "aligned"; govern right and
+    // it flips.
+    {
+      const g=govIdeologyPoint();
+      const prox = 1 - (Math.abs(sim.ideology.economic-g.economic) + Math.abs(sim.ideology.social-g.social))/2.4;
+      sitMood += NATIONAL_MOOD.value * clamp(prox*2-1, -1, 1) * 0.55;
+    }
     // Governing is hard and voters are demanding: the neutral anchor sits
     // below 50, so simply holding steady erodes you and re-election must be
     // earned through visible results. Complacency adds late-term landslide
@@ -5644,12 +5659,16 @@ function settleFiscal(){
    handing victory to the challenger. */
 function runElection(){
   const rcv=POLICIES.rankedChoice&&POLICIES.rankedChoice.enabled;
-  let yes=0,no=0,third=0,tot=0;
+  let yes=0,no=0,thirdL=0,thirdR=0,tot=0;
   const camp=GAME.campaign||{};
+  const g=govIdeologyPoint();
   for(const v of VOTERS){
-    // Oregon D+6 structural lean: progressive voters have a baseline disposition
-    // toward the incumbent center-left governor that doesn't swing with policy approval
-    const partisanLean=clamp((-v.econ*0.55 + -v.social*0.20)*5, -4, 5);
+    // Structural lean toward the governor's ACTUAL record — proximity to what
+    // you've enacted, in whichever direction it runs — plus a small flat
+    // incumbency edge (name recognition, ballot position). Far-from-you voters
+    // lean against; nobody is assumed a partisan of any party.
+    const rdist=Math.abs((v.econ||0)-g.economic)*0.62 + Math.abs((v.social||0)-g.social)*0.30;
+    const partisanLean=clamp((0.85-rdist)*3.8 + 0.35, -4, 5);
     let app=v.approval+(Math.random()-0.5)*3+partisanLean;
     // campaign effort nudges turnout/approval among targeted blocs
     let mob=0;
@@ -5662,9 +5681,11 @@ function runElection(){
     const t=clamp(turnoutProb(v)+mob,0.03,0.98)*(0.85+Math.random()*0.3);
     tot+=t;
     const pole=Math.max(Math.abs(v.econ),Math.abs(v.social));         // ideological intensity
-    // Soft probabilistic lean: at app=50 it's a coin flip; each point away from 50
-    // shifts the probability by 1/60, so approval ≈ vote share rather than collapsing
-    // at the binary cliff. Third-party logic inside each branch stays unchanged.
+    // which splinter a defector goes to: their own net ideological direction,
+    // not the governor's. A left voter bolts to a left party, a right voter to
+    // a right party — regardless of which way the governor governs.
+    const splinter=((v.econ||0)*0.65 + (v.social||0)*0.55) >= 0 ? "R" : "L";
+    const addThird=x=>{ if(splinter==="R")thirdR+=x; else thirdL+=x; };
     // Flatter slope + hard floor/ceiling: no matter how popular you are, a
     // partisan bloc of the electorate will never vote for you, and vice versa.
     const leanGov=Math.random()<clamp(0.5+(app-50)/95,0.08,0.92);
@@ -5672,30 +5693,44 @@ function runElection(){
       // Leans toward governor — strong ideologues may still defect to a purer party
       const lukewarm=clamp((70-app)/25,0,1);                          // 1 near 50, 0 above 70
       const ideoDefect=Math.max(0,pole-0.42)*lukewarm*(rcv?2.4:1.1);
-      if(ideoDefect>(rcv?0.12:0.20)+Math.random()*0.5){ third+=t; }   // defects to a purer party
+      if(ideoDefect>(rcv?0.12:0.20)+Math.random()*0.5){ addThird(t); } // defects to a purer party
       else{ yes+=t; }
     } else {
       // Leans against — may defect to a third party or back the challenger
       const disaffection=clamp((50-app)/22,0,1);
       const thirdPull=pole*disaffection*(rcv?2.0:0.7);                // RCV lets them vote conscience without spoiling
-      if(thirdPull>(rcv?0.18:0.30)+Math.random()*0.35){ third+=t; }   // defects to a third party
+      if(thirdPull>(rcv?0.18:0.30)+Math.random()*0.35){ addThird(t); } // defects to a third party
       else no+=t;                                                      // backs the challenger
     }
   }
-  // Under RCV, a chunk of third-party first-preferences flow back to you on
-  // later rounds if you're preferable to the challenger (you're rarely their
-  // last choice). Without RCV, third-party votes are simply lost to you.
+  // Under RCV, third-party first-preferences flow back on later rounds to
+  // whichever of you and the challenger is closer. A left-governing incumbent
+  // recovers most of the LEFT splinter; a right-governing one recovers the
+  // RIGHT splinter. Without RCV, splinter votes are simply lost to you.
   let fromThird=0;
-  if(rcv&&third>0){ fromThird=third*0.40; yes+=fromThird; }
+  if(rcv){
+    const govLeft = (g.economic + g.social) < 0;
+    fromThird = thirdL*(govLeft?0.55:0.16) + thirdR*(govLeft?0.16:0.55);
+    yes += fromThird;
+  }
+  const third=thirdL+thirdR;
   const eff=yes+no+(rcv?third-fromThird:third);
   let share=clamp(eff>0?yes/eff:0.5,0,1);
-  // Realism anchor: Oregon's D+6 structural baseline pins the plausible centre.
-  // Blend the performance result toward it so a strong record wins comfortably
-  // (~55-70%) rather than in a 80% landslide, and a weak one still holds a floor.
-  share=clamp(share*0.65 + 0.52*0.35, 0.03, 0.97);
+  // Realism anchor: how far the governor's record sits from the electorate's
+  // own centre of gravity. Track it and you keep a small incumbency edge;
+  // govern far from it and that edge erodes. Blended in so a strong record
+  // wins comfortably (~55-70%) rather than in a landslide, and a weak one
+  // still holds a floor.
+  let emEc=0,emSo=0; for(const vv of VOTERS){emEc+=vv.econ||0;emSo+=vv.social||0;}
+  emEc/=VOTERS.length||1; emSo/=VOTERS.length||1;
+  const misfit=Math.abs(g.economic-emEc)*0.6 + Math.abs(g.social-emSo)*0.4;
+  const anchor=clamp(0.55 - misfit*0.14, 0.42, 0.54);
+  share=clamp(share*0.66 + anchor*0.34, 0.03, 0.97);
   const turnoutPct=tot/VOTERS.length;
   return {won:share>=0.5, share, approval:overallApproval(), intention:votingIntention(),
-          turnout:turnoutPct, thirdShare:tot>0?third/tot:0, rcv};
+          turnout:turnoutPct, rcv,
+          thirdShare:tot>0?third/tot:0,
+          thirdShareL:tot>0?thirdL/tot:0, thirdShareR:tot>0?thirdR/tot:0};
 }
 /* ============================ CAMPAIGN & PROMISES ============================
    The final quarter of each term is a campaign. The player gets a pool of
@@ -6220,10 +6255,57 @@ function showQuarterReport(){
   setTimeout(()=>{try{document.getElementById("reportContinue").focus();}catch(e){}},30);
 }
 
+/* mid-term result popup — a mini-election you don't stand in, but which
+   recalibrates the authority you carry in Salem for the back half of the term. */
+function showMidterm(m){
+  const card=document.getElementById("midtermCard");
+  const dirWord=m.deltaPts>0.5?'rises':m.deltaPts<-0.5?'falls':'holds steady';
+  const col=m.favorable?'var(--good)':(m.deltaPts<-0.5?'var(--clay)':'inherit');
+  const outlook=m.favorable
+    ? "A friendlier chamber and a clearer public mandate mean your bills move more easily and cost less capital to push for the rest of the term."
+    : m.deltaPts<-0.5
+      ? "A weakened mandate starves you of the capital to act — committees stall your priorities and concessions get more expensive until the general election. Let your mandate fall far enough and capital income is cut sharply on top."
+      : "No decisive shift either way — you carry roughly the same authority into the second half of the term.";
+  card.innerHTML=`<h2>${ico('ballot')} Midterm Elections — ${m.year}</h2>
+    <div class="sectionsub">Halfway through your term, control of the legislature and Oregon's seats in Congress are on the ballot. Your name is not — but the result is read everywhere as a referendum on your administration, and it resets how much authority you carry in Salem for the rest of the term.</div>
+    <div class="res ${m.favorable?'win':(m.deltaPts<-0.5?'lose':'')}" style="font-size:19px">${m.verdict}</div>
+    <div style="font-size:13px;color:var(--muted-2);margin:8px 0 4px">Behind it: <b>${m.approval.toFixed(1)}%</b> statewide approval on election day.</div>
+    <div class="rsection">
+      <div class="rsec-h">${ico('medal')} What it changes</div>
+      <div class="rrow"><span class="rlabel">Political Mandate</span><span class="rval" style="color:${col}">${dirWord}${Math.abs(m.deltaPts)>=0.5?` ~${Math.abs(m.deltaPts).toFixed(0)} pts`:''}</span></div>
+      <div class="rrow"><span class="rlabel">Political capital / quarter</span><span class="rval" style="color:${col}">${m.capPerQ>=0?'+':''}${m.capPerQ.toFixed(1)} ◈</span></div>
+      <div class="rforecast" style="margin-top:7px">${outlook}</div>
+    </div>
+    <button id="midtermContinue" class="enactbtn">Continue ▸</button>`;
+  const modal=document.getElementById("midtermModal");
+  modal.classList.remove("hidden");
+  const done=()=>{
+    modal.classList.add("hidden");
+    document.removeEventListener("keydown",onKey,true);
+    if(!GAME.skipReport)showQuarterReport();
+  };
+  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return;
+    if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
+  document.getElementById("midtermContinue").onclick=done;
+  document.addEventListener("keydown",onKey,true);
+  setTimeout(()=>{try{document.getElementById("midtermContinue").focus();}catch(e){}},30);
+}
+
 function showElection(r){
   GAME.gameOver=!r.won;
   const card=document.getElementById("electionCard");
-  const thirdLine=r.thirdShare>0.02?`<div style="font-size:12px;color:#8a7a3a">${r.rcv?'Ranked-choice':'Spoiler effect'}: third parties drew ${(r.thirdShare*100).toFixed(1)}% of turnout${r.rcv?' — second preferences partly flowed back to you':' — drawing ideological voters from both coalitions'}</div>`:'';
+  let thirdLine='';
+  if(r.thirdShare>0.02){
+    const tl=((r.thirdShareL||0)*100).toFixed(1), tr=((r.thirdShareR||0)*100).toFixed(1);
+    const bigger=(r.thirdShareL||0)>=(r.thirdShareR||0);
+    thirdLine=`<div style="font-size:12px;color:#8a7a3a;line-height:1.5">${r.rcv?'Ranked-choice':'Spoiler effect'}: third parties drew <b>${(r.thirdShare*100).toFixed(1)}%</b> of turnout — `
+      +`<span style="color:var(--slate-blue)">${tl}%</span> to the left (Pacific Green, Working Families), `
+      +`<span style="color:var(--clay)">${tr}%</span> to the right (Libertarian, Constitution).`
+      +(r.rcv
+        ? ` Under ranked choice most of those later preferences flowed to whichever of you and the challenger sat closer — this time the ${bigger?'left':'right'} splinter was the bigger bloc.`
+        : ` Without ranked choice they split both coalitions and helped no one.`)
+      +`</div>`;
+  }
   const marginPts=(r.share-0.5)*200;
   const winWord=marginPts>=20?'LANDSLIDE':marginPts>=8?'RE-ELECTED':'RE-ELECTED — NARROWLY';
   const resTxt=r.won?`★ ${winWord} ★ · ${(r.share*100).toFixed(1)}% vs ${(100-r.share*100).toFixed(1)}%`
@@ -6300,13 +6382,19 @@ function doEndTurn(){
   GAME.turn++; pushHistory();
   const into=GAME.turn-(GAME.term-1)*GAME.termLengthTurns;
   if(into===GAME.midtermTurn){
-    const swing=overallApproval()>52?"a green wave — your hand is strengthened":overallApproval()<45?"a rebuke — your standing weakens":"a mixed verdict";
-    GAME.lastMargin=clamp((overallApproval()-50)/50,-1,1);
-    GAME.log.push(ico('ballot')+" Midterms: "+swing);
+    const oa=overallApproval();
+    const prevContrib=(GAME.lastMargin||0)*40;
+    GAME.lastMargin=clamp((oa-50)/50,-1,1);
+    const deltaPts=GAME.lastMargin*40-prevContrib;
+    const verdict = oa>=53?"A wave in your favour" : oa>=49?"A modest win" : oa>=45?"A mixed verdict" : oa>=41?"A clear rebuke" : "A rout";
+    GAME.log.push(ico('ballot')+" Midterms: "+verdict.toLowerCase());
+    GAME.pendingMidterm={approval:oa, verdict, deltaPts, capPerQ:deltaPts*0.1,
+      year:GAME.startYear+Math.floor(GAME.turn/4), favorable:deltaPts>0.5};
   }
   if(GAME.log.length>8)GAME.log=GAME.log.slice(-8);
   render();
-  if(!GAME.skipReport)showQuarterReport();
+  if(GAME.pendingMidterm){ const mt=GAME.pendingMidterm; GAME.pendingMidterm=null; showMidterm(mt); }
+  else if(!GAME.skipReport)showQuarterReport();
 }
 /* election quarter — ticks run for the campaign quarter, then the election fires */
 function doElectionTurn(){
@@ -7823,7 +7911,7 @@ function renderDetail(){
     h+=`<div class="detailval" style="color:${nm>1?'var(--good)':nm<-1?'var(--clay)':'#8a8270'}">${nm>=0?'+':''}${nm.toFixed(1)}</div>`;
     h+=`<div class="chartbox"><div class="charttitle">National mood over time</div>
       ${sparkline(GAME.history["nationalMood"],{color:'var(--slate-blue)',min:-10,max:10,fmt:v=>(v>=0?'+':'')+v.toFixed(1)})}</div>`;
-    h+=`<div class="sectionsub">When favorable, aligned blocs (progressive-leaning) reward you and opposed blocs sour; when hostile, the reverse. You can't set it, only weather it.</div>`;
+    h+=`<div class="sectionsub">A national tide toward or away from the kind of politics you're practising. When it's favorable, the blocs closest to your enacted record reward you and the ones furthest from it sour; when it's hostile, the reverse. Govern to the left and the left rides it with you; govern to the right and it flips. You can't set it, only weather it.</div>`;
   } else if(key.startsWith("i_")){
     const id=key.slice(2), ind=INDICATORS[id];
     const col=ind.value>=60?'var(--good)':ind.value>=42?'var(--warn)':'var(--bad)';
