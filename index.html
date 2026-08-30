@@ -693,6 +693,16 @@
   #boardSvg .bnico-use,#webSvg .bnico-use{transition:opacity .14s}
   .boardnode.dim .bnico-use{opacity:0}
   .webnode.dim .bnico-use{opacity:.18}
+  /* ---- readability pass on the Governing Board graph ---- */
+  /* connections stay nearly invisible at rest; a node's web lights up on hover/focus */
+  #boardSvg .webedge{stroke-opacity:.035;stroke-width:1}
+  #boardSvg.focus .webedge{stroke-opacity:.02}
+  #boardSvg .webedge.hot{stroke-opacity:.95 !important;stroke-width:2.6}
+  /* paper halo behind every label so text stays legible over lines and neighbours */
+  #boardSvg .bn-lbl,#boardSvg .bn-hub,#boardSvg .bn-val{paint-order:stroke;stroke:var(--paper);stroke-width:3.5px;stroke-linejoin:round}
+  /* condensed label type — narrower, so fewer collisions */
+  #boardSvg .bn-lbl{font-family:var(--font-display);font-size:10.5px;font-weight:500;letter-spacing:.2px}
+  .bn-hub{opacity:.10}
 </style>
 </head>
 <body>
@@ -3635,23 +3645,17 @@ const SITUATIONS={
     watch:{metric:"health", startAt:45, clearAt:55, badHigh:false},
     metricEffect:{gdp:-0.15}, mandateShock:-4, moodAxes:{social:0.2}, moodMag:2,
     groupMood:{poor:-7,blueCollar:-5,parents:-4,liberal:-3,retirees:-3}},
-  nonprofitComplex:{name:"Nonprofit Industrial Complex", kind:"bad", category:"condition",
-    desc:"Years of climbing homelessness spending and childcare appropriations have been routed through an ever-thickening layer of contracted nonprofits, pass-through intermediaries, and grant-compliance staff. Each additional dollar now buys less shelter and less childcare than the last — overhead compounds, providers multiply and overlap, and outcomes flatline even as the budget lines grow. The contracts have outrun the state's capacity to manage them. Politically it is self-entrenching: the sector is a progressive constituency in its own right — advocacy shops, service-worker locals, and grant-funded organizers who mobilize for the administration that feeds them, and who help draw like-minded residents into the electorate — even as fiscal conservatives and business recoil at the waste. Only a serious build-out of administrative muscle — Government Operations investment and digitization — re-takes control of procurement and restores delivery. Maxing Government Operations prevents it from taking hold at all.",
-    trigger:()=>{
-      const cc=(POLICIES.childcareSubsidy?Math.max(0,policyNetCost(POLICIES.childcareSubsidy)):0)
-              +(POLICIES.preschoolForAll?Math.max(0,policyNetCost(POLICIES.preschoolForAll)):0);
-      return GAME.turn>5 && METRICS.homelessness.value>60 && cc>0.85
-        && policyLevel(POLICIES.govOps||{value:0.3})<0.85;
-    },
+  nonprofitComplex:{name:"Nonprofit Industrial Complex", kind:"bad", category:"chronic",
+    desc:"The governor inherits a decade of homelessness and childcare money routed through an ever-thickening layer of contracted nonprofits and grant-compliance staff — each dollar now buys less shelter and less childcare than the last, while overhead compounds and the sector becomes its own entrenched progressive constituency. It breaks one of two ways: drive homelessness down far enough that the caseload contracts, or build serious administrative muscle (Government Operations plus digitization) to re-take the contracts and run delivery in-house.",
+    startActive:true, minTurns:6,
     clear:()=>{
       const cc=(POLICIES.childcareSubsidy?Math.max(0,policyNetCost(POLICIES.childcareSubsidy)):0)
               +(POLICIES.preschoolForAll?Math.max(0,policyNetCost(POLICIES.preschoolForAll)):0);
-      return (METRICS.homelessness.value<50 && cc<0.9)
+      return (METRICS.homelessness.value<48 && cc<0.9)
         || (policyLevel(POLICIES.govOps||{value:0.3})>0.8 && (INDICATORS.adminOverhead?.value??87)<80);
     },
-    onClear:{capital:3}, onTrigger:{capital:-3}, minTurns:5,
-    watch:{metric:"homelessness", startAt:60, clearAt:50, badHigh:true},
-    costEffect:{humanServices:0.55, social:0.50, housing:0.35},
+    watch:{metric:"homelessness", startAt:62, clearAt:48, badHigh:true},
+    costEffect:{humanServices:0.42, social:0.36, housing:0.26},
     metricEffect:{}, moodAxes:{economic:0.25, govSize:0.55}, moodMag:2,
     groupMood:{libertarian:-8,conservative:-6,businessClass:-6,wealthy:-4,moderate:-3,rural:-3,blueCollar:-1,
                liberal:6,socialist:8,publicUnions:6,urban:3,students:3}},
@@ -6183,8 +6187,8 @@ function renderBoard(){
         const row=Math.floor(i/perRow), col=i%perRow;
         const rowCount=Math.min(perRow, ids.length-row*perRow);
         const t=rowCount===1?0:(col/(rowCount-1)-0.5);     // -0.5..0.5 across the row
-        const along=t*(82*rowCount);                        // tangential spacing
-        const out=facing*(baseRad+row*80);                  // outward by row
+        const along=t*(94*rowCount);                        // tangential spacing
+        const out=facing*(baseRad+row*90);                  // outward by row
         nodes[id].x=ccx+Math.cos(ca)*out+Math.cos(tang)*along;
         nodes[id].y=ccy+Math.sin(ca)*out+Math.sin(tang)*along;
       });
@@ -6192,8 +6196,8 @@ function renderBoard(){
     // both stats and levers fan OUTWARD from the cluster center (stats on the
     // inner rows nearest the cluster hub, levers beyond them), keeping the
     // canvas center empty so neighbouring clusters never collide there.
-    placeBlock(stats, 70, 1);                  // inner band of the cluster
-    const leverBase=70+ (Math.ceil(stats.length/(Math.ceil(Math.sqrt(stats.length)*1.1)||1)))*80 + 20;
+    placeBlock(stats, 78, 1);                  // inner band of the cluster
+    const leverBase=78+ (Math.ceil(stats.length/(Math.ceil(Math.sqrt(stats.length)*1.1)||1)))*90 + 26;
     placeBlock(levers, leverBase, 1);          // beyond the stats
   });
   for(const id in otherSec){ /* any unsectioned nodes: drop near center */ }
@@ -6243,12 +6247,12 @@ function renderBoard(){
     let shapeEl;
     if(isLeverNode){
       const s=r*2-6;
-      shapeEl=`<rect class="bn-ring" x="${-(s/2)}" y="${-(s/2)}" width="${s}" height="${s}" rx="10" ry="10" fill="var(--paper)" stroke="${n.stroke}" stroke-width="2.2"/>`;
+      shapeEl=`<rect class="bn-ring" x="${-(s/2)}" y="${-(s/2)}" width="${s}" height="${s}" fill="var(--paper-2)" stroke="${n.stroke}" stroke-width="2.4"/>`;
     } else if(isSit){
       const sitFill=n.stroke==='var(--good)'?"var(--tint-good)":"var(--tint-bad)";
       shapeEl=`<circle class="bn-ring" r="${r}" fill="${sitFill}" stroke="${n.stroke}" stroke-width="3.5" stroke-dasharray="5 3"/>`;
     } else {
-      shapeEl=`<circle class="bn-ring" r="${r}" fill="var(--paper)" stroke="${n.stroke}" stroke-width="1.6"/>`;
+      shapeEl=`<circle class="bn-ring" r="${r}" fill="var(--paper-2)" stroke="${n.stroke}" stroke-width="2.2"/>`;
     }
     svg+=`<g class="boardnode ${n.kind}" data-node="${id}" data-detail="${id}" transform="translate(${n.x.toFixed(0)},${n.y.toFixed(0)})">
       ${shapeEl}
