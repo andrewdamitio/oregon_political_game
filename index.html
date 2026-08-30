@@ -5860,7 +5860,8 @@ function runElection(){
   const blocs=blocIds.map(sid=>{
     const B=blocAgg[sid], m=B.m||1e-9, s=SIMULANTS[sid];
     return { sid, name:s.name, cat:s.category||"other", size:B.m/nv,
-             turnout:B.turn/m, you:B.y/m, opp:B.n/m, third:(B.thL+B.thR)/m };
+             turnout:B.turn/m, you:B.y/m, opp:B.n/m,
+             third:(B.thL+B.thR)/m, thirdL:B.thL/m, thirdR:B.thR/m };
   }).sort((a,b)=>b.size-a.size);
   // ---- ranked-choice second round (only meaningful when RCV is on) ----
   let rcvRounds=null;
@@ -6665,7 +6666,7 @@ function countyMapSVG(rows){
   rows.forEach((c,i)=>{
     base+=`<path d="${c.d}" fill="var(--paper-2)" stroke="var(--line)" stroke-width="0.5"/>`;
     const tn=c.turnout!=null?` · ${pc(c.turnout)}% turnout`:"";
-    const brk=` — You ${pc(c.you)}% · Challenger ${pc(c.opp)}% · Third ${pc((c.thL||0)+(c.thR||0))}%${tn}`;
+    const brk=` — You ${pc(c.you)}% · Challenger ${pc(c.opp)}% · Left splinter ${pc(c.thL)}% · Right splinter ${pc(c.thR)}%${tn}`;
     fills+=`<path class="cty" data-i="${i}" tabindex="0" d="${c.d}" fill="${col[c.win]}" stroke="var(--paper)" stroke-width="0.4" opacity="0"><title>${c.name} County — carried by ${who[c.win]}${brk}</title></path>`;
     labels+=`<text x="${c.cx}" y="${c.cy+2}" text-anchor="middle" font-size="6" font-family="var(--font-data)" fill="#1c1a17" stroke="rgba(255,255,255,0.7)" stroke-width="1.4" paint-order="stroke" style="pointer-events:none">${c.abbr}</text>`;
   });
@@ -6775,17 +6776,18 @@ function egBlocCharts(blocs){
   const CAT=[["ideology","Ideology"],["region","Region"],["income","Income"],["housing","Housing"],["sector","Work & sector"],["lifestage","Life stage"]];
   const seen=new Set();
   const bar=(b)=>{
-    const you=clamp(b.you*100,0,100),opp=clamp(b.opp*100,0,100),thd=clamp(b.third*100,0,100);
-    const no=Math.max(0,100-you-opp-thd);
+    const you=clamp(b.you*100,0,100), opp=clamp(b.opp*100,0,100),
+          tl=clamp((b.thirdL||0)*100,0,100), tr=clamp((b.thirdR||0)*100,0,100);
+    const no=Math.max(0,100-you-opp-tl-tr);
     return `<div class="eg-blk">
       <div class="eg-blk-name">${b.name}<span>${(b.size*100).toFixed(0)}% of voters · ${(b.turnout*100).toFixed(0)}% turnout</span></div>
-      <div class="eg-blk-bar" title="You ${you.toFixed(0)}% · Challenger ${opp.toFixed(0)}% · Third ${thd.toFixed(0)}% · Didn't vote ${no.toFixed(0)}%">
-        <i style="width:${you}%;background:var(--moss)"></i><i style="width:${opp}%;background:var(--clay)"></i><i style="width:${thd}%;background:var(--gold)"></i><i style="width:${no}%;background:#b9b3a2"></i>
+      <div class="eg-blk-bar" title="You ${you.toFixed(0)}% · Challenger ${opp.toFixed(0)}% · Left splinter ${tl.toFixed(0)}% · Right splinter ${tr.toFixed(0)}% · Didn't vote ${no.toFixed(0)}%">
+        <i style="width:${you}%;background:var(--moss)"></i><i style="width:${opp}%;background:var(--clay)"></i><i style="width:${tl}%;background:var(--slate-blue)"></i><i style="width:${tr}%;background:var(--gold)"></i><i style="width:${no}%;background:#b9b3a2"></i>
       </div></div>`;
   };
   let h=`<div class="eg-section"><h3 class="eg-h3">How each group voted</h3>
-    <div class="eg-note">Every group's members, split by first-preference vote — with turnout modelled per group. People belong to several groups at once, so these overlap.</div>
-    <div class="eg-blk-legend"><span><i style="background:var(--moss)"></i>You</span><span><i style="background:var(--clay)"></i>Challenger</span><span><i style="background:var(--gold)"></i>Third party</span><span><i style="background:#b9b3a2"></i>Didn't vote</span></div>`;
+    <div class="eg-note">Every group's members, split by first-preference vote — with turnout modelled per group. The left splinter is Pacific Green / Working Families, the right is Libertarian / Constitution. People belong to several groups at once, so these overlap.</div>
+    <div class="eg-blk-legend"><span><i style="background:var(--moss)"></i>You</span><span><i style="background:var(--clay)"></i>Challenger</span><span><i style="background:var(--slate-blue)"></i>Left splinter</span><span><i style="background:var(--gold)"></i>Right splinter</span><span><i style="background:#b9b3a2"></i>Didn't vote</span></div>`;
   for(const [cat,label] of CAT){
     const rows=blocs.filter(b=>b.cat===cat);
     if(!rows.length)continue;
@@ -6819,8 +6821,8 @@ function showElection(r){
     const tl=((r.thirdShareL||0)*100).toFixed(1), tr=((r.thirdShareR||0)*100).toFixed(1);
     const bigger=(r.thirdShareL||0)>=(r.thirdShareR||0);
     thirdLine=`<div style="font-size:12px;color:#8a7a3a;line-height:1.5">${r.rcv?'Ranked-choice':'Spoiler effect'}: third parties drew <b>${(r.thirdShare*100).toFixed(1)}%</b> of turnout — `
-      +`<span style="color:var(--slate-blue)">${tl}%</span> to the left (Pacific Green, Working Families), `
-      +`<span style="color:var(--clay)">${tr}%</span> to the right (Libertarian, Constitution).`
+      +`<b style="color:var(--slate-blue)">${tl}%</b> to the left splinter (Pacific Green, Working Families), `
+      +`<b style="color:var(--gold)">${tr}%</b> to the right splinter (Libertarian, Constitution).`
       +(r.rcv
         ? ` Under ranked choice most of those later preferences flowed to whichever of you and the challenger sat closer — this time the ${bigger?'left':'right'} splinter was the bigger bloc.`
         : ` Without ranked choice they split both coalitions and helped no one.`)
@@ -6842,10 +6844,11 @@ function showElection(r){
     <div class="eg-sub">${flavour} — <b>${(r.share*100).toFixed(1)}%</b> to <b>${(oppTotal*100).toFixed(1)}%</b></div>
     <div class="eg-bar" aria-hidden="true">
       <i data-w="${(r.share*100).toFixed(1)}" style="width:0;background:var(--moss)"></i>
-      <i data-w="${(third*100).toFixed(1)}" style="width:0;background:var(--gold)"></i>
+      <i data-w="${((r.thirdShareL||0)*100).toFixed(1)}" style="width:0;background:var(--slate-blue)"></i>
+      <i data-w="${((r.thirdShareR||0)*100).toFixed(1)}" style="width:0;background:var(--gold)"></i>
       <i data-w="${(oppTotal*100).toFixed(1)}" style="width:0;background:var(--clay)"></i>
     </div>
-    <div class="eg-legend"><span><i style="background:var(--moss)"></i>You</span><span><i style="background:var(--gold)"></i>Third parties</span><span><i style="background:var(--clay)"></i>Challenger</span></div>
+    <div class="eg-legend"><span><i style="background:var(--moss)"></i>You</span><span><i style="background:var(--slate-blue)"></i>Left splinter</span><span><i style="background:var(--gold)"></i>Right splinter</span><span><i style="background:var(--clay)"></i>Challenger</span></div>
     <div class="eg-sub" style="font-size:13px">Turnout <b>${(r.turnout*100).toFixed(0)}%</b> · Final approval <b>${r.approval.toFixed(1)}%</b> · <span id="egReporting">0% reporting</span> · you carried <b id="egCty">0</b> / 36 counties</div>
     ${countyMapSVG(cRows)}
     <div class="eg-ctyread" id="egCtyRead">Hover a county for its result · scroll for the full breakdown ↓</div>
@@ -6868,7 +6871,8 @@ function showElection(r){
     readEl.innerHTML=`<b>${c.name} County</b> — carried by ${wlab} · `
       +`You <b style="color:var(--moss-bright)">${pct(c.you)}%</b> · `
       +`Challenger <b style="color:var(--clay)">${pct(c.opp)}%</b> · `
-      +`Third <b style="color:var(--gold)">${pct((c.thL||0)+(c.thR||0))}%</b> · `
+      +`Left splinter <b style="color:var(--slate-blue)">${pct(c.thL)}%</b> · `
+      +`Right splinter <b style="color:var(--gold)">${pct(c.thR)}%</b> · `
       +`Turnout ${pct(c.turnout)}%`; };
   ctyEls.forEach(el=>{ const c=cRows[+el.dataset.i]; if(!c)return;
     el.addEventListener('mouseenter',()=>showCty(c));
