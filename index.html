@@ -1072,6 +1072,7 @@
 <div id="reportModal" class="modal hidden"><div class="card reportcard" id="reportCard"></div></div>
 <div id="midtermModal" class="modal hidden"><div class="card" id="midtermCard"></div></div>
 <div id="surplusModal" class="modal hidden"><div class="card" id="surplusCard"></div></div>
+<div id="platformModal" class="modal hidden"><div class="camp-popup-card" id="platformCard"></div></div>
 <div id="resumeModal" class="modal hidden"><div class="card" style="max-width:380px;text-align:center">
   <h2 style="margin-bottom:6px">Saved game found</h2>
   <div class="sectionsub" id="resumeMeta" style="margin-bottom:16px">—</div>
@@ -6787,6 +6788,63 @@ function evaluatePromises(){
   }
   GAME.activePromises=[];
 }
+/* read-only view of the pledges you're running this term, with live progress */
+function platformProgressHTML(){
+  const aps=GAME.activePromises||[];
+  if(!aps.length)return `<div style="font-size:11.5px;color:var(--muted-3);padding:6px 0 10px">You made no pledges this term — nothing to keep or break at the next election.</div>`;
+  let h=`<div class="promgrid">`;
+  for(const ap of aps){
+    const pr=PROMISES[ap.id]; if(!pr)continue;
+    const metCount=pr.criteria.filter(cr=>cr.check()).length, total=pr.criteria.length;
+    const allMet=metCount===total, someMet=!allMet&&metCount>0;
+    const statusClass=allMet?'met':someMet?'partial':'unmet';
+    const statusLabel=allMet?'On track to keep':someMet?`Partial (${metCount}/${total} conditions met)`:'Not on track';
+    const criteriaHtml=pr.criteria.map(cr=>`<div class="prom-criterion ${cr.check()?'crit-met':'crit-unmet'}">${cr.check()?'✓':'–'} ${cr.label}</div>`).join('');
+    h+=`<div class="promcard promon">
+      <div class="promlabel">✓ ${pr.label}</div>
+      <div class="promblocs">${pr.bloc.map(b=>SIMULANTS[b]?SIMULANTS[b].name:b).join(' · ')}</div>
+      <div class="prom-criteria">${criteriaHtml}</div>
+      <div class="prom-status ${statusClass}">${statusLabel}</div></div>`;
+  }
+  return h+`</div>`;
+}
+/* Platform-setting modal — shown just AFTER an election win (and once at the
+   start of a fresh game). This is where you commit to the term ahead; the
+   pledges lock in and are judged at the next election. */
+function showPlatformModal(){
+  const modal=document.getElementById("platformModal"), card=document.getElementById("platformCard");
+  if(!modal||!card)return;
+  GAME.campaign=GAME.campaign||{effort:{},promises:[],pool:10};
+  const draft = GAME._platformDraft = (GAME._platformDraft||[]);
+  const paint=()=>{
+    let h=`<div class="sectionhdr">${ico('doc')} Your Platform — Term ${GAME.term}</div>
+      <div class="sectionsub">You've taken office. Pledge what you'll deliver this term. At the next election, each promise <b>kept</b> rewards you with the blocs that cared; each one <b>broken</b> breeds cynicism and a hit to your mandate. Pick only what you can realistically deliver — a pledge can't be walked back.</div>`;
+    h+=promiseGridHTML(draft);
+    h+=`<button class="enactbtn" id="platformOk" style="margin-top:18px">${draft.length?`Run on ${draft.length} promise${draft.length===1?'':'s'} ▸`:`Make no pledges this term ▸`}</button>`;
+    card.innerHTML=h;
+    const sy=card.scrollTop; card.scrollTop=sy;
+    card.querySelectorAll('[data-prom]').forEach(el=>el.addEventListener('click',()=>{
+      const pid=el.dataset.prom, i=draft.indexOf(pid);
+      if(i>=0)draft.splice(i,1); else draft.push(pid);
+      const s=card.scrollTop; paint(); card.scrollTop=s;
+    }));
+    document.getElementById("platformOk").onclick=commit;
+  };
+  const commit=()=>{
+    GAME.activePromises=draft.slice().map(pid=>({id:pid, madeTerm:GAME.term}));
+    GAME.campaign.promises=draft.slice();
+    GAME._platformDraft=[];
+    modal.classList.add("hidden");
+    document.removeEventListener("keydown",onKey,true);
+    render();
+  };
+  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); commit(); } };
+  paint();
+  modal.classList.remove("hidden");
+  card.scrollTop=0;
+  document.addEventListener("keydown",onKey,true);
+  setTimeout(()=>{try{document.getElementById("platformOk").focus({preventScroll:true});card.scrollTop=0;}catch(e){}},30);
+}
 
 /* ====================== QUARTERLY REPORT (start-of-quarter briefing) ======
    A Democracy-style summary shown at the top of each new quarter: how the
@@ -7494,11 +7552,11 @@ function showElection(r){
     if(won){
       GAME.term++;GAME.capital=clamp(GAME.capital+15,0,100);GAME.log.push("★ Term "+GAME.term+" begins");
       GAME.skipReport=false; GAME.skipCampaign=false; // reports and campaign popup resume each new term
-      GAME.activePromises=(GAME.nextPromises||[]).map(pid=>({id:pid, madeTerm:GAME.term}));
-      GAME.nextPromises=[];
       GAME.campaign={effort:{},promises:[],pool:10};
+      GAME._platformDraft=[];
       GAME.countyCamp={};   // county campaign presence is spent — the next term's is a fresh build
       render();
+      showPlatformModal();  // now, with a fresh mandate, commit to the term ahead
     } else location.href=location.origin+location.pathname;   // New Game — drop any ?seed= so it's a fresh seed
   };
   document.getElementById("electionContinue").onclick=proceed;
@@ -7601,10 +7659,10 @@ function showCampPopup(opts){
 
   let h=`<div class="sectionhdr">${ico('ballot')} ${manual?"Campaign HQ":isElecQ?"Election Campaign — Final Quarter":"Campaigning"}</div>
     <div class="sectionsub">${manual
-      ?`Your platform, the groups organised for or against you, and this quarter's campaign energy — spent on voter blocs or the county map. This won't end the quarter.`
+      ?`Where your term's platform stands, who's organised for or against you, and this quarter's campaign energy — spent on voter blocs or the county map. This won't end the quarter.`
       :isElecQ
-      ?`<b style="color:var(--clay)">The election follows this quarter.</b> Lock in the <b>platform you'll run on next term</b>, make last-minute pushes, then hold the election.`
-      :`Set your platform, work the blocs and the county map, then end the quarter. ${yearsLeft>0?`Election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`:''}`
+      ?`<b style="color:var(--clay)">The election follows this quarter.</b> Make your last-minute pushes on blocs and counties, then hold the election. You'll set the next term's platform straight after the result.`
+      :`Work the blocs and the county map, then end the quarter. ${yearsLeft>0?`Election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`:''}`
     }</div>`;
 
   // advance button at top
@@ -7613,19 +7671,12 @@ function showCampPopup(opts){
     ${(!isElecQ&&!manual)?`<label style="font-size:12px;color:var(--muted-2);cursor:pointer;user-select:none;display:flex;align-items:center;gap:5px"><input type="checkbox" id="campSkipChk"${GAME.skipCampaign?' checked':''}>Don't show again this term <span style="color:var(--muted-3)">(reopen from the ${ico('ballot')} icon up top)</span></label>`:''}
   </div>`;
 
-  // ---- platform promises: the pledges you're judged on at the election.
-  //      Expanded at the election (and in Campaign HQ); a one-line summary the
-  //      rest of the term — it's a bookend decision, not quarterly busywork ----
-  const promOpen = isElecQ || manual || GAME.campPromOpen;
-  const canCollapse = !isElecQ && !manual;
-  h+=`<div class="camp-sec${canCollapse?' promtoggle':''}" id="campPromToggle" style="margin-top:6px">
-    ${canCollapse?`<span class="sec-caret">${promOpen?'▾':'▸'}</span>`:''}${ico('doc')} Platform promises${isElecQ?` — the platform you run on next term`:` <span class="sec-note">— ${c.promises.length} pledged${c.promises.length?': '+c.promises.map(p=>PROMISES[p]?PROMISES[p].label:p).join(', '):''}</span>`}</div>`;
-  if(promOpen){
-    h+=`<div class="sectionsub" style="margin-top:0">${isElecQ
-      ? `These are the pledges you carry into the next term. Kept by the next election → the blocs that cared reward you; broken → cynicism and a hit to your mandate.`
-      : `What you pledge to deliver this term — kept promises reward you at the election, broken ones breed cynicism and a U-turn hit. Aim only for what you can actually deliver.`}</div>`;
-    h+=promiseGridHTML(c.promises);
-  }
+  // ---- platform this term: read-only. Pledges are committed right after you
+  //      win (showPlatformModal), then tracked here through the term ----
+  const nAp=(GAME.activePromises||[]).length;
+  h+=`<div class="camp-sec" style="margin-top:6px">${ico('doc')} Platform this term <span class="sec-note">— ${nAp} pledge${nAp===1?'':'s'}</span></div>
+    <div class="sectionsub" style="margin-top:0">Set when you took office. At the election, each promise <b>kept</b> rewards you with the blocs that cared; each one <b>broken</b> breeds cynicism and a mandate hit.</div>`;
+  h+=platformProgressHTML();
 
   // ---- who's organised for / against you ----
   h+=mobilizationsHTML();
@@ -7685,25 +7736,13 @@ function showCampPopup(opts){
   }));
   // wire the county campaign map (campCounty → campRedraw re-renders this popup)
   wireCampMap(card);
-  // wire platform-promise section: header toggles collapse, cards toggle pledges
-  {
-    const pt=card.querySelector("#campPromToggle");
-    if(pt&&!isElecQ&&!manual)pt.addEventListener('click',()=>{ GAME.campPromOpen=!GAME.campPromOpen; showCampPopup({manual}); });
-  }
-  card.querySelectorAll('[data-prom]').forEach(el=>el.addEventListener('click',()=>{
-    const pid=el.dataset.prom, i=c.promises.indexOf(pid);
-    if(i>=0)c.promises.splice(i,1); else c.promises.push(pid);
-    showCampPopup({manual});
-  }));
   document.getElementById("campPopAdvance").onclick=()=>{
     document.getElementById("campPopupModal").classList.add("hidden");
     if(manual){ render(); return; }               // just spending energy — don't advance the quarter
     const skipChk=document.getElementById("campSkipChk");
     if(skipChk&&skipChk.checked)GAME.skipCampaign=true;
     if(isElecQ){
-      GAME.nextPromises=c.promises.slice();   // pledges for the NEXT term — judged at the NEXT election
-      GAME.campaign={effort:{}, promises:c.promises, pool:10};
-      doElectionTurn();
+      doElectionTurn();   // the next term's platform is set right after the result, not now
     } else {
       doEndTurn();
     }
@@ -10033,24 +10072,28 @@ GAME.compassStart=agendaVector();            // where the mandate sits on the po
 pushHistory(); // seed turn 0
 
 // ---- SAVE / RESUME ----
+let _resumedFromSave=false, _resumePrompted=false;
 // (1) a Resume just reloaded us with the right seed: overlay the saved state
 try{
   if(localStorage.getItem("sc_applySave")==="1"){
     localStorage.removeItem("sc_applySave");
     const _sv=JSON.parse(localStorage.getItem("sc_save")||"null");
-    if(_sv){ applySave(_sv); pushHistory(); }
+    if(_sv){ applySave(_sv); pushHistory(); _resumedFromSave=true; }
   }
 }catch(e){}
 // (2) otherwise, if a save exists, offer to resume it
 (function(){
   let sv=null; try{ sv=JSON.parse(localStorage.getItem("sc_save")||"null"); }catch(e){}
   if(!sv || GAME.turn>0) return;   // no save, or we already resumed one above
+  _resumePrompted=true;
   const m=document.getElementById("resumeModal");
   document.getElementById("resumeMeta").textContent=`Term ${sv.term} · Q${sv.q} ${sv.year}`;
   m.classList.remove("hidden");
   const go=(resume)=>{ m.classList.add("hidden");
     if(resume){ try{ localStorage.setItem("sc_nextSeed",sv.seed||""); localStorage.setItem("sc_applySave","1"); }catch(e){}
-      location.href=location.origin+location.pathname; } };
+      location.href=location.origin+location.pathname; }
+    else showPlatformModal();   // New Game — commit to a term-1 platform
+  };
   document.getElementById("resumeYes").onclick=()=>go(true);
   document.getElementById("resumeNo").onclick=()=>go(false);
 })();
@@ -10058,6 +10101,8 @@ try{
 {const cb=document.getElementById("campBtn"); if(cb)cb.addEventListener("click",()=>showCampPopup({manual:true}));}
 
 render();
+// fresh game with no save prompt on screen: set the opening platform now
+if(GAME.turn===0 && !_resumedFromSave && !_resumePrompted && !(GAME.activePromises&&GAME.activePromises.length)) showPlatformModal();
 </script>
 </body>
 </html>
