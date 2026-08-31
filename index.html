@@ -867,6 +867,10 @@
   .cmap-svg .cm-cty{stroke:var(--paper);stroke-width:.5;cursor:pointer;transition:filter .1s}
   .cmap-svg .cm-cty:hover,.cmap-svg .cm-cty.sel{stroke:var(--ink);stroke-width:1.5;filter:brightness(1.08)}
   .cmap-svg .cm-cty:focus{outline:none}
+  /* campaign map (in the End-Quarter popup): dark county outlines read better on the parchment fill */
+  .camp-popup-card .cmap-svg .cm-cty{stroke:var(--ink);stroke-width:.8}
+  .camp-popup-card .cmap-svg .cm-cty:hover,.camp-popup-card .cmap-svg .cm-cty.sel{stroke:var(--ink);stroke-width:2}
+  .camp-popup-card .cmap-svg .cm-lbl{stroke:rgba(244,240,228,.9)}
   .cmap-svg .cm-lbl{font-family:var(--font-data);font-size:5.4px;fill:#1c1a17;paint-order:stroke;stroke:rgba(255,255,255,.72);stroke-width:1.3;pointer-events:none}
   .cmap-info{flex:1 1 240px;min-width:220px;background:var(--paper-2);border:1px solid var(--line);border-radius:8px;padding:16px 18px;align-self:stretch}
   .cmap-info h4{font-family:var(--font-display);font-size:19px;margin-bottom:2px}
@@ -5991,9 +5995,12 @@ function runElection(){
   const blocAgg={};
   for(const sid in SIMULANTS){ if(!SIMULANTS[sid].static) blocAgg[sid]={m:0,turn:0,y:0,n:0,thL:0,thR:0}; }
   const blocIds=Object.keys(blocAgg);
-  // county campaigning: presence built with capital during the term, indexed to
-  // match OR_COUNTIES / v.cw order
+  // county campaigning: presence built during the term, indexed to match
+  // OR_COUNTIES / v.cw order. ccScale tamps down the aggregate reach in the big
+  // metro counties — you can blanket a small county, not all of Portland.
+  const _ccTot=OR_COUNTIES.reduce((s,r)=>s+r[6],0);
   const ccArr=OR_COUNTIES.map(c=>(GAME.countyCamp&&GAME.countyCamp[c[0]])||null);
+  const ccScale=OR_COUNTIES.map(c=>clamp(0.10/(c[6]/_ccTot),0.45,1));
   const ccAny=ccArr.some(x=>x);
   let plSum=0;
   for(const v of VOTERS){
@@ -6014,7 +6021,7 @@ function runElection(){
     for(const sid in GAME.ground.perception){ const w=v.m[sid]||0; if(w>0.2)app+=GAME.ground.perception[sid]*w*0.5; }
     for(const sid in GAME.ground.turnout){ const w=v.m[sid]||0; if(w>0.2)mob+=GAME.ground.turnout[sid]*w; }
     // county campaigning: geographic presence, weighted by the voter's county affinity
-    if(ccAny&&v.cw)for(let ci=0;ci<v.cw.length;ci++){ const cc=ccArr[ci]; if(!cc)continue; const wq=v.cw[ci]; if(wq<=0.015)continue; app+=(cc.p||0)*wq*4.2; mob+=(cc.t||0)*wq*2.0; }
+    if(ccAny&&v.cw)for(let ci=0;ci<v.cw.length;ci++){ const cc=ccArr[ci]; if(!cc)continue; const wq=v.cw[ci]; if(wq<=0.015)continue; const sc=wq*ccScale[ci]; app+=((cc.p||0)+(cc.base||0))*sc*5.0; mob+=(cc.t||0)*sc*2.2; }
     const t=clamp(turnoutProb(v)+mob,0.03,0.98)*(0.85+Math.random()*0.3);
     tot+=t;
     const pole=Math.max(Math.abs(v.econ),Math.abs(v.social));         // ideological intensity
@@ -6361,18 +6368,64 @@ function countyCampCost(name){
 function countyCampFit(name){
   const ideo=(COUNTY_PROFILE[name]||{ideo:.5}).ideo;
   const swing=1-Math.abs(ideo-0.5)*2;          // 1 at .5, 0 at the poles
-  return 0.55 + swing*0.75;                     // 0.55 .. 1.30 efficiency multiplier
+  return 0.55 + swing*0.75;                     // 0.55 .. 1.30 ideology component
 }
+/* Per-county live read of the electorate, recomputed once per quarter: your
+   approximate approval there (from the same v.cw weights the election uses) and
+   which interest groups are over-represented. Drives both the hover readout and
+   the efficacy of a campaign visit. */
+let _ctyData=null, _ctyDataTurn=-1;
+function countyData(){
+  if(_ctyData && _ctyDataTurn===GAME.turn) return _ctyData;
+  const names=OR_COUNTIES.map(c=>c[0]);
+  const appSum=new Array(names.length).fill(0), wSum=new Array(names.length).fill(0);
+  const grp=names.map(()=>({}));
+  for(const v of VOTERS){
+    const cw=v.cw; if(!cw)continue;
+    for(let i=0;i<cw.length;i++){
+      const w=cw[i]; if(w<=0.01)continue;
+      appSum[i]+=v.approval*w; wSum[i]+=w;
+      const g=grp[i];
+      for(const sid in v.m){ const mw=v.m[sid]; if(mw>0.2) g[sid]=(g[sid]||0)+mw*w; }
+    }
+  }
+  const out={};
+  names.forEach((n,i)=>{
+    const approval = wSum[i]>0 ? appSum[i]/wSum[i] : 45;
+    const groups = Object.keys(grp[i])
+      .filter(sid=>SIMULANTS[sid]&&!SIMULANTS[sid].static&&SIMULANTS[sid].size)
+      .map(sid=>({sid, over:(grp[i][sid]/wSum[i])/SIMULANTS[sid].size}))
+      .sort((a,b)=>b.over-a.over)
+      .filter(x=>x.over>1.12).slice(0,3).map(x=>SIMULANTS[x.sid].name);
+    out[n]={approval, groups};
+  });
+  _ctyData=out; _ctyDataTurn=GAME.turn;
+  return out;
+}
+/* How much a campaign visit accomplishes here: the ideological swing component,
+   times a "striking distance" multiplier from your standing in the county — a
+   visit does most where the county is genuinely in play, least where you're
+   buried or where it's already safely yours. */
+function countyReceptiveness(name){
+  const swing=countyCampFit(name);
+  const st=(countyData()[name]||{}).approval ?? 45;
+  let standMult = st>=62 ? 0.6 : st<=34 ? 0.55 : 1.18 - Math.abs(st-49)*0.011;
+  return swing*clamp(standMult,0.5,1.2);        // ~0.28 .. 1.56
+}
+function campValueWord(rec){ return rec>=1.15?"prime target":rec>=0.9?"contestable":rec>=0.62?"uphill":"low yield"; }
+function ccTotal(cc){ return (cc?cc.p||0:0)+(cc?cc.base||0:0); }
 function campStrengthWord(f){ return f<0.14?"toehold":f<0.45?"building":f<0.7?"solid":f<0.9?"strong":"maxed"; }
 function campCounty(name){
   const cost=countyCampCost(name);
   if(GAME.campEnergy<cost){ GAME.log.push("✗ Not enough campaign energy to work "+name+" County"); campRedraw(); return; }
   GAME.campEnergy-=cost;
-  const cc=GAME.countyCamp[name]||{p:0,t:0,age:0};
-  const room=clamp(1-cc.p/COUNTY_CAMP_CAP,0,1);
-  const fit=countyCampFit(name);
-  cc.p += (1.15+Math.random()*0.4)*room*fit;
-  cc.t += (0.022+Math.random()*0.009)*room*fit;
+  const cc=GAME.countyCamp[name]||{p:0,t:0,base:0,age:0};
+  const room=clamp(1-ccTotal(cc)/COUNTY_CAMP_CAP,0,1);
+  const rec=countyReceptiveness(name);
+  const gain=(1.15+Math.random()*0.4)*room*rec;
+  cc.p += gain;
+  cc.base = Math.min((cc.base||0)+gain*0.16, COUNTY_CAMP_CAP*0.35);   // lasting local organisation — never decays
+  cc.t += (0.022+Math.random()*0.009)*room*rec;
   cc.age=0;
   GAME.countyCamp[name]=cc;
   const msg=`✓ Campaigned in ${name} County (−${cost} energy)`;
@@ -6384,8 +6437,8 @@ function campCounty(name){
 function tickCountyCamp(){
   for(const name in GAME.countyCamp){
     const cc=GAME.countyCamp[name];
-    cc.p*=0.86; cc.t*=0.86; cc.age=(cc.age||0)+1;
-    if((cc.p||0)<0.08 && (cc.t||0)<0.004) delete GAME.countyCamp[name];
+    cc.p*=0.86; cc.t*=0.86; cc.age=(cc.age||0)+1;   // fresh presence fades; cc.base does not
+    if((cc.p||0)<0.08 && (cc.t||0)<0.004 && (cc.base||0)<0.08) delete GAME.countyCamp[name];
   }
 }
 let campMapSel=null;         // county selected on the campaign map, kept across re-renders
@@ -6401,24 +6454,24 @@ function campRedraw(){
 // the End-Quarter campaign popup (its home) or anywhere else that wants it
 function campMapMarkup(){
   const rows=OR_COUNTIES;
-  const ccNames=Object.keys(GAME.countyCamp||{}).filter(n=>(GAME.countyCamp[n].p||0)>0.05);
+  const ccNames=Object.keys(GAME.countyCamp||{}).filter(n=>ccTotal(GAME.countyCamp[n])>0.05);
   let paths="",labels="";
   rows.forEach(r=>{
-    const strength=clamp(((GAME.countyCamp[r[0]]||{}).p||0)/COUNTY_CAMP_CAP,0,1);
+    const strength=clamp(ccTotal(GAME.countyCamp[r[0]])/COUNTY_CAMP_CAP,0,1);
     const fill=strength>0.02?cmMix(strength,"#dfe6d3","#2f6d3a"):"var(--paper-2)";
     paths+=`<path class="cm-cty" data-cc="${r[0]}" tabindex="0" role="button" aria-label="${r[0]} County" d="${r[2]}" fill="${fill}"></path>`;
     labels+=`<text class="cm-lbl" x="${r[3]}" y="${r[4]+1.8}" text-anchor="middle">${r[1]}</text>`;
   });
   const svg=`<svg class="cmap-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Oregon county campaign map">${paths}${labels}</svg>`;
-  const ccList=ccNames.sort((a,b)=>(GAME.countyCamp[b].p||0)-(GAME.countyCamp[a].p||0))
-    .map(n=>`<div class="ci-row"><span>${n}</span><span>${campStrengthWord((GAME.countyCamp[n].p||0)/COUNTY_CAMP_CAP)}</span></div>`).join('');
-  return `<div class="ebgroup-label" style="margin-top:16px">${ico('ballot')} Campaign the map — target counties</div>
-    <div class="sectionsub" style="margin-top:0">Put campaign energy into a county to build a presence there — it lifts your vote and turnout among that county's voters on election night, then fades a little each quarter. A genuine <b>swing county</b> moves the most votes per unit of energy; a stronghold or hostile turf costs the same for less.</div>
+  const ccList=ccNames.sort((a,b)=>ccTotal(GAME.countyCamp[b])-ccTotal(GAME.countyCamp[a]))
+    .map(n=>`<div class="ci-row"><span>${n}</span><span>${campStrengthWord(ccTotal(GAME.countyCamp[n])/COUNTY_CAMP_CAP)}</span></div>`).join('');
+  return `<div class="ebgroup-label" style="margin-top:6px">${ico('ballot')} Campaign the map — target counties</div>
+    <div class="sectionsub" style="margin-top:0">Put campaign energy into a county to build a presence there — it lifts your vote and turnout among that county's voters on election night. Fresh presence fades each quarter; a fraction settles into lasting local organisation. A visit does the most where the county is genuinely <b>in play</b> — a swing county where you're within reach — and the least where you're buried or already safe.</div>
     <div class="cmap-layout" style="margin-top:12px">
       ${svg}
       <div class="cmap-info" id="campMapInfo">
         <h4>${ccNames.length?ccNames.length+(ccNames.length===1?' county worked':' counties worked'):'No counties worked yet'}</h4>
-        <div class="ci-sub">Click or tab a county to select it, then campaign there.</div>
+        <div class="ci-sub">Hover a county for its readout · click to target it.</div>
         ${ccList}
         <div class="cmap-legend"><span><i style="background:#dfe6d3"></i>No presence</span><span><i style="background:#2f6d3a"></i>Strong presence</span></div>
       </div>
@@ -6426,33 +6479,47 @@ function campMapMarkup(){
 }
 function wireCampMap(root){
   const cmi=root.querySelector("#campMapInfo"); if(!cmi)return;
-  const paintCC=(name)=>{
-    const p=COUNTY_PROFILE[name]||{}, cc=GAME.countyCamp[name]||{p:0,t:0};
-    const cost=countyCampCost(name), fit=countyCampFit(name);
+  const defaultHTML=cmi.innerHTML;
+  const cdata=countyData();
+  const paintCC=(name,committed)=>{
+    const p=COUNTY_PROFILE[name]||{}, cc=GAME.countyCamp[name]||{p:0,t:0,base:0};
+    const cost=countyCampCost(name), rec=countyReceptiveness(name);
     const cRow=OR_COUNTIES.find(x=>x[0]===name), tot=OR_COUNTIES.reduce((s,r)=>s+r[6],0);
-    const share=cRow?cRow[6]/tot*100:0;
-    const fitWord=fit>=1.15?"prime swing turf":fit>=0.95?"contestable":fit>=0.72?"leans one way":"safe or hostile — low yield";
-    const afford=GAME.campEnergy>=cost;
-    const unit=cost===1?"1 energy":cost+" energy";
+    const share=cRow?cRow[6]/tot*100:0, pop=cRow?cRow[6]*1000:0;
+    const d=cdata[name]||{approval:45,groups:[]};
+    const stCol=d.approval>=52?'var(--good)':d.approval>=42?'var(--warn)':'var(--bad)';
+    const afford=GAME.campEnergy>=cost, unit=cost===1?"1 energy":cost+" energy";
+    const presWord=ccTotal(cc)>0.05?campStrengthWord(ccTotal(cc)/COUNTY_CAMP_CAP):"none";
+    const baseTag=(cc.base||0)>0.25?` <span style="color:var(--muted-3)">(organised)</span>`:"";
     cmi.innerHTML=`<h4>${name} County</h4>
-      <div class="ci-sub">${_cmLeanWord(p.ideo)} · ${share.toFixed(1)}% of voters</div>
-      <div class="ci-row"><span>Current presence</span><span>${(cc.p||0)>0.05?campStrengthWord((cc.p||0)/COUNTY_CAMP_CAP):"none"}</span></div>
-      <div class="ci-row"><span>Campaign value here</span><span>${fitWord}</span></div>
+      <div class="ci-sub">${_cmLeanWord(p.ideo)} · ${share.toFixed(1)}% of the state's voters</div>
+      <div class="ci-row"><span>Population</span><span>${Math.round(pop).toLocaleString()}</span></div>
+      <div class="ci-row"><span>Your standing here</span><span style="color:${stCol}">${Math.round(d.approval)}% approval</span></div>
+      <div class="ci-row"><span>Concentrated groups</span><span>${d.groups.length?d.groups.join(', '):'—'}</span></div>
+      <div class="ci-row"><span>Campaign value here</span><span>${campValueWord(rec)}</span></div>
+      <div class="ci-row"><span>Current presence</span><span>${presWord}${baseTag}</span></div>
       <div class="ci-row"><span>Cost per push</span><span>${unit}</span></div>
-      <button class="enactbtn" id="campHereBtn" ${afford?'':'disabled'} style="width:100%;margin-top:12px">${afford?`Campaign here — ${unit}`:`Need ${unit}`}</button>`;
+      ${committed
+        ? `<button class="enactbtn" id="campHereBtn" ${afford?'':'disabled'} style="width:100%;margin-top:12px">${afford?`Campaign here — ${unit}`:`Need ${unit}`}</button>`
+        : `<div class="ci-sub" style="margin:10px 0 0;text-align:center">Click the county to target it ▸</div>`}`;
     const b=root.querySelector("#campHereBtn");
     if(b)b.addEventListener('click',()=>campCounty(name));
   };
+  const restore=()=>{ if(campMapSel){ paintCC(campMapSel,true); } else { cmi.innerHTML=defaultHTML; } };
   root.querySelectorAll('.cm-cty[data-cc]').forEach(el=>{
     const name=el.dataset.cc;
-    // click / keyboard-focus selects and holds — no hover-select, so the cursor
-    // can travel to the "Campaign here" button without losing the pick
-    const go=()=>{ campMapSel=name; root.querySelectorAll('.cm-cty.sel').forEach(x=>x.classList.remove('sel')); el.classList.add('sel'); paintCC(name); };
-    el.addEventListener('click',go); el.addEventListener('focus',go);
+    // hover previews the county's readout; click commits it as the target (and
+    // keeps the "Campaign here" button reachable — the button lives in the panel,
+    // not the map, so travelling to it never crosses another county)
+    el.addEventListener('mouseenter',()=>paintCC(name,false));
+    el.addEventListener('focus',()=>{ campMapSel=name; root.querySelectorAll('.cm-cty.sel').forEach(x=>x.classList.remove('sel')); el.classList.add('sel'); paintCC(name,true); });
+    el.addEventListener('click',()=>{ campMapSel=name; root.querySelectorAll('.cm-cty.sel').forEach(x=>x.classList.remove('sel')); el.classList.add('sel'); paintCC(name,true); });
   });
+  const svgEl=root.querySelector('.cmap-svg');
+  if(svgEl)svgEl.addEventListener('mouseleave',restore);
   if(campMapSel){
     const el=root.querySelector(`.cm-cty[data-cc="${campMapSel}"]`);
-    if(el){ el.classList.add('sel'); paintCC(campMapSel); }
+    if(el){ el.classList.add('sel'); paintCC(campMapSel,true); }
   }
 }
 
@@ -7505,8 +7572,12 @@ function showCampPopup(opts){
     <span class="energy-pips">${Array.from({length:GAME.campEnergyMax},(_,i)=>`<i class="${i<GAME.campEnergy?'on':''}"></i>`).join("")}</span>
     <span class="energy-num">${GAME.campEnergy} / ${GAME.campEnergyMax}</span></div>`;
 
-  // bloc grid
-  h+=`<div class="campgrid2" style="margin-top:12px">`;
+  // county campaign map — one of the two places campaign energy goes
+  h+=campMapMarkup();
+
+  // bloc grid — mobilise / persuade voter groups
+  h+=`<div class="ebgroup-label" style="margin-top:16px">${ico('handshake')} Voter groups — persuade &amp; mobilise</div>`;
+  h+=`<div class="campgrid2" style="margin-top:10px">`;
   const blocs=Object.keys(SIMULANTS).sort((a,b)=>SIMULANTS[b].size-SIMULANTS[a].size);
   for(const sid of blocs){
     const s=SIMULANTS[sid];
@@ -7529,9 +7600,6 @@ function showCampPopup(opts){
     </div>`;
   }
   h+=`</div>`;
-
-  // county campaign map — the other place campaign energy goes
-  h+=campMapMarkup();
 
   // recent push results
   if(GAME.campLog.length){
