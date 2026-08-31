@@ -394,7 +394,10 @@
   #webSvg{width:100%;min-width:760px;display:block}
   .webedge{stroke-opacity:.10;transition:stroke-opacity .12s}
   #webSvg.focus .webedge{stroke-opacity:.04}
-  #webSvg .webedge.hot{stroke-opacity:.95 !important;stroke-width:2.8}
+  #webSvg .webedge.hot{stroke-opacity:.95 !important}
+  #webSvg .webedge.hot.egood{marker-end:url(#wm-arw-good)}
+  #webSvg .webedge.hot.ebad{marker-end:url(#wm-arw-bad)}
+  #webSvg .webedge.hot.eneutral{marker-end:url(#wm-arw-neutral)}
   .webnode{cursor:pointer}
   .webnode circle{transition:opacity .12s,stroke-width .12s}
   .webnode.dim{opacity:.18}
@@ -404,9 +407,9 @@
   /* ---- graph-style Governing Board (icon tiles as nodes + connections) ---- */
   .boardgraph{background:var(--paper-2);border:1px solid var(--line);border-radius:6px;overflow:auto;margin-top:6px}
   #boardSvg{width:100%;min-width:820px;display:block}
-  #boardSvg .webedge{stroke-opacity:.12;transition:stroke-opacity .14s,stroke-width .14s}
+  #boardSvg .webedge{stroke-opacity:.12;transition:stroke-opacity .14s}
   #boardSvg.focus .webedge{stroke-opacity:.04}
-  #boardSvg .webedge.hot{stroke-opacity:.92 !important;stroke-width:2.8}
+  #boardSvg .webedge.hot{stroke-opacity:.92 !important}
   .boardnode{cursor:pointer}
   .boardnode .bn-ring{transition:opacity .14s,stroke-width .14s,filter .14s; transform-origin:center}
   .boardnode .bn-ico{transition:opacity .14s}
@@ -770,9 +773,14 @@
   .webnode.dim .bnico-use{opacity:.18}
   /* ---- readability pass on the Governing Board graph ---- */
   /* connections stay nearly invisible at rest; a node's web lights up on hover/focus */
-  #boardSvg .webedge{stroke-opacity:.035;stroke-width:1}
-  #boardSvg.focus .webedge{stroke-opacity:.02}
-  #boardSvg .webedge.hot{stroke-opacity:.95 !important;stroke-width:2.6}
+  #boardSvg .webedge{stroke-opacity:.05}
+  #boardSvg.focus .webedge{stroke-opacity:.025}
+  #boardSvg .webedge.hot{stroke-opacity:.95 !important}
+  /* directionality: arrowheads (source → target) appear only on the lit-up web;
+     line thickness carries the strength of each interaction (set inline) */
+  #boardSvg .webedge.hot.egood{marker-end:url(#bm-arw-good)}
+  #boardSvg .webedge.hot.ebad{marker-end:url(#bm-arw-bad)}
+  #boardSvg .webedge.hot.eneutral{marker-end:url(#bm-arw-neutral)}
   /* paper halo behind every label so text stays legible over lines and neighbours */
   #boardSvg .bn-lbl,#boardSvg .bn-hub,#boardSvg .bn-val{paint-order:stroke;stroke:var(--paper);stroke-width:3.5px;stroke-linejoin:round}
   /* condensed label type — narrower, so fewer collisions */
@@ -6709,11 +6717,12 @@ function reopenQuarterReport(){
     card.innerHTML=`<div class="rhead"><h2>Quarterly Report</h2><div class="sectionsub">Q${m.qtr} ${m.yr} · Term ${m.term}, quarter ${m.into} of ${GAME.termLengthTurns} — as briefed at the start of the quarter.</div></div>${GAME.lastReportBody}<button id="reportContinue" class="enactbtn">Close</button>`;
   }
   modal.classList.remove("hidden");
+  card.scrollTop=0;                       // always open at the top of the digest
   const done=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
   const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
   document.getElementById("reportContinue").onclick=done;
   document.addEventListener("keydown",onKey,true);
-  setTimeout(()=>{try{document.getElementById("reportContinue").focus();}catch(e){}},30);
+  setTimeout(()=>{try{document.getElementById("reportContinue").focus({preventScroll:true});card.scrollTop=0;}catch(e){}},30);
 }
 function showQuarterReport(){
   const card=document.getElementById("reportCard");
@@ -6798,6 +6807,7 @@ function showQuarterReport(){
     <button id="reportContinue" class="enactbtn">Continue ▸</button>`;
   const modal=document.getElementById("reportModal");
   modal.classList.remove("hidden");
+  card.scrollTop=0;                       // always open at the top of the digest
   const dismiss=()=>{
     if(document.getElementById("rskipChk").checked)GAME.skipReport=true;
     modal.classList.add("hidden");
@@ -6809,7 +6819,7 @@ function showQuarterReport(){
   };
   document.getElementById("reportContinue").onclick=dismiss;
   document.addEventListener("keydown",onKey,true);
-  setTimeout(()=>{try{document.getElementById("reportContinue").focus();}catch(e){}},30);
+  setTimeout(()=>{try{document.getElementById("reportContinue").focus({preventScroll:true});card.scrollTop=0;}catch(e){}},30);
 }
 
 /* mid-term result popup — a mini-election you don't stand in, but which
@@ -8090,7 +8100,7 @@ function effectsBreakdownHTML(kind,obj){
 /* ---------- BOARD (main page): metrics strip + 4 domain quadrants ---------- */
 function renderBoard(){
   let h=`<div class="sectionhdr">Governing Board</div>
-    <div class="sectionsub">Your policies, agencies, and the statistics they shape — as a living map. Hover any tile to light up what it connects to (<span style="color:var(--good)">green</span> helps, <span style="color:var(--clay)">red</span> hurts). Click to open.</div>`;
+    <div class="sectionsub">Your policies, agencies, and the statistics they shape — as a living map. Hover any tile to light up what it connects to: <span style="color:var(--good)">green</span> helps, <span style="color:var(--clay)">red</span> hurts, and the <b>arrow points from cause to effect</b>. Thicker lines are stronger interactions. Click to open.</div>`;
   // ---- term / national-mood / economic-climate readouts (these live in the
   //      side panel on other views; the board hides that panel for width) ----
   h+=`<div class="board-climate">
@@ -8237,6 +8247,7 @@ function renderBoard(){
   for(const id in nodes){const n=nodes[id]; if(n.x===undefined)continue; bx0=Math.min(bx0,n.x);by0=Math.min(by0,n.y);bx1=Math.max(bx1,n.x);by1=Math.max(by1,n.y);}
   const pad=58; const vbx=bx0-pad, vby=by0-pad, vbw=(bx1-bx0)+pad*2, vbh=(by1-by0)+pad*2;
   let svg=`<svg id="boardSvg" viewBox="${vbx.toFixed(0)} ${vby.toFixed(0)} ${vbw.toFixed(0)} ${vbh.toFixed(0)}" xmlns="http://www.w3.org/2000/svg">`;
+  svg+=webArrowDefs("bm");
   // faint radial dividers between adjacent domain clusters (drawn first, behind
   // everything) so each domain reads as its own separated wedge of the map
   {
@@ -8255,9 +8266,7 @@ function renderBoard(){
   for(let i=0;i<drawn.length;i++){
     const e=drawn[i], A=nodes[e.a], B=nodes[e.b];
     const mx=(A.x+B.x)/2+(cx-(A.x+B.x)/2)*0.16, my=(A.y+B.y)/2+(cy-(A.y+B.y)/2)*0.16;
-    const col=e.neutral?'var(--slate-blue)':(e.good?'var(--good)':'var(--clay)');
-    const w=clamp(0.8+e.w*0.12,0.8,3);
-    svg+=`<path class="webedge${e.neutral?' eneutral':''}" data-a="${e.a}" data-b="${e.b}" d="M${A.x.toFixed(0)},${A.y.toFixed(0)} Q${mx.toFixed(0)},${my.toFixed(0)} ${B.x.toFixed(0)},${B.y.toFixed(0)}" stroke="${col}" stroke-width="${w}" fill="none"/>`;
+    svg+=webEdgePath(e,A,B,mx,my,(nodes[e.b].kind==="policy"||nodes[e.b].kind==="agency")?36:30);
   }
   // nodes — icon-forward "logo" tiles
   // Shapes differ by kind so all three node types are visually distinct at a glance:
@@ -9585,6 +9594,27 @@ function renderHUD(){
    the target the good way, red = the bad way, blue = derived input).
    Click any bubble to open its page.
    ============================================================ */
+/* Arrowhead marker defs for the connection graphs. `pfx` namespaces the ids so
+   the board ("bm") and issue web ("wm") don't collide. Each interaction colour
+   gets its own marker; CSS attaches them via marker-end only when an edge is
+   lit up, so at rest the map stays clean. */
+function webArrowDefs(pfx){
+  const m=(id,col)=>`<marker id="${pfx}-arw-${id}" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 L2.6,5 Z" fill="${col}"/></marker>`;
+  return `<defs>${m("good","var(--good)")}${m("bad","var(--clay)")}${m("neutral","var(--slate-blue)")}</defs>`;
+}
+/* One connection line: a gentle curve from source A to target B, its thickness
+   scaled to the interaction strength (e.w), trimmed to stop just outside B so
+   the arrowhead reads cleanly. Colour class (egood/ebad/eneutral) drives which
+   arrow CSS attaches on hover. */
+function webEdgePath(e,A,B,mx,my,rB){
+  const col=e.neutral?'var(--slate-blue)':(e.good?'var(--good)':'var(--clay)');
+  const cls=e.neutral?'eneutral':(e.good?'egood':'ebad');
+  const w=clamp(0.7+Math.sqrt(e.w||0.3)*1.0,0.7,5.5);   // sqrt so weak and strong links stay distinguishable
+  let ex=B.x, ey=B.y;
+  const dx=B.x-mx, dy=B.y-my, d=Math.hypot(dx,dy);
+  if(d>1){ const back=Math.min(rB+7, d-1); ex=B.x-dx/d*back; ey=B.y-dy/d*back; }
+  return `<path class="webedge ${cls}" data-a="${e.a}" data-b="${e.b}" d="M${A.x.toFixed(0)},${A.y.toFixed(0)} Q${mx.toFixed(0)},${my.toFixed(0)} ${ex.toFixed(1)},${ey.toFixed(1)}" stroke="${col}" stroke-width="${w.toFixed(2)}" fill="none"/>`;
+}
 function buildWebEdges(){
   const E=[];
   const goodFor=(mk,v)=>{const m=METRICS[mk];return m&&m.invert? v<0 : v>0;};
@@ -9651,13 +9681,12 @@ function renderWeb(){
   place(pIds.concat(aIds).concat(["landuse"]),545,375,-Math.PI/2);
   const edges=buildWebEdges().filter(e=>nodes[e.a]&&nodes[e.b]);
   let svg=`<svg id="webSvg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
+  svg+=webArrowDefs("wm");
   // edges as gentle curves through a control point nudged toward center
   for(let i=0;i<edges.length;i++){
     const e=edges[i],A=nodes[e.a],B=nodes[e.b];
     const mx=(A.x+B.x)/2+(cx-(A.x+B.x)/2)*0.18, my=(A.y+B.y)/2+(cy-(A.y+B.y)/2)*0.18;
-    const col=e.neutral?'var(--slate-blue)':(e.good?'var(--good)':'var(--clay)');
-    const w=clamp(0.8+e.w*0.12,0.8,3);
-    svg+=`<path class="webedge" data-a="${e.a}" data-b="${e.b}" d="M${A.x.toFixed(0)},${A.y.toFixed(0)} Q${mx.toFixed(0)},${my.toFixed(0)} ${B.x.toFixed(0)},${B.y.toFixed(0)}" stroke="${col}" stroke-width="${w}" fill="none"/>`;
+    svg+=webEdgePath(e,A,B,mx,my,nodes[e.b].cls==="metric"?22:19);
   }
   // nodes
   for(const id in nodes){
@@ -9671,7 +9700,7 @@ function renderWeb(){
   }
   svg+=`</svg>`;
   main.innerHTML=`<div class="sectionhdr">Issue Web</div>
-    <div class="sectionsub">The whole simulation as one map. Hover any bubble to light up everything it pushes and everything pushing it — <span style="color:var(--good)">green</span> helps, <span style="color:var(--clay)">red</span> hurts. Click to open. Inner ring: state statistics · middle: active crises · outer: your policies &amp; agencies.</div>
+    <div class="sectionsub">The whole simulation as one map. Hover any bubble to light up everything it pushes and everything pushing it — <span style="color:var(--good)">green</span> helps, <span style="color:var(--clay)">red</span> hurts, the <b>arrow runs from cause to effect</b>, and thicker lines are stronger. Click to open. Inner ring: state statistics · middle: active crises · outer: your policies &amp; agencies.</div>
     <div class="websearch"><svg class="sbico" aria-hidden="true"><use href="#ic-search"/></svg><input type="search" id="webSearch" placeholder="Search policies, metrics, agencies…" autocomplete="off"></div>
     <div class="webwrap">${svg}</div>`;
   // interactions
