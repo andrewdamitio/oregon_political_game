@@ -838,6 +838,16 @@
     nav.rail .railmap.active{border-left:none;border-bottom-color:var(--moss);background:var(--paper)}
     nav.rail .railmap.active svg path{fill:#dfe6d6;stroke:var(--moss)}
   }
+  /* sidebar legacy scoreboard */
+  .rail-legacy{padding:4px 14px 14px}
+  .rail-legacy .rl-empty{font-size:10px;color:var(--muted-3);line-height:1.4}
+  .rail-legacy .rl-compass{width:100%;max-width:118px;height:auto;display:block;margin:0 auto 6px}
+  .rail-legacy .rl-tally{font-family:var(--font-data);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-3);text-align:center;margin-bottom:5px}
+  .rail-legacy .rl-row{display:flex;justify-content:space-between;font-family:var(--font-data);font-size:10px;padding:2px 0;color:var(--muted-2)}
+  .rail-legacy .rl-row .rl-res{font-weight:600}
+  .rail-legacy .rl-row.w .rl-res{color:var(--good)}
+  .rail-legacy .rl-row.l .rl-res{color:var(--clay)}
+  @media (max-width:820px){ nav.rail .railhdr,.rail-legacy{display:none} }
   /* county-map explorer view */
   .cmap-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
   .cmap-modes{display:flex;border:1px solid var(--line);border-radius:5px;overflow:hidden}
@@ -992,9 +1002,11 @@
     <button data-view="policies">New Policies</button>
     <button data-view="voters">Voters</button>
     <button data-view="budget">Budget</button>
-    <button data-view="campaign">Campaign</button>
+    <button data-view="campaign">Platform</button>
     <button data-view="compass">Political Compass</button>
     <button class="railmap" data-view="countymap" id="railMap" title="Oregon county map" aria-label="Open the Oregon county map"></button>
+    <div class="railhdr" style="margin-top:8px">Legacy</div>
+    <div id="railLegacy" class="rail-legacy"></div>
   </nav>
   <aside class="vpanel">
     <h3>Voter Blocs</h3>
@@ -6173,13 +6185,13 @@ function renderCampaign(){
   const nextInto=(GAME.turn+1)-(GAME.term-1)*GAME.termLengthTurns;
   const isElection = nextInto>=GAME.termLengthTurns-1;   // same test endTurn uses
   const yearsLeft = Math.max(0, GAME.termLengthTurns-1-(GAME.turn-(GAME.term-1)*GAME.termLengthTurns));
-  let h=`<div class="sectionhdr">${ico('ballot')} Campaign</div>
-    <div class="sectionsub">Your permanent ground game. Run targeted pushes at voter blocs all term long — <b>persuasion</b> to win them over, <b>mobilization</b> to drive their turnout on election day. Every push has a success chance, and pushing the same bloc too often makes them tired of you. Boosts fade over a few quarters, so they need upkeep. ${isElection?`<b style="color:var(--clay)">This is the final quarter — the election is now.</b>`:`Next election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`}</div>`;
-  // energy meter
+  let h=`<div class="sectionhdr">${ico('ballot')} Platform &amp; Campaign</div>
+    <div class="sectionsub">Set the promises you'll run on, and see where your campaign stands — who's mobilised for or against you, and which blocs your ground game is currently working. Spend each quarter's <b>campaign energy</b> on specific blocs from the End-Quarter prompt. ${isElection?`<b style="color:var(--clay)">This is the final quarter — the election is now.</b>`:`Next election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`}</div>`;
+  // energy meter (informational — you spend it in the End-Quarter prompt)
   h+=`<div class="energybar"><span class="energy-label">Campaign energy this quarter</span>
     <span class="energy-pips">${Array.from({length:GAME.campEnergyMax},(_,i)=>`<i class="${i<GAME.campEnergy?'on':''}"></i>`).join("")}</span>
     <span class="energy-num">${GAME.campEnergy} / ${GAME.campEnergyMax}</span></div>`;
-  h+=`<div class="sectionsub" style="margin-top:-4px">Energy refills each quarter — spend it or lose it.</div>`;
+  h+=`<div class="sectionsub" style="margin-top:-4px">Refills each quarter — spend it or lose it, in the End-Quarter prompt.</div>`;
 
   // activist mobilizations
   h+=`<div class="ebgroup-label" style="margin-top:18px">⚡ Interest group mobilizations</div>`;
@@ -6230,34 +6242,27 @@ function renderCampaign(){
   }
   h+=`</div>`;
 
-  // per-bloc ground game
-  h+=`<div class="ebgroup-label" style="margin-top:22px">Ground game — work the voter blocs</div>
-    <div class="sectionsub" style="margin-top:0">Spend energy each quarter to <b>persuade</b> blocs (lift their approval) or <b>mobilize</b> them (drive their election-day turnout). You can do both on the same bloc in one turn. Boosts fade — they need upkeep.</div>`;
-  h+=`<div class="campgrid2">`;
+  // ground-game footprint — read-only status of blocs your campaign is working
+  // (the actual per-quarter pushes happen in the End-Quarter prompt)
+  h+=`<div class="ebgroup-label" style="margin-top:22px">Ground-game footprint</div>`;
   const blocs=Object.keys(SIMULANTS).sort((a,b)=>SIMULANTS[b].size-SIMULANTS[a].size);
-  for(const sid of blocs){
-    const s=SIMULANTS[sid];
-    const pc=Math.round(campChance("persuade",sid)*100), mc=Math.round(campChance("mobilize",sid)*100);
-    const pBoost=groundPerception(sid), tBoost=groundTurnout(sid);
-    const fat=GAME.ground.fatigue[sid]||0;
-    const appcol=s.approval>=55?'var(--good)':s.approval>=45?'var(--warn)':'var(--bad)';
-    const noE=GAME.campEnergy<1;
-    h+=`<div class="cbloc2">
-      <div class="cb2-top"><span class="cb2-name">${s.name}</span><div style="text-align:right;line-height:1.15"><span class="cb2-appr" style="color:${appcol}">${Math.round(s.approval)}%</span><div style="font-size:8.5px;color:var(--muted-3);font-weight:400">vote for you</div></div></div>
-      <div class="cb2-meta">${Math.round(s.size*100)}% of voters · ${Math.round((s.turnout||0.5)*100)}% turnout</div>
-      <div class="cb2-acts">
-        <button class="cb2-btn persuade" data-push="persuade" data-sid="${sid}" ${noE?'disabled':''}>
-          <span class="cb2-kind">Persuade</span><span class="cb2-odds">${pc}%</span></button>
-        <button class="cb2-btn mobilize" data-push="mobilize" data-sid="${sid}" ${noE?'disabled':''}>
-          <span class="cb2-kind">Mobilize</span><span class="cb2-odds">${mc}%</span></button>
-      </div>
-      ${(pBoost>0.05||tBoost>0.005)?`<div class="cb2-boosts">${pBoost>0.05?`<span class="cb2-boost good">+${pBoost.toFixed(1)} perception</span>`:``}${tBoost>0.005?`<span class="cb2-boost good">+${Math.round(tBoost*100)} turnout</span>`:``}</div>`:``}
-      ${fat>0.5?`<div class="cb2-meta cb2-fat">${ico('warning')} Audience fatigue −${Math.round(fat*8)}% to odds${fat>1.5?` · let them breathe`:``}</div>`:``}
-    </div>`;
+  const worked=blocs.map(sid=>({sid,s:SIMULANTS[sid],p:groundPerception(sid),t:groundTurnout(sid),f:GAME.ground.fatigue[sid]||0}))
+    .filter(x=>x.p>0.05||x.t>0.005||x.f>0.5);
+  if(worked.length){
+    h+=`<div class="sectionsub" style="margin-top:0">Boosts from campaign pushes — they decay a little each quarter and need upkeep from the End-Quarter prompt.</div><div class="campgrid2">`;
+    for(const x of worked){
+      const appcol=x.s.approval>=55?'var(--good)':x.s.approval>=45?'var(--warn)':'var(--bad)';
+      h+=`<div class="cbloc2">
+        <div class="cb2-top"><span class="cb2-name">${x.s.name}</span><span class="cb2-appr" style="color:${appcol}">${Math.round(x.s.approval)}%</span></div>
+        <div class="cb2-boosts">${x.p>0.05?`<span class="cb2-boost good">+${x.p.toFixed(1)} perception</span>`:``}${x.t>0.005?`<span class="cb2-boost good">+${Math.round(x.t*100)} turnout</span>`:``}</div>
+        ${x.f>0.5?`<div class="cb2-meta cb2-fat">${ico('warning')} Audience fatigue${x.f>1.5?` — let them breathe`:``}</div>`:``}
+      </div>`;
+    }
+    h+=`</div>`;
+  } else {
+    h+=`<div style="font-size:11.5px;color:var(--muted-3);padding:6px 0 14px">No blocs are being worked right now. Spend campaign energy from the End-Quarter prompt to build persuasion and turnout boosts.</div>`;
   }
-  h+=`</div>`;
 
-  // recent push results
   if(GAME.campLog.length){
     h+=`<div class="ebgroup-label" style="margin-top:18px">Recent ground-game results</div><div class="camplog">`;
     for(const e of GAME.campLog.slice(0,6))h+=`<div class="camplog-row ${e.ok?'ok':'fail'}">${e.msg}</div>`;
@@ -6267,14 +6272,6 @@ function renderCampaign(){
   if(isElection)h+=`<div class="campfoot"><button id="campRun" class="enactbtn">Hold the election ▸</button></div>`;
   main.innerHTML=h;
 
-  // wire ground-game pushes
-  main.querySelectorAll('[data-push]').forEach(el=>el.addEventListener('click',()=>{
-    const r=campPush(el.dataset.push, el.dataset.sid);
-    if(r){ GAME.log.push(r.msg); }
-    const sy=window.scrollY;
-    render();
-    window.scrollTo(0,sy);
-  }));
   // wire promise toggles
   main.querySelectorAll('[data-prom]').forEach(el=>el.addEventListener('click',()=>{
     const pid=el.dataset.prom, i=c.promises.indexOf(pid);
@@ -6958,8 +6955,50 @@ function egRcvTable(r){
     <div class="eg-note" style="margin:8px 0 0">Round 2 is measured among ballots still live; the headline percentage is measured against every first-preference ballot.</div></div>`;
 }
 
+/* ---- legacy: every election result, kept in localStorage for the sidebar
+   scoreboard and the compass-of-wins ---- */
+function recordLegacy(r){
+  try{
+    const v=agendaVector();
+    const arr=JSON.parse(localStorage.getItem("sc_legacy")||"[]")||[];
+    arr.push({ ts:Date.now(), seed:window.RUN_SEED||"",
+      year:GAME.startYear+GAME.term*4, term:GAME.term, won:!!r.won,
+      share:+(r.share*100).toFixed(1), margin:Math.round((r.share-0.5)*200),
+      approval:+(r.approval||0).toFixed(1), ec:+v.ec.toFixed(2), so:+v.so.toFixed(2) });
+    localStorage.setItem("sc_legacy", JSON.stringify(arr.slice(-40)));
+  }catch(e){}
+}
+function renderLegacy(){
+  const el=document.getElementById("railLegacy"); if(!el)return;
+  let arr=[]; try{ arr=JSON.parse(localStorage.getItem("sc_legacy")||"[]")||[]; }catch(e){}
+  if(!arr.length){ el.innerHTML=`<div class="rl-empty">No elections yet. Your record builds here.</div>`; return; }
+  const wins=arr.filter(x=>x.won);
+  // mini compass of wins
+  const S=104, C=S/2, PAD=12, R=C-PAD;
+  let mx=6; for(const w of wins){ mx=Math.max(mx,Math.abs(w.ec),Math.abs(w.so)); }
+  const px=v=>+(C+clamp(v/mx,-1,1)*R).toFixed(1), py=v=>+(C-clamp(v/mx,-1,1)*R).toFixed(1);
+  const dots=wins.slice(-14).map((w,i,a)=>{
+    const last=i===a.length-1, cur=w.seed===window.RUN_SEED;
+    return `<circle cx="${px(w.ec)}" cy="${py(w.so)}" r="${last?3.4:2.4}" fill="${last?'var(--gold)':cur?'var(--moss)':'var(--muted-3)'}" ${last?'stroke="var(--paper)" stroke-width="1"':''}/>`;
+  }).join("");
+  const compass=`<svg class="rl-compass" viewBox="0 0 ${S} ${S}" aria-label="Political compass of past wins">
+    <rect x="${C-R}" y="${C-R}" width="${2*R}" height="${2*R}" fill="var(--paper)" stroke="var(--line)" stroke-width="1"/>
+    <line x1="${C}" y1="${C-R}" x2="${C}" y2="${C+R}" stroke="var(--line-em)" stroke-width="0.8"/>
+    <line x1="${C-R}" y1="${C}" x2="${C+R}" y2="${C}" stroke="var(--line-em)" stroke-width="0.8"/>
+    ${dots || `<text x="${C}" y="${C+3}" text-anchor="middle" font-size="7" fill="var(--muted-4)">no wins yet</text>`}
+  </svg>`;
+  const rows=arr.slice(-6).reverse().map(x=>{
+    const m=(x.margin>0?'+':'')+x.margin;
+    return `<div class="rl-row ${x.won?'w':'l'}"><span>${x.year}</span><span class="rl-res">${x.won?'WON':'LOST'} ${m}</span></div>`;
+  }).join("");
+  el.innerHTML=`${compass}
+    <div class="rl-tally">${wins.length} win${wins.length===1?'':'s'} · ${arr.length-wins.length} loss${arr.length-wins.length===1?'':'es'}</div>
+    ${rows}`;
+}
+
 function showElection(r){
   GAME.gameOver=!r.won;
+  recordLegacy(r);
   const card=document.getElementById("electionCard");
   let thirdLine='';
   if(r.thirdShare>0.02){
@@ -9460,7 +9499,7 @@ function renderDilemma(){
   card.querySelectorAll('[data-opt]').forEach(b=>b.addEventListener('click',()=>resolveDilemma(+b.dataset.opt)));
 }
 function render(){
-  renderHUD();renderSidebar();renderRailVoters();
+  renderHUD();renderSidebar();renderRailVoters();renderLegacy();
   // scroll to top on every view switch so the player doesn't land mid-page
   if(main)main.scrollTop=0;
   window.scrollTo(0,0);
