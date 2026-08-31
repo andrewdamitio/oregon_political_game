@@ -242,6 +242,10 @@
   .egrand .eg-third{max-width:600px;font-size:12px}
   .egrand button{margin-top:8px}
   .egrand .eg-ctyread{font-size:12.5px;color:var(--muted-1);min-height:1.25em;max-width:640px;margin-top:1px}
+  .egrand .eg-barread{font-size:12px;color:var(--muted-1);font-family:var(--font-data);min-height:1.2em;margin-top:5px;text-align:center}
+  .egrand .eg-blkread{font-size:12px;color:var(--muted-1);font-family:var(--font-data);min-height:1.2em;margin:2px 0 10px;text-align:center}
+  .egrand .eg-bar i[data-t],.egrand .eg-blk-bar i[data-t]{cursor:default}
+  .egrand .eg-bar i[data-t]:hover,.egrand .eg-blk-bar i[data-t]:hover{filter:brightness(1.14)}
   .egrand .eg-section{width:min(700px,94vw);margin-top:22px;border-top:1px solid var(--line);padding-top:16px;text-align:left}
   .egrand .eg-h3{font-family:var(--font-display);font-size:17px;margin-bottom:3px;text-align:center}
   .egrand .eg-note{font-size:11px;color:var(--muted-3);margin-bottom:12px;text-align:center;line-height:1.5}
@@ -7371,15 +7375,19 @@ function egBlocCharts(blocs){
     const you=clamp(b.you*100,0,100), opp=clamp(b.opp*100,0,100),
           tl=clamp((b.thirdL||0)*100,0,100), tr=clamp((b.thirdR||0)*100,0,100);
     const no=Math.max(0,100-you-opp-tl-tr);
+    const seg=(w,col,lbl)=>{ const t=`${b.name} · ${lbl} — ${w.toFixed(1)}%`;
+      return `<i style="width:${w}%;background:${col}" data-t="${t}" title="${t}"></i>`; };
+    const full=`You ${you.toFixed(0)}% · Challenger ${opp.toFixed(0)}% · Left ${tl.toFixed(0)}% · Right ${tr.toFixed(0)}% · Didn't vote ${no.toFixed(0)}%`;
     return `<div class="eg-blk">
       <div class="eg-blk-name">${b.name}<span>${(b.size*100).toFixed(0)}% of voters · ${(b.turnout*100).toFixed(0)}% turnout</span></div>
-      <div class="eg-blk-bar" title="You ${you.toFixed(0)}% · Challenger ${opp.toFixed(0)}% · Left splinter ${tl.toFixed(0)}% · Right splinter ${tr.toFixed(0)}% · Didn't vote ${no.toFixed(0)}%">
-        <i style="width:${you}%;background:var(--moss)"></i><i style="width:${opp}%;background:var(--clay)"></i><i style="width:${tl}%;background:var(--slate-blue)"></i><i style="width:${tr}%;background:var(--gold)"></i><i style="width:${no}%;background:#b9b3a2"></i>
+      <div class="eg-blk-bar" title="${full}">
+        ${seg(you,'var(--moss)','You')}${seg(opp,'var(--clay)','Challenger')}${seg(tl,'var(--slate-blue)','Left splinter')}${seg(tr,'var(--gold)','Right splinter')}${seg(no,'#b9b3a2',"Didn't vote")}
       </div></div>`;
   };
   let h=`<div class="eg-section"><h3 class="eg-h3">How each group voted</h3>
     <div class="eg-note">Every group's members, split by first-preference vote — with turnout modelled per group. The left splinter is Pacific Green / Working Families, the right is Libertarian / Constitution. People belong to several groups at once, so these overlap.</div>
-    <div class="eg-blk-legend"><span><i style="background:var(--moss)"></i>You</span><span><i style="background:var(--clay)"></i>Challenger</span><span><i style="background:var(--slate-blue)"></i>Left splinter</span><span><i style="background:var(--gold)"></i>Right splinter</span><span><i style="background:#b9b3a2"></i>Didn't vote</span></div>`;
+    <div class="eg-blk-legend"><span><i style="background:var(--moss)"></i>You</span><span><i style="background:var(--clay)"></i>Challenger</span><span><i style="background:var(--slate-blue)"></i>Left splinter</span><span><i style="background:var(--gold)"></i>Right splinter</span><span><i style="background:#b9b3a2"></i>Didn't vote</span></div>
+    <div class="eg-blkread" id="egBlkRead">Hover a bar segment for its exact share</div>`;
   for(const [cat,label] of CAT){
     const rows=blocs.filter(b=>b.cat===cat);
     if(!rows.length)continue;
@@ -7476,12 +7484,13 @@ function showElection(r){
     <div class="eg-kicker">GENERAL ELECTION · ${yr}</div>
     <div class="eg-result ${won?'win':'lose'}">${bigWord}</div>
     <div class="eg-sub">${flavour} — <b>${(r.share*100).toFixed(1)}%</b> to <b>${(oppTotal*100).toFixed(1)}%</b></div>
-    <div class="eg-bar" aria-hidden="true">
-      <i data-w="${(r.share*100).toFixed(1)}" style="width:0;background:var(--moss)"></i>
-      <i data-w="${((r.thirdShareL||0)*100).toFixed(1)}" style="width:0;background:var(--slate-blue)"></i>
-      <i data-w="${((r.thirdShareR||0)*100).toFixed(1)}" style="width:0;background:var(--gold)"></i>
-      <i data-w="${(oppTotal*100).toFixed(1)}" style="width:0;background:var(--clay)"></i>
+    <div class="eg-bar" role="img" aria-label="Statewide vote shares">
+      <i data-w="${(r.share*100).toFixed(1)}" data-t="You — ${(r.share*100).toFixed(1)}%" title="You — ${(r.share*100).toFixed(1)}%" style="width:0;background:var(--moss)"></i>
+      <i data-w="${((r.thirdShareL||0)*100).toFixed(1)}" data-t="Left splinter — ${((r.thirdShareL||0)*100).toFixed(1)}%" title="Left splinter — ${((r.thirdShareL||0)*100).toFixed(1)}%" style="width:0;background:var(--slate-blue)"></i>
+      <i data-w="${((r.thirdShareR||0)*100).toFixed(1)}" data-t="Right splinter — ${((r.thirdShareR||0)*100).toFixed(1)}%" title="Right splinter — ${((r.thirdShareR||0)*100).toFixed(1)}%" style="width:0;background:var(--gold)"></i>
+      <i data-w="${(oppTotal*100).toFixed(1)}" data-t="Challenger — ${(oppTotal*100).toFixed(1)}%" title="Challenger — ${(oppTotal*100).toFixed(1)}%" style="width:0;background:var(--clay)"></i>
     </div>
+    <div class="eg-barread" id="egBarRead">Hover a segment for its exact share</div>
     <div class="eg-legend"><span><i style="background:var(--moss)"></i>You</span><span><i style="background:var(--slate-blue)"></i>Left splinter</span><span><i style="background:var(--gold)"></i>Right splinter</span><span><i style="background:var(--clay)"></i>Challenger</span></div>
     <div class="eg-sub" style="font-size:13px">Turnout <b>${(r.turnout*100).toFixed(0)}%</b> · Final approval <b>${r.approval.toFixed(1)}%</b> · <span id="egReporting">0% reporting</span> · you carried <b id="egCty">0</b> / 36 counties</div>
     ${(()=>{ const m=r.oppMomentum||25;
@@ -7532,6 +7541,21 @@ function showElection(r){
     el.addEventListener('click',()=>showCty(c)); });   // tap on touch devices
   const svgEl=card.querySelector('.eg-map-svg');
   if(svgEl&&readEl)svgEl.addEventListener('mouseleave',()=>{ readEl.textContent=readDflt; });
+  // hover the vote bars (top result + per-group) to read exact shares — same
+  // idea as the county map's readout line
+  const wireBarRead=(readId, barSel, keyboard)=>{
+    const rd=card.querySelector("#"+readId); if(!rd)return;
+    const dflt=rd.textContent;
+    card.querySelectorAll(barSel+' i[data-t]').forEach(seg=>{
+      const show=()=>{ rd.textContent=seg.dataset.t; };
+      seg.addEventListener('mouseenter',show);
+      seg.addEventListener('mousemove',show);
+      if(keyboard){ seg.setAttribute('tabindex','0'); seg.addEventListener('focus',show); }
+    });
+    card.querySelectorAll(barSel).forEach(bar=>bar.addEventListener('mouseleave',()=>{ rd.textContent=dflt; }));
+  };
+  wireBarRead("egBarRead", ".eg-bar", true);      // 4 segments — keyboard-navigable
+  wireBarRead("egBlkRead", ".eg-blk-bar", false); // dozens of bars — hover only
   const order=cRows.map((c,i)=>i).sort((a,b)=>cRows[a].popK-cRows[b].popK);
   const repEl=card.querySelector("#egReporting"), ctyEl=card.querySelector("#egCty");
   let reported=0, carried=0;
