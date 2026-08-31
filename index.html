@@ -1028,6 +1028,10 @@
     <h3 style="margin-top:20px">Economic Climate</h3>
     <div class="nmbar"><span class="nmend">▼</span><div class="nmtrack"><i id="ecoFill"></i></div><span class="nmend">▲</span></div>
     <div id="ecoLabel" class="mono" style="font-size:11px;text-align:center;margin-top:3px">Steady</div>
+    <h3 style="margin-top:20px">The Loyal Opposition</h3>
+    <div class="termbar"><i id="oppFill" style="width:0%"></i></div>
+    <div id="oppLabel" class="mono" style="font-size:11px;text-align:center;margin-top:3px">Dormant</div>
+    <div id="oppBarb" style="font-size:10.5px;color:var(--muted-2);margin-top:5px;line-height:1.35"></div>
     <div id="sitSection">
       <h3 style="margin-top:20px">Active Situations</h3>
       <div id="sitList"><div class="empty">No active situations.</div></div>
@@ -4786,7 +4790,13 @@ const GAME={
   pendingKicker:0,      // kicker owed, paid out next cycle
   pendingSurplus:null,  // {surplus} — a kicker-eligible surplus awaiting the player's end-of-quarter choice
   history:{}, // { metricKey: [{turn,value}], policyId: [{turn,level,cost}], approval:[...] }
+  // ---- the loyal opposition: a persistent rival whose MOMENTUM tracks how
+  // vulnerable you look. Low = a formality on election night; high = a
+  // stronger, better-funded challenger and a genuinely uncertain result.
+  opposition:{ momentum:28, prevBad:0, seen:false, barb:"", name:"the Senate Minority Leader" },
 };
+const OPP_NAMES=["Senate Minority Leader Hollis","Minority Leader Rourke","House Minority Leader Vance",
+  "Minority Leader Okafor","Senate Minority Leader Brandt","Minority Leader Salzman"];
 /* Run-level macro-environment: each playthrough opens in a slightly different
    economic phase and national mood (seeded — a seed reproduces it). This
    desyncs the otherwise-deterministic early-crisis cascade so restarts feel
@@ -4794,6 +4804,8 @@ const GAME={
 GAME.econCycle = +(((Math.random()-0.5)*0.56).toFixed(3));   // −0.28 .. +0.28
 NATIONAL_MOOD.value = +(((Math.random()-0.5)*8).toFixed(2)); // −4 .. +4
 NATIONAL_MOOD.drift = (Math.random()-0.5)*2.4;               // slight early persistence in that direction
+GAME.opposition.name = OPP_NAMES[Math.floor(Math.random()*OPP_NAMES.length)];
+GAME.opposition.momentum = +(Math.max(6, Math.min(44, 24 + (Math.random()-0.5)*16))).toFixed(1);
 function pushHistory(){
   const h=GAME.history;
   const rec=(key,obj)=>{(h[key]=h[key]||[]).push(obj);};
@@ -4814,6 +4826,7 @@ function pushHistory(){
   for(const id in INDICATORS)rec("i_"+id,{turn:GAME.turn,value:INDICATORS[id].value});
   rec("approval",{turn:GAME.turn,value:overallApproval()});
   rec("nationalMood",{turn:GAME.turn,value:NATIONAL_MOOD.value});
+  if(GAME.opposition)rec("oppMomentum",{turn:GAME.turn,value:GAME.opposition.momentum});
   rec("balance",{turn:GAME.turn,value:budgetBalance().balance});
   {const v=agendaVector(); rec("compass",{turn:GAME.turn,ec:v.ec,so:v.so});}
 }
@@ -4861,6 +4874,12 @@ function policyLevel(p){
   if(p.mechanic==="toggle")return p.enabled?1:0;
   if(p.mechanic==="tier")return p.tierIndex/(p.tiers.length-1);
   return 0;
+}
+// what a new law actually costs in capital right now — a high-momentum
+// opposition makes every enactment a harder floor fight.
+function policyEnactCost(p){
+  const base=(p&&p.enactCapital!==undefined)?p.enactCapital:8;
+  return Math.round(base*oppositionCapitalMult());
 }
 function policyNetCost(p){
   if(!p)return 0;
@@ -5314,6 +5333,51 @@ function tickNationalMood(){
   const nm=NATIONAL_MOOD;
   nm.drift=nm.drift*0.7+(Math.random()-0.5)*3.8;     // momentum + shocks
   nm.value=clamp(nm.value*0.94+nm.drift,-10,10);     // moderate reversion
+}
+/* the opposition's momentum: how vulnerable you look. Rises when you're
+   unpopular, the national wind is against you, crises fire, or your agenda
+   has drifted from your mandate; falls when you're solid and delivering.
+   Feeds a level shift + a variance term into the election. */
+function tickOpposition(){
+  const o=GAME.opposition; if(!o)return;
+  let m=o.momentum;
+  const oa=overallApproval();
+  m += clamp((48-oa)*0.32, -6, 4.5);                  // your standing is the main driver (capped so one bad quarter can't pin it)
+  m += -NATIONAL_MOOD.value*0.35;                     // national wind at their back
+  const badNow=Object.keys(GAME.activeSituations).filter(s=>SITUATIONS[s]&&SITUATIONS[s].kind==="bad").length;
+  const prev=o.prevBad||0;
+  if(o.seen){                                          // skip the first tick — the opening crisis slate isn't "news"
+    if(badNow>prev) m += 5.5*(badNow-prev);           // a fresh crisis is ammunition
+    if(badNow<prev) m -= 4.5*(prev-badNow);           // resolving one takes the wind out
+  }
+  o.prevBad=badNow; o.seen=true;
+  if((GAME.structuralDebt||0)>1) m += 1.4;
+  if((GAME.lastBalance||0)>1.5) m -= 1.2;
+  m += Math.max(0, Math.abs(agendaRightwardShift())-4)*0.22;   // off-mandate drift is a wedge
+  if((GAME.uturnCount||0)>0 && GAME.turn%2===0) m += 0.8;      // a record of flip-flops
+  m += (24-m)*0.06;                                   // reversion toward a low hum when nothing's wrong
+  o.momentum = clamp(m, 0, 100);
+  o.barb = oppositionBarb();
+}
+function oppositionBarb(){
+  const o=GAME.opposition, m=o.momentum, nm=o.name;
+  const debt=(GAME.structuralDebt||0), t=agendaRightwardShift();
+  const bank=[];
+  if(m<24) bank.push(`With your numbers holding, ${nm}'s bench looks thin — no serious challenger has stepped up.`);
+  if(m>=24&&m<45) bank.push(`${nm} is testing attack lines but hasn't landed a punch.`);
+  if(debt>1) bank.push(`${nm} hammered the $${debt.toFixed(1)}B structural deficit on the chamber floor.`);
+  if(t>4) bank.push(`${nm} cast your agenda as well to the left of the voters who elected you.`);
+  if(t<-4) bank.push(`${nm} says you've governed to the right of your own coalition.`);
+  const bigBad=Object.keys(GAME.activeSituations).find(s=>SITUATIONS[s]&&SITUATIONS[s].kind==="bad"&&SITUATIONS[s].category!=="chronic");
+  if(bigBad) bank.push(`${nm} seized on the ${SITUATIONS[bigBad].name.toLowerCase()} to call your term a failure.`);
+  if(m>=60) bank.push(`${nm} is openly recruiting a challenger and the money is starting to move.`);
+  if(m>=78) bank.push(`Polls now show a generic opponent within the margin — ${nm} smells blood.`);
+  if(!bank.length) bank.push(`${nm} kept up the usual floor speeches this quarter.`);
+  return bank[Math.floor(Math.random()*bank.length)];
+}
+function oppositionCapitalMult(){
+  const m=GAME.opposition?GAME.opposition.momentum:25;
+  return 1 + clamp((m-60)/40, 0, 1)*0.35;             // nothing until 60, +35% capital on new laws at 100
 }
 function effective(k){
   const m=METRICS[k];
@@ -5975,7 +6039,14 @@ function runElection(){
   emEc/=VOTERS.length||1; emSo/=VOTERS.length||1;
   const misfit=Math.abs(g.economic-emEc)*0.6 + Math.abs(g.social-emSo)*0.4;
   const anchor=clamp(0.55 - misfit*0.14, 0.42, 0.54);
-  share=clamp(share*0.66 + anchor*0.34, 0.03, 0.97);
+  // the opposition: a strong challenger (high momentum) shaves your margin AND
+  // makes the night volatile. At low momentum this is ~nil and the result is a
+  // formality; at high momentum it can swing several points either way.
+  const oppM = GAME.opposition ? GAME.opposition.momentum : 25;
+  const oppFrac = clamp((oppM-30)/70, 0, 1);
+  const oppShift = -oppFrac*0.055;                              // up to −5.5 pts, level
+  const oppSwing = (Math.random()-0.5) * clamp(oppM/100,0,1) * 0.09;  // up to ±4.5 pts, random
+  share=clamp(share*0.66 + anchor*0.34 + oppShift + oppSwing, 0.03, 0.97);
   const turnoutPct=tot/VOTERS.length;
   // ---- per-county results, from those same tallies ----
   // Head-to-head first (you vs challenger among major-candidate ballots), then
@@ -6038,7 +6109,7 @@ function runElection(){
     };
   }
   return {won:share>=0.5, share, approval:overallApproval(), intention:votingIntention(),
-          turnout:turnoutPct, rcv, counties, blocs, rcvRounds,
+          turnout:turnoutPct, rcv, counties, blocs, rcvRounds, oppMomentum:oppM, oppSwingPts:+(oppSwing*100).toFixed(1),
           thirdShare:tot>0?third/tot:0,
           thirdShareL:tot>0?thirdL/tot:0, thirdShareR:tot>0?thirdR/tot:0};
 }
@@ -6573,7 +6644,14 @@ function showQuarterReport(){
       const w=t>9?"Hard right of your mandate":t>4?"Right of your mandate":t>1.5?"Drifting right":t<-9?"Hard left of your mandate":t<-4?"Left of your mandate":t<-1.5?"Drifting left":"On your mandate";
       const col=t>4?'var(--clay)':t<-4?'var(--slate-blue)':'inherit';
       const warn=t>4&&!GAME.activeSituations.leftProtests?' <span style="color:var(--clay)">— protest risk rising</span>':'';
-      return `<div class="rrow"><span class="rlabel">Agenda tilt</span><span class="rval" style="color:${col}">${w}${warn}</span></div>`;})()}</div>`;
+      return `<div class="rrow"><span class="rlabel">Agenda tilt</span><span class="rval" style="color:${col}">${w}${warn}</span></div>`;})()}
+    ${(()=>{ if(!GAME.opposition)return"";
+      const m=GAME.opposition.momentum, d=histDelta("oppMomentum");
+      const w=m>=78?"Surging":m>=60?"High":m>=42?"Building":m>=24?"Present":"Dormant";
+      const col=m>=60?'var(--clay)':'inherit';
+      const dTag=Math.abs(d)<1?"":` <span class="rdelta ${d>0?'bad':'good'}" style="font-size:10px">${d>0?'▲':'▼'}${Math.abs(d).toFixed(0)}</span>`;
+      return `<div class="rrow"><span class="rlabel">Opposition momentum</span><span class="rval" style="color:${col}">${w} (${m.toFixed(0)})${dTag}</span></div>
+        ${GAME.opposition.barb?`<div class="rforecast" style="font-size:10.5px;margin-top:3px">${GAME.opposition.barb}</div>`:''}`;})()}</div>`;
   const emerg=emergingCrises();
   const emergBlock=emerg.length?`<div class="rsection"><div class="rsec-h">${ico('warning')} On the Horizon</div>`
     +emerg.map(e=>{
@@ -7097,6 +7175,13 @@ function showElection(r){
     </div>
     <div class="eg-legend"><span><i style="background:var(--moss)"></i>You</span><span><i style="background:var(--slate-blue)"></i>Left splinter</span><span><i style="background:var(--gold)"></i>Right splinter</span><span><i style="background:var(--clay)"></i>Challenger</span></div>
     <div class="eg-sub" style="font-size:13px">Turnout <b>${(r.turnout*100).toFixed(0)}%</b> · Final approval <b>${r.approval.toFixed(1)}%</b> · <span id="egReporting">0% reporting</span> · you carried <b id="egCty">0</b> / 36 counties</div>
+    ${(()=>{ const m=r.oppMomentum||25;
+      const lvl=m>=78?"surging":m>=60?"high":m>=42?"building":m>=24?"present":"dormant";
+      const col=m>=60?'var(--clay)':m>=42?'#8a7a3a':'var(--muted-2)';
+      const sw=r.oppSwingPts||0;
+      const note = m>=60 ? ` — a strong, funded challenger${Math.abs(sw)>1.5?`; election-night swing ${sw>0?'+':''}${sw} pts`:''}` : m<24 ? ' — no serious challenge' : '';
+      return `<div class="eg-sub" style="font-size:12px;color:${col}">Opposition momentum: <b>${lvl}</b>${note}</div>`;
+    })()}
     ${countyMapSVG(cRows)}
     <div class="eg-ctyread" id="egCtyRead">Hover a county for its result · scroll for the full breakdown ↓</div>
     <div class="eg-third">${thirdLine}</div>
@@ -7200,7 +7285,7 @@ function _runTicks(){
   METRICS.evAdoption.eq = Math.min(75, 13 + GAME.turn * 0.5);
   tickMetrics();
   GAME.lastBalance=budgetBalance().balance;
-  settleFiscal(); tickNationalMood(); tickSituations(); maybeFireDilemma();
+  settleFiscal(); tickNationalMood(); tickSituations(); tickOpposition(); maybeFireDilemma();
   tickIndicators(); tickGrudges(); tickCynComp(); tickExpectations(); tickGroundGame();
   tickApproval(); tickVoterApproval(); checkActivistTriggers();
   if((GAME.serviceDisrupt||0)>0)GAME.serviceDisrupt--;   // acute operational disruption bleeds off
@@ -8880,16 +8965,17 @@ function renderPolicies(){
     const p=CATALOG[id], net=policyNetCost(p);
     const isRevPol=p.revenueFull!==undefined||p.revenue!==undefined||net<0;
     const costLabel=isRevPol?`+$${Math.max(0,-net).toFixed(1)}B/yr`:`$${net.toFixed(1)}B/yr`;
-    const afford=GAME.capital>=p.enactCapital;
+    const ecost=policyEnactCost(p), oppTax=ecost-p.enactCapital;
+    const afford=GAME.capital>=ecost;
     return `<div class="catcard" style="--qaccent:${DOMAINS[p.domain].accent}">
       <div class="cat-top"><span class="cat-icon">${ico(p.icon)}</span>
         <div><div class="cat-name">${p.name}</div><div class="cat-dom">${DOMAINS[p.domain].name}</div></div></div>
       <div class="cat-desc">${p.desc}</div>
       <div class="cat-meta"><span class="pill ${isRevPol?'rev':'spend'}">${costLabel}</span>
-        <span class="pill cap">◈ ${p.enactCapital} to enact</span></div>
+        <span class="pill cap">◈ ${ecost} to enact${oppTax>0?` <span style="opacity:.7">(+${oppTax} opposition)</span>`:''}</span></div>
       <button class="ebtoggle" data-eb="${id}">▸ Projected effects if enacted</button>
       <div class="cat-eb hidden" id="eb_${id}">${effectsBreakdownHTML("policy",p)}</div>
-      <button class="enactbtn" data-enact="${id}" ${afford?'':'disabled'}>${afford?'Enact policy':'Need '+p.enactCapital+' capital'}</button>
+      <button class="enactbtn" data-enact="${id}" ${afford?'':'disabled'}>${afford?'Enact policy':'Need '+ecost+' capital'}</button>
     </div>`;
   };
   // group available (non-reform) policies by type-section; reforms get their own section
@@ -8929,8 +9015,9 @@ function renderPolicies(){
 }
 function enactPolicy(id){
   const src=CATALOG[id];
-  if(GAME.capital<src.enactCapital){GAME.log.push("✗ Not enough capital to enact "+src.name);render();return;}
-  GAME.capital-=src.enactCapital;
+  const ecost=policyEnactCost(src);
+  if(GAME.capital<ecost){GAME.log.push("✗ Not enough capital to enact "+src.name);render();return;}
+  GAME.capital-=ecost;
   const p=Object.assign({},src); delete p.enactCapital; p.enacted=true;
   p.eff=0;                       // effects phase in from zero
   GAME.enactedAt[id]=GAME.turn;
@@ -9277,6 +9364,17 @@ function paintClimateReadouts(prefix){
     e.style.left=((ec+1)/2*100)+"%";
     const l=document.getElementById(id.el);
     if(l){ l.textContent=ec>0.33?"Boom":ec>0.10?"Expanding":ec<-0.33?"Recession":ec<-0.10?"Slowing":"Steady"; l.style.color=ec>0.10?"var(--good)":ec<-0.10?"var(--clay)":"#8a8270"; }
+  }
+  // the loyal opposition (sidebar only)
+  const of=document.getElementById("oppFill");
+  if(of && GAME.opposition){
+    const m=GAME.opposition.momentum;
+    of.style.width=clamp(m,0,100)+"%";
+    of.style.background=m>=60?"var(--clay)":m>=42?"#8a7a3a":"var(--muted-2)";
+    const l=document.getElementById("oppLabel");
+    if(l){ l.textContent=(m>=78?"Surging":m>=60?"High":m>=42?"Building":m>=24?"Present":"Dormant")+" ("+m.toFixed(0)+")"; l.style.color=m>=60?"var(--clay)":"#8a8270"; }
+    const b=document.getElementById("oppBarb");
+    if(b)b.textContent=GAME.opposition.barb||"";
   }
 }
 function renderSidebar(){
