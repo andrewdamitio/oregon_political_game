@@ -3464,9 +3464,9 @@ const DILEMMAS={
     influence:()=>(GAME.activeSituations.wildfireSeason?0.5:0)+(METRICS.environment.value<55?0.2:0),
     options:[
       {label:"Publish the map", text:"Risk data is made public.",
-       apply:()=>{createGrudge("v_rural",-6,0.9,"Wildfire map published");createGrudge("v_timber",-5,0.9,"Wildfire map published");createGrudge("v_homeowners",-3,0.9,"Insurance repricing");createGrudge("m_environment",0.5,0.85,"Risk-informed planning");createGrudge("v_liberal",2,0.9,"Followed the science");}},
+       apply:()=>{createGrudge("v_rural",-6,0.9,"Wildfire map published");createGrudge("v_timber",-5,0.9,"Wildfire map published");createGrudge("v_homeowners",-3,0.9,"Insurance repricing");createGrudge("m_environment",0.5,0.85,"Risk-informed planning");createGrudge("v_liberal",2,0.9,"Followed the science");createCountyMood(COUNTY_GROUPS.fireCountry,-6,0.9,"Fire-country counties — insurance shock");}},
       {label:"Withdraw the map", text:"The map is shelved.",
-       apply:()=>{createGrudge("v_rural",3,0.9,"Map withdrawn");createGrudge("v_liberal",-3,0.9,"Caved on wildfire science");createGrudge("m_environment",-0.3,0.9,"Risk data shelved");}}]},
+       apply:()=>{createGrudge("v_rural",3,0.9,"Map withdrawn");createGrudge("v_liberal",-3,0.9,"Caved on wildfire science");createGrudge("m_environment",-0.3,0.9,"Risk data shelved");createCountyMood(COUNTY_GROUPS.fireCountry,2.5,0.9,"Fire-country counties — map shelved");}}]},
   shelterSiting:{title:"The Low-Barrier Shelter", icon:"tent",
     text:"A low-barrier shelter — no sobriety requirement — is proposed for a residential neighborhood. Providers say it's the only model that works for the chronically unhoused. The neighborhood association says it'll end you.",
     influence:()=>(GAME.activeSituations.homelessEmergency?0.45:0)+(METRICS.homelessness.value-55)*0.01,
@@ -3575,13 +3575,14 @@ const DILEMMAS={
       {label:"Hold the line", text:"The state holds its offer.",
        apply:()=>{createGrudge("v_publicUnions",-9,0.92,"Strike broken");SIMULANTS.publicUnions.cynicism=(SIMULANTS.publicUnions.cynicism||0)+4;createGrudge("v_businessClass",3,0.9,"Fiscal discipline");createGrudge("v_wealthy",2,0.9,"Fiscal discipline");}}]},
   dataCenter:{title:"The Data Center Deal", icon:"monitor",
-    text:"A hyperscaler wants enterprise-zone tax breaks for a campus in a dry county east of the mountains: hundreds of construction jobs, dozens permanent — and an enormous claim on water and power.",
+    onFire:(ctx)=>{ ctx.county=pick(COUNTY_GROUPS.dataCenter); },
+    text:()=>`A hyperscaler wants enterprise-zone tax breaks for a campus in <b>${GAME.dilemmaCtx.county||"a dry"} County</b>, east of the mountains: hundreds of construction jobs, dozens permanent — and an enormous claim on the county's water and power. Neighbours are already organising against the draw.`,
     influence:()=>(INDICATORS.businessClimate.value>55?0.35:0.1)+(GAME.activeSituations.techBoom?0.2:0),
     options:[
       {label:"Approve the deal", text:"The data center is approved.",
-       apply:()=>{createGrudge("m_gdp",0.15,0.9,"Data center investment");createGrudge("v_businessClass",4,0.9,"Open for business");createGrudge("v_timber",2,0.9,"Rural jobs");createGrudge("m_environment",-0.5,0.9,"Water & power strain");createGrudge("v_liberal",-3,0.9,"Corporate giveaway");}},
+       apply:()=>{const cty=GAME.dilemmaCtx.county||"Wasco";createGrudge("m_gdp",0.15,0.9,"Data center investment");createGrudge("v_businessClass",4,0.9,"Open for business");createGrudge("v_blueCollar",2,0.9,"Construction jobs");createGrudge("m_environment",-0.5,0.9,"Water & power strain");createGrudge("v_liberal",-3,0.9,"Corporate giveaway");createCountyMood([cty],-6,0.9,cty+" County — water & power draw");GAME.log.push(ico('monitor')+" Data center approved in "+cty+" County — locals furious over the water draw");}},
       {label:"Reject it", text:"The data center is rejected.",
-       apply:()=>{createGrudge("v_liberal",4,0.9,"Held the line on water");createGrudge("v_socialist",3,0.9,"No corporate subsidy");createGrudge("m_environment",0.3,0.9,"Water & grid protected");createGrudge("v_businessClass",-4,0.9,"Hostile to investment");createGrudge("i_businessClimate",-3,0.9,"Deal rejected");}}]},
+       apply:()=>{const cty=GAME.dilemmaCtx.county||"Wasco";createGrudge("v_liberal",4,0.9,"Held the line on water");createGrudge("v_socialist",3,0.9,"No corporate subsidy");createGrudge("m_environment",0.3,0.9,"Water & grid protected");createGrudge("v_businessClass",-4,0.9,"Hostile to investment");createGrudge("i_businessClimate",-3,0.9,"Deal rejected");createCountyMood([cty],2,0.9,cty+" County — water draw averted");}}]},
   offshoreWind:{title:"Offshore Wind Leases", icon:"wind",
     text:"The federal Bureau of Ocean Energy Management is offering Oregon offshore wind leases on the Southern Oregon Bight — potential gigawatts of carbon-free power along the most exposed stretch of the Pacific coast. Clean energy advocates and climate groups see a generational opportunity. The Oregon fishing industry — Dungeness crab fishers, trawlers, tribal harvesters — says turbines will snarl gear, block migration corridors, and end livelihoods that go back generations. Environmental groups are split: it's clean energy, but the marine ecosystem costs are real.",
     influence:()=>(METRICS.environment.value<65?0.22:0.06)+(POLICIES.renewablePortfolio&&policyLevel(POLICIES.renewablePortfolio)>0.5?0.15:0)+(GAME.activeSituations.droughtWater?0.10:0),
@@ -3596,13 +3597,15 @@ const DILEMMAS={
          createGrudge("v_rural",-5,0.9,"Offshore impacts on fishing");
          createGrudge("v_blueCollar",-4,0.9,"Fishing industry threatened");
          createGrudge("v_timber",-2,0.9,"Coastal livelihoods at risk");
-         GAME.log.push("🌬️ Offshore wind leases accepted — clean energy development proceeds");
+         createCountyMood(COUNTY_GROUPS.southCoast,-8,0.9,"South-coast fishing counties");
+         GAME.log.push("🌬️ Offshore wind leases accepted — the southern Oregon coast is up in arms");
        }},
       {label:"Reject the leases", text:"Oregon declines. Fishing communities are protected; the clean energy opportunity passes for this term.",
        apply:()=>{
          createGrudge("v_rural",3,0.9,"Fishing industry protected");
          createGrudge("v_blueCollar",4,0.9,"Fishing jobs protected");
          createGrudge("v_timber",2,0.9,"Coastal livelihoods defended");
+         createCountyMood(COUNTY_GROUPS.southCoast,4,0.9,"South-coast fishing counties");
          createGrudge("v_liberal",-4,0.9,"Offshore wind blocked");
          createGrudge("v_socialist",-2,0.9,"Clean energy opportunity passed");
          createGrudge("v_students",-3,0.9,"Climate inaction");
@@ -3615,9 +3618,9 @@ const DILEMMAS={
     influence:()=>(INDICATORS.downtown.value<45?0.5:0)+(METRICS.homelessness.value>60?0.15:0),
     options:[
       {label:"Sweep the camps", text:"The camps are cleared.",
-       apply:()=>{createGrudge("i_downtown",5,0.85,"Camps cleared");createGrudge("v_businessClass",4,0.9,"Downtown cleaned up");createGrudge("v_suburban",3,0.9,"Visible action");createGrudge("v_poor",-5,0.9,"Swept the camps");createGrudge("v_liberal",-4,0.9,"Swept the camps");createGrudge("m_health",-0.4,0.9,"Care disrupted");}},
+       apply:()=>{createGrudge("i_downtown",5,0.85,"Camps cleared");createGrudge("v_businessClass",4,0.9,"Downtown cleaned up");createGrudge("v_suburban",3,0.9,"Visible action");createGrudge("v_poor",-5,0.9,"Swept the camps");createGrudge("v_liberal",-4,0.9,"Swept the camps");createGrudge("m_health",-0.4,0.9,"Care disrupted");createCountyMood(COUNTY_GROUPS.portlandCore,-4,0.86,"Portland — sweep backlash");createCountyMood(COUNTY_GROUPS.portlandSuburbs,3,0.86,"Metro suburbs — visible action");}},
       {label:"Services-first", text:"Services are offered before any sweep.",
-       apply:()=>{createGrudge("v_liberal",3,0.9,"Services-first");createGrudge("v_poor",3,0.9,"Services-first");createGrudge("v_businessClass",-4,0.9,"Downtown left to rot");createGrudge("i_downtown",-2,0.9,"Camps persist");}}]},
+       apply:()=>{createGrudge("v_liberal",3,0.9,"Services-first");createGrudge("v_poor",3,0.9,"Services-first");createGrudge("v_businessClass",-4,0.9,"Downtown left to rot");createGrudge("i_downtown",-2,0.9,"Camps persist");createCountyMood(COUNTY_GROUPS.portlandCore,3,0.86,"Portland — services-first approach");createCountyMood(COUNTY_GROUPS.portlandSuburbs,-2.5,0.86,"Metro suburbs — downtown frustration");}}]},
   bridgeTolls:{title:"Tolling the Bridges", icon:"bridge",
     text:"The Interstate Bridge replacement needs money, and ODOT's books are a $354M hole. Tolling I-5 and I-205 pays for it — and every Clark County commuter and Oregon motorist will see the charge daily.",
     influence:()=>(budgetBalance().balance<-0.8?0.4:0.1)+(POLICIES.gasTax&&policyLevel(POLICIES.gasTax)>0.6?0.15:0),
@@ -3639,12 +3642,14 @@ const DILEMMAS={
          createGrudge("v_liberal",2,0.9,"Invested in education");
          createGrudge("v_conservative",-4,0.9,"University bailout");
          createGrudge("v_businessClass",-2,0.9,"More higher-ed spending");
+         createCountyMood(COUNTY_GROUPS.southernOregon,6,0.9,"Jackson & Josephine — SOU saved");
          createGrudge("capital",-3);
          GAME.structuralDebt=+(+(GAME.structuralDebt||0)+0.09).toFixed(2);
        }},
       {label:"Merge SOU with Oregon Tech", text:"SOU consolidates with OIT (Klamath Falls) under a Southwest Oregon University System. Core programs survive in reduced form; faculty contracts are renegotiated. A compromise that pleases no one fully.",
        apply:()=>{
          createGrudge("m_education",0.2,0.9,"Partial preservation");
+         createCountyMood({Jackson:1,Josephine:1,Klamath:0.5},-2,0.9,"Southern Oregon — SOU identity dissolved");
          createGrudge("i_ruralAlienation",3,0.9,"SOU identity dissolved");
          createGrudge("v_publicUnions",-4,0.9,"Faculty cuts in merger");
          createGrudge("v_rural",1,0.9,"Campus survives in some form");
@@ -3655,6 +3660,7 @@ const DILEMMAS={
       {label:"Decline to intervene", text:"SOU navigates its own restructuring — 30% faculty reduction, elimination of low-enrollment programs, and a severely diminished campus. Ashland takes an economic hit; southern Oregon loses its only regional university.",
        apply:()=>{
          createGrudge("m_education",-1.5,0.9,"SOU gutted");
+         createCountyMood(COUNTY_GROUPS.southernOregon,-9,0.9,"Jackson & Josephine — SOU abandoned");
          createGrudge("i_ruralAlienation",8,0.9,"State abandoned southern Oregon");
          createGrudge("v_publicUnions",-7,0.9,"State abandoned the university");
          createGrudge("v_rural",-5,0.9,"No university left in southern Oregon");
@@ -3983,6 +3989,10 @@ function maybeFireDilemma(){
     GAME.dilemmaCooldown[best]=GAME.turn;
     GAME.lastDilemmaTurn=GAME.turn;
     RUN_HISTORY.note(best);
+    // per-fire context (e.g. which county a data center lands in) — read by the
+    // dilemma's text() and its option apply()s
+    GAME.dilemmaCtx={};
+    if(DILEMMAS[best].onFire)DILEMMAS[best].onFire(GAME.dilemmaCtx);
     GAME.log.push("❖ Dilemma: "+DILEMMAS[best].title);
   }
 }
@@ -3997,17 +4007,29 @@ function resolveDilemma(optIndex){
   const newGrudges=GAME.grudges.slice(grudgeBefore);
   const capDelta=GAME.capital-capBefore;
   const fx=[];
+  const cByLabel={};   // collapse per-county regional grudges into one row per label
   for(const g of newGrudges){
-    let who=g.label||"Effect", dir=g.value>0?"+":"";
+    if(g.target.startsWith("c_")){
+      const L=g.label||"Regional reaction";
+      const e=cByLabel[L]||(cByLabel[L]={sum:0,n:0});
+      e.sum+=g.value; e.n++;
+      continue;
+    }
+    let who=g.label||"Effect";
     if(g.target.startsWith("v_")&&SIMULANTS[g.target.slice(2)])who=SIMULANTS[g.target.slice(2)].name;
     else if(g.target.startsWith("m_")&&METRICS[g.target.slice(2)])who=METRICS[g.target.slice(2)].name;
     else if(g.target.startsWith("i_")&&INDICATORS[g.target.slice(2)])who=INDICATORS[g.target.slice(2)].name;
     fx.push({who, val:g.value, label:g.label, kind:g.target.split("_")[0], key:g.target.slice(2)});
   }
+  for(const L in cByLabel){
+    const e=cByLabel[L];
+    fx.push({who:L, val:+(e.sum/e.n).toFixed(1), kind:"c", count:e.n});
+  }
   if(Math.abs(capDelta)>0.01)fx.push({who:"Political Capital", val:capDelta, kind:"cap"});
   GAME.log.push("❖ "+d.title+" — chose: "+d.options[optIndex].label);
   GAME.lastDilemmaResult={title:d.title, icon:d.icon, choice:d.options[optIndex].label, fx};
   GAME.pendingDilemma=null;
+  GAME.dilemmaCtx={};
   render();
 }
 /* ============================================================
@@ -4024,6 +4046,43 @@ function createGrudge(target,value,decay,label){
 function groupGrudge(sid){
   let g=0;
   for(const gr of GAME.grudges)if(gr.target==="v_"+sid)g+=gr.value;
+  return g;
+}
+/* ---- REGIONAL (county-level) reactions ----
+   Some decisions and events land hardest in specific parts of Oregon. A county
+   grudge ("c_<name>") is a decaying regional mood that feeds the election the
+   same way campaign presence does — weighted onto each voter by v.cw. */
+const pick=arr=>arr[Math.floor(Math.random()*arr.length)];
+const COUNTY_GROUPS={
+  // south-coast fishing communities — offshore wind, crab/trawl fleet
+  southCoast:{Coos:1, Curry:1, Douglas:0.45, Lincoln:0.45},
+  // the whole Oregon coast — quake / tsunami exposure
+  coast:{Clatsop:1, Tillamook:1, Lincoln:1, Coos:1, Curry:1, Douglas:0.4},
+  // wildland-urban-interface fire country — insurance shock, evacuations
+  fireCountry:{Josephine:1, Jackson:0.85, Klamath:0.8, Deschutes:0.7, Douglas:0.6, Jefferson:0.55, Wasco:0.5, Hood_River:0.45, Wallowa:0.5, Grant:0.45, Curry:0.4},
+  // irrigated agriculture east of the Cascades — drought, water shutoffs
+  irrigatedEast:{Klamath:1, Malheur:1, Morrow:0.8, Umatilla:0.8, Sherman:0.6, Gilliam:0.6, Wasco:0.6, Jefferson:0.6, Crook:0.5, Baker:0.5},
+  // dry counties courted by hyperscaler data centers
+  dataCenter:["Wasco","Crook","Morrow","Umatilla","Sherman","Gilliam","Jefferson"],
+  // Portland core vs the metro suburbs — they read the same news differently
+  portlandCore:["Multnomah"],
+  portlandSuburbs:{Washington:1, Clackamas:1},
+  // southern Oregon around Ashland/Medford/Grants Pass — SOU's service area
+  southernOregon:{Jackson:1, Josephine:1}
+};
+// keys can't hold spaces; map the one county that has one
+const _cnFix=n=>n==="Hood_River"?"Hood River":n;
+function createCountyMood(spec, value, decay, label){
+  const entries = Array.isArray(spec) ? spec.map(n=>[n,1]) : Object.entries(spec);
+  for(const [k,w] of entries){
+    const name=_cnFix(k);
+    if(!OR_COUNTIES.some(c=>c[0]===name))continue;
+    createGrudge("c_"+name, +(value*w).toFixed(2), decay===undefined?0.9:decay, label||"");
+  }
+}
+function countyGrudge(name){
+  let g=0;
+  for(const gr of GAME.grudges)if(gr.target==="c_"+name)g+=gr.value;
   return g;
 }
 function tickGrudges(){
@@ -4473,7 +4532,7 @@ const SITUATIONS={
     desc:"Catastrophic wildfires choke the Willamette Valley with smoke and force evacuations across eastern and southern Oregon.",
     costEffect:{natResources:0.45},
     metricEffect:{environment:-4,health:-3,gdp:-0.3,loggingRate:-6}, moodAxes:{environment:-0.2}, moodMag:2, minTurns:2,
-    onTrigger:{capital:-4, metrics:{environment:-6}}, mandateShock:-5,
+    onTrigger:{capital:-4, metrics:{environment:-6}, countyMood:{spec:COUNTY_GROUPS.fireCountry, value:-5, decay:0.9, label:"Fire-country counties — evacuations & smoke"}}, mandateShock:-5,
     groupMood:{rural:-8,timber:-9,students:-3,liberal:-2,blueCollar:-2}},
   businessExodus:{name:"Business Climate Collapse", kind:"bad", category:"condition",
     desc:"Oregon's stacked costs and regulatory burden have crossed a tipping point. Companies are announcing relocations to Washington and Idaho — and the exodus feeds itself: as anchor firms leave, their suppliers and service vendors follow, Oregon's anti-business reputation hardens, and the remaining talent pool thins. Reversing it requires meaningfully improving the business climate, not just stopping the slide.",
@@ -4586,6 +4645,7 @@ const SITUATIONS={
   droughtWater:{name:"Drought & Water Crisis", kind:"bad", category:"event",
     desc:"A severe drought pits farms, fish, and cities against each other over water.",
     metricEffect:{environment:-2,gdp:-0.2,loggingRate:-5}, moodAxes:{environment:-0.2}, moodMag:1, minTurns:3,
+    onTrigger:{countyMood:{spec:COUNTY_GROUPS.irrigatedEast, value:-5, decay:0.9, label:"Irrigated east — water shutoffs"}},
     groupMood:{rural:-7,timber:-6,liberal:-2}},
   scandal:{name:"Governor's Office Scandal", kind:"bad", category:"event",
     desc:"An ethics scandal involving the Governor's office dominates the press — your authority in Salem takes a real hit.",
@@ -4595,13 +4655,14 @@ const SITUATIONS={
     desc:"A major Cascadia Subduction Zone quake strikes — the Big One Oregonians have dreaded for decades. Infrastructure, ports, and bridges are damaged; recovery dominates everything.",
     costEffect:{debtAdmin:1.2,natResources:0.4},
     metricEffect:{gdp:-0.8,health:-4,environment:-2}, moodMag:3, minTurns:4,
-    onTrigger:{capital:-8, metrics:{gdp:-3.5,environment:-8,health:-3}}, mandateShock:-8,
+    onTrigger:{capital:-8, metrics:{gdp:-3.5,environment:-8,health:-3}, countyMood:{spec:COUNTY_GROUPS.coast, value:-6, decay:0.88, label:"Oregon coast — quake damage & recovery"}}, mandateShock:-8,
     indicatorEffect:{tourism:-16,businessClimate:-12,inMigration:-12,downtown:-8},
     groupMood:{}},
   klamathCrisis:{name:"Klamath Water Crisis", kind:"bad", category:"event",
     desc:"Drought collides with prior-appropriation rights — irrigation shutoffs, dead salmon, armed standoffs at the headgates. The 2001 shutoff cost farms $27–46M; the 2002 fish kill left 34,000–70,000 Chinook rotting on the banks.",
     metricEffect:{gdp:-0.12,environment:-2}, moodMag:1, minTurns:2,
     indicatorEffect:{tourism:-5},
+    onTrigger:{countyMood:{spec:{Klamath:1, Lake:0.6, Jackson:0.3}, value:-9, decay:0.9, label:"Klamath Basin — irrigation shutoffs"}},
     groupMood:{rural:-9,timber:-8,liberal:-3}},
   measlesOutbreak:{name:"Measles Outbreak", kind:"bad", category:"event",
     desc:"A measles outbreak spreads through under-vaccinated schools (echoing the 2019 Clark County outbreak, 65+ cases). Oregon's nonmedical exemption rate is among the nation's highest.",
@@ -4806,7 +4867,7 @@ const GAME={
   countyCamp:{},
   activists:{}, activistCooldowns:{},
   termLengthTurns:16, midtermTurn:8, term:1,
-  activeSituations:{}, situationAge:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null, prisonLaborVoteHeld:false, walkoutFreeze:0, walkoutIgnoredUntil:0, agendaBaseline:0, protestCrackdowns:0, protestIgnoredUntil:0, compassStart:{ec:0,so:0}, serviceDisrupt:0,
+  activeSituations:{}, situationAge:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null, dilemmaCtx:{}, prisonLaborVoteHeld:false, walkoutFreeze:0, walkoutIgnoredUntil:0, agendaBaseline:0, protestCrackdowns:0, protestIgnoredUntil:0, compassStart:{ec:0,so:0}, serviceDisrupt:0,
   // ---- FISCAL MODEL (research: income-tax dependence + kicker + reserves) ----
   rainyDay:1.87,        // Rainy Day Fund ($B) — real 2023-25 end balance
   eduStability:1.0,     // Education Stability Fund ($B)
@@ -5301,6 +5362,7 @@ function startSituation(sid){
     if(s.onTrigger.capital)GAME.capital=clamp(GAME.capital+s.onTrigger.capital,0,100);
     if(s.onTrigger.fedHit){GAME.fedIndex=clamp(GAME.fedIndex-0.12,0.6,1.1);GAME.log.push(ico('globe')+" Federal funds cut ~12% — auto-conformity bites the General Fund");}
     for(const m in (s.onTrigger.metrics||{}))if(METRICS[m])METRICS[m].value=clamp(METRICS[m].value+s.onTrigger.metrics[m],METRICS[m].min,METRICS[m].max);
+    if(s.onTrigger.countyMood){const cm=s.onTrigger.countyMood;createCountyMood(cm.spec,cm.value,cm.decay,cm.label);}
   }
   // a recession that follows an overheated boom hits harder — the correction is
   // proportional to how far the economy got ahead of itself
@@ -5319,6 +5381,7 @@ function startSituation(sid){
     if(s.onTrigger){
       if(s.onTrigger.capital)fx.push({who:"Political Capital",val:s.onTrigger.capital,kind:"cap"});
       for(const m in (s.onTrigger.metrics||{}))if(METRICS[m])fx.push({who:METRICS[m].name,val:s.onTrigger.metrics[m],kind:"m",key:m});
+      if(s.onTrigger.countyMood){const cm=s.onTrigger.countyMood;fx.push({who:cm.label||"Regional reaction",val:cm.value,kind:"c"});}
     }
     for(const m in (s.metricEffect||{})){const mm=METRICS[m];if(mm)fx.push({who:mm.name+" (ongoing)",val:(typeof s.metricEffect[m]==="object"?(s.metricEffect[m].b||0):s.metricEffect[m]),kind:"m",key:m});}
     for(const i in (s.indicatorEffect||{}))if(INDICATORS[i])fx.push({who:INDICATORS[i].name,val:s.indicatorEffect[i],kind:"i",key:i});
@@ -6005,6 +6068,9 @@ function runElection(){
   const ccArr=OR_COUNTIES.map(c=>(GAME.countyCamp&&GAME.countyCamp[c[0]])||null);
   const ccScale=OR_COUNTIES.map(c=>clamp(0.10/(c[6]/_ccTot),0.45,1));
   const ccAny=ccArr.some(x=>x);
+  // regional mood from decisions/events that landed in specific counties
+  const ccMood=OR_COUNTIES.map(c=>countyGrudge(c[0]));
+  const ccMoodAny=ccMood.some(v=>Math.abs(v)>0.05);
   let plSum=0;
   for(const v of VOTERS){
     // Structural lean toward the governor's ACTUAL record — proximity to what
@@ -6025,6 +6091,8 @@ function runElection(){
     for(const sid in GAME.ground.turnout){ const w=v.m[sid]||0; if(w>0.2)mob+=GAME.ground.turnout[sid]*w; }
     // county campaigning: geographic presence, weighted by the voter's county affinity
     if(ccAny&&v.cw)for(let ci=0;ci<v.cw.length;ci++){ const cc=ccArr[ci]; if(!cc)continue; const wq=v.cw[ci]; if(wq<=0.015)continue; const sc=wq*ccScale[ci]; app+=((cc.p||0)+(cc.base||0))*sc*5.0; mob+=(cc.t||0)*sc*2.2; }
+    // regional mood: a decision/event that hit this voter's counties
+    if(ccMoodAny&&v.cw)for(let ci=0;ci<v.cw.length;ci++){ const cm=ccMood[ci]; if(Math.abs(cm)<0.05)continue; const wq=v.cw[ci]; if(wq<=0.015)continue; app+=cm*wq*1.5; if(cm<0)mob+=(-cm)*wq*0.006; }
     const t=clamp(turnoutProb(v)+mob,0.03,0.98)*(0.85+Math.random()*0.3);
     tot+=t;
     const pole=Math.max(Math.abs(v.econ),Math.abs(v.social));         // ideological intensity
@@ -6509,10 +6577,13 @@ function wireCampMap(root){
     const afford=GAME.campEnergy>=cost, unit=cost===1?"1 energy":cost+" energy";
     const presWord=ccTotal(cc)>0.05?campStrengthWord(ccTotal(cc)/COUNTY_CAMP_CAP):"none";
     const baseTag=(cc.base||0)>0.25?` <span style="color:var(--muted-3)">(organised)</span>`:"";
+    const cm=countyGrudge(name);
+    const cmRow=Math.abs(cm)>0.4?`<div class="ci-row"><span>Regional feeling</span><span style="color:${cm>0?'var(--good)':'var(--bad)'}">${cm>0?'warm +':'sore '}${cm.toFixed(1)}</span></div>`:'';
     cmi.innerHTML=`<h4>${name} County</h4>
       <div class="ci-sub">${_cmLeanWord(p.ideo)} · ${share.toFixed(1)}% of the state's voters</div>
       <div class="ci-row"><span>Population</span><span>${Math.round(pop).toLocaleString()}</span></div>
       <div class="ci-row"><span>Your standing here</span><span style="color:${stCol}">${Math.round(d.approval)}% approval</span></div>
+      ${cmRow}
       <div class="ci-row"><span>Concentrated groups</span><span>${d.groups.length?d.groups.join(', '):'—'}</span></div>
       <div class="ci-row"><span>Campaign value here</span><span>${campValueWord(rec)}</span></div>
       <div class="ci-row"><span>Current presence</span><span>${presWord}${baseTag}</span></div>
@@ -9824,8 +9895,9 @@ function renderDilemma(){
         else if(f.kind==="i") good = IND_BAD_HIGH.has(f.key) ? f.val<0 : f.val>0;
         else good = f.val>0;
         const arrow=f.val>0?"▲":"▼";
-        h+=`<div class="splash-row ${good?'pos':'neg'}"><span class="srow-who">${f.who}</span>
-          <span class="srow-tag">${f.kind==="v"?"voters":f.kind==="cap"?"capital":f.kind==="i"?"gauge":"statistic"}</span>
+        const who=f.kind==="c"&&f.count?`${f.who} <span style="opacity:.6">(${f.count} counties)</span>`:f.who;
+        h+=`<div class="splash-row ${good?'pos':'neg'}"><span class="srow-who">${who}</span>
+          <span class="srow-tag">${f.kind==="v"?"voters":f.kind==="cap"?"capital":f.kind==="i"?"gauge":f.kind==="c"?"region":"statistic"}</span>
           <span class="srow-val">${arrow} ${f.val>0?'+':''}${f.val.toFixed(f.kind==="cap"?0:1)}</span></div>`;
       }
       h+=`</div><div class="splash-foot">Voter reactions fade gradually over the coming quarters; statistics and gauges shift over the same window.</div>`;
@@ -9850,7 +9922,7 @@ function renderDilemma(){
   if(!GAME.pendingDilemma){modal.classList.add("hidden");return;}
   const d=DILEMMAS[GAME.pendingDilemma];
   let h=`<div class="dilemma-icon">${ico(d.icon)}</div><h2>${d.title}</h2>
-    <div class="dilemma-text">${d.text}</div><div class="dilemma-opts">`;
+    <div class="dilemma-text">${typeof d.text==="function"?d.text():d.text}</div><div class="dilemma-opts">`;
   d.options.forEach((o,i)=>{
     if(o.avail && !o.avail())return;   // hide options that would be a no-op (e.g. concession already made / policy already passed)
     h+=`<button class="dilemma-opt" data-opt="${i}"><span class="do-label">${o.label}</span><span class="do-sub">${o.text}</span></button>`;
