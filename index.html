@@ -1007,7 +1007,7 @@
     <div class="stat"><div class="label">Pol. Capital</div><div class="val gold" id="hudCapital">40</div></div>
     <div class="stat"><div class="label">Gen. Fund Bal.</div><div class="val blue" id="hudBudget">+0.0B</div></div>
     <button id="reportBtn" title="Reopen the last quarterly report" style="background:none;border:1px solid rgba(255,255,255,.22);color:var(--chrome-fg);padding:5px 11px;border-radius:2px;cursor:pointer;font-size:14px;margin-right:6px;line-height:1;opacity:0.85"><svg class="ico" aria-hidden="true"><use href="#ic-doc"/></svg></button>
-    <button id="campBtn" title="Spend campaign energy on voter blocs" style="background:none;border:1px solid rgba(255,255,255,.22);color:var(--chrome-fg);padding:5px 11px;border-radius:2px;cursor:pointer;font-size:14px;margin-right:6px;line-height:1;opacity:0.85"><svg class="ico" aria-hidden="true"><use href="#ic-ballot"/></svg></button>
+    <button id="campBtn" title="Campaign HQ — platform, mobilisations, campaign energy" style="background:none;border:1px solid rgba(255,255,255,.22);color:var(--chrome-fg);padding:5px 11px;border-radius:2px;cursor:pointer;font-size:14px;margin-right:6px;line-height:1;opacity:0.85"><svg class="ico" aria-hidden="true"><use href="#ic-ballot"/></svg></button>
     <button id="saveBtn" title="Save your game" style="background:none;border:1px solid rgba(255,255,255,.22);color:var(--chrome-fg);padding:5px 11px;border-radius:2px;cursor:pointer;font-size:14px;margin-right:6px;line-height:1;opacity:0.85"><svg class="ico" aria-hidden="true"><use href="#ic-floppy"/></svg></button>
     <button id="sfxToggle" title="Sound effects on/off" style="background:none;border:1px solid rgba(255,255,255,.22);color:var(--chrome-fg);padding:5px 11px;border-radius:2px;cursor:pointer;font-size:14px;margin-right:6px;line-height:1;opacity:0.85"><svg class="ico" aria-hidden="true"><use href="#ic-volume"/></svg></button><button id="themeToggle" title="Toggle dark/light mode" style="background:none;border:1px solid rgba(255,255,255,.22);color:var(--chrome-fg);padding:5px 11px;border-radius:2px;cursor:pointer;font-size:14px;margin-right:6px;line-height:1;opacity:0.85"><svg class="ico" aria-hidden="true"><use href="#ic-moon"/></svg></button><button class="turnbtn" id="endTurn">End Quarter ▸</button>
   </div>
@@ -1020,7 +1020,6 @@
     <button data-view="policies">New Policies</button>
     <button data-view="voters">Voters</button>
     <button data-view="budget">Budget</button>
-    <button data-view="campaign">Platform</button>
     <button data-view="compass">Political Compass</button>
     <button class="railmap" data-view="countymap" id="railMap" title="Oregon county map" aria-label="Open the Oregon county map"></button>
     <div class="railhdr" style="margin-top:8px">Legacy</div>
@@ -3888,10 +3887,10 @@ const DILEMMAS={
 };
 /* ============================================================
    ACTIVIST TRIGGERS — interest groups that mobilize for or against
-   you based on conditions. Shows in campaign screen; boosts turnout
-   of affected blocs at election time. To remove this system entirely:
-   delete this block, the checkActivistTriggers() call in _runTicks(),
-   and the activist panel in renderCampaign().
+   you based on conditions. Shown in the campaign popup (mobilizationsHTML);
+   boosts turnout of affected blocs at election time. To remove this system
+   entirely: delete this block, the checkActivistTriggers() call in
+   _runTicks(), and mobilizationsHTML() / its call in showCampPopup().
    ============================================================ */
 const ACTIVIST_TRIGGERS=[
   {id:"envActivists",
@@ -4058,6 +4057,11 @@ const COUNTY_GROUPS={
   southCoast:{Coos:1, Curry:1, Douglas:0.45, Lincoln:0.45},
   // the whole Oregon coast — quake / tsunami exposure
   coast:{Clatsop:1, Tillamook:1, Lincoln:1, Coos:1, Curry:1, Douglas:0.4},
+  // the I-5 corridor: coast + Willamette Valley — where a Cascadia quake wrecks
+  // ports, bridges and the population centre
+  cascadiaZone:{Clatsop:1, Tillamook:1, Lincoln:1, Coos:0.9, Curry:0.85, Douglas:0.5,
+    Multnomah:0.85, Washington:0.8, Clackamas:0.8, Columbia:0.7, Marion:0.7, Polk:0.6,
+    Yamhill:0.6, Benton:0.6, Linn:0.6, Lane:0.75},
   // wildland-urban-interface fire country — insurance shock, evacuations
   fireCountry:{Josephine:1, Jackson:0.85, Klamath:0.8, Deschutes:0.7, Douglas:0.6, Jefferson:0.55, Wasco:0.5, Hood_River:0.45, Wallowa:0.5, Grant:0.45, Curry:0.4},
   // irrigated agriculture east of the Cascades — drought, water shutoffs
@@ -4655,7 +4659,7 @@ const SITUATIONS={
     desc:"A major Cascadia Subduction Zone quake strikes — the Big One Oregonians have dreaded for decades. Infrastructure, ports, and bridges are damaged; recovery dominates everything.",
     costEffect:{debtAdmin:1.2,natResources:0.4},
     metricEffect:{gdp:-0.8,health:-4,environment:-2}, moodMag:3, minTurns:4,
-    onTrigger:{capital:-8, metrics:{gdp:-3.5,environment:-8,health:-3}, countyMood:{spec:COUNTY_GROUPS.coast, value:-6, decay:0.88, label:"Oregon coast — quake damage & recovery"}}, mandateShock:-8,
+    onTrigger:{capital:-8, metrics:{gdp:-3.5,environment:-8,health:-3}, countyMood:{spec:COUNTY_GROUPS.cascadiaZone, value:-6, decay:0.88, label:"Coast & Willamette Valley — quake damage & recovery"}}, mandateShock:-8,
     indicatorEffect:{tourism:-16,businessClimate:-12,inMigration:-12,downtown:-8},
     groupMood:{}},
   klamathCrisis:{name:"Klamath Water Crisis", kind:"bad", category:"event",
@@ -6334,10 +6338,51 @@ const PROMISES={
     check:()=>INDICATORS.localAutonomy.value>=55 && INDICATORS.ruralAlienation.value<=42},
 };
 
-function openCampaign(){
-  GAME.campaign=GAME.campaign||{effort:{}, promises:[], pool:10};
-  currentView="campaign"; detailKey=null;
-  render();
+/* Interest-group mobilisations — read-only status of the organised forces
+   arrayed for or against you (they mobilise in reaction to your record). Shown
+   in the campaign popup and as a strip on the Governing Board. */
+function mobilizationsHTML(){
+  const actKeys=Object.keys(GAME.activists||{});
+  let h=`<div class="ebgroup-label" style="margin-top:16px">⚡ Interest-group mobilisations</div>`;
+  if(!actKeys.length){
+    return h+`<div style="font-size:11.5px;color:var(--muted-3);padding:6px 0 10px">No groups are organised for or against you right now — they mobilise in reaction to what you enact.</div>`;
+  }
+  h+=`<div class="actpanel">`;
+  for(const id of actKeys){
+    const act=GAME.activists[id], isFor=act.dir==='for';
+    const turnoutGroups=[
+      ...(act.ownGroup&&SIMULANTS[act.ownGroup]?[SIMULANTS[act.ownGroup].name]:[]),
+      ...(act.alliedGroups||[]).filter(g=>SIMULANTS[g]).map(g=>SIMULANTS[g].name)
+    ];
+    h+=`<div class="actrow ${act.dir}">
+      <div class="act-body">
+        <div><span class="act-label">${act.label}</span><span class="act-badge ${act.dir}">${isFor?'FOR YOU':'AGAINST YOU'}</span></div>
+        <div class="act-desc">${act.desc}</div>
+        <div class="act-meta">↑ Turnout: ${turnoutGroups.join(', ')}${act.capitalDrain>0?` · <span style="color:var(--clay)">−${act.capitalDrain.toFixed(1)} cap/qtr</span>`:''}${act.capitalGain>0?` · <span style="color:var(--moss)">+${act.capitalGain.toFixed(1)} cap/qtr</span>`:''}</div>
+      </div>
+      <span class="act-turns">${act.turnsLeft} qtr${act.turnsLeft===1?'':'s'}</span>
+    </div>`;
+  }
+  return h+`</div>`;
+}
+/* the platform-promise picker grid; `list` is the currently-pledged ids */
+function promiseGridHTML(list){
+  let h=`<div class="promgrid">`;
+  for(const pid in PROMISES){
+    const pr=PROMISES[pid], on=list.includes(pid);
+    if(pr.check()&&!on)continue;   // already fully achieved and not pledged
+    const metCount=pr.criteria.filter(cr=>cr.check()).length, total=pr.criteria.length;
+    const allMet=metCount===total, someMet=!allMet&&metCount>0;
+    const statusClass=allMet?'met':someMet?'partial':'unmet';
+    const statusLabel=allMet?'On track to keep':someMet?`Partial (${metCount}/${total} conditions met)`:'Not on track';
+    const criteriaHtml=pr.criteria.map(cr=>`<div class="prom-criterion ${cr.check()?'crit-met':'crit-unmet'}">${cr.check()?'✓':'–'} ${cr.label}</div>`).join('');
+    h+=`<div class="promcard ${on?'promon':''}" data-prom="${pid}">
+      <div class="promlabel">${on?'✓ ':''}${pr.label}</div>
+      <div class="promblocs">${pr.bloc.map(b=>SIMULANTS[b]?SIMULANTS[b].name:b).join(' · ')}</div>
+      <div class="prom-criteria">${criteriaHtml}</div>
+      ${on?`<div class="prom-status ${statusClass}">${statusLabel}</div>`:``}</div>`;
+  }
+  return h+`</div>`;
 }
 
 /* ====================== GROUND GAME (ongoing campaigning) ===================
@@ -6613,108 +6658,9 @@ function wireCampMap(root){
   }
 }
 
-function renderCampaign(){
-  const c=GAME.campaign;
-  const nextInto=(GAME.turn+1)-(GAME.term-1)*GAME.termLengthTurns;
-  const isElection = nextInto>=GAME.termLengthTurns-1;   // same test endTurn uses
-  const yearsLeft = Math.max(0, GAME.termLengthTurns-1-(GAME.turn-(GAME.term-1)*GAME.termLengthTurns));
-  let h=`<div class="sectionhdr">${ico('ballot')} Platform</div>
-    <div class="sectionsub">Set the promises you'll run on and see who's mobilised for or against you. Campaigning itself — <b>campaign energy</b> on voter blocs and the county map — happens in the End-Quarter prompt. ${isElection?`<b style="color:var(--clay)">This is the final quarter — the election is now.</b>`:`Next election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`}</div>`;
-  // energy meter (informational — you spend it in the End-Quarter prompt)
-  h+=`<div class="energybar"><span class="energy-label">Campaign energy this quarter</span>
-    <span class="energy-pips">${Array.from({length:GAME.campEnergyMax},(_,i)=>`<i class="${i<GAME.campEnergy?'on':''}"></i>`).join("")}</span>
-    <span class="energy-num">${GAME.campEnergy} / ${GAME.campEnergyMax}</span></div>`;
-  h+=`<div class="sectionsub" style="margin-top:-4px">Refills each quarter — spend it or lose it, in the End-Quarter prompt (on voter blocs or the county map).</div>`;
-
-  // activist mobilizations
-  h+=`<div class="ebgroup-label" style="margin-top:18px">⚡ Interest group mobilizations</div>`;
-  const actKeys=Object.keys(GAME.activists||{});
-  if(actKeys.length){
-    h+=`<div class="actpanel">`;
-    for(const id of actKeys){
-      const act=GAME.activists[id];
-      const isFor=act.dir==='for';
-      const turnoutGroups=[
-        ...(act.ownGroup&&SIMULANTS[act.ownGroup]?[SIMULANTS[act.ownGroup].name]:[]),
-        ...(act.alliedGroups||[]).filter(g=>SIMULANTS[g]).map(g=>SIMULANTS[g].name)
-      ];
-      h+=`<div class="actrow ${act.dir}">
-        <div class="act-body">
-          <div><span class="act-label">${act.label}</span><span class="act-badge ${act.dir}">${isFor?'FOR YOU':'AGAINST YOU'}</span></div>
-          <div class="act-desc">${act.desc}</div>
-          <div class="act-meta">↑ Turnout boosted: ${turnoutGroups.join(', ')}
-            ${act.capitalDrain>0?` · <span style="color:var(--clay)">−${act.capitalDrain.toFixed(1)} capital/qtr</span>`:''}
-            ${act.capitalGain>0?` · <span style="color:var(--moss)">+${act.capitalGain.toFixed(1)} capital/qtr</span>`:''}
-          </div>
-        </div>
-        <span class="act-turns">${act.turnsLeft} qtr${act.turnsLeft===1?'':'s'}</span>
-      </div>`;
-    }
-    h+=`</div>`;
-  } else {
-    h+=`<div style="font-size:11.5px;color:var(--muted-3);padding:8px 0 18px">No groups are currently mobilized for or against you.</div>`;
-  }
-
-  // platform promises (always editable; judged at the election)
-  h+=`<div class="ebgroup-label" style="margin-top:18px">Platform promises — what you pledge to deliver this term</div>
-    <div class="sectionsub" style="margin-top:0">Set your platform anytime. At the election, each promise you've <b>kept</b> rewards you with the blocs that cared; each one <b>broken</b> breeds cynicism and a U-turn hit to your mandate. Aim only for what you can actually deliver.</div><div class="promgrid">`;
-  for(const pid in PROMISES){
-    const pr=PROMISES[pid], on=c.promises.includes(pid);
-    if(pr.check()&&!on)continue;  // already fully achieved and not pledged — no need to promise it
-    const metCount=pr.criteria.filter(cr=>cr.check()).length;
-    const total=pr.criteria.length;
-    const allMet=metCount===total, someMet=!allMet&&metCount>0;
-    const statusClass=allMet?'met':someMet?'partial':'unmet';
-    const statusLabel=allMet?'On track to keep':someMet?`Partial progress (${metCount}/${total} conditions met)`:'Not currently on track';
-    const criteriaHtml=pr.criteria.map(cr=>`<div class="prom-criterion ${cr.check()?'crit-met':'crit-unmet'}">${cr.check()?'✓':'–'} ${cr.label}</div>`).join('');
-    h+=`<div class="promcard ${on?'promon':''}" data-prom="${pid}">
-      <div class="promlabel">${on?'✓ ':''}${pr.label}</div>
-      <div class="promblocs">${pr.bloc.map(b=>SIMULANTS[b]?SIMULANTS[b].name:b).join(' · ')}</div>
-      <div class="prom-criteria">${criteriaHtml}</div>
-      ${on?`<div class="prom-status ${statusClass}">${statusLabel}</div>`:``}</div>`;
-  }
-  h+=`</div>`;
-
-  // ground-game footprint — read-only status of blocs your campaign is working
-  // (the actual per-quarter pushes happen in the End-Quarter prompt)
-  h+=`<div class="ebgroup-label" style="margin-top:22px">Ground-game footprint</div>`;
-  const blocs=Object.keys(SIMULANTS).sort((a,b)=>SIMULANTS[b].size-SIMULANTS[a].size);
-  const worked=blocs.map(sid=>({sid,s:SIMULANTS[sid],p:groundPerception(sid),t:groundTurnout(sid),f:GAME.ground.fatigue[sid]||0}))
-    .filter(x=>x.p>0.05||x.t>0.005||x.f>0.5);
-  if(worked.length){
-    h+=`<div class="sectionsub" style="margin-top:0">Boosts from campaign pushes — they decay a little each quarter and need upkeep from the End-Quarter prompt.</div><div class="campgrid2">`;
-    for(const x of worked){
-      const appcol=x.s.approval>=55?'var(--good)':x.s.approval>=45?'var(--warn)':'var(--bad)';
-      h+=`<div class="cbloc2">
-        <div class="cb2-top"><span class="cb2-name">${x.s.name}</span><span class="cb2-appr" style="color:${appcol}">${Math.round(x.s.approval)}%</span></div>
-        <div class="cb2-boosts">${x.p>0.05?`<span class="cb2-boost good">+${x.p.toFixed(1)} perception</span>`:``}${x.t>0.005?`<span class="cb2-boost good">+${Math.round(x.t*100)} turnout</span>`:``}</div>
-        ${x.f>0.5?`<div class="cb2-meta cb2-fat">${ico('warning')} Audience fatigue${x.f>1.5?` — let them breathe`:``}</div>`:``}
-      </div>`;
-    }
-    h+=`</div>`;
-  } else {
-    h+=`<div style="font-size:11.5px;color:var(--muted-3);padding:6px 0 14px">No blocs are being worked right now. Spend campaign energy from the End-Quarter prompt to build persuasion and turnout boosts.</div>`;
-  }
-
-  if(isElection)h+=`<div class="campfoot"><button id="campRun" class="enactbtn">Hold the election ▸</button></div>`;
-  main.innerHTML=h;
-
-  // wire promise toggles
-  main.querySelectorAll('[data-prom]').forEach(el=>el.addEventListener('click',()=>{
-    const pid=el.dataset.prom, i=c.promises.indexOf(pid);
-    if(i>=0)c.promises.splice(i,1); else c.promises.push(pid);
-    const sy=window.scrollY;
-    render();
-    window.scrollTo(0,sy);
-  }));
-  const runBtn=document.getElementById("campRun");
-  if(runBtn)runBtn.onclick=()=>{
-    // same flow as the End Quarter popup: stage pledges, then run the election turn
-    GAME.nextPromises=c.promises.slice();
-    GAME.campaign={effort:{}, promises:c.promises, pool:10};
-    doElectionTurn();
-  };
-}
+/* The old Platform tab was removed — promises + interest-group mobilisations now
+ * live in the End-Quarter campaign popup (see showCampPopup); mobilisations also
+ * show as a strip on the Governing Board. */
 
 /* POLITICAL COMPASS — the enacted agenda plotted on economic (left/right) and
    liberty/authority axes, with the mandate it started from and the per-turn trail. */
@@ -7629,9 +7575,9 @@ function doElectionTurn(){
   GAME.campaignDone=false;
   render(); showElection(runElection());
 }
-/* campaign popup — shown every time the player clicks "End Quarter".
-   Where campaign energy is spent: per-bloc pushes and the county campaign map.
-   (Platform promises live on the Platform tab.) */
+/* campaign popup — shown every time the player clicks "End Quarter" (and from
+   the top-bar ballot icon). The one campaign surface: platform promises, the
+   organised groups for/against you, per-bloc energy pushes, and the county map. */
 function showCampPopup(opts){
   const manual=!!(opts&&opts.manual);   // opened from the top-bar icon, not the End-Quarter flow
   campPopupManual=manual;
@@ -7643,12 +7589,12 @@ function showCampPopup(opts){
   const noEnergy=GAME.campEnergy<1;
   const advLabel=manual?"Done":isElecQ?"Hold Election ▸":(noEnergy?"Advance ▸":"Skip &amp; Advance ▸");
 
-  let h=`<div class="sectionhdr">${ico('ballot')} ${manual?"Campaigning":isElecQ?"Election Campaign — Final Quarter":"Campaigning"}</div>
+  let h=`<div class="sectionhdr">${ico('ballot')} ${manual?"Campaign HQ":isElecQ?"Election Campaign — Final Quarter":"Campaigning"}</div>
     <div class="sectionsub">${manual
-      ?`Spend this quarter's campaign energy — on voter blocs (<b>persuade</b> to win them over, <b>mobilise</b> for turnout) or on the county map. This won't end the quarter.`
+      ?`Your platform, the groups organised for or against you, and this quarter's campaign energy — spent on voter blocs or the county map. This won't end the quarter.`
       :isElecQ
-      ?`<b style="color:var(--clay)">The election follows this quarter.</b> Make last-minute pushes on blocs and counties, then hold the election. Your <b>next-term promises</b> are set on the Platform tab.`
-      :`Spend remaining campaign energy before ending the quarter — on voter blocs or the county map. ${yearsLeft>0?`Election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`:''}`
+      ?`<b style="color:var(--clay)">The election follows this quarter.</b> Lock in the <b>platform you'll run on next term</b>, make last-minute pushes, then hold the election.`
+      :`Set your platform, work the blocs and the county map, then end the quarter. ${yearsLeft>0?`Election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`:''}`
     }</div>`;
 
   // advance button at top
@@ -7657,8 +7603,24 @@ function showCampPopup(opts){
     ${(!isElecQ&&!manual)?`<label style="font-size:12px;color:var(--muted-2);cursor:pointer;user-select:none;display:flex;align-items:center;gap:5px"><input type="checkbox" id="campSkipChk"${GAME.skipCampaign?' checked':''}>Don't show again this term <span style="color:var(--muted-3)">(reopen from the ${ico('ballot')} icon up top)</span></label>`:''}
   </div>`;
 
+  // ---- platform promises: the pledges you're judged on at the election.
+  //      Expanded at the election (and in Campaign HQ); a one-line summary the
+  //      rest of the term — it's a bookend decision, not quarterly busywork ----
+  const promOpen = isElecQ || manual || GAME.campPromOpen;
+  h+=`<div class="ebgroup-label promtoggle" id="campPromToggle" style="margin-top:4px;cursor:pointer;user-select:none">
+    <span style="font-size:13px;color:#b9a77a">${promOpen?'▾':'▸'}</span> ${ico('doc')} Platform promises${isElecQ?` — the platform you run on next term`:` <span style="font-weight:400;color:var(--muted-3)">— ${c.promises.length} pledged${c.promises.length?': '+c.promises.map(p=>PROMISES[p]?PROMISES[p].label:p).join(', '):''}</span>`}</div>`;
+  if(promOpen){
+    h+=`<div class="sectionsub" style="margin-top:0">${isElecQ
+      ? `These are the pledges you carry into the next term. Kept by the next election → the blocs that cared reward you; broken → cynicism and a hit to your mandate.`
+      : `What you pledge to deliver this term — kept promises reward you at the election, broken ones breed cynicism and a U-turn hit. Aim only for what you can actually deliver.`}</div>`;
+    h+=promiseGridHTML(c.promises);
+  }
+
+  // ---- who's organised for / against you ----
+  h+=mobilizationsHTML();
+
   // energy meter
-  h+=`<div class="energybar"><span class="energy-label">Campaign energy remaining</span>
+  h+=`<div class="energybar" style="margin-top:16px"><span class="energy-label">Campaign energy remaining</span>
     <span class="energy-pips">${Array.from({length:GAME.campEnergyMax},(_,i)=>`<i class="${i<GAME.campEnergy?'on':''}"></i>`).join("")}</span>
     <span class="energy-num">${GAME.campEnergy} / ${GAME.campEnergyMax}</span></div>`;
 
@@ -7712,6 +7674,16 @@ function showCampPopup(opts){
   }));
   // wire the county campaign map (campCounty → campRedraw re-renders this popup)
   wireCampMap(card);
+  // wire platform-promise section: header toggles collapse, cards toggle pledges
+  {
+    const pt=card.querySelector("#campPromToggle");
+    if(pt&&!isElecQ&&!manual)pt.addEventListener('click',()=>{ GAME.campPromOpen=!GAME.campPromOpen; showCampPopup({manual}); });
+  }
+  card.querySelectorAll('[data-prom]').forEach(el=>el.addEventListener('click',()=>{
+    const pid=el.dataset.prom, i=c.promises.indexOf(pid);
+    if(i>=0)c.promises.splice(i,1); else c.promises.push(pid);
+    showCampPopup({manual});
+  }));
   document.getElementById("campPopAdvance").onclick=()=>{
     document.getElementById("campPopupModal").classList.add("hidden");
     if(manual){ render(); return; }               // just spending energy — don't advance the quarter
@@ -9629,7 +9601,7 @@ function renderSidebar(){
   // keep the rail's active highlight in sync with the actual view (detail
   // pages count as "board"), so programmatic view changes — ending a quarter,
   // the back button — don't leave the wrong tab lit.
-  const navView=(currentView==="detail")?"board":currentView;
+  const navView=(currentView==="detail"||currentView==="campaign")?"board":currentView;
   document.querySelectorAll('nav.rail button').forEach(b=>{
     b.classList.toggle('active', b.dataset.view===navView);
   });
@@ -9945,7 +9917,7 @@ function render(){
     wrap.classList.toggle("boardwide",currentView==="board");   // full-width living map
     wrap.classList.toggle("novoters",!showVoters);
   }
-  ({board:renderBoard,detail:renderDetail,policies:renderPolicies,voters:renderVoters,budget:renderBudget,web:renderWeb,campaign:renderCampaign,compass:renderCompass,countymap:renderCountyMap}[currentView]||renderBoard)();
+  ({board:renderBoard,detail:renderDetail,policies:renderPolicies,voters:renderVoters,budget:renderBudget,web:renderWeb,compass:renderCompass,countymap:renderCountyMap}[currentView]||renderBoard)();
   renderDilemma();
 }
 document.querySelectorAll('nav.rail button').forEach(b=>b.addEventListener('click',()=>{
