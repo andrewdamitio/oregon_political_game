@@ -1076,6 +1076,7 @@
 <div id="reportModal" class="modal hidden"><div class="card reportcard" id="reportCard"></div></div>
 <div id="midtermModal" class="modal hidden"><div class="card" id="midtermCard"></div></div>
 <div id="surplusModal" class="modal hidden"><div class="card" id="surplusCard"></div></div>
+<div id="welcomeModal" class="modal hidden"><div class="card" id="welcomeCard" style="max-width:560px"></div></div>
 <div id="platformModal" class="modal hidden"><div class="camp-popup-card" id="platformCard"></div></div>
 <div id="resumeModal" class="modal hidden"><div class="card" style="max-width:380px;text-align:center">
   <h2 style="margin-bottom:6px">Saved game found</h2>
@@ -6812,9 +6813,32 @@ function platformProgressHTML(){
   }
   return h+`</div>`;
 }
-/* Platform-setting modal — shown just AFTER an election win (and once at the
-   start of a fresh game). This is where you commit to the term ahead; the
-   pledges lock in and are judged at the next election. */
+/* Welcome / new-game splash — shown once before the opening platform choice. */
+function showWelcome(onDone){
+  const modal=document.getElementById("welcomeModal"), card=document.getElementById("welcomeCard");
+  if(!modal||!card){ if(onDone)onDone(); return; }
+  card.innerHTML=`<div style="text-align:center">
+      <div class="eg-kicker" style="letter-spacing:.2em">STATECRAFT</div>
+      <h2 style="font-size:28px;margin:4px 0 0">Governor of Oregon</h2>
+    </div>
+    <div class="sectionsub" style="text-align:left;margin-top:16px">You've just been sworn in. You have an eight-year run — four two-year terms, sixteen quarters each — to move the needle on crime, jobs, housing, schools, health and the environment, keep the budget balanced, and hold the coalition that elected you together well enough to win re-election.</div>
+    <div class="sectionsub" style="text-align:left;margin-top:10px">Enact policy from <b>New Policies</b>. The <b>Governing Board</b> maps how every lever connects to every outcome — hover a tile to light up its web. Crises, dilemmas and a persistent opposition will test you along the way; every choice ripples.</div>
+    <div class="sectionsub" style="text-align:left;margin-top:10px">Next, you'll set the <b>platform</b> you're taking office on.</div>
+    <button class="enactbtn" id="welcomeGo" style="margin-top:18px;width:100%">Take office ▸</button>`;
+  const go=()=>{
+    modal.classList.add("hidden");
+    document.removeEventListener("keydown",onKey,true);
+    if(onDone)onDone();
+  };
+  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); go(); } };
+  document.getElementById("welcomeGo").onclick=go;
+  modal.classList.remove("hidden");
+  document.addEventListener("keydown",onKey,true);
+  setTimeout(()=>{try{document.getElementById("welcomeGo").focus();}catch(e){}},30);
+}
+/* Platform-setting modal — shown just AFTER an election win (and once, after the
+   welcome, at the start of a fresh game). This is where you commit to the term
+   ahead; the pledges lock in and are judged at the next election. */
 function showPlatformModal(){
   const modal=document.getElementById("platformModal"), card=document.getElementById("platformCard");
   if(!modal||!card)return;
@@ -6822,9 +6846,13 @@ function showPlatformModal(){
   const draft = GAME._platformDraft = (GAME._platformDraft||[]);
   const paint=()=>{
     let h=`<div class="sectionhdr">${ico('doc')} Your Platform — Term ${GAME.term}</div>
-      <div class="sectionsub">You've taken office. Pledge what you'll deliver this term. At the next election, each promise <b>kept</b> rewards you with the blocs that cared; each one <b>broken</b> breeds cynicism and a hit to your mandate. Pick only what you can realistically deliver — a pledge can't be walked back.</div>`;
+      <div class="sectionsub">Pledge what you'll deliver this term. At the next election, each promise <b>kept</b> rewards you with the blocs that cared; each one <b>broken</b> breeds cynicism and a hit to your mandate. Pick only what you can realistically deliver — a pledge can't be walked back.</div>`;
+    h+=`<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0 6px;padding:10px 14px;background:var(--paper-2);border:1px solid var(--line);border-radius:6px">
+      <button class="enactbtn ghost" id="platformNone">Take office with no promises →</button>
+      <span style="font-size:11.5px;color:var(--muted-2)">A term with no pledges carries no reward or penalty at the next election.</span>
+    </div>`;
     h+=promiseGridHTML(draft);
-    h+=`<button class="enactbtn" id="platformOk" style="margin-top:18px">${draft.length?`Run on ${draft.length} promise${draft.length===1?'':'s'} ▸`:`Make no pledges this term ▸`}</button>`;
+    h+=`<button class="enactbtn" id="platformOk" style="margin-top:18px;width:100%"${draft.length?'':' disabled'}>${draft.length?`Run on ${draft.length} promise${draft.length===1?'':'s'} ▸`:`Pick at least one promise, or take office with none above`}</button>`;
     card.innerHTML=h;
     const sy=card.scrollTop; card.scrollTop=sy;
     card.querySelectorAll('[data-prom]').forEach(el=>el.addEventListener('click',()=>{
@@ -6833,6 +6861,7 @@ function showPlatformModal(){
       const s=card.scrollTop; paint(); card.scrollTop=s;
     }));
     document.getElementById("platformOk").onclick=commit;
+    document.getElementById("platformNone").onclick=()=>{ draft.length=0; commit(); };
   };
   const commit=()=>{
     GAME.activePromises=draft.slice().map(pid=>({id:pid, madeTerm:GAME.term}));
@@ -6842,12 +6871,12 @@ function showPlatformModal(){
     document.removeEventListener("keydown",onKey,true);
     render();
   };
-  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); commit(); } };
+  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"&&draft.length){ e.preventDefault(); e.stopPropagation(); commit(); } };
   paint();
   modal.classList.remove("hidden");
   card.scrollTop=0;
   document.addEventListener("keydown",onKey,true);
-  setTimeout(()=>{try{document.getElementById("platformOk").focus({preventScroll:true});card.scrollTop=0;}catch(e){}},30);
+  setTimeout(()=>{try{(document.getElementById(draft.length?"platformOk":"platformNone")||{}).focus({preventScroll:true});card.scrollTop=0;}catch(e){}},30);
 }
 
 /* ====================== QUARTERLY REPORT (start-of-quarter briefing) ======
@@ -10116,7 +10145,7 @@ try{
   const go=(resume)=>{ m.classList.add("hidden");
     if(resume){ try{ localStorage.setItem("sc_nextSeed",sv.seed||""); localStorage.setItem("sc_applySave","1"); }catch(e){}
       location.href=location.origin+location.pathname; }
-    else showPlatformModal();   // New Game — commit to a term-1 platform
+    else showWelcome(showPlatformModal);   // New Game — welcome, then set the term-1 platform
   };
   document.getElementById("resumeYes").onclick=()=>go(true);
   document.getElementById("resumeNo").onclick=()=>go(false);
@@ -10125,8 +10154,8 @@ try{
 {const cb=document.getElementById("campBtn"); if(cb)cb.addEventListener("click",()=>showCampPopup({manual:true}));}
 
 render();
-// fresh game with no save prompt on screen: set the opening platform now
-if(GAME.turn===0 && !_resumedFromSave && !_resumePrompted && !(GAME.activePromises&&GAME.activePromises.length)) showPlatformModal();
+// fresh game with no save prompt on screen: welcome, then set the opening platform
+if(GAME.turn===0 && !_resumedFromSave && !_resumePrompted && !(GAME.activePromises&&GAME.activePromises.length)) showWelcome(showPlatformModal);
 </script>
 </body>
 </html>
