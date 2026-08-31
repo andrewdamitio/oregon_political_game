@@ -6392,12 +6392,12 @@ function countyData(){
   const out={};
   names.forEach((n,i)=>{
     const approval = wSum[i]>0 ? appSum[i]/wSum[i] : 45;
-    const groups = Object.keys(grp[i])
+    const ranked = Object.keys(grp[i])
       .filter(sid=>SIMULANTS[sid]&&!SIMULANTS[sid].static&&SIMULANTS[sid].size)
       .map(sid=>({sid, over:(grp[i][sid]/wSum[i])/SIMULANTS[sid].size}))
       .sort((a,b)=>b.over-a.over)
-      .filter(x=>x.over>1.12).slice(0,3).map(x=>SIMULANTS[x.sid].name);
-    out[n]={approval, groups};
+      .filter(x=>x.over>1.12).slice(0,3);
+    out[n]={approval, groups:ranked.map(x=>SIMULANTS[x.sid].name), topSids:ranked};
   });
   _ctyData=out; _ctyDataTurn=GAME.turn;
   return out;
@@ -6435,10 +6435,25 @@ function campCounty(name){
   campRedraw();
 }
 function tickCountyCamp(){
+  const cdata=countyData();
+  const moodBump={};   // sid -> small approval nudge this quarter from county work
   for(const name in GAME.countyCamp){
     const cc=GAME.countyCamp[name];
+    // spillover: sustained presence in a county marginally warms the interest
+    // groups concentrated there — a fraction of what a direct persuade push does,
+    // capped so blanketing several counties can't stack into a big swing
+    const pres=clamp(ccTotal(cc)/COUNTY_CAMP_CAP,0,1);
+    const d=cdata[name];
+    if(pres>0.15 && d && d.topSids) for(const g of d.topSids){
+      const over=clamp(g.over-1,0,1.5);
+      moodBump[g.sid]=(moodBump[g.sid]||0)+pres*over*0.06;
+    }
     cc.p*=0.86; cc.t*=0.86; cc.age=(cc.age||0)+1;   // fresh presence fades; cc.base does not
     if((cc.p||0)<0.08 && (cc.t||0)<0.004 && (cc.base||0)<0.08) delete GAME.countyCamp[name];
+  }
+  for(const sid in moodBump){
+    const s=SIMULANTS[sid]; if(!s||s.static)continue;
+    s.approval=clamp(s.approval+Math.min(moodBump[sid],0.22),0,100);   // tickApproval pulls part of this back — it settles small
   }
 }
 let campMapSel=null;         // county selected on the campaign map, kept across re-renders
@@ -6499,6 +6514,7 @@ function wireCampMap(root){
       <div class="ci-row"><span>Campaign value here</span><span>${campValueWord(rec)}</span></div>
       <div class="ci-row"><span>Current presence</span><span>${presWord}${baseTag}</span></div>
       <div class="ci-row"><span>Cost per push</span><span>${unit}</span></div>
+      ${d.groups.length?`<div class="ci-sub" style="margin:8px 0 0">Sustained work here also marginally warms those groups statewide.</div>`:''}
       ${committed
         ? `<button class="enactbtn" id="campHereBtn" ${afford?'':'disabled'} style="width:100%;margin-top:12px">${afford?`Campaign here — ${unit}`:`Need ${unit}`}</button>`
         : `<div class="ci-sub" style="margin:10px 0 0;text-align:center">Click the county to target it ▸</div>`}`;
