@@ -4606,10 +4606,12 @@ const SITUATIONS={
     trigger:()=>METRICS.environment.value>66&&INDICATORS.tourism.value>50,
     clear:()=>METRICS.environment.value<60||INDICATORS.tourism.value<40,
     watch:{indicator:"tourism", startAt:60, clearAt:40, badHigh:true},
+    // a baseline condition that already exists — it does NOT hand the governor
+    // free approval. Its bite is economic: the gdp / in-migration / tourism /
+    // business-climate lift here, which voters feel only through those metrics,
+    // and which erodes if visible disorder tarnishes the brand.
     metricEffect:{gdp:0.10, unemployment:-0.05},
-    indicatorEffect:{inMigration:5, tourism:3, businessClimate:3},
-    moodMag:4, mandateShock:5,
-    groupMood:{liberal:5, students:3, transitCommuters:3, rural:3, collegeEducated:3}},
+    indicatorEffect:{inMigration:5, tourism:3, businessClimate:3}},
   talentMagnet:{name:"Talent Magnet", kind:"good", category:"condition",
     desc:"Low unemployment and a quality-of-life edge over San Francisco and Seattle are drawing skilled workers and young families to Oregon. Strong in-migration is self-reinforcing — talent attracts employers who attract more talent. The dynamic sustains itself as long as jobs remain plentiful and people keep arriving.",
     trigger:()=>INDICATORS.inMigration.value>65&&METRICS.unemployment.value<4.5,
@@ -5493,7 +5495,8 @@ function approvalTarget(sid){
     for(const s2 in GAME.activeSituations){
       const s=SITUATIONS[s2], sev=sitSeverity(s2);
       const align=s.moodAxes?dot(s.moodAxes,sim.ideology):0;
-      sitMood+=((s.kind==="good"?s.moodMag:-s.moodMag)+align*3)*sev;
+      const mMag=s.moodMag||0;   // a situation may carry no approval swing at all (e.g. a standing baseline condition)
+      sitMood+=((s.kind==="good"?mMag:-mMag)+align*3)*sev;
       // per-group extra reaction (a wildfire hits rural/timber harder, etc.)
       if(s.groupMood&&s.groupMood[sid]!==undefined)sitMood+=s.groupMood[sid]*sev;
     }
@@ -7723,7 +7726,9 @@ function renderBoard(){
     crises.forEach((sid,ci)=>{
       const s=SITUATIONS[sid], sitAge=GAME.situationAge[sid]||0, age=sitAge+1;
       const isNew=sitAge===0;
-      const tag=s.category==="chronic"?"CHRONIC":s.category==="event"?"EVENT":"FLARE-UP";
+      const tag = s.category==="chronic" ? "CHRONIC"
+        : s.kind==="good" ? (s.category==="event" ? "WINDFALL" : "BRIGHT SPOT")
+        : (s.category==="event" ? "EVENT" : "FLARE-UP");
       h+=`<div class="crisis-card ${s.kind} ${s.category}${isNew?' crisis-new':''}" data-detail="s_${sid}" style="animation-delay:${ci*45}ms">
         <div class="crisis-top"><span class="crisis-tag">${tag}</span><span class="crisis-age">${age}q</span></div>
         <div class="crisis-name">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div>
@@ -7925,7 +7930,8 @@ function renderBoard(){
   h+=`<div class="boardlegend">
       <span class="blg"><svg width="20" height="20"><rect x="2" y="2" width="16" height="16" rx="4" ry="4" fill="var(--paper)" stroke="var(--slate-blue)" stroke-width="2.2"/></svg>Policy / agency — your levers</span>
       <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="var(--paper)" stroke="var(--moss)" stroke-width="1.6"/></svg>Statistic — an outcome your policies shape</span>
-      <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="#f6e9e4" stroke="var(--bad)" stroke-width="3.5" stroke-dasharray="5 3"/></svg>Active crisis</span>
+      <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="var(--tint-bad)" stroke="var(--bad)" stroke-width="3.5" stroke-dasharray="5 3"/></svg>Active crisis</span>
+      <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="var(--tint-good)" stroke="var(--good)" stroke-width="3.5" stroke-dasharray="5 3"/></svg>Positive situation</span>
       <span class="blg blg-seed" id="boardSeed" title="Click to copy a link that replays this run">seed <code>${window.RUN_SEED||"—"}</code></span>
     </div>`;
   h+=`<div class="websearch" style="margin-top:10px"><svg class="sbico" aria-hidden="true"><use href="#ic-search"/></svg><input type="search" id="boardSearch" placeholder="Search policies, metrics, agencies, crises…" autocomplete="off"><div class="searchdd" id="boardSearchDD" hidden></div></div>`;
@@ -7982,11 +7988,14 @@ function renderBoard(){
   _applyBz();
   // hover card — big, readable name/kind/value for whatever tile you're on
   const tip=document.getElementById("boardTip");
-  const KIND={stat:"Statistic",indicator:"Indicator",policy:"Policy",agency:"Agency",situation:"Active crisis"};
+  const KIND={stat:"Statistic",indicator:"Indicator",policy:"Policy",agency:"Agency"};
   const showTip=(id,ev)=>{
     if(!tip)return; const n=nodes[id]; if(!n)return;
+    const kindLabel = n.kind==="situation"
+      ? (n.stroke==="var(--good)" ? "Positive situation" : "Active crisis")
+      : (KIND[n.kind]||"Item");
     tip.innerHTML=`<div class="bt-name">${ico(n.icon)}${n.label}</div>`
-      +`<div class="bt-meta">${KIND[n.kind]||"Item"}</div>`
+      +`<div class="bt-meta">${kindLabel}</div>`
       +(n.val?`<div class="bt-val">${n.val}</div>`:``);
     tip.hidden=false; moveTip(ev);
   };
@@ -8037,6 +8046,7 @@ function renderBoard(){
       if(n.kind==="agency")return{lbl:"Agency",cls:"k-agency"};
       if(n.kind==="situation"){
         const s=SITUATIONS[id.slice(2)];
+        if(s&&s.kind==="good")return{lbl:s.category==="event"?"Windfall":"Bright spot",cls:"k-event"};
         return s&&s.category==="event"?{lbl:"Event",cls:"k-event"}:{lbl:"Crisis",cls:"k-crisis"};
       }
       return id.startsWith("i_")?{lbl:"Indicator",cls:"k-stat"}:{lbl:"Stat",cls:"k-stat"};
@@ -8455,6 +8465,10 @@ function renderDetail(){
   } else if(key.startsWith("s_")){
     const sid=key.slice(2), s=SITUATIONS[sid], age=GAME.situationAge[sid]||0;
     const catLabel=s.category==="chronic"?"Chronic state condition":s.category==="event"?"Random event":"Triggered by conditions";
+    // positive situations aren't crises — soften the language on their detail page
+    const sGood=s.kind==="good";
+    const sMoveHdr=sGood?"What's holding this bright spot up — or eroding it":"What's improving or worsening this crisis";
+    const sHoldsHdr=sGood?"Active effects while this bright spot holds":"Active effects while this crisis persists";
     h+=`<div class="sectionhdr">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div><div class="sectionsub">${s.desc}</div>`;
     h+=`<div class="detailrow">
       <span class="pill ${s.kind==='good'?'rev':'spend'}">${s.kind==="good"?"Positive":"Negative"} situation</span>
@@ -8482,12 +8496,12 @@ function renderDetail(){
           if(a.loggingIndicatorEffects&&a.loggingIndicatorEffects[ik]){const e=a.loggingIndicatorEffects[ik]*(a.logging??0.5);if(Math.abs(e)>0.05)contribs.push({name:ico(a.icon)+' '+a.name+' harvest',e,link:"a_"+id});}}
         if(contribs.length){
           contribs.sort((a,b)=>b.e-a.e);
-          h+=`<div class="ebgroup-label">What's improving or worsening this crisis</div><div class="ebgroup">`;
+          h+=`<div class="ebgroup-label">${sMoveHdr}</div><div class="ebgroup">`;
           const scale=Math.max(0.5,...contribs.map(c=>Math.abs(c.e)));
           for(const c of contribs)h+=effectBar(c.name+(c.e>0?" — easing":" — worsening"),c.e,scale,{color:c.e>0?'var(--good)':'var(--clay)',link:c.link,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' pts'});
           h+=`</div>`;
         } else {
-          h+=`<div class="ebgroup-label">What's improving or worsening this crisis</div><div class="ebnote">No active policy is currently lifting ${nm} — it will keep feeding on itself until you intervene.</div>`;
+          h+=`<div class="ebgroup-label">${sMoveHdr}</div><div class="ebnote">No active policy is currently lifting ${nm}${sGood?". It will fade on its own if conditions slip.":" — it will keep feeding on itself until you intervene."}</div>`;
         }
       }
       const mk=s.watch.metric;
@@ -8513,7 +8527,7 @@ function renderDetail(){
           contribs.sort((a,b)=> (improving(a.e)?-1:1)*Math.abs(a.e) - (improving(b.e)?-1:1)*Math.abs(b.e) );
           // sort improving first
           contribs.sort((a,b)=>{const ai=improving(a.e)?0:1,bi=improving(b.e)?0:1; return ai-bi || Math.abs(b.e)-Math.abs(a.e);});
-          h+=`<div class="ebgroup-label">What's improving or worsening this crisis</div><div class="ebgroup">`;
+          h+=`<div class="ebgroup-label">${sMoveHdr}</div><div class="ebgroup">`;
           const scale=Math.max(0.5,...contribs.map(c=>Math.abs(c.e)));
           for(const c of contribs){
             const good=improving(c.e);
@@ -8522,7 +8536,7 @@ function renderDetail(){
           }
           h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Bars show each lever's push on ${nm} per quarter at current settings. Causes (other statistics) are listed alongside the policies and agencies acting directly on it.</div></div>`;
         } else {
-          h+=`<div class="ebgroup-label">What's improving or worsening this crisis</div><div class="ebnote">No active policy is currently moving ${nm}. The crisis will persist until you act.</div>`;
+          h+=`<div class="ebgroup-label">${sMoveHdr}</div><div class="ebnote">No active policy is currently moving ${nm}. ${sGood?"It will fade on its own if conditions slip.":"The crisis will persist until you act."}</div>`;
         }
       }
     }
@@ -8537,7 +8551,7 @@ function renderDetail(){
       for(const k of ie){const ind=INDICATORS[k];const val=s.indicatorEffect[k];
         items.push({name:ind?(ico(ind.icon)+' '+ind.name):k,val,good:val>0,link:"i_"+k,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' pts'});}
       if(items.length){
-        h+=`<div class="ebgroup-label">Active effects while this crisis persists</div><div class="ebgroup">`;
+        h+=`<div class="ebgroup-label">${sHoldsHdr}</div><div class="ebgroup">`;
         const scale=Math.max(0.5,...items.map(x=>Math.abs(x.val)));
         for(const x of items)h+=effectBar(x.name,x.val,scale,{color:x.good?'var(--good)':'var(--clay)',link:x.link,fmt:x.fmt});
         h+=`</div>`;
@@ -8550,7 +8564,7 @@ function renderDetail(){
         const cscale=Math.max(0.3,...cparts.map(([,v])=>Math.abs(v)));
         for(const [a,v] of cparts)
           h+=effectBar(ico('cash')+" "+SPENDING[a].name,v*sev,cscale,{color:'var(--clay)',fmt:x=>'+$'+x.toFixed(2)+'B/yr'});
-        h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Scales with crisis severity — shown at the current level.</div></div>`;
+        h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Scales with severity — shown at the current level.</div></div>`;
       }
       if(sid==="nonprofitComplex"){
         const sev=nonprofitSeverity(), spend=nonprofitSpend(), ctl=Math.round(nonprofitControl()*100);
@@ -8559,21 +8573,27 @@ function renderDetail(){
         h+=`<div class="ebgroup-label">Service delivery drag</div><div class="ebnote">You are routing about <b>$${spend.toFixed(2)}B/yr</b> through the contracted-nonprofit programs (homeless services, childcare, pre-K, affordable housing, behavioral health, deflection, meals). Their effect on <b>homelessness</b> is currently scaled to <b>${(hm*100).toFixed(0)}%</b> of nominal${hm<0?` — i.e. that spending now nets out to <b>raising</b> homelessness`:` (a −${hpct}% haircut)`}, and the crisis pushes homelessness up on top of that. <b>Pouring in more money makes it worse.</b><br><br>State control of the contract layer: <b>${ctl}%</b> (from Government Operations, Government Digitization, and matured Outcome-Based Contracting). Raising it shrinks every effect above. The crisis clears when you cut the routed spend below ~$0.7B and get homelessness under 48, when state control passes ~78%, or through the prosecution route.</div>`;
       }
     }
-    // overall + per-group opinion impact
-    h+=`<div class="ebgroup-label">Effect on voter blocs</div><div class="ebgroup">`;
-    const rows=[];
-    for(const vid in SIMULANTS){
-      const sim=SIMULANTS[vid];
-      let m=(s.kind==="good"?s.moodMag:-s.moodMag);
-      if(s.moodAxes)m+=dot(s.moodAxes,sim.ideology)*3;
-      if(s.groupMood&&s.groupMood[vid]!==undefined)m+=s.groupMood[vid];
-      rows.push({vid,name:sim.name,m});
+    // overall + per-group opinion impact — only if this situation actually
+    // moves approval (a standing baseline condition may not touch it at all)
+    if(s.moodMag||s.moodAxes||s.groupMood){
+      h+=`<div class="ebgroup-label">Effect on voter blocs</div><div class="ebgroup">`;
+      const rows=[];
+      for(const vid in SIMULANTS){
+        const sim=SIMULANTS[vid];
+        const mm=s.moodMag||0;
+        let m=(s.kind==="good"?mm:-mm);
+        if(s.moodAxes)m+=dot(s.moodAxes,sim.ideology)*3;
+        if(s.groupMood&&s.groupMood[vid]!==undefined)m+=s.groupMood[vid];
+        rows.push({vid,name:sim.name,m});
+      }
+      rows.sort((a,b)=>b.m-a.m);
+      const scale=Math.max(1,...rows.map(r=>Math.abs(r.m)));
+      for(const r of rows)
+        h+=effectBar(r.name,r.m,scale,{color:r.m>=0?'var(--good)':'var(--clay)',link:"v_"+r.vid,fmt:v=>(v>=0?'+':'')+v.toFixed(1)});
+      h+=`</div>`;
+    } else {
+      h+=`<div class="ebgroup-label">Effect on voter blocs</div><div class="ebnote">None directly — this ${s.kind==="good"?"condition":"situation"} doesn't hand you (or cost you) approval on its own. It reaches voters only through the metrics above.</div>`;
     }
-    rows.sort((a,b)=>b.m-a.m);
-    const scale=Math.max(1,...rows.map(r=>Math.abs(r.m)));
-    for(const r of rows)
-      h+=effectBar(r.name,r.m,scale,{color:r.m>=0?'var(--good)':'var(--clay)',link:"v_"+r.vid,fmt:v=>(v>=0?'+':'')+v.toFixed(1)});
-    h+=`</div>`;
     if(s.minTurns)h+=`<div class="sectionsub" style="margin-top:12px">This ${s.category==="event"?"event":"situation"} persists at least ${s.minTurns} quarters before it can subside.</div>`;
   } else if(key==="nationalMood"){
     const nm=NATIONAL_MOOD.value;
