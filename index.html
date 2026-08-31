@@ -6366,7 +6366,7 @@ function countyCampFit(name){
 function campStrengthWord(f){ return f<0.14?"toehold":f<0.45?"building":f<0.7?"solid":f<0.9?"strong":"maxed"; }
 function campCounty(name){
   const cost=countyCampCost(name);
-  if(GAME.campEnergy<cost){ GAME.log.push("✗ Not enough campaign energy to work "+name+" County"); render(); return; }
+  if(GAME.campEnergy<cost){ GAME.log.push("✗ Not enough campaign energy to work "+name+" County"); campRedraw(); return; }
   GAME.campEnergy-=cost;
   const cc=GAME.countyCamp[name]||{p:0,t:0,age:0};
   const room=clamp(1-cc.p/COUNTY_CAMP_CAP,0,1);
@@ -6379,9 +6379,7 @@ function campCounty(name){
   GAME.campLog.unshift({turn:GAME.turn, kind:"county", name, ok:true, msg});
   if(GAME.campLog.length>12)GAME.campLog.pop();
   GAME.log.push(msg);
-  const sy=window.scrollY;
-  render();
-  window.scrollTo(0,sy);
+  campRedraw();
 }
 function tickCountyCamp(){
   for(const name in GAME.countyCamp){
@@ -6390,7 +6388,73 @@ function tickCountyCamp(){
     if((cc.p||0)<0.08 && (cc.t||0)<0.004) delete GAME.countyCamp[name];
   }
 }
-let campMapSel=null;   // county selected on the Platform-tab campaign map, kept across re-renders
+let campMapSel=null;         // county selected on the campaign map, kept across re-renders
+let campPopupManual=false;   // whether the currently-open campaign popup is in "manual" (top-bar icon) mode
+// redraw whatever surface the campaign map is showing on — the End-Quarter
+// popup if it's open, otherwise the page
+function campRedraw(){
+  const popup=document.getElementById("campPopupModal");
+  if(popup && !popup.classList.contains("hidden")){ showCampPopup({manual:campPopupManual}); return; }
+  const sy=window.scrollY; render(); window.scrollTo(0,sy);
+}
+// the interactive county campaign map — shared markup + wiring so it can live in
+// the End-Quarter campaign popup (its home) or anywhere else that wants it
+function campMapMarkup(){
+  const rows=OR_COUNTIES;
+  const ccNames=Object.keys(GAME.countyCamp||{}).filter(n=>(GAME.countyCamp[n].p||0)>0.05);
+  let paths="",labels="";
+  rows.forEach(r=>{
+    const strength=clamp(((GAME.countyCamp[r[0]]||{}).p||0)/COUNTY_CAMP_CAP,0,1);
+    const fill=strength>0.02?cmMix(strength,"#dfe6d3","#2f6d3a"):"var(--paper-2)";
+    paths+=`<path class="cm-cty" data-cc="${r[0]}" tabindex="0" role="button" aria-label="${r[0]} County" d="${r[2]}" fill="${fill}"></path>`;
+    labels+=`<text class="cm-lbl" x="${r[3]}" y="${r[4]+1.8}" text-anchor="middle">${r[1]}</text>`;
+  });
+  const svg=`<svg class="cmap-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Oregon county campaign map">${paths}${labels}</svg>`;
+  const ccList=ccNames.sort((a,b)=>(GAME.countyCamp[b].p||0)-(GAME.countyCamp[a].p||0))
+    .map(n=>`<div class="ci-row"><span>${n}</span><span>${campStrengthWord((GAME.countyCamp[n].p||0)/COUNTY_CAMP_CAP)}</span></div>`).join('');
+  return `<div class="ebgroup-label" style="margin-top:16px">${ico('ballot')} Campaign the map — target counties</div>
+    <div class="sectionsub" style="margin-top:0">Put campaign energy into a county to build a presence there — it lifts your vote and turnout among that county's voters on election night, then fades a little each quarter. A genuine <b>swing county</b> moves the most votes per unit of energy; a stronghold or hostile turf costs the same for less.</div>
+    <div class="cmap-layout" style="margin-top:12px">
+      ${svg}
+      <div class="cmap-info" id="campMapInfo">
+        <h4>${ccNames.length?ccNames.length+(ccNames.length===1?' county worked':' counties worked'):'No counties worked yet'}</h4>
+        <div class="ci-sub">Click or tab a county to select it, then campaign there.</div>
+        ${ccList}
+        <div class="cmap-legend"><span><i style="background:#dfe6d3"></i>No presence</span><span><i style="background:#2f6d3a"></i>Strong presence</span></div>
+      </div>
+    </div>`;
+}
+function wireCampMap(root){
+  const cmi=root.querySelector("#campMapInfo"); if(!cmi)return;
+  const paintCC=(name)=>{
+    const p=COUNTY_PROFILE[name]||{}, cc=GAME.countyCamp[name]||{p:0,t:0};
+    const cost=countyCampCost(name), fit=countyCampFit(name);
+    const cRow=OR_COUNTIES.find(x=>x[0]===name), tot=OR_COUNTIES.reduce((s,r)=>s+r[6],0);
+    const share=cRow?cRow[6]/tot*100:0;
+    const fitWord=fit>=1.15?"prime swing turf":fit>=0.95?"contestable":fit>=0.72?"leans one way":"safe or hostile — low yield";
+    const afford=GAME.campEnergy>=cost;
+    const unit=cost===1?"1 energy":cost+" energy";
+    cmi.innerHTML=`<h4>${name} County</h4>
+      <div class="ci-sub">${_cmLeanWord(p.ideo)} · ${share.toFixed(1)}% of voters</div>
+      <div class="ci-row"><span>Current presence</span><span>${(cc.p||0)>0.05?campStrengthWord((cc.p||0)/COUNTY_CAMP_CAP):"none"}</span></div>
+      <div class="ci-row"><span>Campaign value here</span><span>${fitWord}</span></div>
+      <div class="ci-row"><span>Cost per push</span><span>${unit}</span></div>
+      <button class="enactbtn" id="campHereBtn" ${afford?'':'disabled'} style="width:100%;margin-top:12px">${afford?`Campaign here — ${unit}`:`Need ${unit}`}</button>`;
+    const b=root.querySelector("#campHereBtn");
+    if(b)b.addEventListener('click',()=>campCounty(name));
+  };
+  root.querySelectorAll('.cm-cty[data-cc]').forEach(el=>{
+    const name=el.dataset.cc;
+    // click / keyboard-focus selects and holds — no hover-select, so the cursor
+    // can travel to the "Campaign here" button without losing the pick
+    const go=()=>{ campMapSel=name; root.querySelectorAll('.cm-cty.sel').forEach(x=>x.classList.remove('sel')); el.classList.add('sel'); paintCC(name); };
+    el.addEventListener('click',go); el.addEventListener('focus',go);
+  });
+  if(campMapSel){
+    const el=root.querySelector(`.cm-cty[data-cc="${campMapSel}"]`);
+    if(el){ el.classList.add('sel'); paintCC(campMapSel); }
+  }
+}
 
 function renderCampaign(){
   const c=GAME.campaign;
@@ -6398,12 +6462,12 @@ function renderCampaign(){
   const isElection = nextInto>=GAME.termLengthTurns-1;   // same test endTurn uses
   const yearsLeft = Math.max(0, GAME.termLengthTurns-1-(GAME.turn-(GAME.term-1)*GAME.termLengthTurns));
   let h=`<div class="sectionhdr">${ico('ballot')} Platform &amp; Campaign</div>
-    <div class="sectionsub">Set the promises you'll run on, campaign the county map, and see who's mobilised for or against you. <b>Campaign energy</b> is spent on the map below and on per-bloc pushes in the End-Quarter prompt. ${isElection?`<b style="color:var(--clay)">This is the final quarter — the election is now.</b>`:`Next election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`}</div>`;
-  // energy meter
+    <div class="sectionsub">Set the promises you'll run on and see who's mobilised for or against you. <b>Campaign energy</b> — spent on voter blocs and the county map — is handled in the End-Quarter prompt. ${isElection?`<b style="color:var(--clay)">This is the final quarter — the election is now.</b>`:`Next election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`}</div>`;
+  // energy meter (informational — you spend it in the End-Quarter prompt)
   h+=`<div class="energybar"><span class="energy-label">Campaign energy this quarter</span>
     <span class="energy-pips">${Array.from({length:GAME.campEnergyMax},(_,i)=>`<i class="${i<GAME.campEnergy?'on':''}"></i>`).join("")}</span>
     <span class="energy-num">${GAME.campEnergy} / ${GAME.campEnergyMax}</span></div>`;
-  h+=`<div class="sectionsub" style="margin-top:-4px">Refills each quarter — spend it or lose it. Use it on the county map here, or on voter blocs in the End-Quarter prompt.</div>`;
+  h+=`<div class="sectionsub" style="margin-top:-4px">Refills each quarter — spend it or lose it, in the End-Quarter prompt (on voter blocs or the county map).</div>`;
 
   // activist mobilizations
   h+=`<div class="ebgroup-label" style="margin-top:18px">⚡ Interest group mobilizations</div>`;
@@ -6454,33 +6518,6 @@ function renderCampaign(){
   }
   h+=`</div>`;
 
-  // county campaign map — spend campaign energy to build presence in counties
-  {
-    const rows=OR_COUNTIES, tot=rows.reduce((s,r)=>s+r[6],0);
-    const ccNames=Object.keys(GAME.countyCamp||{}).filter(n=>(GAME.countyCamp[n].p||0)>0.05);
-    let paths="",labels="";
-    rows.forEach((r,i)=>{
-      const strength=clamp(((GAME.countyCamp[r[0]]||{}).p||0)/COUNTY_CAMP_CAP,0,1);
-      const fill=strength>0.02?cmMix(strength,"#dfe6d3","#2f6d3a"):"var(--paper-2)";
-      paths+=`<path class="cm-cty" data-cc="${r[0]}" tabindex="0" role="button" aria-label="${r[0]} County" d="${r[2]}" fill="${fill}"></path>`;
-      labels+=`<text class="cm-lbl" x="${r[3]}" y="${r[4]+1.8}" text-anchor="middle">${r[1]}</text>`;
-    });
-    const svg=`<svg class="cmap-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Oregon county campaign map">${paths}${labels}</svg>`;
-    const ccList=ccNames.sort((a,b)=>(GAME.countyCamp[b].p||0)-(GAME.countyCamp[a].p||0))
-      .map(n=>`<div class="ci-row"><span>${n}</span><span>${campStrengthWord((GAME.countyCamp[n].p||0)/COUNTY_CAMP_CAP)}</span></div>`).join('');
-    h+=`<div class="ebgroup-label" style="margin-top:22px">${ico('ballot')} Campaign the map — spend campaign energy in the counties</div>
-      <div class="sectionsub" style="margin-top:0">Put campaign energy into a county to build a presence there — it lifts your vote and turnout among that county's voters on election night, then fades a little each quarter. A genuine <b>swing county</b> moves the most votes per point of energy; running up a stronghold or storming hostile turf costs the same for less. Energy left this quarter: <b>${GAME.campEnergy} / ${GAME.campEnergyMax}</b>.</div>
-      <div class="cmap-layout" style="margin-top:12px">
-        ${svg}
-        <div class="cmap-info" id="campMapInfo">
-          <h4>${ccNames.length?ccNames.length+(ccNames.length===1?' county worked':' counties worked'):'No counties worked yet'}</h4>
-          <div class="ci-sub">Click or tab a county to select it, then campaign there.</div>
-          ${ccList}
-          <div class="cmap-legend"><span><i style="background:#dfe6d3"></i>No presence</span><span><i style="background:#2f6d3a"></i>Strong presence</span></div>
-        </div>
-      </div>`;
-  }
-
   // ground-game footprint — read-only status of blocs your campaign is working
   // (the actual per-quarter pushes happen in the End-Quarter prompt)
   h+=`<div class="ebgroup-label" style="margin-top:22px">Ground-game footprint</div>`;
@@ -6504,39 +6541,6 @@ function renderCampaign(){
 
   if(isElection)h+=`<div class="campfoot"><button id="campRun" class="enactbtn">Hold the election ▸</button></div>`;
   main.innerHTML=h;
-
-  // wire county campaign map
-  {
-    const cmi=document.getElementById("campMapInfo");
-    const paintCC=(name)=>{
-      const p=COUNTY_PROFILE[name]||{}, cc=GAME.countyCamp[name]||{p:0,t:0};
-      const cost=countyCampCost(name), fit=countyCampFit(name);
-      const cRow=OR_COUNTIES.find(x=>x[0]===name), tot=OR_COUNTIES.reduce((s,r)=>s+r[6],0);
-      const share=cRow?cRow[6]/tot*100:0;
-      const fitWord=fit>=1.15?"prime swing turf":fit>=0.95?"contestable":fit>=0.72?"leans one way":"safe or hostile — low yield";
-      const afford=GAME.campEnergy>=cost;
-      const unit=cost===1?"1 energy":cost+" energy";
-      cmi.innerHTML=`<h4>${name} County</h4>
-        <div class="ci-sub">${_cmLeanWord(p.ideo)} · ${share.toFixed(1)}% of voters</div>
-        <div class="ci-row"><span>Current presence</span><span>${(cc.p||0)>0.05?campStrengthWord((cc.p||0)/COUNTY_CAMP_CAP):"none"}</span></div>
-        <div class="ci-row"><span>Campaign value here</span><span>${fitWord}</span></div>
-        <div class="ci-row"><span>Cost per push</span><span>${unit}</span></div>
-        <button class="enactbtn" id="campHereBtn" ${afford?'':'disabled'} style="width:100%;margin-top:12px">${afford?`Campaign here — ${unit}`:`Need ${unit}`}</button>`;
-      const b=document.getElementById("campHereBtn");
-      if(b)b.addEventListener('click',()=>campCounty(name));
-    };
-    main.querySelectorAll('.cm-cty[data-cc]').forEach(el=>{
-      const name=el.dataset.cc;
-      // click / keyboard-focus selects and holds — no hover-select, so the
-      // cursor can travel to the "Campaign here" button without losing the pick
-      const go=()=>{ campMapSel=name; main.querySelectorAll('.cm-cty.sel').forEach(x=>x.classList.remove('sel')); el.classList.add('sel'); paintCC(name); };
-      el.addEventListener('click',go); el.addEventListener('focus',go);
-    });
-    if(campMapSel){
-      const el=main.querySelector(`.cm-cty[data-cc="${campMapSel}"]`);
-      if(el){ el.classList.add('sel'); paintCC(campMapSel); }
-    }
-  }
 
   // wire promise toggles
   main.querySelectorAll('[data-prom]').forEach(el=>el.addEventListener('click',()=>{
@@ -7469,10 +7473,11 @@ function doElectionTurn(){
   render(); showElection(runElection());
 }
 /* campaign popup — shown every time the player clicks "End Quarter".
-   Lets the player spend ground-game energy and (on the election quarter)
-   finalize platform promises before the turn advances. */
+   Where campaign energy is spent: per-bloc pushes and the county campaign map.
+   (Platform promises live on the Platform tab.) */
 function showCampPopup(opts){
   const manual=!!(opts&&opts.manual);   // opened from the top-bar icon, not the End-Quarter flow
+  campPopupManual=manual;
   const c=GAME.campaign=GAME.campaign||{effort:{},promises:[],pool:10};
   const nextInto=(GAME.turn+1)-(GAME.term-1)*GAME.termLengthTurns;
   const isElecQ=nextInto>=GAME.termLengthTurns-1;
@@ -7483,10 +7488,10 @@ function showCampPopup(opts){
 
   let h=`<div class="sectionhdr">${ico('ballot')} ${manual?"Campaigning":isElecQ?"Election Campaign — Final Quarter":"Campaigning"}</div>
     <div class="sectionsub">${manual
-      ?`Spend this quarter's campaign energy on voter blocs — <b>persuade</b> to win them over, <b>mobilise</b> to drive their turnout. This won't end the quarter.`
+      ?`Spend this quarter's campaign energy — on voter blocs (<b>persuade</b> to win them over, <b>mobilise</b> for turnout) or on the county map. This won't end the quarter.`
       :isElecQ
-      ?`<b style="color:var(--clay)">The election follows this quarter.</b> Make last-minute pushes, finalize your platform promises, then hold the election.`
-      :`Spend remaining campaign energy before ending the quarter — persuade blocs to win them over or mobilize them to drive turnout. ${yearsLeft>0?`Election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`:''}`
+      ?`<b style="color:var(--clay)">The election follows this quarter.</b> Make last-minute pushes on blocs and counties, then hold the election. Your <b>next-term promises</b> are set on the Platform tab.`
+      :`Spend remaining campaign energy before ending the quarter — on voter blocs or the county map. ${yearsLeft>0?`Election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`:''}`
     }</div>`;
 
   // advance button at top
@@ -7499,33 +7504,6 @@ function showCampPopup(opts){
   h+=`<div class="energybar"><span class="energy-label">Campaign energy remaining</span>
     <span class="energy-pips">${Array.from({length:GAME.campEnergyMax},(_,i)=>`<i class="${i<GAME.campEnergy?'on':''}"></i>`).join("")}</span>
     <span class="energy-num">${GAME.campEnergy} / ${GAME.campEnergyMax}</span></div>`;
-
-  // collapsible platform promises
-  {
-    const promOpen=GAME.campPromOpen||false;
-    const activeCount=c.promises.length;
-    h+=`<div id="campPopPromToggle" style="margin-top:16px;cursor:pointer;padding:12px 16px;background:var(--paper-2);border:2px solid var(--gold);border-radius:6px;display:flex;align-items:center;justify-content:space-between;user-select:none">
-      <span style="font-family:var(--font-display);font-size:15px;font-weight:700;color:var(--ink)">${ico('doc')} Platform Promises${activeCount?` <span style="font-weight:400;font-size:13px;color:var(--good)"> — ${activeCount} active</span>`:' <span style="font-weight:400;font-size:12px;color:var(--muted-3)"> — set & track your pledges</span>'}</span>
-      <span style="font-size:18px;color:#b9a77a;margin-left:10px">${promOpen?'▾':'▸'}</span>
-    </div>`;
-    if(promOpen){
-      h+=`<div style="margin-top:6px"><div class="sectionsub" style="margin-top:0">Set your platform anytime. Kept promises reward you at the election; broken ones breed cynicism and U-turn penalties.</div><div class="promgrid">`;
-      for(const pid in PROMISES){
-        const pr=PROMISES[pid], on=c.promises.includes(pid);
-        if(pr.check()&&!on)continue;
-        const metCount=pr.criteria.filter(cr=>cr.check()).length;
-        const total=pr.criteria.length;
-        const allMet=metCount===total, someMet=!allMet&&metCount>0;
-        const criteriaHtml=pr.criteria.map(cr=>`<div class="prom-criterion ${cr.check()?'crit-met':'crit-unmet'}">${cr.check()?'✓':'–'} ${cr.label}</div>`).join('');
-        h+=`<div class="promcard ${on?'promon':''}" data-prom="${pid}">
-          <div class="promlabel">${on?'✓ ':''}${pr.label}</div>
-          <div class="promblocs">${pr.bloc.map(b=>SIMULANTS[b]?SIMULANTS[b].name:b).join(' · ')}</div>
-          <div class="prom-criteria">${criteriaHtml}</div>
-          ${on?`<div class="prom-status ${allMet?'met':someMet?'partial':'unmet'}">${allMet?'On track':someMet?`Partial (${metCount}/${total})`:'Not on track'}</div>`:``}</div>`;
-      }
-      h+=`</div></div>`;
-    }
-  }
 
   // bloc grid
   h+=`<div class="campgrid2" style="margin-top:12px">`;
@@ -7552,36 +7530,15 @@ function showCampPopup(opts){
   }
   h+=`</div>`;
 
+  // county campaign map — the other place campaign energy goes
+  h+=campMapMarkup();
+
   // recent push results
   if(GAME.campLog.length){
     h+=`<div class="ebgroup-label" style="margin-top:14px">Recent results</div><div class="camplog">`;
     for(const e of GAME.campLog.slice(0,4))h+=`<div class="camplog-row ${e.ok?'ok':'fail'}">${e.msg}</div>`;
     h+=`</div>`;
   }
-
-  // election quarter only: platform promises
-  if(isElecQ){
-    h+=`<div class="ebgroup-label" style="margin-top:18px">Platform promises — finalize before the vote</div>
-      <div class="sectionsub" style="margin-top:0">Kept promises reward you with the blocs that cared; broken ones hurt your mandate next term.</div>
-      <div class="promgrid">`;
-    for(const pid in PROMISES){
-      const pr=PROMISES[pid], on=c.promises.includes(pid);
-      if(pr.check()&&!on)continue;
-      const metCount=pr.criteria.filter(cr=>cr.check()).length;
-      const total=pr.criteria.length;
-      const allMet=metCount===total, someMet=!allMet&&metCount>0;
-      const statusClass=allMet?'met':someMet?'partial':'unmet';
-      const statusLabel=allMet?'On track to keep':someMet?`Partial (${metCount}/${total} met)`:'Not on track';
-      const criteriaHtml=pr.criteria.map(cr=>`<div class="prom-criterion ${cr.check()?'crit-met':'crit-unmet'}">${cr.check()?'✓':'–'} ${cr.label}</div>`).join('');
-      h+=`<div class="promcard ${on?'promon':''}" data-prom="${pid}">
-        <div class="promlabel">${on?'✓ ':''}${pr.label}</div>
-        <div class="promblocs">${pr.bloc.map(b=>SIMULANTS[b]?SIMULANTS[b].name:b).join(' · ')}</div>
-        <div class="prom-criteria">${criteriaHtml}</div>
-        ${on?`<div class="prom-status ${statusClass}">${statusLabel}</div>`:``}</div>`;
-    }
-    h+=`</div>`;
-  }
-
 
   const card=document.getElementById("campPopupCard");
   const savedScroll=card.scrollTop;
@@ -7595,15 +7552,8 @@ function showCampPopup(opts){
     if(r)GAME.log.push(r.msg);
     showCampPopup({manual});
   }));
-  // wire promise toggles (works in both the popup collapsible and election-quarter section)
-  card.querySelectorAll('[data-prom]').forEach(el=>el.addEventListener('click',()=>{
-    const pid=el.dataset.prom, i=c.promises.indexOf(pid);
-    if(i>=0)c.promises.splice(i,1); else c.promises.push(pid);
-    showCampPopup({manual});
-  }));
-  // wire collapsible promise toggle
-  const promToggleEl=document.getElementById("campPopPromToggle");
-  if(promToggleEl)promToggleEl.addEventListener('click',()=>{GAME.campPromOpen=!GAME.campPromOpen;showCampPopup({manual});});
+  // wire the county campaign map (campCounty → campRedraw re-renders this popup)
+  wireCampMap(card);
   document.getElementById("campPopAdvance").onclick=()=>{
     document.getElementById("campPopupModal").classList.add("hidden");
     if(manual){ render(); return; }               // just spending energy — don't advance the quarter
