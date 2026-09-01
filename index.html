@@ -1634,7 +1634,12 @@ const INDICATORS={
     ],
     feedback:{gdp:-0.014, unemployment:0.006}},              // high grievance drags growth and pushes jobs out
   ruralAlienation:{name:"Rural Alienation", icon:"tractor", value:45,
-    desc:"How shut-out rural and eastern Oregon feel from a Portland-centered, one-party power structure — the sentiment behind the Greater Idaho votes, GOP walkouts, and Measure 113. Inflated by aggressive climate/tax agendas and high logging restrictions; eased by resource-economy support. High alienation raises legislative-walkout risk.",
+    desc:"How shut-out rural and eastern Oregon feel from a Portland-centered, one-party power structure — the sentiment behind the Greater Idaho votes, GOP walkouts, and Measure 113. Inflated by aggressive climate/tax agendas, a culturally progressive social agenda, and high logging restrictions; eased by resource-economy support. High alienation raises legislative-walkout risk.",
+    // a broadly progressive social/cultural agenda (drug, gun, reproductive,
+    // LGBTQ, sex-work liberalisation) widens the urban/rural rift beyond what any
+    // single flagship policy captures. Reads the enacted agenda's liberty axis;
+    // only a lean well past the inherited Oregon baseline registers here.
+    _cultRift:()=>{ const so=(typeof agendaVector==="function")?agendaVector().so:0; return Math.max(0,-so-3)*1.5; },
     derive:()=>{
       let v=45;
       v+=(METRICS.taxBurden.value-38)*0.25;
@@ -1643,6 +1648,7 @@ const INDICATORS={
       if(POLICIES.carbonTax)v+=8;
       if(POLICIES.carbonProgram)v+=5;
       if(POLICIES.propTaxReform)v+=4;
+      v+=INDICATORS.ruralAlienation._cultRift();
       v+=(60-INDICATORS.localAutonomy.value)*0.12;        // stripped local control feeds the grievance
       v+=indPolicyBoost("ruralAlienation")+sitIndicatorPush("ruralAlienation");
       return clamp(v,0,100);
@@ -1654,6 +1660,7 @@ const INDICATORS={
       {name:ico(METRICS.gasPrice.icon)+" Gas Price",v:(METRICS.gasPrice.value-3.6)*3,link:"m_gasPrice"},
       ...(POLICIES.carbonTax?[{name:ico('factory')+" Carbon Tax",v:8,link:"p_carbonTax"}]:[]),
       ...(POLICIES.carbonProgram?[{name:ico('globe')+" Climate Program",v:5,link:"p_carbonProgram"}]:[]),
+      ...(INDICATORS.ruralAlienation._cultRift()>0.05?[{name:ico('compass')+" Progressive cultural agenda",v:INDICATORS.ruralAlienation._cultRift()}]:[]),
       {name:ico(INDICATORS.localAutonomy.icon)+" Lost Local Control",v:(60-INDICATORS.localAutonomy.value)*0.12,link:"i_localAutonomy"},
     ],
     feedback:{}},
@@ -1860,6 +1867,15 @@ const INDICATORS={
     },
     feedback:{}},
 };
+/* Indicators that are GRIEVANCE/BURDEN gauges — a higher reading is worse, so a
+   positive push on them hurts and should render red, not green. Everything else
+   is "higher is better". */
+const BAD_HIGH_INDICATORS=new Set(["taxGrievance","ruralAlienation","pensionBurden","adminOverhead"]);
+function indHigherIsBad(k){return BAD_HIGH_INDICATORS.has(k);}
+/* is a change of `v` on indicator k a good thing for the state? */
+function indDeltaGood(k,v){return indHigherIsBad(k)?v<0:v>0;}
+/* is the current level of indicator k a healthy one? */
+function indLevelGood(k,val){return indHigherIsBad(k)?val<=45:val>=50;}
 /* sum of indicatorEffects[id] across all enacted policies (scaled by level)
    AND agencies (scaled by funding) */
 function indPolicyBoost(indId){
@@ -2338,6 +2354,35 @@ const POLICIES={
     blocEffect:{motorists:-5, rural:-4, suburban:-3, timber:-3, transitCommuters:1, liberal:1},
     real:{min:4,max:80,unit:"¢/gal",decimals:0,label:"per-gallon tax"},
     ideology:{economic:-0.25,govSize:-0.2}},
+  gasAttendant:{name:"Gasoline Dispensing Rules", domain:"envInfra", icon:"fuel", enacted:true, mechanic:"tier", noRepeal:true, phaseIn:2,
+    desc:"Oregon banned self-service gas in 1951 and stayed one of only two states — with New Jersey — to keep it. The ban has unwound in stages: 2018 let counties under 40,000 people pump their own; 2023's HB 2426 allowed self-service statewide but requires stations to keep at least half their pumps staffed and bars charging extra for self-serve. Loosening the rules shaves attendant labor off the price at every pump and pleases motorists and station owners; keeping them tight protects a rung of entry-level and disability-friendly jobs — and a piece of Oregon identity that older and rural drivers genuinely like.",
+    tiers:["Full-Serve Mandate","Rural Counties Exempt","Half Self-Serve","Unrestricted Self-Serve"],
+    tierIndex:2, capital:5, repealCost:5,
+    costByTier:[0,0,0,0],
+    tierEffects:[
+      {gasPrice:0.06, unemployment:-0.08},
+      {gasPrice:0.02, unemployment:-0.03},
+      {},
+      {gasPrice:-0.07, unemployment:0.06}
+    ],
+    tierIndicatorEffects:[
+      {businessClimate:-1},
+      {},
+      {},
+      {businessClimate:2}
+    ],
+    tierBlocEffects:[
+      {retirees:3, rural:2, blueCollar:2, businessClass:-3, libertarian:-4, motorists:-2},
+      {rural:2, retirees:1, businessClass:-1},
+      {},
+      {businessClass:3, libertarian:4, motorists:3, suburban:1, blueCollar:-2, retirees:-2}
+    ],
+    tierIdeology:[
+      {economic:-0.15, govSize:0.15},
+      {economic:-0.05, govSize:0.05},
+      {},
+      {economic:0.15, govSize:-0.15}
+    ]},
   evFee:{name:"EV Road Usage Charge", domain:"envInfra", icon:"plug", enacted:true, mechanic:"slider",
     desc:"Oregon pioneered per-mile road usage charging for EVs through the voluntary OReGO program (2015). Expanding it to a mandatory statewide charge closes the gas-tax gap as the fleet electrifies — the 'user pays' principle applied to clean vehicles. But it also eats into the running-cost advantage that pulls buyers electric, so a steep charge measurably slows adoption. EV owners (skewing affluent and urban) resist; rural and conservative voters see it as fairer than a gas-only system.",
     value:0, revenueFull:0.2, capital:5, repealCost:4, effects:{evAdoption:{b:0,c:-7,i:5}, taxBurden:2},
@@ -2550,6 +2595,7 @@ const POLICIES={
     desc:"Oregon has required medically-accurate, comprehensive sex ed since 2009 — among the strongest such laws in the nation. This sets its enforcement and scope. Improves teen health outcomes and lowers unintended pregnancy, but inflames conservative and rural communities. (Already in force at game start.)",
     enabled:true, costFull:0.03, capital:5, repealCost:7,
     effects:{health:3, behavioralHealth:1},
+    indicatorEffects:{ruralAlienation:2},
     blocEffect:{liberal:3, urban:2, parents:1, rural:-2, suburban:-1, conservative:-4},
     ideology:{social:-0.5,govSize:-0.2}},
   lgbtRights:{name:"LGBTQ Anti-Discrimination Law", domain:"social", icon:"people", enacted:true, mechanic:"toggle",
@@ -2719,7 +2765,7 @@ const CATALOG={
     desc:"A state commitment to electrified high-speed rail along the I-5 corridor — Portland to Eugene in under an hour, eventually connecting to Seattle. The case is real: the Pacific Northwest Rail Corridor already carries 800,000 riders/year at mediocre speeds; true high-speed service (200+ mph) would add hundreds of thousands of riders, attract corporate relocation, gut short-haul air demand, and permanently shift the region's transportation culture.\n\nThe costs are equally real. Capital construction of the Oregon segment alone runs $8–12B over 10–15 years. The state share — even assuming federal infrastructure funds — is the largest capital commitment in Oregon history. Coordination across ODOT, ODFW, tribal consultations, DEQ permitting, NEPA review, FRA oversight, local government right-of-way, and private railroad access creates an administrative load unlike any other program — this policy noticeably increases government overhead while under construction. The slider sets the ambition level: low investment funds planning and corridor preservation; full investment launches construction.\n\nBloc politics are nakedly geographic: urbanites and progressives are true believers; rural Oregon sees it as a multi-billion dollar gift to Portland, and motorists resent every dollar diverted from highways. Over a generation, it genuinely shifts how Oregonians commute — slowly shrinking the driver-majority coalition that makes green transportation policy so difficult.",
     value:0, costFull:2.8, capital:10, enactCapital:18,
     effects:{environment:7, gdp:0.18, unemployment:-0.7, transitShare:8},
-    indicatorEffects:{adminOverhead:14, digitization:4, tourism:7, businessClimate:3, inMigration:5},
+    indicatorEffects:{adminOverhead:14, digitization:4, tourism:7, businessClimate:3, inMigration:5, ruralAlienation:6},
     sizeEffect:{motorists:-0.014, transitCommuters:0.018}, sizeRefLevel:0,
     blocEffect:{liberal:10, urban:9, students:8, transitCommuters:14, socialist:8, moderate:3, collegeEducated:5,
                 rural:-7, motorists:-4, conservative:-5, timber:-3, blueCollar:-2},
@@ -8317,7 +8363,7 @@ function effectsBreakdownHTML(kind,obj){
       h+=`<div class="ebgroup-label">Direct effects on indicators</div><div class="ebgroup">`;
       const scale=Math.max(1,...ik.map(k=>Math.abs(indMap[k])));
       for(const k of ik){const ind=INDICATORS[k];const val=indMap[k];
-        h+=effectBar(ind?ind.name:k, val, scale, {color:val>=0?'var(--good)':'var(--clay)', link:"i_"+k, fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' pts'});}
+        h+=effectBar(ind?ind.name:k, val, scale, {color:indDeltaGood(k,val)?'var(--good)':'var(--clay)', link:"i_"+k, fmt:v=>(v>=0?'+':'')+v.toFixed(1)+(indHigherIsBad(k)&&val>0?' pts — worsens':indHigherIsBad(k)?' pts — eases':' pts')});}
       h+=`</div>`;
     }
   }
@@ -8489,7 +8535,7 @@ function renderBoard(){
   // stats (metrics + indicators) — inner
   for(const s of allStats()){
     const key=s.key, nid=(s.ind?"i_":"m_")+key, m=s.stat;
-    const good=s.ind?(m.value>=50):(m.invert?(m.value<m.baseline+3):(m.value>m.baseline-3));
+    const good=s.ind?indLevelGood(key,m.value):(m.invert?(m.value<m.baseline+3):(m.value>m.baseline-3));
     nodes[nid]={icon:m.icon||"chart-up", label:m.name, kind:"stat",
       stroke:good?'var(--moss)':'var(--clay)',
       val:s.ind?Math.round(m.value):fmtMetric(m), sec:sectionFor(key)};
@@ -9235,10 +9281,11 @@ function renderDetail(){
         for(const id in AGENCIES){const a=AGENCIES[id];if(a.indicatorEffects&&a.indicatorEffects[ik]){const e=a.indicatorEffects[ik]*(a.funding??0.5);if(Math.abs(e)>0.05)contribs.push({name:ico(a.icon)+' '+a.name,e,link:"a_"+id});}
           if(a.loggingIndicatorEffects&&a.loggingIndicatorEffects[ik]){const e=a.loggingIndicatorEffects[ik]*(a.logging??0.5);if(Math.abs(e)>0.05)contribs.push({name:ico(a.icon)+' '+a.name+' harvest',e,link:"a_"+id});}}
         if(contribs.length){
-          contribs.sort((a,b)=>b.e-a.e);
+          const iEasing=v=>indDeltaGood(ik,v);
+          contribs.sort((a,b)=>{const ai=iEasing(a.e)?0:1,bi=iEasing(b.e)?0:1;return ai-bi||Math.abs(b.e)-Math.abs(a.e);});
           h+=`<div class="ebgroup-label">${sMoveHdr}</div><div class="ebgroup">`;
           const scale=Math.max(0.5,...contribs.map(c=>Math.abs(c.e)));
-          for(const c of contribs)h+=effectBar(c.name+(c.e>0?" — easing":" — worsening"),c.e,scale,{color:c.e>0?'var(--good)':'var(--clay)',link:c.link,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' pts'});
+          for(const c of contribs)h+=effectBar(c.name+(iEasing(c.e)?" — easing":" — worsening"),c.e,scale,{color:iEasing(c.e)?'var(--good)':'var(--clay)',link:c.link,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' pts'});
           h+=`</div>`;
         } else {
           h+=`<div class="ebgroup-label">${sMoveHdr}</div><div class="ebnote">No active policy is currently lifting ${nm}${sGood?". It will fade on its own if conditions slip.":" — it will keep feeding on itself until you intervene."}</div>`;
@@ -9289,7 +9336,7 @@ function renderDetail(){
       for(const k of me){const m=METRICS[k];const val=magOf(s.metricEffect[k]);const good=m&&m.invert?val<0:val>0;
         items.push({name:m?(ico(m.icon)+' '+m.name):k,val,good,link:m?"m_"+k:null,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+'/q'});}
       for(const k of ie){const ind=INDICATORS[k];const val=s.indicatorEffect[k];
-        items.push({name:ind?(ico(ind.icon)+' '+ind.name):k,val,good:val>0,link:"i_"+k,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' pts'});}
+        items.push({name:ind?(ico(ind.icon)+' '+ind.name):k,val,good:indDeltaGood(k,val),link:"i_"+k,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' pts'});}
       if(items.length){
         h+=`<div class="ebgroup-label">${sHoldsHdr}</div><div class="ebgroup">`;
         const scale=Math.max(0.5,...items.map(x=>Math.abs(x.val)));
@@ -9345,7 +9392,9 @@ function renderDetail(){
     h+=`<div class="sectionsub">A national tide toward or away from the kind of politics you're practising. When it's favorable, the blocs closest to your enacted record reward you and the ones furthest from it sour; when it's hostile, the reverse. Govern to the left and the left rides it with you; govern to the right and it flips. You can't set it, only weather it.</div>`;
   } else if(key.startsWith("i_")){
     const id=key.slice(2), ind=INDICATORS[id];
-    const col=ind.value>=60?'var(--good)':ind.value>=42?'var(--warn)':'var(--bad)';
+    const col=indHigherIsBad(id)
+      ? (ind.value<=40?'var(--good)':ind.value<=58?'var(--warn)':'var(--bad)')
+      : (ind.value>=60?'var(--good)':ind.value>=42?'var(--warn)':'var(--bad)');
     h+=`<div class="sectionhdr">${ico(ind.icon)} ${ind.name}</div><div class="sectionsub">${ind.desc}</div>`;
     h+=`<div class="detailrow"><span class="pill dom">State statistic</span><span class="pill">Computed from other statistics &amp; policies — reflects conditions, not a direct policy target</span></div>`;
     h+=`<div class="detailval" style="color:${col}">${Math.round(ind.value)}<span style="font-size:16px;color:var(--muted-3)">/100</span></div>`;
@@ -9362,7 +9411,7 @@ function renderDetail(){
         const scale=Math.max(1,...ds.filter(d=>!d.base).map(d=>Math.abs(d.v)));
         for(const d of ds){
           if(d.base){h+=`<div class="threshline" style="opacity:.8">${d.name}: ${d.v}</div>`;continue;}
-          h+=effectBar(d.name, d.v, scale, {color:d.v>=0?'var(--good)':'var(--clay)', link:d.link||null, fmt:v=>(v>=0?'+':'')+v.toFixed(1)});
+          h+=effectBar(d.name, d.v, scale, {color:indDeltaGood(id,d.v)?'var(--good)':'var(--clay)', link:d.link||null, fmt:v=>(v>=0?'+':'')+v.toFixed(1)});
         }
         h+=`<div class="threshline" style="margin-top:6px;font-style:italic">These combine (plus active crises) into the gauge, which then eases toward that target with some lag.</div></div>`;
       }
@@ -9970,14 +10019,14 @@ function buildWebEdges(){
   for(const id in POLICIES){
     const p=POLICIES[id];
     for(const k in METRICS){const e=policyEffect(p,k); if(Math.abs(e)>0.25)E.push({a:"p_"+id,b:"m_"+k,good:goodFor(k,e),w:Math.abs(e)});}
-    for(const ik in (p.indicatorEffects||{})){const v=p.indicatorEffects[ik]*effLevelOf(p); if(Math.abs(v)>0.5)E.push({a:"p_"+id,b:"i_"+ik,good:v>0,w:Math.abs(v)});}
+    for(const ik in (p.indicatorEffects||{})){const v=p.indicatorEffects[ik]*effLevelOf(p); if(Math.abs(v)>0.5)E.push({a:"p_"+id,b:"i_"+ik,good:indDeltaGood(ik,v),w:Math.abs(v)});}
   }
   for(const id in AGENCIES){
     const ag=AGENCIES[id];
     for(const k in (ag.effects||{})){const v=effExpr(ag.effects[k],(ag.funding??0.5),"a:"+id+":"+k); if(Math.abs(v)>0.25)E.push({a:"a_"+id,b:"m_"+k,good:goodFor(k,v),w:Math.abs(v)});}
-    for(const ik in (ag.indicatorEffects||{})){const v=ag.indicatorEffects[ik]*(ag.funding??0.5); if(Math.abs(v)>0.5)E.push({a:"a_"+id,b:"i_"+ik,good:v>0,w:Math.abs(v)});}
+    for(const ik in (ag.indicatorEffects||{})){const v=ag.indicatorEffects[ik]*(ag.funding??0.5); if(Math.abs(v)>0.5)E.push({a:"a_"+id,b:"i_"+ik,good:indDeltaGood(ik,v),w:Math.abs(v)});}
     for(const k in (ag.loggingEffects||{})){const v=effExpr(ag.loggingEffects[k],(ag.logging??0.5),"a:"+id+":log:"+k); if(Math.abs(v)>0.25)E.push({a:"a_"+id,b:"m_"+k,good:goodFor(k,v),w:Math.abs(v)});}
-    for(const ik in (ag.loggingIndicatorEffects||{})){const v=ag.loggingIndicatorEffects[ik]*(ag.logging??0.5); if(Math.abs(v)>0.5)E.push({a:"a_"+id,b:"i_"+ik,good:v>0,w:Math.abs(v)});}
+    for(const ik in (ag.loggingIndicatorEffects||{})){const v=ag.loggingIndicatorEffects[ik]*(ag.logging??0.5); if(Math.abs(v)>0.5)E.push({a:"a_"+id,b:"i_"+ik,good:indDeltaGood(ik,v),w:Math.abs(v)});}
   }
   for(const L of METRIC_LINKS){
     const v=(METRICS[L.from].value-L.ref)*L.coef;
@@ -9986,7 +10035,7 @@ function buildWebEdges(){
   for(const sid in GAME.activeSituations){
     const st=SITUATIONS[sid]; if(!st)continue;
     for(const k in (st.metricEffect||{}))E.push({a:"s_"+sid,b:"m_"+k,good:goodFor(k,st.metricEffect[k]),w:Math.abs(st.metricEffect[k])});
-    for(const ik in (st.indicatorEffect||{}))E.push({a:"s_"+sid,b:"i_"+ik,good:st.indicatorEffect[ik]>0,w:Math.abs(st.indicatorEffect[ik])/3});
+    for(const ik in (st.indicatorEffect||{}))E.push({a:"s_"+sid,b:"i_"+ik,good:indDeltaGood(ik,st.indicatorEffect[ik]),w:Math.abs(st.indicatorEffect[ik])/3});
   }
   for(const iid in INDICATORS){
     const ind=INDICATORS[iid];
@@ -10016,7 +10065,7 @@ function renderWeb(){
     nodes["m_"+k]={icon:"",label:m.name,cls:"metric",stroke:good?'var(--moss)':'var(--clay)',val:fmtMetric(m)};}
   // indicators + active situations middle ring
   const iIds=Object.keys(INDICATORS).map(k=>"i_"+k);
-  for(const k in INDICATORS){const iv=INDICATORS[k];const igood=iv.value>=50;nodes["i_"+k]={icon:iv.icon,label:iv.name,cls:"metric",stroke:igood?'var(--moss)':'var(--clay)',val:Math.round(iv.value)};}
+  for(const k in INDICATORS){const iv=INDICATORS[k];const igood=indLevelGood(k,iv.value);nodes["i_"+k]={icon:iv.icon,label:iv.name,cls:"metric",stroke:igood?'var(--moss)':'var(--clay)',val:Math.round(iv.value)};}
   const sIds=Object.keys(GAME.activeSituations).filter(k=>SITUATIONS[k]).map(k=>"s_"+k);
   for(const k of Object.keys(GAME.activeSituations))if(SITUATIONS[k])nodes["s_"+k]={icon:SITUATIONS[k].kind==="good"?"sparkle":"warning",label:SITUATIONS[k].name,cls:"situation",stroke:SITUATIONS[k].kind==="good"?'var(--good)':'var(--bad)',val:""};
   // policies + agencies + landuse outer ring
