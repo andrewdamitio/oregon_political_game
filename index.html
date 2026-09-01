@@ -6803,14 +6803,19 @@ function renderCompass(){
   const mineLeg=legacy.filter(x=>x.seed&&x.seed===window.RUN_SEED);
   const pastLeg=legacy.filter(x=>!(x.seed&&x.seed===window.RUN_SEED));
 
-  let mx=6;
-  for(const p of hist) mx=Math.max(mx, Math.abs(p.ec), Math.abs(p.so));
-  mx=Math.max(mx, Math.abs(start.ec), Math.abs(start.so));
-  if(showLegacy)for(const x of legacy) mx=Math.max(mx, Math.abs(x.ec), Math.abs(x.so));
-  const SCALE=mx*1.15;
+  // Fixed grid tied to the game's own ideology model (see govIdeologyPoint):
+  // dividing by 24 econ / 12 social puts the inherited Oregon status quo at
+  // roughly (-0.38, -0.28) — clearly left of centre, with room to move either
+  // way. Axes are scaled independently, and the frame only zooms out if a
+  // playthrough genuinely pushes a point past it.
+  let mxX=24, mxY=12;
+  for(const p of hist){ mxX=Math.max(mxX, Math.abs(p.ec)); mxY=Math.max(mxY, Math.abs(p.so)); }
+  mxX=Math.max(mxX, Math.abs(start.ec)); mxY=Math.max(mxY, Math.abs(start.so));
+  if(showLegacy)for(const x of legacy){ mxX=Math.max(mxX, Math.abs(x.ec)); mxY=Math.max(mxY, Math.abs(x.so)); }
+  const SX=mxX*1.06, SY=mxY*1.06;
   const S=460, C=S/2, PAD=36, R=C-PAD;
-  const px=v=>+(C+clamp(v/SCALE,-1,1)*R).toFixed(1);
-  const py=v=>+(C-clamp(v/SCALE,-1,1)*R).toFixed(1);
+  const px=v=>+(C+clamp(v/SX,-1,1)*R).toFixed(1);
+  const py=v=>+(C-clamp(v/SY,-1,1)*R).toFixed(1);
 
   // standard compass quadrant tints: auth-left red, auth-right blue,
   // lib-right yellow, lib-left green.
@@ -10180,12 +10185,15 @@ function renderRailCompass(){
   const el=document.getElementById("railCompass"); if(!el)return;
   const cur=agendaVector(), start=GAME.compassStart||{ec:0,so:0};
   const hist=((GAME.history&&GAME.history.compass)||[]).slice(-12);
-  let mx=6;
-  for(const p of hist) mx=Math.max(mx,Math.abs(p.ec),Math.abs(p.so));
-  mx=Math.max(mx,Math.abs(cur.ec),Math.abs(cur.so),Math.abs(start.ec),Math.abs(start.so));
-  const S=100,C=S/2,R=42,SC=mx*1.12;
-  const px=v=>+(C+clamp(v/SC,-1,1)*R).toFixed(1);
-  const py=v=>+(C-clamp(v/SC,-1,1)*R).toFixed(1);
+  // same fixed grid as the full compass (govIdeologyPoint scale): 24 econ / 12
+  // social, zooming out only if a point runs past the frame.
+  let mxX=24, mxY=12;
+  for(const p of hist){ mxX=Math.max(mxX,Math.abs(p.ec)); mxY=Math.max(mxY,Math.abs(p.so)); }
+  mxX=Math.max(mxX,Math.abs(cur.ec),Math.abs(start.ec));
+  mxY=Math.max(mxY,Math.abs(cur.so),Math.abs(start.so));
+  const S=100,C=S/2,R=42,SX=mxX*1.06,SY=mxY*1.06;
+  const px=v=>+(C+clamp(v/SX,-1,1)*R).toFixed(1);
+  const py=v=>+(C-clamp(v/SY,-1,1)*R).toFixed(1);
   const poly=hist.map(p=>`${px(p.ec)},${py(p.so)}`).join(" ");
   el.innerHTML=`<svg viewBox="0 0 ${S} ${S}" aria-hidden="true">
     <rect x="${C-R}" y="${C-R}" width="${R}" height="${R}" fill="var(--clay)" opacity="0.13"/>
