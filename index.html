@@ -866,6 +866,16 @@
   nav.rail .railmap:hover svg path{fill:#e3ddcb;stroke:var(--muted-2)}
   nav.rail .railmap.active{border-left-color:var(--moss);background:var(--paper)}
   nav.rail .railmap.active svg path{fill:#dfe6d6;stroke:var(--moss)}
+  /* sidebar mini political-compass — the grid itself is the control */
+  nav.rail .railcompass svg{max-height:104px;margin:0 auto}
+  nav.rail .railcompass .rc-frame,nav.rail .railcompass .rc-ax{stroke:var(--line);vector-effect:non-scaling-stroke}
+  nav.rail .railcompass .rc-frame{stroke-width:1}
+  nav.rail .railcompass .rc-ax{stroke-width:.6}
+  nav.rail .railcompass .rc-trail{stroke:var(--slate-blue);stroke-width:1.2;opacity:.55;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+  nav.rail .railcompass .rc-start{fill:var(--gold)}
+  nav.rail .railcompass .rc-now{fill:var(--clay);stroke:var(--paper);stroke-width:1}
+  nav.rail .railcompass:hover .rc-frame{stroke:var(--muted-2)}
+  nav.rail .railcompass.active .rc-frame{stroke:var(--moss)}
   @media (max-width:820px){
     /* on the horizontal mobile nav strip, pull the map to the front so it is
        visible without scrolling, and box it so it reads as a control */
@@ -876,6 +886,8 @@
     nav.rail .railmap:hover svg path,nav.rail .railmap:active svg path{fill:#e3ddcb;stroke:var(--ink)}
     nav.rail .railmap.active{border-left:none;border-bottom-color:var(--moss);background:var(--paper)}
     nav.rail .railmap.active svg path{fill:#dfe6d6;stroke:var(--moss)}
+    nav.rail .railcompass{order:-1}
+    nav.rail .railcompass svg{width:44px;height:44px;max-height:none;flex:none}
   }
   /* sidebar legacy scoreboard */
   .rail-legacy{padding:4px 14px 14px}
@@ -1048,7 +1060,7 @@
     <button data-view="policies">New Policies</button>
     <button data-view="voters">Voters</button>
     <button data-view="budget">Budget</button>
-    <button data-view="compass">Political Compass</button>
+    <button class="railmap railcompass" data-view="compass" id="railCompass" title="Political compass" aria-label="Open the political compass"></button>
     <button class="railmap" data-view="countymap" id="railMap" title="Oregon county map" aria-label="Open the Oregon county map"></button>
   </nav>
   <aside class="vpanel">
@@ -10160,8 +10172,32 @@ function renderDilemma(){
   modal.classList.remove("hidden");
   card.querySelectorAll('[data-opt]').forEach(b=>b.addEventListener('click',()=>resolveDilemma(+b.dataset.opt)));
 }
+/* the sidebar's clickable mini political-compass — a scaled-down grid with the
+   START and NOW markers and a short trail; opens the full Compass page. */
+function renderRailCompass(){
+  const el=document.getElementById("railCompass"); if(!el)return;
+  const cur=agendaVector(), start=GAME.compassStart||{ec:0,so:0};
+  const hist=((GAME.history&&GAME.history.compass)||[]).slice(-12);
+  let mx=6;
+  for(const p of hist) mx=Math.max(mx,Math.abs(p.ec),Math.abs(p.so));
+  mx=Math.max(mx,Math.abs(cur.ec),Math.abs(cur.so),Math.abs(start.ec),Math.abs(start.so));
+  const S=100,C=S/2,R=42,SC=mx*1.12;
+  const px=v=>+(C+clamp(v/SC,-1,1)*R).toFixed(1);
+  const py=v=>+(C-clamp(v/SC,-1,1)*R).toFixed(1);
+  const poly=hist.map(p=>`${px(p.ec)},${py(p.so)}`).join(" ");
+  el.innerHTML=`<svg viewBox="0 0 ${S} ${S}" aria-hidden="true">
+    <rect x="${C-R}" y="${C-R}" width="${R}" height="${R}" fill="var(--moss)" opacity="0.10"/>
+    <rect x="${C}"   y="${C-R}" width="${R}" height="${R}" fill="var(--clay)" opacity="0.10"/>
+    <line class="rc-ax" x1="${C}" y1="${C-R}" x2="${C}" y2="${C+R}"/>
+    <line class="rc-ax" x1="${C-R}" y1="${C}" x2="${C+R}" y2="${C}"/>
+    <rect class="rc-frame" x="${C-R}" y="${C-R}" width="${2*R}" height="${2*R}" fill="none"/>
+    ${poly?`<polyline class="rc-trail" points="${poly}" fill="none"/>`:""}
+    <circle class="rc-start" cx="${px(start.ec)}" cy="${py(start.so)}" r="3"/>
+    <circle class="rc-now" cx="${px(cur.ec)}" cy="${py(cur.so)}" r="3.6"/>
+  </svg>`;
+}
 function render(){
-  renderHUD();renderSidebar();renderRailVoters();
+  renderHUD();renderSidebar();renderRailVoters();renderRailCompass();
   // scroll to top on every view switch so the player doesn't land mid-page
   if(main)main.scrollTop=0;
   window.scrollTo(0,0);
