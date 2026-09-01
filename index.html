@@ -1050,8 +1050,6 @@
     <button data-view="budget">Budget</button>
     <button data-view="compass">Political Compass</button>
     <button class="railmap" data-view="countymap" id="railMap" title="Oregon county map" aria-label="Open the Oregon county map"></button>
-    <div class="railhdr" style="margin-top:8px">Legacy</div>
-    <div id="railLegacy" class="rail-legacy"></div>
   </nav>
   <aside class="vpanel">
     <h3>Voter Blocs</h3>
@@ -5132,9 +5130,11 @@ function agendaConservatism(){
   let s=0;
   for(const id in POLICIES){
     const p=POLICIES[id];
-    if(!p||!p.enacted||p.niche)continue;
+    if(!p||!p.enacted)continue;
     const io=policyIdeology(p); if(!io)continue;
-    const lvl=(p.mechanic==="law"||p.mechanic==="tier")?1:effLevelOf(p);
+    // niche measures (psilocybin, death with dignity, …) still register a
+    // position — just at a fraction of a marquee structural policy
+    const lvl=((p.mechanic==="law"||p.mechanic==="tier")?1:effLevelOf(p))*(p.niche?0.4:1);
     s+=((io.economic||0)+(io.social||0)+(io.govSize||0)+(io.environment||0))*lvl;
   }
   for(const id in AGENCIES){
@@ -5161,8 +5161,8 @@ function agendaVector(){
   };
   for(const id in POLICIES){
     const p=POLICIES[id];
-    if(!p||!p.enacted||p.niche)continue;
-    add(policyIdeology(p),(p.mechanic==="law"||p.mechanic==="tier")?1:effLevelOf(p));
+    if(!p||!p.enacted)continue;
+    add(policyIdeology(p),((p.mechanic==="law"||p.mechanic==="tier")?1:effLevelOf(p))*(p.niche?0.4:1));
   }
   for(const id in AGENCIES){
     const a=AGENCIES[id]; if(!a)continue;
@@ -5460,10 +5460,14 @@ function rollEvents(){
   }
 }
 function tickNationalMood(){
-  // random walk with mild mean-reversion toward 0; swings can be substantial
+  // mean-reverting random walk toward 0. Swings can still be big, but the pull
+  // back to centre is strong enough that it can't camp at the ±10 rail.
   const nm=NATIONAL_MOOD;
-  nm.drift=nm.drift*0.7+(Math.random()-0.5)*3.8;     // momentum + shocks
-  nm.value=clamp(nm.value*0.94+nm.drift,-10,10);     // moderate reversion
+  nm.drift=nm.drift*0.6+(Math.random()-0.5)*2.4;     // momentum + shocks (smaller, less sticky)
+  nm.value=nm.value*0.85+nm.drift;                   // ~15%/qtr reversion toward neutral
+  // extra restoring force that grows near the extremes — keeps it off the rail
+  nm.value-=Math.sign(nm.value)*Math.pow(clamp(Math.abs(nm.value)/9.5,0,1),3)*1.1;
+  nm.value=clamp(nm.value,-9.7,9.7);
 }
 /* the opposition's momentum: how vulnerable you look. Rises when you're
    unpopular, the national wind is against you, crises fire, or your agenda
@@ -6696,6 +6700,8 @@ function wireCampMap(root){
 
 /* POLITICAL COMPASS — the enacted agenda plotted on economic (left/right) and
    liberty/authority axes, with the mandate it started from and the per-turn trail. */
+let compassShowLegacy=false;
+try{ compassShowLegacy=localStorage.getItem("sc_compassLegacy")==="1"; }catch(e){}
 function renderCompass(){
   const cur=agendaVector();
   const start=GAME.compassStart||{ec:0,so:0};
@@ -6705,9 +6711,13 @@ function renderCompass(){
   if(!lastH || Math.abs(lastH.ec-cur.ec)>0.01 || Math.abs(lastH.so-cur.so)>0.01)
     hist.push({turn:GAME.turn, ec:cur.ec, so:cur.so, live:true});
 
+  const legacy=loadLegacy();
+  const showLegacy=compassShowLegacy && legacy.length;
+
   let mx=6;
   for(const p of hist) mx=Math.max(mx, Math.abs(p.ec), Math.abs(p.so));
   mx=Math.max(mx, Math.abs(start.ec), Math.abs(start.so));
+  if(showLegacy)for(const x of legacy) mx=Math.max(mx, Math.abs(x.ec), Math.abs(x.so));
   const SCALE=mx*1.15;
   const S=460, C=S/2, PAD=36, R=C-PAD;
   const px=v=>+(C+clamp(v/SCALE,-1,1)*R).toFixed(1);
@@ -6729,6 +6739,13 @@ function renderCompass(){
     <text x="${C}" y="${C+R+22}" text-anchor="middle" font-size="11" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.5">PERSONAL LIBERTY</text>
     <text x="${C-R-10}" y="${C}" text-anchor="middle" font-size="11" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.5" transform="rotate(-90 ${C-R-10} ${C})">ECONOMIC LEFT</text>
     <text x="${C+R+10}" y="${C}" text-anchor="middle" font-size="11" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.5" transform="rotate(90 ${C+R+10} ${C})">ECONOMIC RIGHT</text>`;
+  // optional overlay: where past election results landed on the compass
+  const legacyLayer = showLegacy ? legacy.map(x=>{
+    const mine=x.seed===window.RUN_SEED;
+    const col=x.won?'var(--moss)':'var(--clay)';
+    return `<circle cx="${px(x.ec)}" cy="${py(x.so)}" r="${mine?4.5:3.5}" fill="${col}" fill-opacity="${mine?0.9:0.4}"${mine?' stroke="var(--ink)" stroke-width="1.4"':''}>`
+      +`<title>${x.year} — ${x.won?'won':'lost'} ${x.margin>0?'+':''}${x.margin} · ${mine?'this run':'a past run'}</title></circle>`;
+  }).join("") : "";
   const poly=hist.map(p=>`${px(p.ec)},${py(p.so)}`).join(" ");
   const trail=`<polyline points="${poly}" fill="none" stroke="var(--slate-blue)" stroke-width="2" opacity="0.5" stroke-linejoin="round" stroke-linecap="round"/>`
     + hist.map(p=>`<circle cx="${px(p.ec)}" cy="${py(p.so)}" r="2.4" fill="var(--slate-blue)" opacity="0.45"/>`).join("");
@@ -6741,7 +6758,7 @@ function renderCompass(){
   const svg=`<svg class="compass-svg" viewBox="0 0 ${S} ${S}" role="img" aria-label="Political compass">
     ${quads}${gl}
     <rect x="${C-R}" y="${C-R}" width="${2*R}" height="${2*R}" fill="none" stroke="var(--ink)" stroke-width="1.6"/>
-    ${lab}${trail}${startM}${nowM}</svg>`;
+    ${lab}${legacyLayer}${trail}${startM}${nowM}</svg>`;
 
   const dEc=cur.ec-start.ec, dSo=cur.so-start.so;
   const band=v=>{const a=Math.abs(v); return a<1?"barely":a<3?"slightly":a<6?"noticeably":a<10?"sharply":"dramatically";};
@@ -6752,9 +6769,16 @@ function renderCompass(){
   const tiltW=t>9?"Hard right of your mandate":t>4?"Right of your mandate":t>1.5?"Drifting right":t<-9?"Hard left of your mandate":t<-4?"Left of your mandate":t<-1.5?"Drifting left":"On your mandate";
   const tiltCol=t>4?'var(--clay)':t<-4?'var(--slate-blue)':'inherit';
 
+  const legWins=legacy.filter(x=>x.won).length;
   let h=`<div class="sectionhdr">${ico('compass')} Political Compass</div>
-    <div class="sectionsub">Where the agenda you've actually enacted sits, built from the ideological lean of every live policy and agency posture. The horizontal axis is the state's economic role (spending, taxation, regulation, government size); the vertical axis is personal and cultural freedom versus state authority. <b class="mono" style="color:var(--gold)">START</b> is the mandate you inherited; <b class="mono" style="color:var(--clay)">NOW</b> is today; the blue trail is your path, one point per quarter.</div>
+    <div class="sectionsub">Where the agenda you've actually enacted sits, built from the ideological lean of every live policy and agency posture (niche, symbolic measures count for less). The horizontal axis is the state's economic role (spending, taxation, regulation, government size); the vertical axis is personal and cultural freedom versus state authority. <b class="mono" style="color:var(--gold)">START</b> is the mandate you inherited; <b class="mono" style="color:var(--clay)">NOW</b> is today; the blue trail is your path, one point per quarter.</div>
     <div class="compass-wrap">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+        <button id="compassLegacyToggle" class="enactbtn ghost" style="font-size:12px;padding:7px 14px">${compassShowLegacy?'Hide past runs':'Show past runs'}</button>
+        ${legacy.length
+          ? `<span class="mono" style="font-size:11px;color:var(--muted-2)">${legacy.length} past election${legacy.length===1?'':'s'} on record · ${legWins} won${compassShowLegacy?` — <b style="color:var(--moss)">green = win</b>, <b style="color:var(--clay)">red = loss</b>; ringed dots are this run`:''}</span>`
+          : `<span class="mono" style="font-size:11px;color:var(--muted-3)">No past elections on record yet.</span>`}
+      </div>
       ${svg}
       <div class="compass-legend">
         <span><i style="background:var(--gold)"></i>Starting mandate</span>
@@ -6776,6 +6800,12 @@ function renderCompass(){
       </div>
     </div>`;
   main.innerHTML=h;
+  const clt=document.getElementById("compassLegacyToggle");
+  if(clt)clt.onclick=()=>{
+    compassShowLegacy=!compassShowLegacy;
+    try{ localStorage.setItem("sc_compassLegacy", compassShowLegacy?"1":"0"); }catch(e){}
+    render();
+  };
 }
 
 /* at the start of a new term, judge the promises made last campaign */
@@ -7488,8 +7518,8 @@ function egRcvTable(r){
     <div class="eg-note" style="margin:8px 0 0">Round 2 is measured among ballots still live; the headline percentage is measured against every first-preference ballot.</div></div>`;
 }
 
-/* ---- legacy: every election result, kept in localStorage for the sidebar
-   scoreboard and the compass-of-wins ---- */
+/* ---- legacy: every election result, kept in localStorage. Surfaced as an
+   optional overlay on the Political Compass tab (see renderCompass). ---- */
 function recordLegacy(r){
   try{
     const v=agendaVector();
@@ -7501,33 +7531,7 @@ function recordLegacy(r){
     localStorage.setItem("sc_legacy", JSON.stringify(arr.slice(-40)));
   }catch(e){}
 }
-function renderLegacy(){
-  const el=document.getElementById("railLegacy"); if(!el)return;
-  let arr=[]; try{ arr=JSON.parse(localStorage.getItem("sc_legacy")||"[]")||[]; }catch(e){}
-  if(!arr.length){ el.innerHTML=`<div class="rl-empty">No elections yet. Your record builds here.</div>`; return; }
-  const wins=arr.filter(x=>x.won);
-  // mini compass of wins
-  const S=104, C=S/2, PAD=12, R=C-PAD;
-  let mx=6; for(const w of wins){ mx=Math.max(mx,Math.abs(w.ec),Math.abs(w.so)); }
-  const px=v=>+(C+clamp(v/mx,-1,1)*R).toFixed(1), py=v=>+(C-clamp(v/mx,-1,1)*R).toFixed(1);
-  const dots=wins.slice(-14).map((w,i,a)=>{
-    const last=i===a.length-1, cur=w.seed===window.RUN_SEED;
-    return `<circle cx="${px(w.ec)}" cy="${py(w.so)}" r="${last?3.4:2.4}" fill="${last?'var(--gold)':cur?'var(--moss)':'var(--muted-3)'}" ${last?'stroke="var(--paper)" stroke-width="1"':''}/>`;
-  }).join("");
-  const compass=`<svg class="rl-compass" viewBox="0 0 ${S} ${S}" aria-label="Political compass of past wins">
-    <rect x="${C-R}" y="${C-R}" width="${2*R}" height="${2*R}" fill="var(--paper)" stroke="var(--line)" stroke-width="1"/>
-    <line x1="${C}" y1="${C-R}" x2="${C}" y2="${C+R}" stroke="var(--line-em)" stroke-width="0.8"/>
-    <line x1="${C-R}" y1="${C}" x2="${C+R}" y2="${C}" stroke="var(--line-em)" stroke-width="0.8"/>
-    ${dots || `<text x="${C}" y="${C+3}" text-anchor="middle" font-size="7" fill="var(--muted-4)">no wins yet</text>`}
-  </svg>`;
-  const rows=arr.slice(-6).reverse().map(x=>{
-    const m=(x.margin>0?'+':'')+x.margin;
-    return `<div class="rl-row ${x.won?'w':'l'}"><span>${x.year}</span><span class="rl-res">${x.won?'WON':'LOST'} ${m}</span></div>`;
-  }).join("");
-  el.innerHTML=`${compass}
-    <div class="rl-tally">${wins.length} win${wins.length===1?'':'s'} · ${arr.length-wins.length} loss${arr.length-wins.length===1?'':'es'}</div>
-    ${rows}`;
-}
+function loadLegacy(){ try{ return JSON.parse(localStorage.getItem("sc_legacy")||"[]")||[]; }catch(e){ return []; } }
 
 function showElection(r){
   GAME.gameOver=!r.won;
@@ -10057,7 +10061,7 @@ function renderDilemma(){
   card.querySelectorAll('[data-opt]').forEach(b=>b.addEventListener('click',()=>resolveDilemma(+b.dataset.opt)));
 }
 function render(){
-  renderHUD();renderSidebar();renderRailVoters();renderLegacy();
+  renderHUD();renderSidebar();renderRailVoters();
   // scroll to top on every view switch so the player doesn't land mid-page
   if(main)main.scrollTop=0;
   window.scrollTo(0,0);
