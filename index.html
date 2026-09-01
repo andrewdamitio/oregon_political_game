@@ -274,7 +274,7 @@
   .egrand .eg-rcv td.opp{color:var(--clay);font-weight:600}
   .egrand .eg-rcv td.pos{color:var(--good)} .egrand .eg-rcv td.neg{color:var(--muted-2)}
   .egrand .eg-rcv tr.elim td{color:var(--muted-3)}
-  .modal button:not(.dilemma-opt){margin-top:16px;background:var(--ink);color:var(--paper);border:none;padding:10px 22px;font-family:var(--font-display);font-size:15px;cursor:pointer;border-radius:2px}
+  .modal button:not(.dilemma-opt):not(.promabandon){margin-top:16px;background:var(--ink);color:var(--paper);border:none;padding:10px 22px;font-family:var(--font-display);font-size:15px;cursor:pointer;border-radius:2px}
   .hidden{display:none}
   .ledger{margin-bottom:11px}
   .lrow{display:flex;justify-content:space-between;align-items:baseline}
@@ -533,6 +533,9 @@
   .prom-status.met{color:var(--moss)}
   .prom-status.unmet{color:var(--clay)}
   .prom-status.partial{color:#a07820}
+  .promabandon{margin-top:8px;background:none;border:1px solid var(--line);color:var(--muted-2);
+    padding:4px 9px;border-radius:3px;font-family:var(--font-body);font-size:10.5px;cursor:pointer;letter-spacing:.02em}
+  .promabandon:hover{border-color:var(--clay);color:var(--clay)}
   .prom-criteria{margin-top:6px;display:flex;flex-direction:column;gap:2px}
   .prom-criterion{font-size:10px;padding:2px 0;display:flex;align-items:baseline;gap:4px}
   .crit-met{color:var(--moss)}
@@ -750,7 +753,7 @@
   .turnbtn:hover,.enactbtn:hover,.splash-ok:hover{
     background:var(--ink);color:var(--paper);box-shadow:2px 2px 0 var(--ink);transform:translate(2px,2px);filter:none}
   .turnbtn:active{transform:translate(4px,4px);box-shadow:0 0 0 var(--ink);background:var(--ink)}
-  .modal button:not(.dilemma-opt){border:2px solid var(--ink);text-transform:uppercase;letter-spacing:1px;box-shadow:4px 4px 0 var(--clay)}
+  .modal button:not(.dilemma-opt):not(.promabandon){border:2px solid var(--ink);text-transform:uppercase;letter-spacing:1px;box-shadow:4px 4px 0 var(--clay)}
 
   /* modal / dilemma accents to brick */
   .modal .card{border-top:5px solid var(--clay)}
@@ -6802,7 +6805,26 @@ function evaluatePromises(){
   }
   GAME.activePromises=[];
 }
-/* read-only view of the pledges you're running this term, with live progress */
+/* Publicly abandon a pledge you can't keep. It's still a broken promise — same
+   hit to the blocs, cynicism and your mandate — but taken NOW, so it has the
+   rest of the term to decay rather than landing full-strength at the ballot box. */
+function abandonPromise(id){
+  const aps=GAME.activePromises||[];
+  const i=aps.findIndex(a=>a.id===id); if(i<0)return;
+  const pr=PROMISES[id];
+  aps.splice(i,1);
+  if(pr){
+    for(const sid of pr.bloc){
+      if(!SIMULANTS[sid])continue;
+      createGrudge("v_"+sid,-5,0.92,"Abandoned their promise: "+pr.label);
+      SIMULANTS[sid].cynicism=(SIMULANTS[sid].cynicism||0)+2;
+    }
+    GAME.uturnCount=(GAME.uturnCount||0)+1;
+    GAME.log.push("✗ Abandoned pledge: "+pr.label);
+  }
+  campRedraw();
+}
+/* the pledges you're running this term, with live progress and an abandon option */
 function platformProgressHTML(){
   const aps=GAME.activePromises||[];
   if(!aps.length)return `<div style="font-size:11.5px;color:var(--muted-3);padding:6px 0 10px">You made no pledges this term — nothing to keep or break at the next election.</div>`;
@@ -6818,7 +6840,8 @@ function platformProgressHTML(){
       <div class="promlabel">✓ ${pr.label}</div>
       <div class="promblocs">${pr.bloc.map(b=>SIMULANTS[b]?SIMULANTS[b].name:b).join(' · ')}</div>
       <div class="prom-criteria">${criteriaHtml}</div>
-      <div class="prom-status ${statusClass}">${statusLabel}</div></div>`;
+      <div class="prom-status ${statusClass}">${statusLabel}</div>
+      <button class="promabandon" data-abandon="${ap.id}">Abandon this pledge →</button></div>`;
   }
   return h+`</div>`;
 }
@@ -6863,7 +6886,7 @@ function showPlatformModal(){
   const draft = GAME._platformDraft = (GAME._platformDraft||[]);
   const paint=()=>{
     let h=`<div class="sectionhdr">${ico('doc')} Your Platform — Term ${GAME.term}</div>
-      <div class="sectionsub">Pledge what you'll deliver this term. At the next election, each promise <b>kept</b> rewards you with the blocs that cared; each one <b>broken</b> breeds cynicism and a hit to your mandate. Pick only what you can realistically deliver — a pledge can't be walked back.</div>`;
+      <div class="sectionsub">Pledge what you'll deliver this term. At the next election, each promise <b>kept</b> rewards you with the blocs that cared; each one <b>broken</b> breeds cynicism and a hit to your mandate. This is your <b>only chance to add pledges</b> this term — you can abandon one later from Campaign HQ if it's clearly out of reach, but abandoning still takes the broken-promise hit. Pick what you can realistically deliver.</div>`;
     h+=`<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0 6px;padding:10px 14px;background:var(--paper-2);border:1px solid var(--line);border-radius:6px">
       <button class="enactbtn ghost" id="platformNone">Take office with no promises →</button>
       <span style="font-size:11.5px;color:var(--muted-2)">A term with no pledges carries no reward or penalty at the next election.</span>
@@ -7747,7 +7770,7 @@ function showCampPopup(opts){
   //      win (showPlatformModal), then tracked here through the term ----
   const nAp=(GAME.activePromises||[]).length;
   h+=`<div class="camp-sec" style="margin-top:6px">${ico('doc')} Platform this term <span class="sec-note">— ${nAp} pledge${nAp===1?'':'s'}</span></div>
-    <div class="sectionsub" style="margin-top:0">Set when you took office. At the election, each promise <b>kept</b> rewards you with the blocs that cared; each one <b>broken</b> breeds cynicism and a mandate hit.</div>`;
+    <div class="sectionsub" style="margin-top:0">Set when you took office — <b>you can't add more this term</b>. At the election, each promise <b>kept</b> rewards the blocs that cared; each one <b>broken</b> breeds cynicism and a mandate hit${nAp?`. If a pledge is out of reach you can <b>abandon</b> it: same broken-promise hit, but taken now — so it has the rest of the term to fade instead of landing at the ballot box`:``}.</div>`;
   h+=platformProgressHTML();
 
   // ---- who's organised for / against you ----
@@ -7808,6 +7831,8 @@ function showCampPopup(opts){
   }));
   // wire the county campaign map (campCounty → campRedraw re-renders this popup)
   wireCampMap(card);
+  // wire "abandon pledge" buttons
+  card.querySelectorAll('[data-abandon]').forEach(el=>el.addEventListener('click',()=>abandonPromise(el.dataset.abandon)));
   document.getElementById("campPopAdvance").onclick=()=>{
     document.getElementById("campPopupModal").classList.add("hidden");
     if(manual){ render(); return; }               // just spending energy — don't advance the quarter
