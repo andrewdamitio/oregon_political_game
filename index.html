@@ -2201,12 +2201,14 @@ const POLICIES={
     instTier:"stateCollege",
     ideology:{economic:-0.3,govSize:-0.4}},
   communityColleges:{name:"Community Colleges", domain:"eduHealth", icon:"wrench", enacted:true, mechanic:"slider",
-    desc:"17 community colleges + BAS programs. Fast retraining and open access — the strongest lever for reducing inequality and joblessness in poorer areas.",
+    desc:"17 community colleges + BAS programs. Fast retraining and open access — the strongest lever for reducing inequality and joblessness in poorer areas. Workforce-focused and low-cost, it draws bipartisan and rural support in a way four-year universities don't.",
     value:0.4, costFull:0.8, capital:4,
     effects:{education:3, unemployment:-1.6, inequality:-7},
     sizeEffect:{students:0.025}, sizeRefLevel:0.5,
     instTier:"communityCollege",
-    ideology:{economic:-0.4,govSize:-0.4}},
+    // workforce training + rural access + inequality lever → broad, cross-ideological backing
+    blocEffect:{moderate:2.5, conservative:3, rural:3.5, blueCollar:2, businessClass:1.5, poor:2, liberal:1, socialist:1, students:1.5},
+    ideology:{economic:-0.15}},
   policing:{name:"Public Safety Funding", domain:"social", icon:"shield", enacted:true, mechanic:"slider", noRepeal:true,
     desc:"State police, local grants, and DA offices. Police provide a direct prevention benefit regardless of the rest of the system — deterrence, patrol, rapid response. But incapacitation (locking people up) requires the full pipeline: arrests must be prosecuted (Judicial Dept.) and sentences must be servable (Corrections). Crime reduction from incapacitation is capped by the WEAKEST of the three pillars — investing in police without funding courts and prisons produces arrests that don't stick. Watch the ⚖️ Justice Pipeline Effectiveness indicator.",
     value:0.5, costFull:1.0, capital:5, effects:{violentCrime:{b:0,c:-3,i:2},propertyCrime:{b:0,c:-3,i:2},homelessness:{b:0,c:-3,i:3},drugUse:{b:0,c:-3,i:3}},
@@ -3641,9 +3643,9 @@ const DILEMMAS={
     influence:()=>(budgetBalance().balance<-0.8?0.4:0.1)+(POLICIES.gasTax&&policyLevel(POLICIES.gasTax)>0.6?0.15:0),
     options:[
       {label:"Toll the bridges", text:"Tolling is imposed on I-5 and I-205.",
-       apply:()=>{createGrudge("v_motorists",-6,0.9,"Bridge tolls");createGrudge("v_suburban",-3,0.9,"Commute costs up");createGrudge("m_gdp",0.08,0.92,"Infrastructure funded");createGrudge("m_transitShare",0.3,0.9,"Mode shift");createGrudge("i_businessClimate",2,0.92,"Freight reliability");}},
+       apply:()=>{createGrudge("v_motorists",-6,0.9,"Bridge tolls");createGrudge("v_suburban",-3,0.9,"Commute costs up");createGrudge("m_gdp",0.08,0.92,"Infrastructure funded");createGrudge("m_transitShare",0.3,0.9,"Mode shift");createGrudge("i_businessClimate",2,0.92,"Freight reliability");createCountyMood({Clackamas:1, Multnomah:0.4, Washington:0.4},-6,0.9,"I-5 / I-205 commuter counties — daily tolls");}},
       {label:"Cancel tolling", text:"Tolling is cancelled.",
-       apply:()=>{createGrudge("v_motorists",4,0.9,"Tolls cancelled");createGrudge("m_gdp",-0.06,0.92,"Bridge deferred");createGrudge("i_businessClimate",-2,0.92,"Infrastructure doubts");}}]},
+       apply:()=>{createGrudge("v_motorists",4,0.9,"Tolls cancelled");createGrudge("m_gdp",-0.06,0.92,"Bridge deferred");createGrudge("i_businessClimate",-2,0.92,"Infrastructure doubts");createCountyMood({Clackamas:1, Multnomah:0.4, Washington:0.4},3,0.9,"I-5 / I-205 commuter counties — tolls dropped");}}]},
   souBailout:{title:"Southern Oregon University: Financial Crisis", icon:"cap",
     text:"Southern Oregon University in Ashland projects a $28M structural shortfall — enrollment is down 19% since 2019 and federal formula changes cut deeper than expected. Without state action, SOU begins faculty layoffs and program closures this year. Ashland's downtown economy depends heavily on the university. SOU also serves rural Josephine and Jackson counties with no other local higher-ed option.",
     influence:()=>GAME.turn>=4 ? (POLICIES.universities&&policyLevel(POLICIES.universities)<0.4 ? 0.38 : 0.18) : 0,
@@ -6852,7 +6854,9 @@ function showPlatformModal(){
       <span style="font-size:11.5px;color:var(--muted-2)">A term with no pledges carries no reward or penalty at the next election.</span>
     </div>`;
     h+=promiseGridHTML(draft);
-    h+=`<button class="enactbtn" id="platformOk" style="margin-top:18px;width:100%"${draft.length?'':' disabled'}>${draft.length?`Run on ${draft.length} promise${draft.length===1?'':'s'} ▸`:`Pick at least one promise, or take office with none above`}</button>`;
+    h+= draft.length
+      ? `<button class="enactbtn" id="platformOk" style="margin-top:18px;width:100%">Run on ${draft.length} promise${draft.length===1?'':'s'} ▸</button>`
+      : `<div style="margin-top:16px;text-align:center;font-size:12px;color:var(--muted-3)">Tap a card above to pledge it — or take office with no promises using the option up top.</div>`;
     card.innerHTML=h;
     const sy=card.scrollTop; card.scrollTop=sy;
     card.querySelectorAll('[data-prom]').forEach(el=>el.addEventListener('click',()=>{
@@ -6860,7 +6864,7 @@ function showPlatformModal(){
       if(i>=0)draft.splice(i,1); else draft.push(pid);
       const s=card.scrollTop; paint(); card.scrollTop=s;
     }));
-    document.getElementById("platformOk").onclick=commit;
+    const okBtn=document.getElementById("platformOk"); if(okBtn)okBtn.onclick=commit;
     document.getElementById("platformNone").onclick=()=>{ draft.length=0; commit(); };
   };
   const commit=()=>{
