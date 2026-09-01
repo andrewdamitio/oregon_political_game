@@ -6784,8 +6784,12 @@ function renderCompass(){
   if(!lastH || Math.abs(lastH.ec-cur.ec)>0.01 || Math.abs(lastH.so-cur.so)>0.01)
     hist.push({turn:GAME.turn, ec:cur.ec, so:cur.so, live:true});
 
-  const legacy=loadLegacy();
+  const legacy=loadLegacy().slice().sort((a,b)=>(a.ts||0)-(b.ts||0));
   const showLegacy=compassShowLegacy && legacy.length;
+  const legDate=ts=>{ try{ return new Date(ts).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})
+      +' '+new Date(ts).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}); }catch(e){ return 'earlier'; } };
+  const mineLeg=legacy.filter(x=>x.seed&&x.seed===window.RUN_SEED);
+  const pastLeg=legacy.filter(x=>!(x.seed&&x.seed===window.RUN_SEED));
 
   let mx=6;
   for(const p of hist) mx=Math.max(mx, Math.abs(p.ec), Math.abs(p.so));
@@ -6812,13 +6816,30 @@ function renderCompass(){
     <text x="${C}" y="${C+R+22}" text-anchor="middle" font-size="11" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.5">PERSONAL LIBERTY</text>
     <text x="${C-R-10}" y="${C}" text-anchor="middle" font-size="11" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.5" transform="rotate(-90 ${C-R-10} ${C})">ECONOMIC LEFT</text>
     <text x="${C+R+10}" y="${C}" text-anchor="middle" font-size="11" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.5" transform="rotate(90 ${C+R+10} ${C})">ECONOMIC RIGHT</text>`;
-  // optional overlay: where past election results landed on the compass
-  const legacyLayer = showLegacy ? legacy.map(x=>{
-    const mine=x.seed===window.RUN_SEED;
-    const col=x.won?'var(--moss)':'var(--clay)';
-    return `<circle cx="${px(x.ec)}" cy="${py(x.so)}" r="${mine?4.5:3.5}" fill="${col}" fill-opacity="${mine?0.9:0.4}"${mine?' stroke="var(--ink)" stroke-width="1.4"':''}>`
-      +`<title>${x.year} — ${x.won?'won':'lost'} ${x.margin>0?'+':''}${x.margin} · ${mine?'this run':'a past run'}</title></circle>`;
-  }).join("") : "";
+  // optional overlay: election-day results — one dot per election, never per quarter.
+  // past runs are just win/loss dots; THIS run's elections are linked in sequence.
+  let legacyLayer="";
+  if(showLegacy){
+    // other playthroughs — single dots, hover for the date it was played
+    legacyLayer += pastLeg.map(x=>{
+      const col=x.won?'var(--moss)':'var(--clay)';
+      return `<circle cx="${px(x.ec)}" cy="${py(x.so)}" r="3.6" fill="${col}" fill-opacity="0.42">`
+        +`<title>Past run · ${legDate(x.ts)}\n${x.year} — ${x.won?'won':'lost'} ${x.margin>0?'+':''}${x.margin}${x.approval?` · ${x.approval}% approval`:''}</title></circle>`;
+    }).join("");
+    // this run's own elections, in order, connected — your record at ballot-box granularity
+    if(mineLeg.length){
+      if(mineLeg.length>1){
+        const p2=mineLeg.map(x=>`${px(x.ec)},${py(x.so)}`).join(" ");
+        legacyLayer += `<polyline points="${p2}" fill="none" stroke="var(--gold)" stroke-width="1.6" stroke-dasharray="4 3" opacity="0.6"/>`;
+      }
+      legacyLayer += mineLeg.map(x=>{
+        const col=x.won?'var(--moss)':'var(--clay)';
+        return `<circle cx="${px(x.ec)}" cy="${py(x.so)}" r="5" fill="${col}" fill-opacity="0.92" stroke="var(--gold)" stroke-width="2">`
+          +`<title>This run · Term ${x.term||'?'} election (${x.year}) · ${legDate(x.ts)}\n${x.won?'won':'lost'} ${x.margin>0?'+':''}${x.margin}${x.approval?` · ${x.approval}% approval`:''}</title></circle>`
+          +`<text x="${px(x.ec)}" y="${py(x.so)-9}" text-anchor="middle" font-size="8" font-family="var(--font-data)" fill="var(--gold)">T${x.term||'?'}</text>`;
+      }).join("");
+    }
+  }
   const poly=hist.map(p=>`${px(p.ec)},${py(p.so)}`).join(" ");
   const trail=`<polyline points="${poly}" fill="none" stroke="var(--slate-blue)" stroke-width="2" opacity="0.5" stroke-linejoin="round" stroke-linecap="round"/>`
     + hist.map(p=>`<circle cx="${px(p.ec)}" cy="${py(p.so)}" r="2.4" fill="var(--slate-blue)" opacity="0.45"/>`).join("");
@@ -6849,7 +6870,7 @@ function renderCompass(){
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
         <button id="compassLegacyToggle" class="enactbtn ghost" style="font-size:12px;padding:7px 14px">${compassShowLegacy?'Hide past runs':'Show past runs'}</button>
         ${legacy.length
-          ? `<span class="mono" style="font-size:11px;color:var(--muted-2)">${legacy.length} past election${legacy.length===1?'':'s'} on record · ${legWins} won${compassShowLegacy?` — <b style="color:var(--moss)">green = win</b>, <b style="color:var(--clay)">red = loss</b>; ringed dots are this run`:''}</span>`
+          ? `<span class="mono" style="font-size:11px;color:var(--muted-2)">${legacy.length} election${legacy.length===1?'':'s'} on record · ${legWins} won${compassShowLegacy?` — one dot per <b>election day</b>: <b style="color:var(--moss)">green = win</b>, <b style="color:var(--clay)">red = loss</b>. Gold-ringed &amp; linked = this run (hover any dot for the date it was played).`:''}</span>`
           : `<span class="mono" style="font-size:11px;color:var(--muted-3)">No past elections on record yet.</span>`}
       </div>
       ${svg}
