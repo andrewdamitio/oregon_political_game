@@ -1761,7 +1761,7 @@ const INDICATORS={
       {name:ico(LANDUSE.icon)+" Land Use (supply constraint)",v:(2-LANDUSE.index)*4,link:"landuse"},
       ...(GAME.activeSituations.housingShortage?[{name:ico('chart-down')+" Housing Shortage Crisis",v:-10}]:[]),
     ],
-    feedback:{homelessness:-0.012, inequality:-0.008, disposableIncome:0.04}}, // housing costs are the dominant squeeze on take-home budgets
+    feedback:{homelessness:-0.012, inequality:-0.008, disposableIncome:0.12}}, // housing costs are the dominant squeeze on take-home budgets
   mentalHealth:{name:"Mental Health", icon:"brain", value:30,
     desc:"Population-level mental health outcomes — how well Oregonians are faring psychologically. Distinct from system capacity: high drug use and inequality can overwhelm even a well-funded treatment network. Oregon ranks 47th nationally. Poor mental health drives crime, homelessness, and public health costs; high mental health moderately boosts public health.",
     derive:()=>{
@@ -2022,7 +2022,8 @@ const METRIC_LINKS=[
   {from:"inequality",  to:"propertyCrime", coef:0.04, ref:55},
   {from:"inequality",  to:"homelessness",  coef:0.04, ref:55},   // and homelessness
   {from:"homelessness",to:"propertyCrime", coef:0.12, ref:55},   // visible homelessness raises property crime
-  {from:"gasPrice",    to:"disposableIncome", coef:-5.5, ref:3.6}, // pump pain eats budgets
+  {from:"gasPrice",    to:"disposableIncome", coef:-1.7, ref:3.6}, // pump pain eats budgets — but gasoline is only ~4% of household spending
+  {from:"homelessness",to:"disposableIncome", coef:-0.05, ref:55}, // housing stress: high homelessness tracks with rents/prices squeezing take-home budgets
   {from:"taxBurden",   to:"disposableIncome", coef:-0.14, ref:38},
   {from:"unemployment",to:"disposableIncome", coef:-1.1, ref:5.0},
   {from:"gdp",         to:"disposableIncome", coef:1.0,  ref:2.0}, // growth helps households, but inequality mediates how much reaches the bottom
@@ -3408,6 +3409,7 @@ const DILEMMAS={
          createGrudge("v_liberal",-3,0.9,"Social services gutted");
          createGrudge("v_conservative",2,0.9,"Fiscal discipline");
          GAME.structuralDebt=+(Math.max(0,(GAME.structuralDebt||0)-1.2)).toFixed(2);
+         shiftCompass(0.9,0);
          GAME.log.push("✂ Austerity: DHS/OHA budgets cut, homeless services reduced — $1.2B off the deficit");
        }},
       {label:"Cut infrastructure & education", text:"ODOT funding drops; the State School Fund and university budgets are trimmed. Real ongoing savings of ~$1.0B — roads and schools will suffer.",
@@ -3425,6 +3427,7 @@ const DILEMMAS={
          createGrudge("v_suburban",-3,0.9,"Infrastructure cut");
          createGrudge("v_conservative",2,0.9,"Fiscal discipline");
          GAME.structuralDebt=+(Math.max(0,(GAME.structuralDebt||0)-1.0)).toFixed(2);
+         shiftCompass(0.6,0);
          GAME.log.push("✂ Austerity: ODOT, school fund, universities cut — $1.0B off the deficit");
        }},
       {label:"Emergency tax surcharge", text:"Income and corporate tax rates are raised to close the gap. Generates ~$1.6B but inflames business and the right.",
@@ -3442,6 +3445,7 @@ const DILEMMAS={
          createGrudge("v_poor",1,0.9,"Made the wealthy pay first");
          GAME.structuralDebt=+(Math.max(0,(GAME.structuralDebt||0)-1.6)).toFixed(2);
          GAME.deficitStreak=0;
+         shiftCompass(-0.7,0);
          GAME.log.push(ico('cash-fly')+" Austerity: income & corporate taxes raised — $1.6B off the deficit");
        }}
     ]},
@@ -3461,6 +3465,7 @@ const DILEMMAS={
          createGrudge("v_socialist",4,0.9,"Boom taxed for housing");
          createGrudge("v_businessClass",-5,0.9,"Surcharge on success");
          createGrudge("v_wealthy",-5,0.9,"Surcharge on success");
+         shiftCompass(-0.7,0);
          GAME.log.push(ico('dollar')+" Boom Dividend: windfall surcharge funds housing");
        }},
       {label:"Let the boom run", text:"No new taxes — ride the growth and let private investment do its work. Business and moderates are delighted; the housing squeeze intensifies and the left seethes at a squandered window.",
@@ -3475,6 +3480,7 @@ const DILEMMAS={
          createGrudge("v_renters",-5,0.9,"Nothing done on rents");
          createGrudge("v_liberal",-4,0.9,"Windfall squandered");
          createGrudge("capital",3,undefined,"Rode the boom");
+         shiftCompass(0.6,0);
          GAME.log.push(ico('dollar')+" Boom Dividend: no new taxes, boom left to run");
        }},
       {label:"Bank it in the reserves", text:"Sweep the surge into the Rainy Day and Education Stability funds before the next downturn erases it. Fiscally cautious; nobody's problem gets solved today.",
@@ -3485,6 +3491,7 @@ const DILEMMAS={
          createGrudge("v_moderate",2,0.9,"Fiscal prudence");
          createGrudge("v_liberal",-3,0.9,"Hoarded the surplus");
          createGrudge("v_poor",-3,0.9,"Surge banked, needs unmet");
+         shiftCompass(0.15,0);
          GAME.log.push(ico('dollar')+" Boom Dividend: $1.4B swept into reserves");
        }}
     ]},
@@ -3493,17 +3500,17 @@ const DILEMMAS={
     influence:()=>(GAME.activeSituations.wildfireSeason?0.5:0)+(METRICS.environment.value<55?0.2:0),
     options:[
       {label:"Publish the map", text:"Risk data is made public.",
-       apply:()=>{createGrudge("v_rural",-6,0.9,"Wildfire map published");createGrudge("v_timber",-5,0.9,"Wildfire map published");createGrudge("v_homeowners",-3,0.9,"Insurance repricing");createGrudge("m_environment",0.5,0.85,"Risk-informed planning");createGrudge("v_liberal",2,0.9,"Followed the science");createCountyMood(COUNTY_GROUPS.fireCountry,-6,0.9,"Fire-country counties — insurance shock");}},
+       apply:()=>{createGrudge("v_rural",-6,0.9,"Wildfire map published");createGrudge("v_timber",-5,0.9,"Wildfire map published");createGrudge("v_homeowners",-3,0.9,"Insurance repricing");createGrudge("m_environment",0.5,0.85,"Risk-informed planning");createGrudge("v_liberal",2,0.9,"Followed the science");createCountyMood(COUNTY_GROUPS.fireCountry,-6,0.9,"Fire-country counties — insurance shock");shiftCompass(-0.3,0);}},
       {label:"Withdraw the map", text:"The map is shelved.",
-       apply:()=>{createGrudge("v_rural",3,0.9,"Map withdrawn");createGrudge("v_liberal",-3,0.9,"Caved on wildfire science");createGrudge("m_environment",-0.3,0.9,"Risk data shelved");createCountyMood(COUNTY_GROUPS.fireCountry,2.5,0.9,"Fire-country counties — map shelved");}}]},
+       apply:()=>{createGrudge("v_rural",3,0.9,"Map withdrawn");createGrudge("v_liberal",-3,0.9,"Caved on wildfire science");createGrudge("m_environment",-0.3,0.9,"Risk data shelved");createCountyMood(COUNTY_GROUPS.fireCountry,2.5,0.9,"Fire-country counties — map shelved");shiftCompass(0.2,0);}}]},
   shelterSiting:{title:"The Low-Barrier Shelter", icon:"tent",
     text:"A low-barrier shelter — no sobriety requirement — is proposed for a residential neighborhood. Providers say it's the only model that works for the chronically unhoused. The neighborhood association says it'll end you.",
     influence:()=>(GAME.activeSituations.homelessEmergency?0.45:0)+(METRICS.homelessness.value-55)*0.01,
     options:[
       {label:"Approve the siting", text:"The shelter is built.",
-       apply:()=>{createGrudge("m_homelessness",-0.6,0.92,"Low-barrier shelter open");createGrudge("v_suburban",-5,0.9,"Shelter sited over objections");createGrudge("v_homeowners",-4,0.9,"Shelter sited over objections");createGrudge("v_liberal",3,0.9,"Housing first");}},
+       apply:()=>{createGrudge("m_homelessness",-0.6,0.92,"Low-barrier shelter open");createGrudge("v_suburban",-5,0.9,"Shelter sited over objections");createGrudge("v_homeowners",-4,0.9,"Shelter sited over objections");createGrudge("v_liberal",3,0.9,"Housing first");shiftCompass(-0.3,-0.5);}},
       {label:"Block it", text:"The shelter is not built.",
-       apply:()=>{createGrudge("v_suburban",3,0.9,"Neighborhood protected");createGrudge("v_homeowners",3,0.9,"Neighborhood protected");createGrudge("v_liberal",-5,0.9,"Blocked the shelter");createGrudge("v_poor",-3,0.9,"Blocked the shelter");createGrudge("m_homelessness",0.3,0.92,"Shelter blocked");}}]},
+       apply:()=>{createGrudge("v_suburban",3,0.9,"Neighborhood protected");createGrudge("v_homeowners",3,0.9,"Neighborhood protected");createGrudge("v_liberal",-5,0.9,"Blocked the shelter");createGrudge("v_poor",-3,0.9,"Blocked the shelter");createGrudge("m_homelessness",0.3,0.92,"Shelter blocked");shiftCompass(0.2,0.3);}}]},
   nonprofitCrackdown:{title:"Prosecute the Nonprofit Executives", icon:"gavel", cooldown:900,
     text:"A DOJ task force has spent two years inside the homelessness-services contracting world and is ready to move: self-dealing boards, related-party leases, phantom case managers, and grant money cycled back into political organizing. Indictments would shatter the contracting complex overnight — and shatter your coalition with it.",
     influence:()=>(GAME.activeSituations.nonprofitComplex && GAME.turn>3) ? 0.9 : -1,
@@ -3525,6 +3532,7 @@ const DILEMMAS={
          createGrudge("v_moderate",3,0.9,"Cleaned out the grift");
          createGrudge("v_libertarian",4,0.9,"Cleaned out the grift");
          createGrudge("capital",-4);
+         shiftCompass(0.3,0.5);
          GAME.log.push("⚖ Nonprofit executives indicted — the contracting complex is broken up; homeless services reel");
        }},
       {label:"Forensic audit & rebid every contract", text:"No arrests — a top-to-bottom audit, the weakest contractors cut, the rest put out to open bid. Slower, cleaner, and the complex survives it leaner.",
@@ -3568,6 +3576,7 @@ const DILEMMAS={
          createGrudge("v_rural",-3,0.9,"Backed the prison-labor ban — prison-town jobs");
          createGrudge("v_businessClass",-3,0.9,"Lost cheap correctional-industries labor");
          createGrudge("capital",-3);
+         shiftCompass(-0.3,-1.0);
          GAME.log.push(ico('chains')+" Measure passes — involuntary prison labor abolished; Hard Labor regimen barred for good");
        }},
       {label:"Stay neutral — let the voters decide", text:"You take no position. It passes anyway, the way it did in real life. You get little credit and little blame, but the Hard Labor regimen is barred all the same.",
@@ -3592,6 +3601,7 @@ const DILEMMAS={
          if(SIMULANTS.liberal)SIMULANTS.liberal.cynicism=(SIMULANTS.liberal.cynicism||0)+3;
          if(SIMULANTS.socialist)SIMULANTS.socialist.cynicism=(SIMULANTS.socialist.cynicism||0)+3;
          createGrudge("capital",-4);
+         shiftCompass(0.2,0.8);
          GAME.log.push(ico('chains')+" Measure defeated — forced prison labor stays on the books");
        }}
     ]},
@@ -3600,18 +3610,18 @@ const DILEMMAS={
     influence:()=>(SIMULANTS.publicUnions.approval<42?0.5:0)+(budgetBalance().balance<-0.5?0.15:0),
     options:[
       {label:"Concede raises", text:"Raises are granted.",
-       apply:()=>{createGrudge("v_publicUnions",8,0.88,"Strike settled with raises");createGrudge("m_taxBurden",0.4,0.9,"Payroll costs up");createGrudge("v_businessClass",-3,0.9,"Caved to the unions");createGrudge("capital",-4);}},
+       apply:()=>{createGrudge("v_publicUnions",8,0.88,"Strike settled with raises");createGrudge("m_taxBurden",0.4,0.9,"Payroll costs up");createGrudge("v_businessClass",-3,0.9,"Caved to the unions");createGrudge("capital",-4);shiftCompass(-0.5,0);}},
       {label:"Hold the line", text:"The state holds its offer.",
-       apply:()=>{createGrudge("v_publicUnions",-9,0.92,"Strike broken");SIMULANTS.publicUnions.cynicism=(SIMULANTS.publicUnions.cynicism||0)+4;createGrudge("v_businessClass",3,0.9,"Fiscal discipline");createGrudge("v_wealthy",2,0.9,"Fiscal discipline");}}]},
+       apply:()=>{createGrudge("v_publicUnions",-9,0.92,"Strike broken");SIMULANTS.publicUnions.cynicism=(SIMULANTS.publicUnions.cynicism||0)+4;createGrudge("v_businessClass",3,0.9,"Fiscal discipline");createGrudge("v_wealthy",2,0.9,"Fiscal discipline");shiftCompass(0.4,0);}}]},
   dataCenter:{title:"The Data Center Deal", icon:"monitor",
     onFire:(ctx)=>{ ctx.county=pick(COUNTY_GROUPS.dataCenter); },
     text:()=>`A hyperscaler wants enterprise-zone tax breaks for a campus in <b>${GAME.dilemmaCtx.county||"a dry"} County</b>, east of the mountains: hundreds of construction jobs, dozens permanent — and an enormous claim on the county's water and power. Neighbours are already organising against the draw.`,
     influence:()=>(INDICATORS.businessClimate.value>55?0.35:0.1)+(GAME.activeSituations.techBoom?0.2:0),
     options:[
       {label:"Approve the deal", text:"The data center is approved.",
-       apply:()=>{const cty=GAME.dilemmaCtx.county||"Wasco";createGrudge("m_gdp",0.15,0.9,"Data center investment");createGrudge("v_businessClass",4,0.9,"Open for business");createGrudge("v_blueCollar",2,0.9,"Construction jobs");createGrudge("m_environment",-0.5,0.9,"Water & power strain");createGrudge("v_liberal",-3,0.9,"Corporate giveaway");createCountyMood([cty],-6,0.9,cty+" County — water & power draw");GAME.log.push(ico('monitor')+" Data center approved in "+cty+" County — locals furious over the water draw");}},
+       apply:()=>{const cty=GAME.dilemmaCtx.county||"Wasco";createGrudge("m_gdp",0.15,0.9,"Data center investment");createGrudge("v_businessClass",4,0.9,"Open for business");createGrudge("v_blueCollar",2,0.9,"Construction jobs");createGrudge("m_environment",-0.5,0.9,"Water & power strain");createGrudge("v_liberal",-3,0.9,"Corporate giveaway");createCountyMood([cty],-6,0.9,cty+" County — water & power draw");shiftCompass(0.8,0);GAME.log.push(ico('monitor')+" Data center approved in "+cty+" County — locals furious over the water draw");}},
       {label:"Reject it", text:"The data center is rejected.",
-       apply:()=>{const cty=GAME.dilemmaCtx.county||"Wasco";createGrudge("v_liberal",4,0.9,"Held the line on water");createGrudge("v_socialist",3,0.9,"No corporate subsidy");createGrudge("m_environment",0.3,0.9,"Water & grid protected");createGrudge("v_businessClass",-4,0.9,"Hostile to investment");createGrudge("i_businessClimate",-3,0.9,"Deal rejected");createCountyMood([cty],2,0.9,cty+" County — water draw averted");}}]},
+       apply:()=>{const cty=GAME.dilemmaCtx.county||"Wasco";createGrudge("v_liberal",4,0.9,"Held the line on water");createGrudge("v_socialist",3,0.9,"No corporate subsidy");createGrudge("m_environment",0.3,0.9,"Water & grid protected");createGrudge("v_businessClass",-4,0.9,"Hostile to investment");createGrudge("i_businessClimate",-3,0.9,"Deal rejected");createCountyMood([cty],2,0.9,cty+" County — water draw averted");shiftCompass(-0.4,0);}}]},
   offshoreWind:{title:"Offshore Wind Leases", icon:"wind",
     text:"The federal Bureau of Ocean Energy Management is offering Oregon offshore wind leases on the Southern Oregon Bight — potential gigawatts of carbon-free power along the most exposed stretch of the Pacific coast. Clean energy advocates and climate groups see a generational opportunity. The Oregon fishing industry — Dungeness crab fishers, trawlers, tribal harvesters — says turbines will snarl gear, block migration corridors, and end livelihoods that go back generations. Environmental groups are split: it's clean energy, but the marine ecosystem costs are real.",
     influence:()=>(METRICS.environment.value<65?0.22:0.06)+(POLICIES.renewablePortfolio&&policyLevel(POLICIES.renewablePortfolio)>0.5?0.15:0)+(GAME.activeSituations.droughtWater?0.10:0),
@@ -3627,6 +3637,7 @@ const DILEMMAS={
          createGrudge("v_blueCollar",-4,0.9,"Fishing industry threatened");
          createGrudge("v_timber",-2,0.9,"Coastal livelihoods at risk");
          createCountyMood(COUNTY_GROUPS.southCoast,-8,0.9,"South-coast fishing counties");
+         shiftCompass(-0.6,0);
          GAME.log.push("🌬️ Offshore wind leases accepted — the southern Oregon coast is up in arms");
        }},
       {label:"Reject the leases", text:"Oregon declines. Fishing communities are protected; the clean energy opportunity passes for this term.",
@@ -3639,6 +3650,7 @@ const DILEMMAS={
          createGrudge("v_socialist",-2,0.9,"Clean energy opportunity passed");
          createGrudge("v_students",-3,0.9,"Climate inaction");
          createGrudge("m_environment",-0.5,0.9,"Clean energy rejected");
+         shiftCompass(0.4,0);
          GAME.log.push("🚫 Offshore wind leases rejected — fishing communities protected");
        }}
     ]},
@@ -3647,17 +3659,17 @@ const DILEMMAS={
     influence:()=>(INDICATORS.downtown.value<45?0.5:0)+(METRICS.homelessness.value>60?0.15:0),
     options:[
       {label:"Sweep the camps", text:"The camps are cleared.",
-       apply:()=>{createGrudge("i_downtown",5,0.85,"Camps cleared");createGrudge("v_businessClass",4,0.9,"Downtown cleaned up");createGrudge("v_suburban",3,0.9,"Visible action");createGrudge("v_poor",-5,0.9,"Swept the camps");createGrudge("v_liberal",-4,0.9,"Swept the camps");createGrudge("m_health",-0.4,0.9,"Care disrupted");createCountyMood(COUNTY_GROUPS.portlandCore,-4,0.86,"Portland — sweep backlash");createCountyMood(COUNTY_GROUPS.portlandSuburbs,3,0.86,"Metro suburbs — visible action");}},
+       apply:()=>{createGrudge("i_downtown",5,0.85,"Camps cleared");createGrudge("v_businessClass",4,0.9,"Downtown cleaned up");createGrudge("v_suburban",3,0.9,"Visible action");createGrudge("v_poor",-5,0.9,"Swept the camps");createGrudge("v_liberal",-4,0.9,"Swept the camps");createGrudge("m_health",-0.4,0.9,"Care disrupted");createCountyMood(COUNTY_GROUPS.portlandCore,-4,0.86,"Portland — sweep backlash");createCountyMood(COUNTY_GROUPS.portlandSuburbs,3,0.86,"Metro suburbs — visible action");shiftCompass(0,0.7);}},
       {label:"Services-first", text:"Services are offered before any sweep.",
-       apply:()=>{createGrudge("v_liberal",3,0.9,"Services-first");createGrudge("v_poor",3,0.9,"Services-first");createGrudge("v_businessClass",-4,0.9,"Downtown left to rot");createGrudge("i_downtown",-2,0.9,"Camps persist");createCountyMood(COUNTY_GROUPS.portlandCore,3,0.86,"Portland — services-first approach");createCountyMood(COUNTY_GROUPS.portlandSuburbs,-2.5,0.86,"Metro suburbs — downtown frustration");}}]},
+       apply:()=>{createGrudge("v_liberal",3,0.9,"Services-first");createGrudge("v_poor",3,0.9,"Services-first");createGrudge("v_businessClass",-4,0.9,"Downtown left to rot");createGrudge("i_downtown",-2,0.9,"Camps persist");createCountyMood(COUNTY_GROUPS.portlandCore,3,0.86,"Portland — services-first approach");createCountyMood(COUNTY_GROUPS.portlandSuburbs,-2.5,0.86,"Metro suburbs — downtown frustration");shiftCompass(-0.2,-0.4);}}]},
   bridgeTolls:{title:"Tolling the Bridges", icon:"bridge",
     text:"The Interstate Bridge replacement needs money, and ODOT's books are a $354M hole. Tolling I-5 and I-205 pays for it — and every Clark County commuter and Oregon motorist will see the charge daily.",
     influence:()=>(budgetBalance().balance<-0.8?0.4:0.1)+(POLICIES.gasTax&&policyLevel(POLICIES.gasTax)>0.6?0.15:0),
     options:[
       {label:"Toll the bridges", text:"Tolling is imposed on I-5 and I-205.",
-       apply:()=>{createGrudge("v_motorists",-6,0.9,"Bridge tolls");createGrudge("v_suburban",-3,0.9,"Commute costs up");createGrudge("m_gdp",0.08,0.92,"Infrastructure funded");createGrudge("m_transitShare",0.3,0.9,"Mode shift");createGrudge("i_businessClimate",2,0.92,"Freight reliability");createCountyMood({Clackamas:1, Multnomah:0.4, Washington:0.4},-6,0.9,"I-5 / I-205 commuter counties — daily tolls");}},
+       apply:()=>{createGrudge("v_motorists",-6,0.9,"Bridge tolls");createGrudge("v_suburban",-3,0.9,"Commute costs up");createGrudge("m_gdp",0.08,0.92,"Infrastructure funded");createGrudge("m_transitShare",0.3,0.9,"Mode shift");createGrudge("i_businessClimate",2,0.92,"Freight reliability");createCountyMood({Clackamas:1, Multnomah:0.4, Washington:0.4},-6,0.9,"I-5 / I-205 commuter counties — daily tolls");shiftCompass(0.3,0);}},
       {label:"Cancel tolling", text:"Tolling is cancelled.",
-       apply:()=>{createGrudge("v_motorists",4,0.9,"Tolls cancelled");createGrudge("m_gdp",-0.06,0.92,"Bridge deferred");createGrudge("i_businessClimate",-2,0.92,"Infrastructure doubts");createCountyMood({Clackamas:1, Multnomah:0.4, Washington:0.4},3,0.9,"I-5 / I-205 commuter counties — tolls dropped");}}]},
+       apply:()=>{createGrudge("v_motorists",4,0.9,"Tolls cancelled");createGrudge("m_gdp",-0.06,0.92,"Bridge deferred");createGrudge("i_businessClimate",-2,0.92,"Infrastructure doubts");createCountyMood({Clackamas:1, Multnomah:0.4, Washington:0.4},3,0.9,"I-5 / I-205 commuter counties — tolls dropped");shiftCompass(-0.2,0);}}]},
   souBailout:{title:"Southern Oregon University: Financial Crisis", icon:"cap",
     text:"Southern Oregon University in Ashland projects a $28M structural shortfall — enrollment is down 19% since 2019 and federal formula changes cut deeper than expected. Without state action, SOU begins faculty layoffs and program closures this year. Ashland's downtown economy depends heavily on the university. SOU also serves rural Josephine and Jackson counties with no other local higher-ed option.",
     influence:()=>GAME.turn>=4 ? (POLICIES.universities&&policyLevel(POLICIES.universities)<0.4 ? 0.38 : 0.18) : 0,
@@ -3673,6 +3685,7 @@ const DILEMMAS={
          createGrudge("v_businessClass",-2,0.9,"More higher-ed spending");
          createCountyMood(COUNTY_GROUPS.southernOregon,6,0.9,"Jackson & Josephine — SOU saved");
          createGrudge("capital",-3);
+         shiftCompass(-0.7,0);
          GAME.structuralDebt=+(+(GAME.structuralDebt||0)+0.09).toFixed(2);
        }},
       {label:"Merge SOU with Oregon Tech", text:"SOU consolidates with OIT (Klamath Falls) under a Southwest Oregon University System. Core programs survive in reduced form; faculty contracts are renegotiated. A compromise that pleases no one fully.",
@@ -3696,6 +3709,7 @@ const DILEMMAS={
          createGrudge("v_liberal",-3,0.9,"Education abandoned");
          createGrudge("v_conservative",3,0.9,"Fiscal discipline — no bailout");
          createGrudge("v_businessClass",1,0.9,"Held the line on spending");
+         shiftCompass(0.5,0);
        }},
     ]},
   walkoutConcessions:{
@@ -3841,6 +3855,7 @@ const DILEMMAS={
          createGrudge("v_businessClass",-6,0.9,"Reversed course under pressure");
          createGrudge("v_moderate",-4,0.9,"Looked shaky");
          createGrudge("v_rural",-3,0.9,"Portland got its way");
+         shiftCompass(-0.3,-0.2);
          GAME.log.push(ico('handshake')+" Cut a deal with protest organisers — agenda drift walked back, ◈ 8 spent");
        }},
       {label:"Send in the State Police",
@@ -3868,6 +3883,7 @@ const DILEMMAS={
          createGrudge("v_publicUnions",-5,0.92,"Ordered the crackdown");
          createGrudge("i_ruralAlienation",-4,0.85,"Cracked down on Portland protests");
          createGrudge("i_downtown",-4,0.8,"Police action downtown");
+         shiftCompass(0.15,0.8);
          GAME.log.push(ico('shield')+" Ordered the State Police to clear the protests");
        }},
       {label:"Say nothing — let it burn out",
@@ -4031,10 +4047,12 @@ function resolveDilemma(optIndex){
   // snapshot to capture what the choice does
   const grudgeBefore=GAME.grudges.length;
   const capBefore=GAME.capital;
+  const ceBefore={ec:(GAME.compassEvents&&GAME.compassEvents.ec)||0, so:(GAME.compassEvents&&GAME.compassEvents.so)||0};
   d.options[optIndex].apply();
   // collect the effects this choice just created
   const newGrudges=GAME.grudges.slice(grudgeBefore);
   const capDelta=GAME.capital-capBefore;
+  const ceDelta={ec:((GAME.compassEvents&&GAME.compassEvents.ec)||0)-ceBefore.ec, so:((GAME.compassEvents&&GAME.compassEvents.so)||0)-ceBefore.so};
   const fx=[];
   const cByLabel={};   // collapse per-county regional grudges into one row per label
   for(const g of newGrudges){
@@ -4055,6 +4073,12 @@ function resolveDilemma(optIndex){
     fx.push({who:L, val:+(e.sum/e.n).toFixed(1), kind:"c", count:e.n});
   }
   if(Math.abs(capDelta)>0.01)fx.push({who:"Political Capital", val:capDelta, kind:"cap"});
+  if(Math.abs(ceDelta.ec)>0.01||Math.abs(ceDelta.so)>0.01){
+    const parts=[];
+    if(Math.abs(ceDelta.ec)>0.01)parts.push(`${ceDelta.ec>0?'right':'left'} ${Math.abs(ceDelta.ec).toFixed(1)}`);
+    if(Math.abs(ceDelta.so)>0.01)parts.push(`${ceDelta.so>0?'toward authority':'toward liberty'} ${Math.abs(ceDelta.so).toFixed(1)}`);
+    fx.push({who:"Political compass — "+parts.join(", "), val:ceDelta.ec+ceDelta.so, kind:"compass"});
+  }
   GAME.log.push("❖ "+d.title+" — chose: "+d.options[optIndex].label);
   GAME.lastDilemmaResult={title:d.title, icon:d.icon, choice:d.options[optIndex].label, fx};
   GAME.pendingDilemma=null;
@@ -4901,7 +4925,7 @@ const GAME={
   countyCamp:{},
   activists:{}, activistCooldowns:{},
   termLengthTurns:16, midtermTurn:8, term:1,
-  activeSituations:{}, situationAge:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null, dilemmaCtx:{}, prisonLaborVoteHeld:false, walkoutFreeze:0, walkoutIgnoredUntil:0, agendaBaseline:0, protestCrackdowns:0, protestIgnoredUntil:0, compassStart:{ec:0,so:0}, serviceDisrupt:0,
+  activeSituations:{}, situationAge:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null, dilemmaCtx:{}, compassEvents:{ec:0,so:0}, prisonLaborVoteHeld:false, walkoutFreeze:0, walkoutIgnoredUntil:0, agendaBaseline:0, protestCrackdowns:0, protestIgnoredUntil:0, compassStart:{ec:0,so:0}, serviceDisrupt:0,
   // ---- FISCAL MODEL (research: income-tax dependence + kicker + reserves) ----
   rainyDay:1.87,        // Rainy Day Fund ($B) — real 2023-25 end balance
   eduStability:1.0,     // Education Stability Fund ($B)
@@ -5142,6 +5166,8 @@ function agendaConservatism(){
     const io=a.ideology;
     s+=((io.economic||0)+(io.social||0)+(io.govSize||0)+(io.environment||0))*((a.funding??0.5)-0.5)*2;
   }
+  const ce=GAME.compassEvents||{};
+  s += (ce.ec||0) + (ce.so||0);   // decisions in dilemmas count toward the record too
   return s;
 }
 function agendaRightwardShift(){ return agendaConservatism()-(GAME.agendaBaseline||0); }
@@ -5168,7 +5194,16 @@ function agendaVector(){
     const a=AGENCIES[id]; if(!a)continue;
     add(a.ideology,((a.funding??0.5)-0.5)*2);
   }
-  return {ec, so};
+  // dilemma / event choices leave a lasting mark on the record
+  const ce=GAME.compassEvents||{};
+  return {ec: ec+(ce.ec||0), so: so+(ce.so||0)};
+}
+/* record that a decision moved the administration's ideological position.
+   ec: economic left(−) / right(+)   so: personal-liberty(−) / state-authority(+) */
+function shiftCompass(ec,so){
+  const ce=GAME.compassEvents=GAME.compassEvents||{ec:0,so:0};
+  ce.ec=+((ce.ec||0)+(ec||0)).toFixed(3);
+  ce.so=+((ce.so||0)+(so||0)).toFixed(3);
 }
 /* the governor's enacted record mapped into the same [-1,1] ideology space that
    voters and blocs live in (economic axis, social axis). This is what "aligned
@@ -6372,6 +6407,50 @@ const PROMISES={
       {label:"Rural alienation resolved (≤ 42)", check:()=>INDICATORS.ruralAlienation.value<=42}
     ],
     check:()=>INDICATORS.localAutonomy.value>=55 && INDICATORS.ruralAlienation.value<=42},
+
+  // ---- lower-bar pledges: single levers, modest targets — safer wins ----
+  expandParks:{label:"Expand parks & the outdoors", bloc:["rural","moderate","collegeEducated","urban"],
+    criteria:[
+      {label:"Outdoor Recreation Investment enacted & ≥ 55% funded", check:()=>policyLevel(POLICIES.outdoorRec||{})>=0.55},
+      {label:"Tourism Appeal ≥ 60", check:()=>INDICATORS.tourism.value>=60}
+    ],
+    check:()=>policyLevel(POLICIES.outdoorRec||{})>=0.55 && INDICATORS.tourism.value>=60},
+  schoolMeals:{label:"Free meals for every public-school kid", bloc:["parents","poor","liberal","publicUnions"],
+    criteria:[
+      {label:"Universal School Meals enacted", check:()=>!!(POLICIES.universalMeals&&POLICIES.universalMeals.enacted)},
+      {label:"Program funded ≥ 50%", check:()=>policyLevel(POLICIES.universalMeals||{})>=0.5}
+    ],
+    check:()=>!!(POLICIES.universalMeals&&POLICIES.universalMeals.enacted) && policyLevel(POLICIES.universalMeals||{})>=0.5},
+  defendReproRights:{label:"Defend reproductive freedom", defensive:true, bloc:["liberal","urban","students","socialist","collegeEducated"],
+    criteria:[
+      {label:"Reproductive care kept legal or protected", check:()=>(POLICIES.abortion?POLICIES.abortion.tierIndex:3)>=2},
+      {label:"No new abortion restrictions enacted", check:()=>!(POLICIES.abortionRestrict&&POLICIES.abortionRestrict.enacted)}
+    ],
+    check:()=>(POLICIES.abortion?POLICIES.abortion.tierIndex:3)>=2 && !(POLICIES.abortionRestrict&&POLICIES.abortionRestrict.enacted)},
+  keepStateRunning:{label:"Keep the state running — no fiscal crisis", bloc:["moderate","publicUnions","suburban","homeowners"],
+    criteria:[
+      {label:"No structural budget crisis (debt < $1.0B)", check:()=>(GAME.structuralDebt||0)<1.0},
+      {label:"Reserves not exhausted (Rainy Day ≥ $0.5B)", check:()=>(GAME.rainyDay||0)>=0.5}
+    ],
+    check:()=>(GAME.structuralDebt||0)<1.0 && (GAME.rainyDay||0)>=0.5},
+  modernizeGov:{label:"Modernize state government", bloc:["collegeEducated","moderate","businessClass","urban"],
+    criteria:[
+      {label:"Digital government index ≥ 48", check:()=>INDICATORS.digitization.value>=48},
+      {label:"Administrative overhead down to ≤ 68", check:()=>INDICATORS.adminOverhead.value<=68}
+    ],
+    check:()=>INDICATORS.digitization.value>=48 && INDICATORS.adminOverhead.value<=68},
+  wildfireReady:{label:"Fully fund wildfire response", bloc:["rural","homeowners","timber"],
+    criteria:[
+      {label:"Wildfire Resilience Fund ≥ 55%", check:()=>policyLevel(POLICIES.wildfireResilience||{})>=0.55},
+      {label:"Dept. of Forestry funded ≥ 55%", check:()=>!!(AGENCIES.forestry&&AGENCIES.forestry.funding>=0.55)}
+    ],
+    check:()=>policyLevel(POLICIES.wildfireResilience||{})>=0.55 && !!(AGENCIES.forestry&&AGENCIES.forestry.funding>=0.55)},
+  smallBusiness:{label:"A fair shot for small business", bloc:["businessClass","moderate","blueCollar"],
+    criteria:[
+      {label:"Business Climate index ≥ 46", check:()=>INDICATORS.businessClimate.value>=46},
+      {label:"Unemployment ≤ 5.3%", check:()=>METRICS.unemployment.value<=5.3}
+    ],
+    check:()=>INDICATORS.businessClimate.value>=46 && METRICS.unemployment.value<=5.3},
 };
 
 /* Interest-group mobilisations — read-only status of the organised forces
@@ -6406,7 +6485,7 @@ function promiseGridHTML(list){
   let h=`<div class="promgrid">`;
   for(const pid in PROMISES){
     const pr=PROMISES[pid], on=list.includes(pid);
-    if(pr.check()&&!on)continue;   // already fully achieved and not pledged
+    if(pr.check()&&!on&&!pr.defensive)continue;   // already achieved & not pledged — hide (unless it's a "keep it this way" pledge)
     const metCount=pr.criteria.filter(cr=>cr.check()).length, total=pr.criteria.length;
     const allMet=metCount===total, someMet=!allMet&&metCount>0;
     const statusClass=allMet?'met':someMet?'partial':'unmet';
@@ -6771,7 +6850,7 @@ function renderCompass(){
 
   const legWins=legacy.filter(x=>x.won).length;
   let h=`<div class="sectionhdr">${ico('compass')} Political Compass</div>
-    <div class="sectionsub">Where the agenda you've actually enacted sits, built from the ideological lean of every live policy and agency posture (niche, symbolic measures count for less). The horizontal axis is the state's economic role (spending, taxation, regulation, government size); the vertical axis is personal and cultural freedom versus state authority. <b class="mono" style="color:var(--gold)">START</b> is the mandate you inherited; <b class="mono" style="color:var(--clay)">NOW</b> is today; the blue trail is your path, one point per quarter.</div>
+    <div class="sectionsub">Where the agenda you've actually enacted sits, built from the ideological lean of every live policy and agency posture (niche, symbolic measures count for less) plus the calls you've made in dilemmas. The horizontal axis is the state's economic role (spending, taxation, regulation, government size); the vertical axis is personal and cultural freedom versus state authority. <b class="mono" style="color:var(--gold)">START</b> is the mandate you inherited; <b class="mono" style="color:var(--clay)">NOW</b> is today; the blue trail is your path, one point per quarter.</div>
     <div class="compass-wrap">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
         <button id="compassLegacyToggle" class="enactbtn ghost" style="font-size:12px;padding:7px 14px">${compassShowLegacy?'Hide past runs':'Show past runs'}</button>
@@ -10022,6 +10101,12 @@ function renderDilemma(){
         if(f.kind==="m"&&f.key&&METRICS[f.key])good = METRICS[f.key].invert ? f.val<0 : f.val>0;
         else if(f.kind==="i") good = IND_BAD_HIGH.has(f.key) ? f.val<0 : f.val>0;
         else good = f.val>0;
+        // a compass shift is neither good nor bad — render it plain, no arrow/value
+        if(f.kind==="compass"){
+          h+=`<div class="splash-row" style="border-left-color:var(--slate-blue)"><span class="srow-who">${f.who}</span>
+            <span class="srow-tag">compass</span><span class="srow-val" style="color:var(--muted-2)">${ico('compass')}</span></div>`;
+          continue;
+        }
         const arrow=f.val>0?"▲":"▼";
         const who=f.kind==="c"&&f.count?`${f.who} <span style="opacity:.6">(${f.count} counties)</span>`:f.who;
         h+=`<div class="splash-row ${good?'pos':'neg'}"><span class="srow-who">${who}</span>
