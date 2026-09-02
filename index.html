@@ -1826,12 +1826,14 @@ const INDICATORS={
     ],
     feedback:{violentCrime:-0.025, propertyCrime:-0.022}},
   housingAffordability:{name:"Housing Affordability", icon:"house", value:40,
-    desc:"How accessible Oregon's housing market is to working residents — a composite of homelessness pressure, income inequality, disposable income, and housing production. Oregon has one of the worst housing deficits in the nation, driven by decades of underbuilding behind urban growth boundaries and stagnant wages. High affordability attracts workers and families; low affordability accelerates homelessness, inequality, and out-migration.",
+    desc:"How accessible Oregon's housing market is to working residents — a composite of homelessness pressure, income inequality, housing production, and land-use supply. Oregon has one of the worst housing deficits in the nation, driven by decades of underbuilding behind urban growth boundaries and stagnant wages. High affordability attracts workers and families; low affordability accelerates homelessness, inequality, and out-migration.",
     derive:()=>{
-      let v=45;
+      let v=45.4;   // (0.4 folded in from the removed disposable-income term so the start value holds)
       v-=(METRICS.homelessness.value-55)*0.55;     // homelessness is the sharpest signal
       v-=(METRICS.inequality.value-50)*0.30;        // inequality squeezes lower-income renters hardest
-      v+=(METRICS.disposableIncome.value-50)*0.20;  // take-home pay eases the burden
+      // (deliberately NOT driven by disposable income: affordability here is a
+      //  housing-cost composite, and its EFFECT on take-home pay is the feedback
+      //  below — feeding it back in as an input made a disposable-income self-loop)
       if(METRICS.gdp)v+=Math.min(15,Math.max(0,(1.3-METRICS.gdp.value))*6); // a cooling / contracting economy softens rents & prices
       if(POLICIES.affordableHousing)v+=effLevelOf(POLICIES.affordableHousing)*10;
       if(POLICIES.rentStabilization)v+=effLevelOf(POLICIES.rentStabilization)*6;
@@ -1845,10 +1847,9 @@ const INDICATORS={
       return clamp(v,0,100);
     },
     drivers:()=>[
-      {name:"⊕ baseline",v:45,base:true},
+      {name:"⊕ baseline",v:45.4,base:true},
       {name:ico(METRICS.homelessness.icon)+" Homelessness pressure",v:-(METRICS.homelessness.value-55)*0.55,link:"m_homelessness"},
       {name:ico(METRICS.inequality.icon)+" Inequality",v:-(METRICS.inequality.value-50)*0.30,link:"m_inequality"},
-      {name:ico(METRICS.disposableIncome.icon)+" Disposable Income",v:(METRICS.disposableIncome.value-50)*0.20,link:"m_disposableIncome"},
       ...(METRICS.gdp&&(1.3-METRICS.gdp.value)>0.05?[{name:ico('chart-down')+" Economic downturn (price softening)",v:Math.min(15,(1.3-METRICS.gdp.value)*6),link:"m_gdp"}]:[]),
       ...(POLICIES.affordableHousing&&effLevelOf(POLICIES.affordableHousing)>0?[{name:ico('house')+" Affordable Housing Bonds",v:effLevelOf(POLICIES.affordableHousing)*10,link:"p_affordableHousing"}]:[]),
       ...(POLICIES.rentStabilization&&effLevelOf(POLICIES.rentStabilization)>0?[{name:ico('houses')+" Rent Stabilization",v:effLevelOf(POLICIES.rentStabilization)*6,link:"p_rentStabilization"}]:[]),
@@ -2139,8 +2140,11 @@ const METRIC_LINKS=[
   {from:"homelessness",to:"disposableIncome", coef:-0.05, ref:55}, // housing stress: high homelessness tracks with rents/prices squeezing take-home budgets
   {from:"taxBurden",   to:"disposableIncome", coef:-0.14, ref:38},
   {from:"unemployment",to:"disposableIncome", coef:-1.1, ref:5.0},
-  {from:"gdp",         to:"disposableIncome", coef:1.0,  ref:2.0}, // growth helps households, but inequality mediates how much reaches the bottom
-  {from:"gspLevel",    to:"disposableIncome", coef:0.04, ref:305}, // a larger economy (not just a fast one) lifts household incomes; a shrunk one scars them
+  // the economy reaches households two ways: the SIZE of the economy sets the
+  // income level (below), and a downturn hits them through jobs (gdp→unemployment
+  // →disposableIncome) and through the shrinking GDP stock. The growth RATE has
+  // no separate direct line here — that was double-counting the same force.
+  {from:"gspLevel",    to:"disposableIncome", coef:0.045,ref:305}, // a larger economy lifts household incomes; a recession that shrinks it scars them for years
   {from:"inequality",  to:"disposableIncome", coef:-0.40, ref:55}, // high inequality means GDP gains pile up at the top; working households don't feel the growth
   {from:"disposableIncome", to:"gdp",         coef:0.006, ref:52}, // consumer spending
   {from:"transitShare",to:"environment",      coef:0.07, ref:8},   // mode shift cuts emissions
@@ -10484,7 +10488,7 @@ function buildWebEdges(){
     businessClimate:["m_taxBurden","m_gasPrice","m_propertyCrime","m_violentCrime","i_inMigration","m_education"],
     tourism:["m_environment","i_downtown"],
     taxGrievance:["m_taxBurden","m_gasPrice"],
-    housingAffordability:["m_homelessness","m_inequality","m_disposableIncome"],
+    housingAffordability:["m_homelessness","m_inequality"],
     ruralAlienation:["m_loggingRate","m_taxBurden","m_gasPrice"],
     justiceEffectiveness:["p_policing","a_judiciary","a_corrections"],
     transportFunding:["p_gasTax","p_vehicleReg","p_evFee"]};
