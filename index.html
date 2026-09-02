@@ -746,7 +746,11 @@
   .catcard:hover{transform:none;box-shadow:none}
   .crisis-card:hover,.mchip:hover,.tile:hover,.keystat:hover{background:var(--hover-bg)}
   .crisis-card{box-shadow:none}
-  .crisis-card.chronic{background:var(--tint-bad)}
+  /* every negative situation reads light-red, every positive one light-green —
+     regardless of chronic / flare-up / event category */
+  .crisis-card.bad{background:var(--tint-bad)}
+  .crisis-card.good{background:var(--tint-good)}
+  .crisis-card.bad:hover,.crisis-card.good:hover{background:var(--hover-bg)}
 
   /* header band + brick rule */
   header{border-bottom:4px solid var(--clay)}
@@ -7122,7 +7126,7 @@ function renderCompass(){
   const tiltCol=t>4?'var(--clay)':t<-4?'var(--slate-blue)':'inherit';
 
   const legWins=legacy.filter(x=>x.won).length;
-  let h=`<div class="sectionhdr">${ico('compass')} Political Compass</div>
+  let h=`${BACK_BTN_HTML}<div class="sectionhdr">${ico('compass')} Political Compass</div>
     <div class="sectionsub">Where the agenda you've actually enacted sits, built from the ideological lean of every live policy and agency posture (niche, symbolic measures count for less) plus the calls you've made in dilemmas. The horizontal axis is the state's economic role (spending, taxation, regulation, government size); the vertical axis is personal and cultural freedom versus state authority. <b class="mono" style="color:var(--gold)">START</b> is the mandate you inherited; <b class="mono" style="color:var(--clay)">NOW</b> is today; the blue trail is your path, one point per quarter.</div>
     <div class="compass-wrap">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
@@ -7152,6 +7156,7 @@ function renderCompass(){
       </div>
     </div>`;
   main.innerHTML=h;
+  wireBackBtn();
   const clt=document.getElementById("compassLegacyToggle");
   if(clt)clt.onclick=()=>{
     compassShowLegacy=!compassShowLegacy;
@@ -7868,7 +7873,7 @@ function renderCountyMap(){
   const legend=sh.legend.filter(l=>l.label).map(l=>`<span><i style="background:${l.c}"></i>${l.label}</span>`).join("");
   const top5=ranked.slice(0,6).map(r=>`<div class="ci-row"><span>${r.name}</span><span>${(r.pop/tot*100).toFixed(1)}%</span></div>`).join("");
 
-  main.innerHTML=`<button class="backbtn" id="cmapBack">← Back to the Governing Board</button>
+  main.innerHTML=`${BACK_BTN_HTML}
     <div class="sectionhdr">${ico('columns')} Oregon by County</div>
     <div class="sectionsub">The same 36-county geometry the election-night map uses. Hover a county — or tab through them — to see its share of the statewide electorate and its character. ${sh.caption}</div>
     <div class="cmap-top">
@@ -7916,7 +7921,7 @@ function renderCountyMap(){
     el.addEventListener("click",go);   // tap on touch devices
   });
   main.querySelectorAll(".cmap-modes button").forEach(b=>b.addEventListener("click",()=>{ cmapMode=b.dataset.mode; renderCountyMap(); }));
-  document.getElementById("cmapBack").addEventListener("click",()=>{ currentView="board"; render(); });
+  wireBackBtn();
 }
 
 /* Election-night breakdown: turnout + first-preference vote for every interest
@@ -8784,6 +8789,13 @@ function effectsBreakdownHTML(kind,obj){
   return h;
 }
 
+/* "‹ Back to board" — the same affordance the detail pages use, shared by every
+   full-screen tab (compass, voters, new policies, issue web, budget, county map). */
+const BACK_BTN_HTML=`<div class="detailtop"><button class="backbtn" id="tabBack">‹ Back to board</button></div>`;
+function wireBackBtn(){
+  const b=document.getElementById("tabBack");
+  if(b)b.onclick=()=>{ currentView="board"; detailKey=null; render(); };
+}
 /* ---------- BOARD (main page): metrics strip + 4 domain quadrants ---------- */
 function renderBoard(){
   let h=`<div class="sectionhdr">Governing Board</div>
@@ -9787,9 +9799,9 @@ function signed(v,dollar){const s=v>=0?'+':'';return dollar?(s+v.toFixed(1)):(s+
 /* ---------- NEW POLICIES (catalog) ---------- */
 function renderPolicies(){
   const avail=Object.keys(CATALOG);
-  let h=`<div class="sectionhdr">New Policies</div>
+  let h=`${BACK_BTN_HTML}<div class="sectionhdr">New Policies</div>
     <div class="sectionsub">Proposals not yet enacted, grouped by area. Tap a section to expand it, then enact a policy to spend capital and add it to your Governing Board.</div>`;
-  if(!avail.length){ main.innerHTML=h+`<div class="empty">No new policies available — all enacted.</div>`; return; }
+  if(!avail.length){ main.innerHTML=h+`<div class="empty">No new policies available — all enacted.</div>`; wireBackBtn(); return; }
   const renderCard=(id)=>{
     const p=CATALOG[id], net=policyNetCost(p);
     const isRevPol=p.revenueFull!==undefined||p.revenue!==undefined||net<0;
@@ -9831,6 +9843,7 @@ function renderPolicies(){
     h+=`</div>`;
   }
   main.innerHTML=h;
+  wireBackBtn();
   main.querySelectorAll('[data-polsec]').forEach(el=>el.addEventListener('click',()=>{
     const k=el.dataset.polsec; GAME.openPolSections[k]=!GAME.openPolSections[k]; render();
   }));
@@ -10050,7 +10063,7 @@ function renderVoters(){
   const CAT_NAME={ideology:"Ideology", income:"Income", housing:"Housing", region:"Region", lifestage:"Life stage", sector:"Work / lifestyle", universal:"Universal"};
   const catOf=(id)=>SIMULANTS[id]?(SIMULANTS[id].category||"sector"):"sector";
   const n=Object.keys(SIMULANTS).length;
-  let h="";
+  let h=BACK_BTN_HTML;
   // focus group: five real simulated voters (D4's focus-group screen)
   {
     const picks=[];
@@ -10099,15 +10112,17 @@ function renderVoters(){
     for(const sid of ids)h+=blocCard(sid);
   }
   main.innerHTML=h;
+  wireBackBtn();
   main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
 }
 function renderBudget(){
   const b=budgetBalance(), rev=revenueBySource(), spd=spendingByArea();
   const revRows=Object.keys(REVENUE).sort((a,c)=>rev[c]-rev[a]);
   const spdRows=Object.keys(SPENDING).sort((a,c)=>spd[c]-spd[a]);
-  let h=`<div class="detailtop"><button class="backbtn" id="budgetBack">‹ Back to board</button></div>
+  const salesTaxOn = !!(POLICIES.salesTax && POLICIES.salesTax.enacted);
+  let h=`${BACK_BTN_HTML}
     <div class="sectionhdr">State Budget</div>
-    <div class="sectionsub">Annualized General Fund + Lottery, 2025-27 biennium scale. Oregon has no sales tax — the personal income tax carries the budget. Figures move as you change tax rates and program funding.</div>`;
+    <div class="sectionsub">Annualized General Fund + Lottery, 2025-27 biennium scale. ${salesTaxOn?'The personal income tax still carries most of the budget, alongside the sales tax you enacted.':'Oregon has no sales tax — the personal income tax carries the budget.'} Figures move as you change tax rates and program funding.</div>`;
   {
     const debt=GAME.structuralDebt||0, res=(GAME.rainyDay||0)+(GAME.eduStability||0);
     h+=`<div class="mgrid" style="margin-bottom:22px">
@@ -10199,7 +10214,7 @@ function renderBudget(){
   main.innerHTML=h;
   main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
   const rdBtn=main.querySelector('[data-reservedraw]'); if(rdBtn)rdBtn.addEventListener('click',showReserveDraw);
-  const bBack=document.getElementById("budgetBack"); if(bBack)bBack.onclick=()=>{ currentView="board"; detailKey=null; render(); };
+  wireBackBtn();
 }
 /* Term progress + National Political Mood + Economic Climate readouts.
    prefix "" targets the side-panel ids; "b" targets the Governing Board strip. */
@@ -10438,10 +10453,11 @@ function renderWeb(){
     </g>`;
   }
   svg+=`</svg>`;
-  main.innerHTML=`<div class="sectionhdr">Issue Web</div>
+  main.innerHTML=`${BACK_BTN_HTML}<div class="sectionhdr">Issue Web</div>
     <div class="sectionsub">The whole simulation as one map. Hover any bubble to light up everything it pushes and everything pushing it — <span style="color:var(--good)">green</span> helps, <span style="color:var(--clay)">red</span> hurts, the <b>arrow runs from cause to effect</b>, and thicker lines are stronger. Click to open. Inner ring: state statistics · middle: active crises · outer: your policies &amp; agencies.</div>
     <div class="websearch"><svg class="sbico" aria-hidden="true"><use href="#ic-search"/></svg><input type="search" id="webSearch" placeholder="Search policies, metrics, agencies…" autocomplete="off"></div>
     <div class="webwrap">${svg}</div>`;
+  wireBackBtn();
   // interactions
   const svgEl=document.getElementById("webSvg");
   if(!svgEl||!svgEl.querySelectorAll)return;
