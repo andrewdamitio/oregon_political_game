@@ -412,8 +412,10 @@
   @keyframes sddPulse{0%{filter:none}30%{filter:drop-shadow(0 0 9px var(--slate-blue))}100%{filter:none}}
   .boardnode.sddpulse{animation:sddPulse 1.15s ease}
   .webwrap{background:var(--paper-2);border:1px solid var(--line);border-radius:4px;overflow:auto}
-  #webSvg{width:100%;min-width:760px;display:block}
+  #webSvg{width:100%;min-width:900px;display:block}
   .webedge{stroke-opacity:.10;transition:stroke-opacity .12s}
+  #webSvg .webvoter circle{transition:stroke-width .12s}
+  #webSvg .webvoter.dim{opacity:.14}
   #webSvg.focus .webedge{stroke-opacity:.04}
   #webSvg .webedge.hot{stroke-opacity:.95 !important}
   #webSvg .webedge.hot.egood{marker-end:url(#wm-arw-good)}
@@ -2230,7 +2232,7 @@ const SECTION_OF={
   downtown:"welfare", taxGrievance:"taxes", ruralAlienation:"environment", pensionBurden:"taxes", localAutonomy:"pubservices", mandate:"taxes", adminOverhead:"pubservices",
   govOps:"pubservices",
   // policies & agencies — taxes
-  incomeTax:"taxes", cannabisTax:"taxes", corpTax:"taxes", salesTax:"taxes", gasTax:"taxes", vehicleReg:"taxes", evFee:"taxes", estateTax:"taxes",
+  incomeTax:"taxes", cannabisTax:"taxes", corpTax:"taxes", salesTax:"taxes", gasTax:"taxes", vehicleReg:"taxes", evFee:"taxes", estateTax:"taxes", eitc:"taxes",
   carbonTax:"taxes", taxCut:"taxes", kickerReform:"taxes", propTaxReform:"taxes", preschoolForAll:"taxes", revenueDept:"taxes", treasury:"taxes", persReform:"taxes",
   // public services
   stateSchoolFund:"pubservices", universities:"pubservices", stateColleges:"pubservices", communityColleges:"pubservices",
@@ -2463,6 +2465,13 @@ const POLICIES={
     value:0.5, revenueFull:2.5, capital:7, repealCost:9, sliderFloor:0.05, effects:{gdp:-0.6,unemployment:0.4,taxBurden:8},
     real:{min:0.06,max:1.14,unit:"%",decimals:2,label:"rate"},
     ideology:{economic:-0.6,govSize:-0.5}},
+  eitc:{name:"Earned Income Tax Credit", domain:"economy", icon:"cash", enacted:true, mechanic:"slider",
+    desc:"Oregon's refundable Earned Income Credit, on the books since 1997 — a percentage of the federal EITC (currently 9%, or 12% for a family with a child under 3), paid out even when it exceeds tax owed. A cheap, tightly targeted anti-poverty and pro-work transfer: it lifts take-home pay at the bottom, narrows inequality, and rewards work rather than discouraging it. Raising the match costs revenue, and conservatives resist expanding a refundable credit.",
+    value:0.28, costFull:0.22, capital:5, repealCost:9,
+    effects:{inequality:-5, disposableIncome:2, unemployment:-0.15},
+    blocEffect:{poor:6, liberal:4, parents:3, socialist:3, renters:2, moderate:1, conservative:-2, wealthy:-1, businessClass:-1},
+    real:{min:0,max:40,unit:"% of federal",decimals:0,label:"state match"},
+    ideology:{economic:-0.4,govSize:-0.15}},
   vehicleReg:{name:"Vehicle Registration Fees", domain:"envInfra", icon:"road", enacted:true, mechanic:"slider",
     desc:"Registration and title fees funding ODOT. Raising them shores up the transportation budget; drivers grumble.",
     value:0.5, revenueFull:0.6, capital:5, repealCost:6, taxDir:"burden", sliderFloor:0.05, effects:{taxBurden:4},
@@ -10493,10 +10502,26 @@ function buildWebEdges(){
     justiceEffectiveness:["p_policing","a_judiciary","a_corrections"],
     transportFunding:["p_gasTax","p_vehicleReg","p_evFee"]};
   for(const iid in DD)for(const src of DD[iid])E.push({a:src,b:"i_"+iid,neutral:true,w:0.5});
+  // policy / agency / land-use → voter-group reactions (the same blocReaction
+  // that drives the "Voter bloc reactions" bars on each detail page). Green =
+  // this group is pleased, red = angered. Only reactions of real weight are drawn.
+  {
+    const src=[];
+    for(const id in POLICIES)src.push(["p_"+id,"policy",POLICIES[id]]);
+    for(const id in AGENCIES)src.push(["a_"+id,"agency",AGENCIES[id]]);
+    src.push(["landuse","landuse",LANDUSE]);
+    for(const [nid,kind,obj] of src){
+      for(const sid in SIMULANTS){
+        if(SIMULANTS[sid].static)continue;
+        const r=blocReaction(kind,obj,SIMULANTS[sid]);
+        if(r!=null&&Math.abs(r)>1.2)E.push({a:nid,b:"v_"+sid,good:r>=0,w:Math.min(4,0.6+Math.abs(r)*0.35)});
+      }
+    }
+  }
   return E;
 }
 function renderWeb(){
-  const W=1240,H=860,cx=W/2,cy=H/2;
+  const W=1420,H=860,cx=795,cy=H/2;   // rings shifted right to make room for the voter-group column on the left
   const nodes={}; // id -> {x,y,icon,label,cls,stroke}
   const place=(ids,rx,ry,startA)=>{ids.forEach((id,i)=>{const a=startA+i*2*Math.PI/ids.length;nodes[id].x=cx+rx*Math.cos(a);nodes[id].y=cy+ry*Math.sin(a);});};
   // metrics inner ring
@@ -10514,21 +10539,39 @@ function renderWeb(){
   const aIds=Object.keys(AGENCIES).map(k=>"a_"+k);
   for(const k in AGENCIES)nodes["a_"+k]={icon:AGENCIES[k].icon,label:AGENCIES[k].name,cls:"agency",stroke:'#b9a77a',val:""};
   nodes["landuse"]={icon:LANDUSE.icon,label:LANDUSE.name,cls:"policy",stroke:'var(--line)',val:""};
+  // voter groups — a fixed column down the left edge, in declaration (category) order
+  const vIds=Object.keys(SIMULANTS).filter(k=>!SIMULANTS[k].static).map(k=>"v_"+k);
+  vIds.forEach((id,i)=>{
+    const s=SIMULANTS[id.slice(2)];
+    const col=s.approval>=55?'var(--good)':s.approval>=45?'var(--warn)':'var(--bad)';
+    nodes[id]={kind:"voter",label:s.name.length>19?s.name.slice(0,18)+"…":s.name,stroke:col,
+      x:58, y:46+i*((H-92)/(vIds.length-1))};
+  });
   place(mIds,225,155,-Math.PI/2);
   place(iIds.concat(sIds),375,255,-Math.PI/2+0.3);
   place(pIds.concat(aIds).concat(["landuse"]),545,375,-Math.PI/2);
   const edges=buildWebEdges().filter(e=>nodes[e.a]&&nodes[e.b]);
   let svg=`<svg id="webSvg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
   svg+=webArrowDefs("wm");
+  // voter-column backdrop: a faint frame + heading so it reads as its own panel
+  svg+=`<line x1="200" y1="24" x2="200" y2="${H-16}" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 4" opacity="0.6"/>
+    <text x="58" y="24" text-anchor="middle" class="weblbl" style="font-size:9px;letter-spacing:1px;fill:var(--muted-1)">VOTER GROUPS</text>`;
   // edges as gentle curves through a control point nudged toward center
   for(let i=0;i<edges.length;i++){
     const e=edges[i],A=nodes[e.a],B=nodes[e.b];
     const mx=(A.x+B.x)/2+(cx-(A.x+B.x)/2)*0.18, my=(A.y+B.y)/2+(cy-(A.y+B.y)/2)*0.18;
-    svg+=webEdgePath(e,A,B,mx,my,nodes[e.b].cls==="metric"?22:19);
+    svg+=webEdgePath(e,A,B,mx,my,(nodes[e.b].kind==="voter")?13:(nodes[e.b].cls==="metric"?22:19));
   }
   // nodes
   for(const id in nodes){
     const n=nodes[id];
+    if(n.kind==="voter"){
+      svg+=`<g class="webnode webvoter" data-node="${id}" transform="translate(${n.x.toFixed(0)},${n.y.toFixed(0)})">
+        <circle r="10" fill="var(--paper-2)" stroke="${n.stroke}" stroke-width="2.4"/>
+        <text x="17" y="3.5" text-anchor="start" class="weblbl">${n.label}</text>
+      </g>`;
+      continue;
+    }
     const r=n.cls==="metric"?20:17;
     svg+=`<g class="webnode" data-node="${id}" transform="translate(${n.x.toFixed(0)},${n.y.toFixed(0)})">
       <circle r="${r}" fill="var(--paper-2)" stroke="${n.stroke}" stroke-width="2.2"/>
@@ -10538,7 +10581,7 @@ function renderWeb(){
   }
   svg+=`</svg>`;
   main.innerHTML=`${BACK_BTN_HTML}<div class="sectionhdr">Issue Web</div>
-    <div class="sectionsub">The whole simulation as one map. Hover any bubble to light up everything it pushes and everything pushing it — <span style="color:var(--good)">green</span> helps, <span style="color:var(--clay)">red</span> hurts, the <b>arrow runs from cause to effect</b>, and thicker lines are stronger. Click to open. Inner ring: state statistics · middle: active crises · outer: your policies &amp; agencies.</div>
+    <div class="sectionsub">The whole simulation as one map. Hover any bubble to light up everything it pushes and everything pushing it — <span style="color:var(--good)">green</span> helps, <span style="color:var(--clay)">red</span> hurts, the <b>arrow runs from cause to effect</b>, and thicker lines are stronger. Click to open. Left column: <b>voter groups</b> (hover a policy to see who it pleases or angers) · inner ring: state statistics · middle: active crises · outer: your policies &amp; agencies.</div>
     <div class="websearch"><svg class="sbico" aria-hidden="true"><use href="#ic-search"/></svg><input type="search" id="webSearch" placeholder="Search policies, metrics, agencies…" autocomplete="off"></div>
     <div class="webwrap">${svg}</div>`;
   wireBackBtn();
