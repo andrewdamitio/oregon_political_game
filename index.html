@@ -1505,9 +1505,9 @@ const METRICS={
     inertia:0.12, realNote:"Strong baseline; wildfire pressure"},
   gdp:{name:"GDP Growth Rate (annualized)", icon:"chart-up", value:1.8, baseline:1.8, eq:1.3, min:-4,max:4,
     inertia:0.25, fmt:"pctRaw", realNote:"~2% real growth"},
-  gspLevel:{name:"Gross State Product", icon:"chart-up", value:305, baseline:305, min:180, max:900,
+  gspLevel:{name:"GDP", icon:"chart-up", value:305, baseline:305, min:180, max:900,
     inertia:0.08, fmt:"gsp", selfManaged:true,
-    realNote:"Oregon's total economic output ≈ $300B (2024). A stock, not a rate — it compounds at the GDP Growth Rate each quarter, and a recession shrinks it. A bigger economy widens the tax base and raises the fiscal-crisis line."},
+    realNote:"Oregon's total economic output (gross state product) ≈ $300B (2024). A stock, not a rate — it compounds at the GDP Growth Rate each quarter, and a recession shrinks it. A bigger economy widens the tax base and raises the fiscal-crisis line."},
   inequality:{name:"Inequality", icon:"scales", value:55, baseline:55, eq:60, min:0,max:100,
     inertia:0.14, invert:true, realNote:"Income gap; higher = more unequal"},
   gasPrice:{name:"Gas Price", icon:"fuel", value:3.95, baseline:3.95, eq:3.82, min:2.5,max:7,
@@ -5622,7 +5622,7 @@ function tickMetrics(){
     m.value+=(metricTarget(k)-m.value)*m.inertia;
     m.value=clamp(m.value,m.min,m.max);
   }
-  // Gross State Product is a stock: it compounds at the (annualized) growth rate,
+  // total GDP (gross state product) is a stock: it compounds at the (annualized) growth rate,
   // one quarter at a time — a boom grows it faster, a recession shrinks it.
   if(METRICS.gspLevel){
     const g=METRICS.gdp.value;   // annualized real growth, %
@@ -6128,7 +6128,7 @@ function revenueBySource(){
   const sinCycle    = 1 - GAME.econCycle*0.02;                          // mildly countercyclical (recession drinking/gambling)
   // the tax BASE tracks the size of the economy (a slow structural drift on top
   // of the fast cycle): a decade of solid growth lifts every broad tax; a deep
-  // recession that shrinks GSP leaves revenue structurally lower even after
+  // recession that shrinks GDP leaves revenue structurally lower even after
   // growth resumes. 1.0 at the starting economy.
   const gspMult = METRICS.gspLevel ? clamp(METRICS.gspLevel.value/METRICS.gspLevel.baseline, 0.7, 1.6) : 1;
   for(const id in REVENUE){
@@ -6327,7 +6327,7 @@ function budgetBalance(){
 /* The accumulated-shortfall level that tips into a Structural Deficit Crisis.
    Scaled to the size of the state economy — a $0.8B hole means far more to a
    $300B economy than to a $500B one — rather than a fixed dollar figure.
-   Roughly 0.26% of Gross State Product (≈ $0.8B at the starting ~$305B). */
+   Roughly 0.26% of total GDP (≈ $0.8B at the starting ~$305B). */
 function fiscalCrisisThreshold(){
   const gsp=METRICS.gspLevel ? METRICS.gspLevel.value : 305;
   return +clamp(gsp*0.0026, 0.5, 5).toFixed(2);
@@ -9313,13 +9313,13 @@ function renderDetail(){
       const gi=Math.round(effective("gdp"));
       const giCol=gi>=66?'var(--good)':gi>=52?'var(--warn)':'var(--bad)';
       h+=`<div class="detailrow"><span class="pill">${ico('chart-up')} GDP Index: <b style="color:${giCol}">${gi}</b>/100</span><span class="pill">The 0–100 economic-strength score campaign promises track — <b>50 + growth×8</b> (≈60 at trend growth, ≈66 at 2%). "GDP Index ≥ 60" means growth at or above ~1.25%.</span></div>`;
-      if(METRICS.gspLevel)h+=`<div class="detailrow"><span class="pill" data-detail="m_gspLevel" style="cursor:pointer">${ico('chart-up')} Compounds into Gross State Product — now <b>$${Math.round(METRICS.gspLevel.value)}B</b></span></div>`;
+      if(METRICS.gspLevel)h+=`<div class="detailrow"><span class="pill" data-detail="m_gspLevel" style="cursor:pointer">${ico('chart-up')} Compounds into total GDP — now <b>$${Math.round(METRICS.gspLevel.value)}B</b></span></div>`;
     }
     if(k==="gspLevel"){
       const gr=METRICS.gdp.value, thr=fiscalCrisisThreshold();
       h+=`<div class="detailrow"><span class="pill">${ico('chart-up')} Compounding at <b>${gr>=0?'+':''}${gr.toFixed(1)}%</b>/yr</span>
         <span class="pill" data-detail="m_gdp" style="cursor:pointer">← driven by the GDP Growth Rate</span></div>
-        <div class="sectionsub" style="margin-top:2px">This is a <b>stock</b>, not a rate: each quarter it grows by one quarter's worth of the annualized growth rate, so a run of good growth builds a permanently larger economy and a recession leaves a lasting dent. It feeds the state in three ways — a wider <b>tax base</b> (income, corporate and sales revenue scale with it), higher household <b>Disposable Income</b>, and it sets the <b>Structural Deficit Crisis</b> line, currently <b>−$${thr.toFixed(2)}B</b> (~0.26% of GSP).</div>`;
+        <div class="sectionsub" style="margin-top:2px">Oregon's total economic output (gross state product). This is a <b>stock</b>, not a rate: each quarter it grows by one quarter's worth of the annualized growth rate, so a run of good growth builds a permanently larger economy and a recession leaves a lasting dent. It feeds the state in three ways — a wider <b>tax base</b> (income, corporate and sales revenue scale with it), higher household <b>Disposable Income</b>, and it sets the <b>Structural Deficit Crisis</b> line, currently <b>−$${thr.toFixed(2)}B</b> (~0.26% of GDP).</div>`;
     }
     h+=`<div class="chartbox"><div class="charttitle">Value over time</div>
       ${sparkline(GAME.history["m_"+k],{axis:true, marks:policyMarksFor(k), color:m.invert?'var(--clay)':'var(--moss)',fmt:v=>m.fmt==="pctRaw"?v.toFixed(1)+"%":Math.round(v)})}
@@ -10233,7 +10233,7 @@ function renderBudget(){
         <div class="fnote">${near
           ? `Deficits carried past an exhausted Rainy Day Fund${ds?` — <b>${ds}</b> consecutive deficit ${ds===1?'quarter':'quarters'}`:''}. Every surplus pays this down first.`
           : `Nothing carried — every quarter's gap has been met by revenue or the Rainy Day Fund.`}
-          A <b>Structural Deficit Crisis</b> triggers past <b>−$${thr.toFixed(2)}B</b> (≈0.26% of the $${Math.round((METRICS.gspLevel?METRICS.gspLevel.value:305))}B state economy — the bar rises as the economy grows) or four straight deficit quarters. ${(near&&GAME.rainyDay>0.3)?'Draw on the Rainy Day Fund above to pay it down.':''}</div></div>`;
+          A <b>Structural Deficit Crisis</b> triggers past <b>−$${thr.toFixed(2)}B</b> (≈0.26% of the state's $${Math.round((METRICS.gspLevel?METRICS.gspLevel.value:305))}B GDP — the bar rises as the economy grows) or four straight deficit quarters. ${(near&&GAME.rainyDay>0.3)?'Draw on the Rainy Day Fund above to pay it down.':''}</div></div>`;
     }
     // --- revenue dynamics ---
     if(POLICIES.kickerReform){
@@ -10249,8 +10249,8 @@ function renderBudget(){
     {
       const gsp=METRICS.gspLevel?METRICS.gspLevel.value:305;
       const gr=METRICS.gdp.value;
-      h+=`<div class="fcard"><div class="fname">${ico('chart-up')} State Economy (GSP)</div><div class="fval" style="color:${gsp>=METRICS.gspLevel.baseline?'var(--good)':'var(--clay)'}">$${Math.round(gsp)}B</div>
-        <div class="fnote">Total output, compounding at ${gr>=0?'+':''}${gr.toFixed(1)}%/yr. The slow structural trend under the cycle: a bigger economy widens the tax base and raises the crisis line above; a recession that shrinks it scars revenue for years. <span data-detail="m_gspLevel" style="color:var(--slate-blue);cursor:pointer">details →</span></div></div>`;
+      h+=`<div class="fcard"><div class="fname">${ico('chart-up')} GDP (total output)</div><div class="fval" style="color:${gsp>=METRICS.gspLevel.baseline?'var(--good)':'var(--clay)'}">$${Math.round(gsp)}B</div>
+        <div class="fnote">The whole state economy, compounding at ${gr>=0?'+':''}${gr.toFixed(1)}%/yr. The slow structural trend under the cycle: a bigger economy widens the tax base and raises the crisis line above; a recession that shrinks it scars revenue for years. <span data-detail="m_gspLevel" style="color:var(--slate-blue);cursor:pointer">details →</span></div></div>`;
     }
     // --- cost pressures ---
     h+=`<div class="fcard"><div class="fname">⚰️ PERS Pension Costs</div><div class="fval" style="color:var(--clay)">$${GAME.persRate.toFixed(2)}B</div>
@@ -10466,7 +10466,7 @@ function buildWebEdges(){
     const v=(METRICS[L.from].value-L.ref)*L.coef;
     E.push({a:"m_"+L.from,b:"m_"+L.to,good:goodFor(L.to,v!==0?v:L.coef),w:Math.max(0.4,Math.abs(v))});
   }
-  // GDP growth compounds into the Gross State Product stock each quarter
+  // the GDP Growth Rate compounds into the GDP (total-output) stock each quarter
   if(METRICS.gspLevel)E.push({a:"m_gdp",b:"m_gspLevel",good:METRICS.gdp.value>=0,w:1.3});
   for(const sid in GAME.activeSituations){
     const st=SITUATIONS[sid]; if(!st)continue;
