@@ -190,6 +190,7 @@
   .dilemma-opts{display:flex;flex-direction:column;gap:10px}
   .dilemma-opt{text-align:left;background:var(--paper-2);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:3px;padding:12px 14px;cursor:pointer;transition:background .12s;color:var(--ink) !important}
   .dilemma-opt:hover{background:var(--hover-bg)}
+  .dilemma-opt:disabled,.dilemma-opt.opt-disabled{opacity:.5;cursor:not-allowed;filter:grayscale(.5);pointer-events:none}
   .do-label{display:block;font-weight:600;font-size:13px;color:var(--ink)}
   .do-sub{display:block;font-size:11.5px;color:var(--muted-1);margin-top:3px}
   .do-label{display:block;font-family:var(--font-display);font-size:15px;font-weight:600;color:var(--ink)}
@@ -1124,7 +1125,6 @@
     <div class="stat"><div class="label">Quarterly Balance</div><div class="val ok" id="hudBudget">+0.00B</div></div>
     <div class="stat" id="hudFiscalStat"><div class="label" id="hudFiscalLabel">Reserves</div><div class="val" id="hudFiscal">$0.0B</div></div>
     <button id="reportBtn" title="Reopen the last quarterly report" style="background:none;border:1px solid rgba(255,255,255,.22);color:var(--chrome-fg);padding:5px 11px;border-radius:2px;cursor:pointer;font-size:14px;margin-right:6px;line-height:1;opacity:0.85"><svg class="ico" aria-hidden="true"><use href="#ic-doc"/></svg></button>
-    <button id="campBtn" title="Campaign HQ — platform, mobilisations, campaign energy" style="background:none;border:1px solid rgba(255,255,255,.22);color:var(--chrome-fg);padding:5px 11px;border-radius:2px;cursor:pointer;font-size:14px;margin-right:6px;line-height:1;opacity:0.85"><svg class="ico" aria-hidden="true"><use href="#ic-ballot"/></svg></button>
     <button id="saveBtn" title="Save your game" style="background:none;border:1px solid rgba(255,255,255,.22);color:var(--chrome-fg);padding:5px 11px;border-radius:2px;cursor:pointer;font-size:14px;margin-right:6px;line-height:1;opacity:0.85"><svg class="ico" aria-hidden="true"><use href="#ic-floppy"/></svg></button>
     <button id="sfxToggle" title="Sound effects on/off" style="background:none;border:1px solid rgba(255,255,255,.22);color:var(--chrome-fg);padding:5px 11px;border-radius:2px;cursor:pointer;font-size:14px;margin-right:6px;line-height:1;opacity:0.85"><svg class="ico" aria-hidden="true"><use href="#ic-volume"/></svg></button><button id="themeToggle" title="Toggle dark/light mode" style="background:none;border:1px solid rgba(255,255,255,.22);color:var(--chrome-fg);padding:5px 11px;border-radius:2px;cursor:pointer;font-size:14px;margin-right:6px;line-height:1;opacity:0.85"><svg class="ico" aria-hidden="true"><use href="#ic-moon"/></svg></button><button class="turnbtn" id="endTurn">End Quarter ▸</button>
   </div>
@@ -1137,6 +1137,7 @@
     <button data-view="policies">New Policies</button>
     <button data-view="voters">Voters</button>
     <button data-view="budget">Budget</button>
+    <button data-view="camphq">Campaign HQ</button>
     <button class="railmap railcompass" data-view="compass" id="railCompass" title="Political compass" aria-label="Open the political compass"></button>
     <button class="railmap" data-view="countymap" id="railMap" title="Oregon county map" aria-label="Open the Oregon county map"></button>
   </nav>
@@ -7606,16 +7607,18 @@ function _resolveSurplus(fraction, capCost){
 function showSurplusChoice(next){
   const p=GAME.pendingSurplus;
   if(!p){ if(next)next(); return; }
-  // pushing a dedication through the legislature costs real capital — no capital,
-  // no choice: the kicker simply fires.
-  if(GAME.capital<6){ _resolveSurplus(0,0); if(next)next(); return; }
   const s=p.surplus;
+  const cap=GAME.capital;
+  const canAll=cap>=6, canHalf=cap>=3;
   const card=document.getElementById("surplusCard");
+  const opt=(f,c,label,sub,ok)=>`<button class="dilemma-opt${ok?'':' opt-disabled'}" ${ok?`data-f="${f}" data-c="${c}"`:'disabled'}>`
+    +`<span class="do-label">${label}</span>`
+    +`<span class="do-sub">${sub}${ok?'':` <b style="color:var(--clay)">— you hold only ◈${cap}</b>`}</span></button>`;
   card.innerHTML=`<h2>${ico('cash-fly')} Revenue Beat the Forecast</h2>
-    <div class="sectionsub">General Fund revenue came in more than 2% over forecast, so Oregon's constitutional <b>kicker</b> is triggered — the whole <b>$${s.toFixed(2)}B</b> surplus is set to refund to taxpayers next quarter. Before it does, you can spend political capital to move part of it into the state's emergency reserves — the Rainy Day and Education Stability funds. Whatever you don't move is refunded, and it's gone.</div>
+    <div class="sectionsub">General Fund revenue came in more than 2% over forecast, so Oregon's constitutional <b>kicker</b> is triggered — the whole <b>$${s.toFixed(2)}B</b> surplus is set to refund to taxpayers next quarter. Before it does, you can spend political capital to move part of it into the state's emergency reserves — the Rainy Day and Education Stability funds. Whatever you don't move is refunded, and it's gone.${(!canAll&&!canHalf)?` <b>You don't have the capital to redirect any of it this time.</b>`:''}</div>
     <div class="dilemma-opts" style="margin-top:14px">
-      <button class="dilemma-opt" data-f="1" data-c="6"><span class="do-label">Dedicate all of it</span><span class="do-sub">$${s.toFixed(2)}B → emergency reserves · −◈6 political capital</span></button>
-      <button class="dilemma-opt" data-f="0.5" data-c="3"><span class="do-label">Dedicate half</span><span class="do-sub">$${(s*0.5).toFixed(2)}B to reserves, $${(s*0.5).toFixed(2)}B refunds · −◈3 political capital</span></button>
+      ${opt(1,6,"Dedicate all of it",`$${s.toFixed(2)}B → emergency reserves · −◈6 political capital`,canAll)}
+      ${opt(0.5,3,"Dedicate half",`$${(s*0.5).toFixed(2)}B to reserves, $${(s*0.5).toFixed(2)}B refunds · −◈3 political capital`,canHalf)}
       <button class="dilemma-opt" data-f="0" data-c="0"><span class="do-label">Do nothing</span><span class="do-sub">The kicker refunds all $${s.toFixed(2)}B to taxpayers next quarter · no capital spent</span></button>
     </div>`;
   const modal=document.getElementById("surplusModal");
@@ -7629,7 +7632,7 @@ function showSurplusChoice(next){
   };
   const onKey=(e)=>{ if(modal.classList.contains("hidden"))return;
     if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(0,0); } };
-  card.querySelectorAll('.dilemma-opt').forEach(b=>b.addEventListener('click',()=>done(+b.dataset.f,+b.dataset.c)));
+  card.querySelectorAll('.dilemma-opt[data-f]').forEach(b=>b.addEventListener('click',()=>done(+b.dataset.f,+b.dataset.c)));
   document.addEventListener("keydown",onKey,true);
   // no autofocus — this is a real choice; a stray Enter shouldn't spend capital. Esc = let it refund.
 }
@@ -8286,52 +8289,26 @@ function doElectionTurn(){
   GAME.campaignDone=false;
   render(); showElection(runElection());
 }
-/* campaign popup — shown every time the player clicks "End Quarter" (and from
-   the top-bar ballot icon). The one campaign surface: platform promises, the
-   organised groups for/against you, per-bloc energy pushes, and the county map. */
-function showCampPopup(opts){
-  const manual=!!(opts&&opts.manual);   // opened from the top-bar icon, not the End-Quarter flow
-  campPopupManual=manual;
-  const c=GAME.campaign=GAME.campaign||{effort:{},promises:[],pool:10};
-  const nextInto=(GAME.turn+1)-(GAME.term-1)*GAME.termLengthTurns;
-  const isElecQ=nextInto>=GAME.termLengthTurns-1;
-  const yearsLeft=GAME.termLengthTurns-1-((GAME.turn)-(GAME.term-1)*GAME.termLengthTurns);
-
-  const noEnergy=GAME.campEnergy<1;
-  const advLabel=manual?"Done":isElecQ?"Hold Election ▸":(noEnergy?"Advance ▸":"Skip &amp; Advance ▸");
-
-  let h=`<div class="sectionhdr">${ico('ballot')} ${manual?"Campaign HQ":isElecQ?"Election Campaign — Final Quarter":"Campaigning"}</div>
-    <div class="sectionsub">${manual
-      ?`Where your term's platform stands, who's organised for or against you, and this quarter's campaign energy — spent on voter blocs or the county map. This won't end the quarter.`
-      :isElecQ
-      ?`<b style="color:var(--clay)">The election follows this quarter.</b> Make your last-minute pushes on blocs and counties, then hold the election. You'll set the next term's platform straight after the result.`
-      :`Work the blocs and the county map, then end the quarter. ${yearsLeft>0?`Election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`:''}`
-    }</div>`;
-
-  // advance button at top
-  h+=`<div style="margin:10px 0 14px;display:flex;align-items:center;gap:14px">
-    <button class="enactbtn" id="campPopAdvance">${advLabel}</button>
-    ${(!isElecQ&&!manual)?`<label style="font-size:12px;color:var(--muted-2);cursor:pointer;user-select:none;display:flex;align-items:center;gap:5px"><input type="checkbox" id="campSkipChk"${GAME.skipCampaign?' checked':''}>Don't show again this term <span style="color:var(--muted-3)">(reopen from the ${ico('ballot')} icon up top)</span></label>`:''}
-  </div>`;
-
+/* The one campaign surface — platform progress, organised groups for/against
+   you, per-bloc energy pushes, the county map. Shared by the Campaign HQ page
+   (reached from the left rail) and the End-Quarter popup. */
+function campHQBodyHTML(){
+  GAME.campaign=GAME.campaign||{effort:{},promises:[],pool:10};
+  let h="";
   // ---- platform this term: read-only. Pledges are committed right after you
   //      win (showPlatformModal), then tracked here through the term ----
   const nAp=(GAME.activePromises||[]).length;
   h+=`<div class="camp-sec" style="margin-top:6px">${ico('doc')} Platform this term <span class="sec-note">— ${nAp} pledge${nAp===1?'':'s'}</span></div>
     <div class="sectionsub" style="margin-top:0">Set when you took office — <b>you can't add more this term</b>. At the election, each promise <b>kept</b> rewards the blocs that cared; each one <b>broken</b> breeds cynicism and a mandate hit${nAp?`. If a pledge is out of reach you can <b>abandon</b> it: same broken-promise hit, but taken now — so it has the rest of the term to fade instead of landing at the ballot box`:``}.</div>`;
   h+=platformProgressHTML();
-
   // ---- who's organised for / against you ----
   h+=mobilizationsHTML();
-
   // energy meter
   h+=`<div class="energybar" style="margin-top:16px"><span class="energy-label">Campaign energy remaining</span>
     <span class="energy-pips">${Array.from({length:GAME.campEnergyMax},(_,i)=>`<i class="${i<GAME.campEnergy?'on':''}"></i>`).join("")}</span>
     <span class="energy-num">${GAME.campEnergy} / ${GAME.campEnergyMax}</span></div>`;
-
   // county campaign map — one of the two places campaign energy goes
   h+=campMapMarkup();
-
   // bloc grid — mobilise / persuade voter groups
   h+=`<div class="camp-sec">${ico('handshake')} Voter groups — persuade &amp; mobilise</div>`;
   h+=`<div class="campgrid2" style="margin-top:10px">`;
@@ -8357,43 +8334,74 @@ function showCampPopup(opts){
     </div>`;
   }
   h+=`</div>`;
-
   // recent push results
   if(GAME.campLog.length){
     h+=`<div class="camp-sec">${ico('doc')} Recent results</div><div class="camplog">`;
     for(const e of GAME.campLog.slice(0,4))h+=`<div class="camplog-row ${e.ok?'ok':'fail'}">${e.msg}</div>`;
     h+=`</div>`;
   }
+  return h;
+}
+/* wire the interactive bits of the campaign surface — energy pushes, county map,
+   abandon-pledge. campRedraw() knows whether to re-render the popup or the page. */
+function wireCampHQ(root){
+  root.querySelectorAll('[data-push]').forEach(el=>el.addEventListener('click',()=>{
+    const r=campPush(el.dataset.push, el.dataset.sid);
+    if(r)GAME.log.push(r.msg);
+    campRedraw();
+  }));
+  wireCampMap(root);
+  root.querySelectorAll('[data-abandon]').forEach(el=>el.addEventListener('click',()=>{ abandonPromise(el.dataset.abandon); campRedraw(); }));
+}
+/* Campaign HQ as a full page (left rail). Any pushes / county work you do here
+   persist to GAME state and show up in the End-Quarter popup. */
+function renderCampaignHQ(){
+  let h=`${BACK_BTN_HTML}<div class="sectionhdr">${ico('ballot')} Campaign HQ</div>
+    <div class="sectionsub">Where your term's platform stands, who's organised for or against you, and this quarter's campaign energy — spent on voter blocs or the county map. Anything you do here carries into the campaign screen when you end the quarter.</div>`;
+  h+=campHQBodyHTML();
+  main.innerHTML=h;
+  wireBackBtn();
+  wireCampHQ(main);
+}
+/* End-Quarter campaign popup — same surface, plus the advance/hold-election
+   control. */
+function showCampPopup(opts){
+  const manual=!!(opts&&opts.manual);
+  campPopupManual=manual;
+  const nextInto=(GAME.turn+1)-(GAME.term-1)*GAME.termLengthTurns;
+  const isElecQ=nextInto>=GAME.termLengthTurns-1;
+  const yearsLeft=GAME.termLengthTurns-1-((GAME.turn)-(GAME.term-1)*GAME.termLengthTurns);
+  const noEnergy=GAME.campEnergy<1;
+  const advLabel=manual?"Done":isElecQ?"Hold Election ▸":(noEnergy?"Advance ▸":"Skip &amp; Advance ▸");
+
+  let h=`<div class="sectionhdr">${ico('ballot')} ${manual?"Campaign HQ":isElecQ?"Election Campaign — Final Quarter":"Campaigning"}</div>
+    <div class="sectionsub">${manual
+      ?`Where your term's platform stands, who's organised for or against you, and this quarter's campaign energy. This won't end the quarter.`
+      :isElecQ
+      ?`<b style="color:var(--clay)">The election follows this quarter.</b> Make your last-minute pushes on blocs and counties, then hold the election. You'll set the next term's platform straight after the result.`
+      :`Work the blocs and the county map, then end the quarter. ${yearsLeft>0?`Election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`:''}`
+    }</div>`;
+  h+=`<div style="margin:10px 0 14px;display:flex;align-items:center;gap:14px">
+    <button class="enactbtn" id="campPopAdvance">${advLabel}</button>
+    ${(!isElecQ&&!manual)?`<label style="font-size:12px;color:var(--muted-2);cursor:pointer;user-select:none;display:flex;align-items:center;gap:5px"><input type="checkbox" id="campSkipChk"${GAME.skipCampaign?' checked':''}>Don't show again this term <span style="color:var(--muted-3)">(reopen from <b>Campaign HQ</b> in the sidebar)</span></label>`:''}
+  </div>`;
+  h+=campHQBodyHTML();
 
   const card=document.getElementById("campPopupCard");
   const savedScroll=card.scrollTop;
   card.innerHTML=h;
   card.scrollTop=savedScroll;
   document.getElementById("campPopupModal").classList.remove("hidden");
-
-  // wire push buttons (re-render popup on click to update odds/boosts/log)
-  card.querySelectorAll('[data-push]').forEach(el=>el.addEventListener('click',()=>{
-    const r=campPush(el.dataset.push, el.dataset.sid);
-    if(r)GAME.log.push(r.msg);
-    showCampPopup({manual});
-  }));
-  // wire the county campaign map (campCounty → campRedraw re-renders this popup)
-  wireCampMap(card);
-  // wire "abandon pledge" buttons
-  card.querySelectorAll('[data-abandon]').forEach(el=>el.addEventListener('click',()=>abandonPromise(el.dataset.abandon)));
+  wireCampHQ(card);
+  const _skipChk=document.getElementById("campSkipChk");
+  if(_skipChk)_skipChk.onchange=()=>{ GAME.skipCampaign=_skipChk.checked; };
   document.getElementById("campPopAdvance").onclick=()=>{
     document.getElementById("campPopupModal").classList.add("hidden");
     if(manual){ render(); return; }               // just spending energy — don't advance the quarter
     const skipChk=document.getElementById("campSkipChk");
     if(skipChk&&skipChk.checked)GAME.skipCampaign=true;
-    if(isElecQ){
-      doElectionTurn();   // the next term's platform is set right after the result, not now
-    } else {
-      doEndTurn();
-    }
+    if(isElecQ){ doElectionTurn(); } else { doEndTurn(); }
   };
-  const _skipChk=document.getElementById("campSkipChk");
-  if(_skipChk)_skipChk.onchange=()=>{ GAME.skipCampaign=_skipChk.checked; };
 }
 function endTurn(){
   if(GAME.gameOver)return;
@@ -10809,7 +10817,7 @@ function render(){
     wrap.classList.toggle("boardwide",currentView==="board");   // full-width living map
     wrap.classList.toggle("novoters",!showVoters);
   }
-  ({board:renderBoard,detail:renderDetail,policies:renderPolicies,voters:renderVoters,budget:renderBudget,web:renderWeb,compass:renderCompass,countymap:renderCountyMap}[currentView]||renderBoard)();
+  ({board:renderBoard,detail:renderDetail,policies:renderPolicies,voters:renderVoters,budget:renderBudget,web:renderWeb,compass:renderCompass,countymap:renderCountyMap,camphq:renderCampaignHQ}[currentView]||renderBoard)();
   renderDilemma();
 }
 document.querySelectorAll('nav.rail button').forEach(b=>b.addEventListener('click',()=>{
@@ -10941,7 +10949,6 @@ try{
   document.getElementById("resumeNo").onclick=()=>go(false);
 })();
 {const sb=document.getElementById("saveBtn"); if(sb)sb.addEventListener("click",()=>saveGame(sb));}
-{const cb=document.getElementById("campBtn"); if(cb)cb.addEventListener("click",()=>showCampPopup({manual:true}));}
 
 render();
 // fresh game with no save prompt on screen: welcome, then set the opening platform
