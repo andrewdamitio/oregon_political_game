@@ -4859,10 +4859,12 @@ const SITUATIONS={
   // RANDOM EVENTS — episodic, roll in and out (see EVENT_POOL).
   // ============================================================
   wildfireSeason:{name:"Severe Wildfire Season", kind:"bad", category:"event",
-    desc:"Catastrophic wildfires choke the Willamette Valley with smoke and force evacuations across eastern and southern Oregon.",
+    desc:"Catastrophic wildfires choke the Willamette Valley with smoke and force evacuations across eastern and southern Oregon. Hundreds of thousands of acres of forest and watershed burn — environmental quality falls hard, then heals slowly over the years it takes the land to come back.",
     costEffect:{natResources:0.45},
-    metricEffect:{environment:-4,health:-3,gdp:-0.3,loggingRate:-6}, moodAxes:{environment:-0.2}, moodMag:2, minTurns:2,
-    onTrigger:{capital:-4, metrics:{environment:-6}, countyMood:{spec:COUNTY_GROUPS.fireCountry, value:-5, decay:0.9, label:"Fire-country counties — evacuations & smoke"}}, mandateShock:-5,
+    metricEffect:{environment:-8,health:-4,gdp:-0.4,loggingRate:-6}, moodAxes:{environment:-0.2}, moodMag:2, minTurns:2,
+    onTrigger:{capital:-4, metrics:{environment:-12},
+      grudges:[{target:"m_environment", value:-3, decay:0.9, label:"Burn scars — forests & watersheds regrowing"}],
+      countyMood:{spec:COUNTY_GROUPS.fireCountry, value:-5, decay:0.9, label:"Fire-country counties — evacuations & smoke"}}, mandateShock:-5,
     groupMood:{rural:-8,timber:-9,students:-3,liberal:-2,blueCollar:-2}},
   businessExodus:{name:"Business Climate Collapse", kind:"bad", category:"condition",
     desc:"Oregon's stacked costs and regulatory burden have crossed a tipping point. Companies are announcing relocations to Washington and Idaho — and the exodus feeds itself: as anchor firms leave, their suppliers and service vendors follow, Oregon's anti-business reputation hardens, and the remaining talent pool thins. Reversing it requires meaningfully improving the business climate, not just stopping the slide.",
@@ -5716,6 +5718,8 @@ function startSituation(sid){
     if(s.onTrigger.capital)GAME.capital=clamp(GAME.capital+s.onTrigger.capital,0,100);
     if(s.onTrigger.fedHit){GAME.fedIndex=clamp(GAME.fedIndex-0.12,0.6,1.1);GAME.log.push(ico('globe')+" Federal funds cut ~12% — auto-conformity bites the General Fund");}
     for(const m in (s.onTrigger.metrics||{}))if(METRICS[m])METRICS[m].value=clamp(METRICS[m].value+s.onTrigger.metrics[m],METRICS[m].min,METRICS[m].max);
+    // a decaying scar: a lingering drag on a metric that fades as the state recovers
+    for(const g of (s.onTrigger.grudges||[]))createGrudge(g.target,g.value,g.decay,g.label);
     if(s.onTrigger.countyMood){const cm=s.onTrigger.countyMood;createCountyMood(cm.spec,cm.value,cm.decay,cm.label);}
   }
   // a recession that follows an overheated boom hits harder — the correction is
@@ -5735,6 +5739,7 @@ function startSituation(sid){
     if(s.onTrigger){
       if(s.onTrigger.capital)fx.push({who:"Political Capital",val:s.onTrigger.capital,kind:"cap"});
       for(const m in (s.onTrigger.metrics||{}))if(METRICS[m])fx.push({who:METRICS[m].name,val:s.onTrigger.metrics[m],kind:"m",key:m});
+      for(const g of (s.onTrigger.grudges||[])){const mk=(g.target||"").startsWith("m_")?METRICS[g.target.slice(2)]:null; if(mk)fx.push({who:mk.name+" — "+(g.label||"lingering"),val:g.value,kind:"m",key:g.target.slice(2)});}
       if(s.onTrigger.countyMood){const cm=s.onTrigger.countyMood;fx.push({who:cm.label||"Regional reaction",val:cm.value,kind:"c"});}
     }
     for(const m in (s.metricEffect||{})){const mm=METRICS[m];if(mm)fx.push({who:mm.name+" (ongoing)",val:(typeof s.metricEffect[m]==="object"?(s.metricEffect[m].b||0):s.metricEffect[m]),kind:"m",key:m});}
