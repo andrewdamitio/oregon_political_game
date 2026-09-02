@@ -5038,8 +5038,8 @@ const SITUATIONS={
     groupMood:{timber:-9,rural:-8,blueCollar:-2}},
   fiscalCrisis:{name:"Structural Deficit Crisis", kind:"bad", category:"condition",
     desc:"Oregon's reserves are depleted and the state is carrying structural debt from consecutive unbalanced budgets. Borrowing costs are rising, agency heads are quietly rationing, and the bond market is watching. A reckoning is coming — every quarter this persists makes the eventual austerity cuts deeper.",
-    trigger:()=>(GAME.structuralDebt||0)>0.8 || (GAME.deficitStreak||0)>=4,
-    clear:()=>(GAME.structuralDebt||0)<0.3 && (GAME.deficitStreak||0)===0, onClear:{capital:4},
+    trigger:()=>(GAME.structuralDebt||0)>fiscalCrisisThreshold() || (GAME.deficitStreak||0)>=4,
+    clear:()=>(GAME.structuralDebt||0)<fiscalCrisisThreshold()*0.375 && (GAME.deficitStreak||0)===0, onClear:{capital:4},
     watch:{metric:"balance", startAt:-0.5, clearAt:0.5, badHigh:false},
     costEffect:{debtAdmin:0.45},
     metricEffect:{gdp:-0.20},
@@ -6302,6 +6302,13 @@ function budgetBalance(){
   if(GAME.pendingKicker>0)revenue-=GAME.pendingKicker;
   return {revenue,spend,balance:revenue-spend};
 }
+/* The accumulated-shortfall level that tips into a Structural Deficit Crisis.
+   Scaled to the size of the state budget — a $0.8B hole means far more to a
+   $30B budget than to a $60B one — rather than a fixed dollar figure. Roughly
+   2.5% of annual General Fund + Lottery spending. */
+function fiscalCrisisThreshold(){
+  return +clamp(budgetBalance().spend*0.025, 0.5, 4).toFixed(2);
+}
 /* end-of-quarter fiscal settlement: the kicker drains surpluses above the
    2% line (research: entire surplus refunded, not just the excess), reform
    redirects it, and reserves/deficits are reconciled. */
@@ -6337,24 +6344,41 @@ function settleFiscal(){
         // emergency reserves before the kicker refunds the rest.
         GAME.pendingSurplus={surplus};
       } else {
-        const toRD=surplus*0.6, toEd=surplus*0.4;
-        GAME.rainyDay+=toRD; GAME.eduStability+=toEd;
+        // the Education Stability Fund is capped (~5% of GF, like the real one) —
+        // once full, its share spills into the Rainy Day Fund
+        const esfCap=+(budgetBalance().spend*0.055).toFixed(2);
+        let toEd=surplus*0.4;
+        const esfRoom=Math.max(0,esfCap-GAME.eduStability);
+        const esfAdd=Math.min(toEd,esfRoom);
+        GAME.eduStability+=esfAdd;
+        GAME.rainyDay+=surplus*0.6+(toEd-esfAdd);
         if(POLICIES.kickerReform&&surplusPct>=0.02)GAME.log.push(ico('bank')+" Kicker reform: $"+surplus.toFixed(2)+"B banked to reserves & schools");
       }
     }
   } else if(balance<0){
-    // draw down reserves first (balanced-budget requirement)
+    // balanced-budget requirement: the Rainy Day Fund is the general reserve and
+    // is drawn first. The Education Stability Fund is NOT — it's a dedicated,
+    // constitutional K-12 reserve and only cushions the school cut below.
     let gap=-balance;
     const fromRD=Math.min(GAME.rainyDay,gap); GAME.rainyDay-=fromRD; gap-=fromRD;
-    if(gap>0){const fromEd=Math.min(GAME.eduStability,gap);GAME.eduStability-=fromEd;gap-=fromEd;}
     if(gap>0.0125){
       // reserves exhausted — deficit accrues as structural debt; lighter immediate cuts
       // since the debt mechanic now carries the long-term pressure
       GAME.structuralDebt=+((GAME.structuralDebt||0)+gap).toFixed(2);
       GAME.deficitStreak=(GAME.deficitStreak||0)+1;
       const bite=Math.min(gap*2,2);
+      let eduCut=bite*0.4;
+      // Education Stability Fund: spent here (and only here) to shield the school
+      // fund from the forced cut — it can't close the general gap.
+      if(GAME.eduStability>0.02 && eduCut>0.05){
+        const need=eduCut*0.6;                            // ~$0.6B fully offsets one point of school cut
+        const use=Math.min(GAME.eduStability, need);
+        GAME.eduStability=+(GAME.eduStability-use).toFixed(2);
+        eduCut*=1-(use/need)*0.85;                        // up to 85% of the school hit absorbed
+        GAME.log.push(ico('cap')+" Education Stability Fund drew $"+use.toFixed(2)+"B to shield schools");
+      }
       GAME.log.push("🔴 Deficit $"+gap.toFixed(2)+"B — borrowed against future budgets (structural debt: $"+GAME.structuralDebt.toFixed(1)+"B)");
-      METRICS.education.value=clamp(METRICS.education.value-bite*0.4,0,100);
+      METRICS.education.value=clamp(METRICS.education.value-eduCut,0,100);
       METRICS.health.value=clamp(METRICS.health.value-bite*0.3,0,100);
       GAME.capital=Math.round(clamp(GAME.capital-Math.min(gap*6,8),0,100));
     }
@@ -6362,7 +6386,7 @@ function settleFiscal(){
   // Proactive nudge: carrying real structural debt with reserves still on hand and
   // drifting toward the fiscal-crisis line — the end-quarter flow will offer a
   // deliberate Rainy Day paydown. Rate-limited so it doesn't nag every quarter.
-  if(((GAME.structuralDebt||0)>=0.5 || (GAME.deficitStreak||0)>=2)
+  if(((GAME.structuralDebt||0)>=fiscalCrisisThreshold()*0.6 || (GAME.deficitStreak||0)>=2)
      && GAME.rainyDay>=0.3
      && GAME.capital>=RESERVE_DRAW_CAPITAL
      && (GAME.turn-(GAME.lastReserveDraw??-99))>=RESERVE_DRAW_COOLDOWN
@@ -7509,7 +7533,10 @@ function _resolveSurplus(fraction, capCost){
   const dedicate=p.surplus*fraction, refundQ=p.surplus-dedicate;
   if(dedicate>0.001){
     GAME.capital=Math.round(clamp(GAME.capital-capCost,0,100));
-    GAME.rainyDay+=dedicate*0.7; GAME.eduStability+=dedicate*0.3;
+    const esfCap=+(budgetBalance().spend*0.055).toFixed(2);
+    const esfAdd=Math.min(dedicate*0.3, Math.max(0,esfCap-GAME.eduStability));
+    GAME.eduStability+=esfAdd;
+    GAME.rainyDay+=dedicate*0.7+(dedicate*0.3-esfAdd);
     GAME.log.push(ico('bank')+" Moved $"+dedicate.toFixed(2)+"B of the surplus into the emergency reserves before the kicker"+(capCost?" (−◈"+capCost+")":""));
   }
   if(refundQ>0.001){
@@ -7627,7 +7654,7 @@ function showShortfallChoice(next){
       +`<span class="do-sub">Pays down the shortfall first, then any remainder into the General Fund</span></button>`;
   };
   card.innerHTML=`<h2>${ico('warning')} Shortfall Building</h2>
-    <div class="sectionsub">Oregon is carrying <b>−$${debt.toFixed(2)}B</b> of accumulated shortfall${ds>=2?` after <b>${ds}</b> straight deficit quarters`:''} — a <b>Structural Deficit Crisis</b> triggers past −$0.80B or four consecutive deficit quarters, and it deepens every quarter it runs. The Rainy Day Fund still holds <b>$${bal.toFixed(2)}B</b>. Draw on it now to pay the shortfall down — <b>◈${RESERVE_DRAW_CAPITAL}</b> political capital, and fiscal conservatives will call it raiding the savings account.</div>
+    <div class="sectionsub">Oregon is carrying <b>−$${debt.toFixed(2)}B</b> of accumulated shortfall${ds>=2?` after <b>${ds}</b> straight deficit quarters`:''} — a <b>Structural Deficit Crisis</b> triggers past <b>−$${fiscalCrisisThreshold().toFixed(2)}B</b> or four consecutive deficit quarters, and it deepens every quarter it runs. The Rainy Day Fund still holds <b>$${bal.toFixed(2)}B</b>. Draw on it now to pay the shortfall down — <b>◈${RESERVE_DRAW_CAPITAL}</b> political capital, and fiscal conservatives will call it raiding the savings account.</div>
     <div class="dilemma-opts" style="margin-top:14px">
       ${opt(0.5,"Draw half")}
       ${opt(RESERVE_DRAW_CAP,"Draw two-thirds")}
@@ -10141,6 +10168,12 @@ function renderBudget(){
     const persPct=(GAME.persRate-5.26)/(9.35-5.26)*100;
     h+=`<div class="fiscal-panel"><div class="fiscal-title">Fiscal Machinery</div><div class="fiscal-grid">`;
     {
+      const totRes=(GAME.rainyDay||0)+(GAME.eduStability||0);
+      const trCol=totRes>2?'var(--good)':totRes>0.6?'var(--warn)':'var(--bad)';
+      h+=`<div class="fcard"><div class="fname">${ico('bank')} Total Reserves</div><div class="fval" style="color:${trCol}">$${totRes.toFixed(2)}B</div>
+        <div class="fnote">Rainy Day Fund $${(GAME.rainyDay||0).toFixed(2)}B (general reserve, drawn first against any deficit) + Education Stability Fund $${(GAME.eduStability||0).toFixed(2)}B (K-12 only). The state's cushion before a deficit becomes structural debt.</div></div>`;
+    }
+    {
       const cd=GAME.turn-(GAME.lastReserveDraw??-99);
       let rdCtl=`<div class="fnote">${POLICIES.kickerReform
         ? `With the kicker repealed, <b>every</b> above-forecast surplus accumulates here (60%) and in the Education Stability Fund (40%) — this balance is your running surplus.`
@@ -10155,13 +10188,15 @@ function renderBudget(){
     }
     {
       const debt=GAME.structuralDebt||0, ds=GAME.deficitStreak||0;
-      const dCol=debt>0.8?'var(--bad)':debt>0.3?'var(--warn)':'#8a8270';
+      const thr=fiscalCrisisThreshold();
+      const dCol=debt>thr?'var(--bad)':debt>thr*0.5?'var(--warn)':'#8a8270';
       const near=debt>0.005||ds>0;
-      h+=`<div class="fcard"${debt>0.3?' style="border-left-color:var(--clay)"':''}><div class="fname">${ico('warning')} Accumulated Shortfall</div>
+      h+=`<div class="fcard"${debt>thr*0.5?' style="border-left-color:var(--clay)"':''}><div class="fname">${ico('warning')} Accumulated Shortfall</div>
         <div class="fval" style="color:${dCol}">${debt>0.005?'−$'+debt.toFixed(2)+'B':'$0.00B'}</div>
         <div class="fnote">${near
-          ? `Deficits carried past exhausted reserves${ds?` — <b>${ds}</b> consecutive deficit ${ds===1?'quarter':'quarters'}`:''}. Every surplus pays this down first; a <b>Structural Deficit Crisis</b> triggers past −$0.80B or four straight deficit quarters. ${GAME.rainyDay>0.3?'Draw on the Rainy Day Fund above to pay it down.':''}`
-          : `Nothing carried — every quarter's gap has been met by revenue or reserves.`}</div></div>`;
+          ? `Deficits carried past an exhausted Rainy Day Fund${ds?` — <b>${ds}</b> consecutive deficit ${ds===1?'quarter':'quarters'}`:''}. Every surplus pays this down first.`
+          : `Nothing carried — every quarter's gap has been met by revenue or the Rainy Day Fund.`}
+          A <b>Structural Deficit Crisis</b> triggers past <b>−$${thr.toFixed(2)}B</b> (≈2.5% of the $${b.spend.toFixed(0)}B state budget — the bar rises as the budget grows) or four straight deficit quarters. ${(near&&GAME.rainyDay>0.3)?'Draw on the Rainy Day Fund above to pay it down.':''}</div></div>`;
     }
     if(POLICIES.kickerReform){
       h+=`<div class="fcard"><div class="fname">${ico('cash-fly')} Kicker</div><div class="fval" style="color:var(--good)">Repealed</div>
@@ -10171,7 +10206,7 @@ function renderBudget(){
         <div class="fnote">A surplus above the 2% line refunds in full to taxpayers. When one clears the line and you hold <b>◈6</b> to spend, you'll be asked at quarter's end whether to move part of it into the emergency reserves first.</div></div>`;
     }
     h+=`<div class="fcard"><div class="fname">${ico('cap')} Education Stability Fund</div><div class="fval">$${GAME.eduStability.toFixed(2)}B</div>
-      <div class="fnote">Second-line reserve, tapped after the Rainy Day Fund.</div></div>`;
+      <div class="fnote">Dedicated constitutional K-12 reserve (lottery-funded). <b>Not</b> available for the general deficit — it's spent only to cushion the school-fund cut when a forced deficit lands.</div></div>`;
     h+=`<div class="fcard"><div class="fname">${ico('chart-up')} Economic Cycle</div><div class="fval" style="color:${cycCol}">${cycWord}</div>
       <div class="fbar"><span class="fmid"></span><i style="left:${cycPct}%"></i></div>
       <div class="fnote">Swings the income tax — your ~80% revenue source. Booms inflate revenue; recessions gut it.</div></div>`;
@@ -10210,7 +10245,7 @@ function renderBudget(){
   }
   h+=`<div class="ltotal"><span>Total Spending</span><span class="spend">$${b.spend.toFixed(2)}B</span></div></div>`;
   h+=`</div>`;
-  h+=`<div class="sectionsub" style="margin-top:20px">Oregon's constitution requires a balanced budget. Surpluses above the 2% line trigger the <b>kicker</b> — the entire surplus refunds to taxpayers unless you've enacted Kicker Reform. Deficits draw down the Rainy Day and Education Stability funds automatically; once those are exhausted, forced cuts hit education, health, and your political capital. You can also <b>deliberately draw on the Rainy Day Fund</b> from the panel above to pay down structural debt or cover a gap without a tax hike — for ◈4 and some fiscal-hawk goodwill. The economic cycle, PERS escalation, and federal-funds shocks are all live above.</div>`;
+  h+=`<div class="sectionsub" style="margin-top:20px">Oregon's constitution requires a balanced budget. Surpluses above the 2% line trigger the <b>kicker</b> — the entire surplus refunds to taxpayers unless you've enacted Kicker Reform. A deficit draws down the <b>Rainy Day Fund</b> automatically; once it's dry the gap becomes structural debt and forced cuts hit education, health, and your political capital. The <b>Education Stability Fund</b> is a separate constitutional K-12 reserve — it can't close the general gap, only soften the school cut a forced deficit brings. You can also <b>deliberately draw on the Rainy Day Fund</b> from the panel above to pay down structural debt or cover a gap without a tax hike — for ◈4 and some fiscal-hawk goodwill. The economic cycle, PERS escalation, and federal-funds shocks are all live above.</div>`;
   main.innerHTML=h;
   main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
   const rdBtn=main.querySelector('[data-reservedraw]'); if(rdBtn)rdBtn.addEventListener('click',showReserveDraw);
