@@ -6040,6 +6040,53 @@ function metricMood(sim, sid){
   if(sid==="publicUnions")mood-=boomWageGap()*10;
   return mood;
 }
+/* Itemised version of metricMood() for one bloc: returns [{lbl,v,lnk}] where
+   `v` is the approval-point contribution and `lnk` is the graph node id that
+   drives it (m_*, i_*, p_*, a_*, landuse, or null). Used by the bloc detail
+   page's "What's driving their approval" bars AND by buildWebEdges() so the
+   living map draws an arrow from every driver into the voter node. */
+function blocMoodContributors(sid){
+  const s=SIMULANTS[sid]; if(!s||s.static)return [];
+  const ss=s.sensitivities||{};
+  const w2=k=>(ss[k]!==undefined?ss[k]:1);
+  const visibleAmp=1+clamp((50-INDICATORS.downtown.value),0,50)/45;
+  const visAmp=1+clamp((50-INDICATORS.downtown.value),0,50)/55;
+  const blunt=1-clamp(METRICS.transitShare.value,0,40)/55;
+  const gw=ss.gasprice!==undefined?ss.gasprice:0.8;
+  const mc=[];
+  const add=(lbl,v,lnk)=>{if(Math.abs(v)>0.08)mc.push({lbl,v,lnk});};
+  add("Education Quality",(effective('education')-55)*0.07*w2('education'),'m_education');
+  add("Jobs & Unemployment",(effective('unemployment')-80)*0.08*w2('unemployment'),'m_unemployment');
+  add("Public Safety / Crime",(((effective('violentCrime')*0.6+effective('propertyCrime')*0.4))-50)*0.08*w2('crime'),'m_violentCrime');
+  add("Visible Homelessness",(effective('homelessness')-45)*0.12*w2('homelessness')*visibleAmp,'m_homelessness');
+  add("Public Health",(effective('health')-55)*0.06*w2('health'),'m_health');
+  add("Environmental Quality",(effective('environment')-60)*0.07*w2('environment'),'m_environment');
+  add("GDP Growth Rate",(METRICS.gdp.value-2.0)*1.1*w2('gdp'),'m_gdp');
+  if(ss.inequality!==undefined)add("Income Inequality",(effective('inequality')-45)*0.07*ss.inequality,'m_inequality');
+  add("Drug Use (Visible)",(effective('drugUse')-50)*0.085*(0.8+0.55*w2('crime'))*visAmp,'m_drugUse');
+  {let eo=(effective('eduOutcomes')-43)*0.05*w2('education');if((ss.education||1)>1.5)eo+=(effective('eduOutcomes')-43)*0.05*(ss.education-1.0);add("K-12 Proficiency",eo,'m_eduOutcomes');}
+  add("Behavioral Health",(effective('behavioralHealth')-45)*0.05*w2('health'),'m_behavioralHealth');
+  add("Alcohol Use",(effective('alcoholUse')-55)*0.02*w2('health'),'m_alcoholUse');
+  add("Household Income",(effective('disposableIncome')-52)*0.18*(ss.income!==undefined?ss.income:1.0),'m_disposableIncome');
+  add("Poverty Rate",-(METRICS.povertyRate.value-12.5)*0.45*(ss.income!==undefined?ss.income:1.0),'m_povertyRate');
+  if(ss.transit!==undefined)add("Transit & Biking",(METRICS.transitShare.value-8)*0.06*ss.transit,'m_transitShare');
+  if(ss.logging!==undefined)add("Timber Economy",(METRICS.loggingRate.value-40)*0.05*ss.logging,'m_loggingRate');
+  if(ss.incarceration!==undefined)add("Incarceration Rate",(METRICS.incarcerationRate.value-50)*0.04*ss.incarceration,'m_incarcerationRate');
+  if(ss.taxes!==undefined){let tx=(38-METRICS.taxBurden.value)*0.32*ss.taxes;if(ss.taxes>1.2)tx-=(INDICATORS.taxGrievance.value-42)*0.06*(ss.taxes-0.6);add("Tax Burden",tx,'m_taxBurden');}
+  {const rawGas=-(METRICS.gasPrice.value-3.6)*4.0*blunt*gw; add("Gas Prices",rawGas,'m_gasPrice'); const evBase2=clamp(METRICS.evAdoption.value/100,0,1); const evFactor=sid==="motorists"?0.55:0.25; const evBenefit=-rawGas*evBase2*evFactor; if(Math.abs(evBenefit)>0.08)add(ico('plug')+" EV Adoption (cushions gas-price pain)",evBenefit,'m_evAdoption');}
+  {let bc=(INDICATORS.businessClimate.value-50)*0.06;if(ss.gdp!==undefined&&ss.gdp>1.0)bc+=(INDICATORS.businessClimate.value-50)*0.03*(ss.gdp-0.5);add("Business Climate",bc,'i_businessClimate');}
+  add("Downtown Vitality",(INDICATORS.downtown.value-50)*0.04,'i_downtown');
+  add("Population Growth",(INDICATORS.inMigration.value-50)*0.03,'i_inMigration');
+  add("Prosperity Expectations (hedonic treadmill)",hedonicMood(),null);
+  if(sid==="publicUnions")add("Public-Sector Wage Lag (boom)",-boomWageGap()*10,'m_gdp');
+  if(s.ideology&&s.ideology.social>0.3)add("Rural Alienation",-(INDICATORS.ruralAlienation.value-45)*0.05*s.ideology.social,'i_ruralAlienation');
+  if(ss.govSpend!==undefined){const spd=budgetBalance().spend;add("Gov. Spending Level",(spd-20)*1.2*ss.govSpend,'budget');}
+  for(const id in POLICIES){const r=blocReaction("policy",POLICIES[id],s);if(r!==null&&Math.abs(r)>0.05)mc.push({lbl:ico(POLICIES[id].icon)+' '+POLICIES[id].name,v:r,lnk:"p_"+id});}
+  for(const id in AGENCIES){const r=blocReaction("agency",AGENCIES[id],s);if(r!==null&&Math.abs(r)>0.05)mc.push({lbl:ico(AGENCIES[id].icon)+' '+AGENCIES[id].name,v:r,lnk:"a_"+id});}
+  {const r=blocReaction("landuse",LANDUSE,s);if(r!==null&&Math.abs(r)>0.05)mc.push({lbl:ico(LANDUSE.icon)+' '+LANDUSE.name,v:r,lnk:"landuse"});}
+  mc.sort((a,b)=>Math.abs(b.v)-Math.abs(a.v));
+  return mc;
+}
 /* 0..1 — economy running hot AND public pay (State School Fund proxy) lagging.
    Drives public-union mood and teacher-strike odds. */
 function boomWageGap(){
@@ -9726,46 +9773,9 @@ function renderDetail(){
       h+=`<div class="threshline" style="margin:4px 0 12px;font-style:italic">Membership driver: ${MEMBERSHIP_DRIVERS[sid].desc}</div>`;
     else if(["poor","middleIncome","wealthy"].includes(sid))
       h+=`<div class="threshline" style="margin:4px 0 12px;font-style:italic">Membership driver: income mobility — voters migrate between Low/Middle/Affluent as disposable income shifts their adjusted earnings across the band thresholds.</div>`;
-    // approval contributions from each metric/indicator, mirroring metricMood()
+    // approval contributions from each metric/indicator/policy, mirroring metricMood()
     {
-      const ss=s.sensitivities||{};
-      const w2=k=>(ss[k]!==undefined?ss[k]:1);
-      const visibleAmp=1+clamp((50-INDICATORS.downtown.value),0,50)/45;
-      const visAmp=1+clamp((50-INDICATORS.downtown.value),0,50)/55;
-      const blunt=1-clamp(METRICS.transitShare.value,0,40)/55;
-      const gw=ss.gasprice!==undefined?ss.gasprice:0.8;
-      const mc=[];
-      const add=(lbl,v,lnk)=>{if(Math.abs(v)>0.08)mc.push({lbl,v,lnk});};
-      add("Education Quality",(effective('education')-55)*0.07*w2('education'),'m_education');
-      add("Jobs & Unemployment",(effective('unemployment')-80)*0.08*w2('unemployment'),'m_unemployment');
-      add("Public Safety / Crime",(((effective('violentCrime')*0.6+effective('propertyCrime')*0.4))-50)*0.08*w2('crime'),'m_violentCrime');
-      add("Visible Homelessness",(effective('homelessness')-45)*0.12*w2('homelessness')*visibleAmp,'m_homelessness');
-      add("Public Health",(effective('health')-55)*0.06*w2('health'),'m_health');
-      add("Environmental Quality",(effective('environment')-60)*0.07*w2('environment'),'m_environment');
-      add("GDP Growth Rate",(METRICS.gdp.value-2.0)*1.1*w2('gdp'),'m_gdp');
-      if(ss.inequality!==undefined)add("Income Inequality",(effective('inequality')-45)*0.07*ss.inequality,'m_inequality');
-      add("Drug Use (Visible)",(effective('drugUse')-50)*0.085*(0.8+0.55*w2('crime'))*visAmp,'m_drugUse');
-      {let eo=(effective('eduOutcomes')-43)*0.05*w2('education');if((ss.education||1)>1.5)eo+=(effective('eduOutcomes')-43)*0.05*(ss.education-1.0);add("K-12 Proficiency",eo,'m_eduOutcomes');}
-      add("Behavioral Health",(effective('behavioralHealth')-45)*0.05*w2('health'),'m_behavioralHealth');
-      add("Alcohol Use",(effective('alcoholUse')-55)*0.02*w2('health'),'m_alcoholUse');
-      add("Household Income",(effective('disposableIncome')-52)*0.18*(ss.income!==undefined?ss.income:1.0),'m_disposableIncome');
-      add("Poverty Rate",-(METRICS.povertyRate.value-12.5)*0.45*(ss.income!==undefined?ss.income:1.0),'m_povertyRate');
-      if(ss.transit!==undefined)add("Transit & Biking",(METRICS.transitShare.value-8)*0.06*ss.transit,'m_transitShare');
-      if(ss.logging!==undefined)add("Timber Economy",(METRICS.loggingRate.value-40)*0.05*ss.logging,'m_loggingRate');
-      if(ss.incarceration!==undefined)add("Incarceration Rate",(METRICS.incarcerationRate.value-50)*0.04*ss.incarceration,'m_incarcerationRate');
-      if(ss.taxes!==undefined){let tx=(38-METRICS.taxBurden.value)*0.32*ss.taxes;if(ss.taxes>1.2)tx-=(INDICATORS.taxGrievance.value-42)*0.06*(ss.taxes-0.6);add("Tax Burden",tx,'m_taxBurden');}
-      {const rawGas=-(METRICS.gasPrice.value-3.6)*4.0*blunt*gw; add("Gas Prices",rawGas,'m_gasPrice'); const evBase2=clamp(METRICS.evAdoption.value/100,0,1); const evFactor=sid==="motorists"?0.55:0.25; const evBenefit=-rawGas*evBase2*evFactor; if(Math.abs(evBenefit)>0.08)add(ico('plug')+" EV Adoption (cushions gas-price pain)",evBenefit,'m_evAdoption');}
-      {let bc=(INDICATORS.businessClimate.value-50)*0.06;if(ss.gdp!==undefined&&ss.gdp>1.0)bc+=(INDICATORS.businessClimate.value-50)*0.03*(ss.gdp-0.5);add("Business Climate",bc,'i_businessClimate');}
-      add("Downtown Vitality",(INDICATORS.downtown.value-50)*0.04,'i_downtown');
-      add("Population Growth",(INDICATORS.inMigration.value-50)*0.03,'i_inMigration');
-      add("Prosperity Expectations (hedonic treadmill)",hedonicMood(),null);
-      if(sid==="publicUnions")add("Public-Sector Wage Lag (boom)",-boomWageGap()*10,'m_gdp');
-      if(s.ideology&&s.ideology.social>0.3)add("Rural Alienation",-(INDICATORS.ruralAlienation.value-45)*0.05*s.ideology.social,'i_ruralAlienation');
-      if(ss.govSpend!==undefined){const spd=budgetBalance().spend;add("Gov. Spending Level",(spd-20)*1.2*ss.govSpend,'budget');}
-      for(const id in POLICIES){const r=blocReaction("policy",POLICIES[id],s);if(r!==null&&Math.abs(r)>0.05)mc.push({lbl:ico(POLICIES[id].icon)+' '+POLICIES[id].name,v:r,lnk:"p_"+id});}
-      for(const id in AGENCIES){const r=blocReaction("agency",AGENCIES[id],s);if(r!==null&&Math.abs(r)>0.05)mc.push({lbl:ico(AGENCIES[id].icon)+' '+AGENCIES[id].name,v:r,lnk:"a_"+id});}
-      {const r=blocReaction("landuse",LANDUSE,s);if(r!==null&&Math.abs(r)>0.05)mc.push({lbl:ico(LANDUSE.icon)+' '+LANDUSE.name,v:r,lnk:"landuse"});}
-      mc.sort((a,b)=>Math.abs(b.v)-Math.abs(a.v));
+      const mc=blocMoodContributors(sid);
       const mscale=Math.max(0.5,...mc.map(c=>Math.abs(c.v)));
       h+=`<div class="ebgroup-label">What's driving their approval</div><div class="ebgroup">`;
       for(const c of mc)h+=effectBar(c.lbl,c.v,mscale,{color:c.v>=0?'var(--good)':'var(--clay)',link:c.lnk,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' pts'});
@@ -10714,20 +10724,18 @@ function buildWebEdges(){
     justiceEffectiveness:["p_policing","a_judiciary","a_corrections"],
     transportFunding:["p_gasTax","p_vehicleReg","p_evFee"]};
   for(const iid in DD)for(const src of DD[iid])E.push({a:src,b:"i_"+iid,neutral:true,w:0.5});
-  // policy / agency / land-use → voter-group reactions (the same blocReaction
-  // that drives the "Voter bloc reactions" bars on each detail page). Green =
-  // this group is pleased, red = angered. Only reactions of real weight are drawn.
-  {
-    const src=[];
-    for(const id in POLICIES)src.push(["p_"+id,"policy",POLICIES[id]]);
-    for(const id in AGENCIES)src.push(["a_"+id,"agency",AGENCIES[id]]);
-    src.push(["landuse","landuse",LANDUSE]);
-    for(const [nid,kind,obj] of src){
-      for(const sid in SIMULANTS){
-        if(SIMULANTS[sid].static)continue;
-        const r=blocReaction(kind,obj,SIMULANTS[sid]);
-        if(r!=null&&Math.abs(r)>1.2)E.push({a:nid,b:"v_"+sid,good:r>=0,w:Math.min(4,0.6+Math.abs(r)*0.35)});
-      }
+  // every driver of a bloc's approval → an arrow into that voter node — the same
+  // itemised list the bloc detail page shows under "What's driving their
+  // approval": metrics, indicators, policies, agencies and land use. Green =
+  // this group is pleased, red = angered. Only the drivers of real weight are
+  // drawn (the detail page shows a longer tail), capped so no node explodes.
+  for(const sid in SIMULANTS){
+    if(SIMULANTS[sid].static)continue;
+    let n=0;
+    for(const c of blocMoodContributors(sid)){
+      if(!c.lnk||Math.abs(c.v)<0.3)continue;
+      E.push({a:c.lnk,b:"v_"+sid,good:c.v>=0,w:Math.min(4,0.5+Math.abs(c.v)*0.6)});
+      if(++n>=14)break;
     }
   }
   return E;
