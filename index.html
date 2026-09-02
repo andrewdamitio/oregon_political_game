@@ -1191,6 +1191,7 @@
 <div id="midtermModal" class="modal hidden"><div class="card" id="midtermCard"></div></div>
 <div id="surplusModal" class="modal hidden"><div class="card" id="surplusCard"></div></div>
 <div id="reserveModal" class="modal hidden"><div class="card" id="reserveCard" style="max-width:470px"></div></div>
+<div id="newGameModal" class="modal hidden"><div class="card" id="newGameCard" style="max-width:420px"></div></div>
 <div id="welcomeModal" class="modal hidden"><div class="card" id="welcomeCard"></div></div>
 <div id="platformModal" class="modal hidden"><div class="camp-popup-card" id="platformCard"></div></div>
 <div id="resumeModal" class="modal hidden"><div class="card" style="max-width:380px;text-align:center">
@@ -1261,15 +1262,45 @@ function startSeed(raw){
   location.href=location.origin+location.pathname+"?seed="+s;
   return true;
 }
-/* Top-bar "new game": confirm, then optionally take a seed. Blank = random. */
+/* Top-bar "new game": a themed dialog. Type a seed to play a specific run, or
+   leave it blank for a random one. Either way the current game is discarded. */
 function newGame(){
-  if(!confirm("Start a new game? Any game in progress is lost."))return;
-  const v=prompt("Seed for the new game — letters & numbers, 3–12 characters.\nLeave blank for a random seed.","");
-  if(v===null)return;
-  const s=String(v||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,12);
-  try{ localStorage.removeItem("sc_nextSeed"); }catch(e){}
-  location.href = s.length>=3 ? location.origin+location.pathname+"?seed="+s
-                             : location.origin+location.pathname;
+  const modal=document.getElementById("newGameModal"), card=document.getElementById("newGameCard");
+  const launch=(s)=>{
+    try{ localStorage.removeItem("sc_nextSeed"); }catch(e){}
+    location.href = s.length>=3 ? location.origin+location.pathname+"?seed="+s
+                               : location.origin+location.pathname;
+  };
+  if(!modal||!card){                       // fallback if the modal markup is missing
+    const v=prompt("Seed for the new game — letters & numbers, 3–12 characters.\nLeave blank for a random seed.","");
+    if(v===null)return;
+    launch(String(v||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,12));
+    return;
+  }
+  card.innerHTML=`<h2>${(typeof ico==="function"?ico('sparkle'):'')} Start a new game</h2>
+    <div class="sectionsub">Your current game will be lost. Enter a seed to play a specific run, or leave it blank for a random one.</div>
+    <input id="newGameSeed" maxlength="12" autocomplete="off" spellcheck="false" placeholder="leave blank for a random seed"
+      style="width:100%;margin-top:14px;font-family:var(--font-data);font-size:14px;letter-spacing:2px;text-transform:uppercase;padding:9px 12px;border:1px solid var(--line);border-radius:3px;background:var(--paper-2);color:var(--ink);box-sizing:border-box">
+    <div id="newGameHint" class="sectionsub" style="margin-top:6px;min-height:14px;color:var(--clay)"></div>
+    <div style="display:flex;gap:10px;margin-top:2px">
+      <button id="newGameGo">Start new game</button>
+      <button id="newGameCancel" style="background:var(--paper-2);color:var(--ink);border:1px solid var(--line)">Cancel</button>
+    </div>`;
+  modal.classList.remove("hidden");
+  const inp=document.getElementById("newGameSeed"), hint=document.getElementById("newGameHint");
+  setTimeout(()=>{ try{ inp.focus(); }catch(e){} },30);
+  const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
+  const go=()=>{
+    const s=String(inp.value||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,12);
+    if(inp.value.trim()!=="" && s.length<3){ hint.textContent="A seed needs at least 3 letters or numbers."; inp.style.borderColor="var(--clay)"; return; }
+    close(); launch(s);
+  };
+  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return;
+    if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); }
+    else if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); go(); } };
+  document.getElementById("newGameGo").onclick=go;
+  document.getElementById("newGameCancel").onclick=close;
+  document.addEventListener("keydown",onKey,true);
 }
 /* ============================ SAVE / RESUME ============================
    One localStorage slot. Voters and everything else deterministic are rebuilt
@@ -7382,7 +7413,7 @@ function showWelcome(onDone){
   const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); go(); } };
   document.getElementById("welcomeGo").onclick=go;
   {const wsb=document.getElementById("welcomeSeedBtn");
-   if(wsb)wsb.onclick=()=>{ const v=prompt("Enter a seed to play (letters & numbers, 3–12 characters):", window.RUN_SEED||""); if(v!=null)startSeed(v); };}
+   if(wsb)wsb.onclick=()=>newGame();}
   modal.classList.remove("hidden");
   modal.classList.add("grand");
   try{ if(window.confettiBurst)confettiBurst(modal); }catch(e){}
