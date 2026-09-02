@@ -1248,6 +1248,17 @@ function copySeedLink(el){
   try{ navigator.clipboard.writeText(url); }catch(e){}
   if(el){ const html=el.innerHTML; el.textContent="✓ link copied"; setTimeout(()=>{ el.innerHTML=html; },1300); }
 }
+/* start a brand-new game on a seed the player types (letters + numbers, 3–12).
+   Navigates to ?seed=… so the seed IIFE picks it up on reload. */
+function startSeed(raw){
+  const s=String(raw||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,12);
+  if(s.length<3)return false;
+  if(s===window.RUN_SEED)return true;            // already playing this seed — nothing to do
+  if(!confirm('Start a new game on seed "'+s+'"? Any game in progress is lost.'))return false;
+  try{ localStorage.removeItem("sc_nextSeed"); }catch(e){}
+  location.href=location.origin+location.pathname+"?seed="+s;
+  return true;
+}
 /* ============================ SAVE / RESUME ============================
    One localStorage slot. Voters and everything else deterministic are rebuilt
    from the seed at init; the save only carries the drifting state, then
@@ -7346,6 +7357,10 @@ function showWelcome(onDone){
       <p>Next, set the <b>platform</b> you're taking office on: the promises you'll be judged against at your first re-election.</p>
     </div>
     <button class="enactbtn welcome-go" id="welcomeGo">Take office ▸</button>
+    <div class="welcome-seed" style="font-size:12px;color:var(--muted-3);margin-top:12px;letter-spacing:.03em">
+      This run's seed: <code style="font-family:var(--font-data);letter-spacing:1px;color:var(--muted-1)">${window.RUN_SEED||'—'}</code>
+      · <button id="welcomeSeedBtn" style="background:none;border:none;color:var(--slate-blue);cursor:pointer;font-size:12px;text-decoration:underline;padding:0">play a specific seed</button>
+    </div>
   </div>`;
   const go=()=>{
     modal.classList.add("hidden"); modal.classList.remove("grand");
@@ -7354,6 +7369,8 @@ function showWelcome(onDone){
   };
   const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); go(); } };
   document.getElementById("welcomeGo").onclick=go;
+  {const wsb=document.getElementById("welcomeSeedBtn");
+   if(wsb)wsb.onclick=()=>{ const v=prompt("Enter a seed to play (letters & numbers, 3–12 characters):", window.RUN_SEED||""); if(v!=null)startSeed(v); };}
   modal.classList.remove("hidden");
   modal.classList.add("grand");
   try{ if(window.confettiBurst)confettiBurst(modal); }catch(e){}
@@ -10889,13 +10906,22 @@ updateToggleGlyph();
   const el=document.getElementById("seedRow"); if(!el||!window.RUN_SEED)return;
   el.innerHTML=`<span>Seed</span><code>${RUN_SEED}</code>`
     +`<button id="seedCopy" title="Copy a link that replays this exact run">link</button>`
-    +`<button id="seedNew" title="Start a brand-new game with a fresh seed">new</button>`;
+    +`<button id="seedNew" title="Start a brand-new game with a fresh seed">new</button>`
+    +`<button id="seedPlay" title="Start a new game on a seed you choose">play seed…</button>`
+    +`<span id="seedPlayBox" hidden style="display:flex;gap:4px;width:100%;margin-top:4px">`
+    +`<input id="seedPlayInput" maxlength="12" autocomplete="off" spellcheck="false" placeholder="type a seed" style="flex:1;min-width:0;font-family:var(--font-data);font-size:11px;letter-spacing:1px;text-transform:uppercase;padding:3px 6px;border:1px solid var(--line);border-radius:3px;background:var(--paper-2);color:var(--ink)">`
+    +`<button id="seedPlayGo">go</button></span>`;
   document.getElementById("seedCopy").onclick=()=>copySeedLink(document.getElementById("seedCopy"));
   document.getElementById("seedNew").onclick=()=>{
     if(!confirm("Start a new game with a fresh seed? This game is lost."))return;
     try{ localStorage.removeItem("sc_nextSeed"); }catch(e){}
     location.href=location.origin+location.pathname;
   };
+  const box=document.getElementById("seedPlayBox"), inp=document.getElementById("seedPlayInput");
+  document.getElementById("seedPlay").onclick=()=>{ box.hidden=!box.hidden; if(!box.hidden){inp.value="";inp.focus();} };
+  const go=()=>{ if(startSeed(inp.value)===false&&inp.value.replace(/[^A-Za-z0-9]/g,"").length<3){ inp.style.borderColor="var(--clay)"; } };
+  document.getElementById("seedPlayGo").onclick=go;
+  inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); go(); } });
 })();
 // make approval & balance HUD stats open their detail history
 document.getElementById("hudApproval").parentElement.style.cursor="pointer";
