@@ -318,6 +318,9 @@
   .fname{font-size:11px;color:var(--muted-2);margin-bottom:4px}
   .fval{font-family:var(--font-data);font-size:19px;font-weight:600;margin-bottom:4px}
   .fnote{font-size:10.5px;color:var(--muted-3);line-height:1.4}
+  .fcard-btn{margin-top:8px;display:inline-block;background:var(--slate-blue);color:var(--paper);border:2px solid var(--ink);font-family:var(--font-display);font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:5px 10px;cursor:pointer}
+  .fcard-btn:hover{background:var(--ink)}
+  .fcard-btn .ico{width:.95em;height:.95em;vertical-align:-.12em;margin-right:.25em}
   .fbar{position:relative;height:8px;background:var(--paper-2);border-radius:4px;margin:6px 0}
   .fbar .fmid{position:absolute;left:50%;top:-2px;width:1px;height:12px;background:var(--line)}
   .fbar i{position:absolute;top:-1px;width:10px;height:10px;border-radius:50%;background:var(--ink);transform:translateX(-50%);transition:left .3s}
@@ -1166,6 +1169,7 @@
 <div id="reportModal" class="modal hidden"><div class="card reportcard" id="reportCard"></div></div>
 <div id="midtermModal" class="modal hidden"><div class="card" id="midtermCard"></div></div>
 <div id="surplusModal" class="modal hidden"><div class="card" id="surplusCard"></div></div>
+<div id="reserveModal" class="modal hidden"><div class="card" id="reserveCard" style="max-width:470px"></div></div>
 <div id="welcomeModal" class="modal hidden"><div class="card" id="welcomeCard"></div></div>
 <div id="platformModal" class="modal hidden"><div class="camp-popup-card" id="platformCard"></div></div>
 <div id="resumeModal" class="modal hidden"><div class="card" style="max-width:380px;text-align:center">
@@ -5154,6 +5158,8 @@ const GAME={
   // ---- FISCAL MODEL (research: income-tax dependence + kicker + reserves) ----
   rainyDay:1.87,        // Rainy Day Fund ($B) — real 2023-25 end balance
   eduStability:1.0,     // Education Stability Fund ($B)
+  reserveInfusion:0,    // pending one-time cash from a deliberate Rainy Day draw — consumed at the next settlement
+  lastReserveDraw:-99,  // turn of the last deliberate reserve draw (cooldown)
   structuralDebt:0,     // accumulated unresolved deficit ($B) — accrues when reserves are exhausted
   deficitStreak:0,      // consecutive quarters carrying a gap after reserves are drained
   econCycle:0,          // -1 deep recession .. +1 boom; random walk each quarter
@@ -6295,7 +6301,13 @@ function settleFiscal(){
   const {revenue,spend,balance:annualBal}=budgetBalance();
   GAME.pendingKicker=0;        // consumed this cycle
   const surplusPct=annualBal/Math.max(1,spend);
-  const balance=annualBal/4;   // the ledger is $B/YR — one quarter of cash settles per turn
+  let balance=annualBal/4;   // the ledger is $B/YR — one quarter of cash settles per turn
+  // a deliberate Rainy Day draw the player called this quarter lands here as one-time cash
+  if((GAME.reserveInfusion||0)>0){
+    balance+=GAME.reserveInfusion;
+    GAME.log.push(ico('bank')+" $"+GAME.reserveInfusion.toFixed(2)+"B Rainy Day draw applied to the budget");
+    GAME.reserveInfusion=0;
+  }
   // (debt interest is charged once, as the visible Debt Service line in spendingByArea)
   if(balance>0){
     GAME.deficitStreak=0;
@@ -7518,6 +7530,68 @@ function showSurplusChoice(next){
   card.querySelectorAll('.dilemma-opt').forEach(b=>b.addEventListener('click',()=>done(+b.dataset.f,+b.dataset.c)));
   document.addEventListener("keydown",onKey,true);
   // no autofocus — this is a real choice; a stray Enter shouldn't spend capital. Esc = let it refund.
+}
+
+/* A deliberate legislative draw on the Rainy Day Fund. Oregon statute caps a
+   draw at two-thirds of the balance; a draw pays down structural debt first,
+   then lands in the General Fund at the next settlement as one-time cash — so
+   it can head off a deficit without a tax hike or a program cut. It costs
+   political capital and fiscal-hawk goodwill. 4-turn cooldown. */
+const RESERVE_DRAW_CAP=0.667, RESERVE_DRAW_CAPITAL=4, RESERVE_DRAW_COOLDOWN=4;
+function reserveDrawAvailable(){
+  return GAME.rainyDay>0.15
+    && GAME.capital>=RESERVE_DRAW_CAPITAL
+    && (GAME.turn-(GAME.lastReserveDraw??-99))>=RESERVE_DRAW_COOLDOWN;
+}
+function drawReserves(amt){
+  const maxD=+(GAME.rainyDay*RESERVE_DRAW_CAP).toFixed(2);
+  amt=+Math.min(Math.max(amt,0),maxD).toFixed(2);
+  if(amt<0.05||!reserveDrawAvailable())return;
+  GAME.rainyDay=+(GAME.rainyDay-amt).toFixed(2);
+  let cash=amt;
+  if((GAME.structuralDebt||0)>0){
+    const pay=Math.min(cash,GAME.structuralDebt);
+    GAME.structuralDebt=+(Math.max(0,GAME.structuralDebt-pay)).toFixed(2);
+    cash-=pay;
+    if(GAME.structuralDebt<0.01)GAME.structuralDebt=0;
+  }
+  GAME.reserveInfusion=+((GAME.reserveInfusion||0)+cash).toFixed(2);
+  GAME.capital=Math.round(clamp(GAME.capital-RESERVE_DRAW_CAPITAL,0,100));
+  GAME.lastReserveDraw=GAME.turn;
+  createGrudge("v_conservative",-3,0.9,"Raided the Rainy Day Fund");
+  createGrudge("v_homeowners",-2,0.9,"Raided the Rainy Day Fund");
+  createGrudge("v_businessClass",-2,0.9,"Raided the Rainy Day Fund");
+  createGrudge("i_businessClimate",-1,0.9,"Reserves drawn down");
+  GAME.log.push(ico('bank')+" Legislature drew $"+amt.toFixed(2)+"B from the Rainy Day Fund");
+}
+function showReserveDraw(){
+  if(!reserveDrawAvailable())return;
+  const bal=GAME.rainyDay, card=document.getElementById("reserveCard");
+  const opt=(frac,label)=>{
+    const a=+(bal*frac).toFixed(2);
+    return `<button class="dilemma-opt" data-amt="${a}"><span class="do-label">${label} — $${a.toFixed(2)}B</span>`
+      +`<span class="do-sub">Pays down structural debt first, then into the General Fund next quarter</span></button>`;
+  };
+  card.innerHTML=`<h2>${ico('bank')} Draw on the Rainy Day Fund</h2>
+    <div class="sectionsub">The fund holds <b>$${bal.toFixed(2)}B</b>. The legislature can draw on it to cover a shortfall without raising taxes or cutting programs — but statute caps a single draw at two-thirds of the balance, it costs <b>◈${RESERVE_DRAW_CAPITAL}</b> political capital, and fiscal conservatives read it as raiding the savings account. Draw only what you need: anything past a deficit just cycles back into reserves.</div>
+    <div class="dilemma-opts" style="margin-top:14px">
+      ${opt(0.25,"Draw a quarter")}
+      ${opt(0.5,"Draw half")}
+      ${opt(RESERVE_DRAW_CAP,"Draw two-thirds")}
+      <button class="dilemma-opt" data-amt="0"><span class="do-label">Leave it be</span><span class="do-sub">No draw, no capital spent</span></button>
+    </div>`;
+  const modal=document.getElementById("reserveModal");
+  modal.classList.remove("hidden");
+  const done=(a)=>{
+    if(a>0)drawReserves(a);
+    modal.classList.add("hidden");
+    document.removeEventListener("keydown",onKey,true);
+    render();
+  };
+  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return;
+    if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(0); } };
+  card.querySelectorAll('[data-amt]').forEach(b=>b.addEventListener('click',()=>done(+b.dataset.amt)));
+  document.addEventListener("keydown",onKey,true);
 }
 
 /* Oregon’s 36 counties as real outlines (EPSG:2992 -> linear SVG, ~4200ft simplified):
@@ -9995,8 +10069,17 @@ function renderBudget(){
     const rdCol=GAME.rainyDay>1?'var(--good)':GAME.rainyDay>0.3?'var(--warn)':'var(--bad)';
     const persPct=(GAME.persRate-5.26)/(9.35-5.26)*100;
     h+=`<div class="fiscal-panel"><div class="fiscal-title">Fiscal Machinery</div><div class="fiscal-grid">`;
-    h+=`<div class="fcard"><div class="fname">${ico('bank')} Rainy Day Fund</div><div class="fval" style="color:${rdCol}">$${GAME.rainyDay.toFixed(2)}B</div>
-      <div class="fnote">Filled by sub-2% surpluses; drawn down to cover deficits.</div></div>`;
+    {
+      const cd=GAME.turn-(GAME.lastReserveDraw??-99);
+      let rdCtl=`<div class="fnote">Refilled by surpluses under the 2% kicker line. <b>Auto-drawn</b> to cover any quarter's deficit before it turns into structural debt — or draw on it deliberately below.</div>`;
+      if(GAME.reserveInfusion>0)
+        rdCtl+=`<div class="fnote" style="color:var(--slate-blue)">↳ $${GAME.reserveInfusion.toFixed(2)}B drawn, lands in the budget at quarter's end.</div>`;
+      if(reserveDrawAvailable())
+        rdCtl+=`<button class="fcard-btn" data-reservedraw="1">${ico('bank')} Draw on the fund →</button>`;
+      else if(GAME.rainyDay>0.15)
+        rdCtl+=`<div class="fnote" style="opacity:.7;font-style:italic">${GAME.capital<4?'Need ◈4 to call a legislative draw.':cd<4?`Draw available again in ${4-cd}q.`:''}</div>`;
+      h+=`<div class="fcard"><div class="fname">${ico('bank')} Rainy Day Fund</div><div class="fval" style="color:${rdCol}">$${GAME.rainyDay.toFixed(2)}B</div>${rdCtl}</div>`;
+    }
     if(POLICIES.kickerReform){
       h+=`<div class="fcard"><div class="fname">${ico('cash-fly')} Kicker</div><div class="fval" style="color:var(--good)">Repealed</div>
         <div class="fnote">Every surplus over the 2% line flows straight to reserves &amp; schools — no refund, no decision.</div></div>`;
@@ -10044,9 +10127,10 @@ function renderBudget(){
   }
   h+=`<div class="ltotal"><span>Total Spending</span><span class="spend">$${b.spend.toFixed(2)}B</span></div></div>`;
   h+=`</div>`;
-  h+=`<div class="sectionsub" style="margin-top:20px">Oregon's constitution requires a balanced budget. Surpluses above the 2% line trigger the <b>kicker</b> — the entire surplus refunds to taxpayers unless you've enacted Kicker Reform. Deficits draw down reserves; once exhausted, forced cuts hit education, health, and your political capital. The economic cycle, PERS escalation, and federal-funds shocks are all live above.</div>`;
+  h+=`<div class="sectionsub" style="margin-top:20px">Oregon's constitution requires a balanced budget. Surpluses above the 2% line trigger the <b>kicker</b> — the entire surplus refunds to taxpayers unless you've enacted Kicker Reform. Deficits draw down the Rainy Day and Education Stability funds automatically; once those are exhausted, forced cuts hit education, health, and your political capital. You can also <b>deliberately draw on the Rainy Day Fund</b> from the panel above to pay down structural debt or cover a gap without a tax hike — for ◈4 and some fiscal-hawk goodwill. The economic cycle, PERS escalation, and federal-funds shocks are all live above.</div>`;
   main.innerHTML=h;
   main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
+  const rdBtn=main.querySelector('[data-reservedraw]'); if(rdBtn)rdBtn.addEventListener('click',showReserveDraw);
 }
 /* Term progress + National Political Mood + Economic Climate readouts.
    prefix "" targets the side-panel ids; "b" targets the Governing Board strip. */
