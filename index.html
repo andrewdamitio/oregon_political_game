@@ -1717,12 +1717,13 @@ const INDICATORS={
     ],
     feedback:{gdp:-0.014, unemployment:0.006}},              // high grievance drags growth and pushes jobs out
   ruralAlienation:{name:"Rural Alienation", icon:"tractor", value:45,
-    desc:"How shut-out rural and eastern Oregon feel from a Portland-centered, one-party power structure — the sentiment behind the Greater Idaho votes, GOP walkouts, and Measure 113. Inflated by aggressive climate/tax agendas, a culturally progressive social agenda, and high logging restrictions; eased by resource-economy support. High alienation raises legislative-walkout risk.",
-    // a broadly progressive social/cultural agenda (drug, gun, reproductive,
-    // LGBTQ, sex-work liberalisation) widens the urban/rural rift beyond what any
-    // single flagship policy captures. Reads the enacted agenda's liberty axis;
-    // only a lean well past the inherited Oregon baseline registers here.
-    _cultRift:()=>{ const so=(typeof agendaVector==="function")?agendaVector().so:0; return Math.max(0,-so-3)*1.5; },
+    desc:"How shut-out rural and eastern Oregon feel from a Portland-centered, one-party power structure — the sentiment behind the Greater Idaho votes, GOP walkouts, and Measure 113. The real drivers, in the movement's own words: the income/CAT/carbon tax load, gun laws (Measure 114), drug decriminalization imposed from the valley, restrictions on the timber and resource economy, land-use limits on private property, and a governing agenda that keeps ratcheting left of what rural voters ever endorsed. Eased by resource-economy support and returning decisions to counties.",
+    // the "one-party ratchet": the further the enacted agenda drifts LEFT of the
+    // mandate it inherited, the more rural/eastern Oregon feels a Portland
+    // government it can never outvote. Whole-agenda drift (economic + social +
+    // government size), not a culture-war axis. Only a real lean past the
+    // inherited baseline registers.
+    _oneParty:()=>{ const t=(typeof agendaRightwardShift==="function")?agendaRightwardShift():0; return Math.max(0,-t-3)*1.1; },
     derive:()=>{
       let v=45;
       v+=(METRICS.taxBurden.value-38)*0.25;
@@ -1731,7 +1732,8 @@ const INDICATORS={
       if(POLICIES.carbonTax)v+=8;
       if(POLICIES.carbonProgram)v+=5;
       if(POLICIES.propTaxReform)v+=4;
-      v+=INDICATORS.ruralAlienation._cultRift();
+      v+=(LANDUSE.index-2)*3.4;                           // Oregon's land-use planning is a standing property-rights grievance at the inherited "Strong UGB"; tightening inflames it, loosening placates
+      v+=INDICATORS.ruralAlienation._oneParty();
       v+=(60-INDICATORS.localAutonomy.value)*0.12;        // stripped local control feeds the grievance
       v+=indPolicyBoost("ruralAlienation")+sitIndicatorPush("ruralAlienation");
       return clamp(v,0,100);
@@ -1743,7 +1745,8 @@ const INDICATORS={
       {name:ico(METRICS.gasPrice.icon)+" Gas Price",v:(METRICS.gasPrice.value-3.6)*3,link:"m_gasPrice"},
       ...(POLICIES.carbonTax?[{name:ico('factory')+" Carbon Tax",v:8,link:"p_carbonTax"}]:[]),
       ...(POLICIES.carbonProgram?[{name:ico('globe')+" Climate Program",v:5,link:"p_carbonProgram"}]:[]),
-      ...(INDICATORS.ruralAlienation._cultRift()>0.05?[{name:ico('compass')+" Progressive cultural agenda",v:INDICATORS.ruralAlienation._cultRift()}]:[]),
+      ...(LANDUSE.index!==2?[{name:ico(LANDUSE.icon)+" Land-use limits (property rights)",v:(LANDUSE.index-2)*3.4,link:"landuse"}]:[]),
+      ...(INDICATORS.ruralAlienation._oneParty()>0.05?[{name:ico('compass')+" One-party ratchet (agenda left of mandate)",v:INDICATORS.ruralAlienation._oneParty()}]:[]),
       {name:ico(INDICATORS.localAutonomy.icon)+" Lost Local Control",v:(60-INDICATORS.localAutonomy.value)*0.12,link:"i_localAutonomy"},
     ],
     feedback:{}},
@@ -2400,10 +2403,10 @@ const POLICIES={
       {drugUse:-7, incarcerationRate:12, homelessness:-2, inequality:3, health:-1}
     ],
     tierIndicatorEffects:[
-      {justiceEffectiveness:-3, downtown:-4},
+      {justiceEffectiveness:-3, downtown:-4, ruralAlienation:6},
       {},
-      {justiceEffectiveness:3, downtown:2},
-      {justiceEffectiveness:4, downtown:3}
+      {justiceEffectiveness:3, downtown:2, ruralAlienation:-2},
+      {justiceEffectiveness:4, downtown:3, ruralAlienation:-3}
     ],
     tierBlocEffects:[
       {liberal:4, socialist:6, libertarian:5, urban:3, students:2, poor:3, conservative:-5, moderate:-4, suburban:-3, retirees:-3, blueCollar:-2},
@@ -2736,14 +2739,13 @@ const POLICIES={
     desc:"Oregon has required medically-accurate, comprehensive sex ed since 2009 — among the strongest such laws in the nation. This sets its enforcement and scope. Improves teen health outcomes and lowers unintended pregnancy, but inflames conservative and rural communities. (Already in force at game start.)",
     enabled:true, costFull:0.03, capital:5, repealCost:7,
     effects:{health:3, behavioralHealth:1},
-    indicatorEffects:{ruralAlienation:2},
     blocEffect:{liberal:3, urban:2, parents:1, rural:-2, suburban:-1, conservative:-4},
     ideology:{social:-0.5,govSize:-0.2}},
   lgbtRights:{name:"LGBTQ Anti-Discrimination Law", domain:"social", icon:"people", enacted:true, mechanic:"toggle",
     desc:"Oregon's Equality Act (2007) bars discrimination in housing, employment, and public accommodation. This keeps those protections in force (and their enforcement funded). Draws talent and signals an open economy, but hardens rural-cultural opposition. (Already in force at game start.)",
     enabled:true, costFull:0.02, capital:7, repealCost:12,
     effects:{inequality:-1},
-    indicatorEffects:{inMigration:3, businessClimate:2, ruralAlienation:2},
+    indicatorEffects:{inMigration:3, businessClimate:2},
     blocEffect:{liberal:5, urban:4, businessClass:2, rural:-2, suburban:-1, conservative:-3},
     ideology:{social:-0.7,govSize:-0.2}},
   alcoholTax:{name:"Alcohol Tax", domain:"economy", icon:"beer", enacted:true, mechanic:"slider",
@@ -2948,9 +2950,9 @@ const CATALOG={
     blocEffect:{liberal:2, socialist:2, libertarian:3, moderate:1},
     ideology:{social:-0.4,govSize:-0.2}},
   gunStorage:{name:"Secure Gun Storage Law", domain:"social", icon:"lock", mechanic:"law",
-    desc:"Mandate locked storage and require reporting of lost or stolen firearms (echoes Measure 114). Reduces accidental shootings, youth suicides by firearm, and stolen-gun crime without restricting legal ownership. Effects build over time as household storage practices change. Fierce rural and libertarian opposition frames it as the first step toward confiscation.",
+    desc:"Mandate locked storage and require reporting of lost or stolen firearms (echoes Measure 114). Reduces accidental shootings, youth suicides by firearm, and stolen-gun crime without restricting legal ownership. Effects build over time as household storage practices change. Fierce rural and libertarian opposition frames it as the first step toward confiscation — gun rights are a top-tier Greater Idaho grievance, and county sheriffs east of the Cascades openly refuse to enforce laws like it.",
     enabled:true, costFull:0.05, capital:9, enactCapital:13,
-    effects:{violentCrime:{b:-1,c:-5,i:4},health:{b:1,c:4,i:4}}, ideology:{social:-0.7,govSize:-0.5}},
+    effects:{violentCrime:{b:-1,c:-5,i:4},health:{b:1,c:4,i:4}}, indicatorEffects:{ruralAlienation:7}, ideology:{social:-0.7,govSize:-0.5}},
   forestCarbon:{name:"Forest Carbon Offsets", domain:"envInfra", icon:"leaf", mechanic:"slider",
     desc:"Sell carbon credits for keeping state forests standing — competes with logging revenue but boosts environment and tourism.",
     value:0.5, revenue:0.2, capital:6, enactCapital:9,
