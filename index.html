@@ -1505,6 +1505,9 @@ const METRICS={
     inertia:0.12, realNote:"Strong baseline; wildfire pressure"},
   gdp:{name:"GDP Growth Rate (annualized)", icon:"chart-up", value:1.8, baseline:1.8, eq:1.3, min:-4,max:4,
     inertia:0.25, fmt:"pctRaw", realNote:"~2% real growth"},
+  gspLevel:{name:"Gross State Product", icon:"chart-up", value:305, baseline:305, min:180, max:900,
+    inertia:0.08, fmt:"gsp", selfManaged:true,
+    realNote:"Oregon's total economic output ≈ $300B (2024). A stock, not a rate — it compounds at the GDP Growth Rate each quarter, and a recession shrinks it. A bigger economy widens the tax base and raises the fiscal-crisis line."},
   inequality:{name:"Inequality", icon:"scales", value:55, baseline:55, eq:60, min:0,max:100,
     inertia:0.14, invert:true, realNote:"Income gap; higher = more unequal"},
   gasPrice:{name:"Gas Price", icon:"fuel", value:3.95, baseline:3.95, eq:3.82, min:2.5,max:7,
@@ -2131,6 +2134,7 @@ const METRIC_LINKS=[
   {from:"taxBurden",   to:"disposableIncome", coef:-0.14, ref:38},
   {from:"unemployment",to:"disposableIncome", coef:-1.1, ref:5.0},
   {from:"gdp",         to:"disposableIncome", coef:1.0,  ref:2.0}, // growth helps households, but inequality mediates how much reaches the bottom
+  {from:"gspLevel",    to:"disposableIncome", coef:0.04, ref:305}, // a larger economy (not just a fast one) lifts household incomes; a shrunk one scars them
   {from:"inequality",  to:"disposableIncome", coef:-0.40, ref:55}, // high inequality means GDP gains pile up at the top; working households don't feel the growth
   {from:"disposableIncome", to:"gdp",         coef:0.006, ref:52}, // consumer spending
   {from:"transitShare",to:"environment",      coef:0.07, ref:8},   // mode shift cuts emissions
@@ -5608,8 +5612,15 @@ function tickMetrics(){
   for(const k in METRICS)GAME.prevMetrics[k]=METRICS[k].value;
   for(const k in METRICS){
     const m=METRICS[k];
+    if(m.selfManaged)continue;   // e.g. gspLevel — a stock updated by its own rule below
     m.value+=(metricTarget(k)-m.value)*m.inertia;
     m.value=clamp(m.value,m.min,m.max);
+  }
+  // Gross State Product is a stock: it compounds at the (annualized) growth rate,
+  // one quarter at a time — a boom grows it faster, a recession shrinks it.
+  if(METRICS.gspLevel){
+    const g=METRICS.gdp.value;   // annualized real growth, %
+    METRICS.gspLevel.value=clamp(METRICS.gspLevel.value*(1+g/400), METRICS.gspLevel.min, METRICS.gspLevel.max);
   }
 }
 function tickIndicators(){
@@ -6109,6 +6120,11 @@ function revenueBySource(){
   const corpCycle   = 1 + GAME.econCycle*0.30 + GAME.marketLevel*0.20;  // most volatile
   const salesCycle  = 1 + GAME.econCycle*0.05;                          // consumption is sticky
   const sinCycle    = 1 - GAME.econCycle*0.02;                          // mildly countercyclical (recession drinking/gambling)
+  // the tax BASE tracks the size of the economy (a slow structural drift on top
+  // of the fast cycle): a decade of solid growth lifts every broad tax; a deep
+  // recession that shrinks GSP leaves revenue structurally lower even after
+  // growth resumes. 1.0 at the starting economy.
+  const gspMult = METRICS.gspLevel ? clamp(METRICS.gspLevel.value/METRICS.gspLevel.baseline, 0.7, 1.6) : 1;
   for(const id in REVENUE){
     const r=REVENUE[id];
     let amt=r.base;
@@ -6152,14 +6168,14 @@ function revenueBySource(){
     if(id==="personalIncome"){
       // policy-driven growth also lifts revenue: more jobs → more filers, higher GDP → broader prosperity
       const policyEconBoost=clamp((METRICS.gdp.value-2.0)*0.025+(5.2-METRICS.unemployment.value)*0.012,-0.12,0.12);
-      amt*=incomeCycle*(1+policyEconBoost);
+      amt*=incomeCycle*(1+policyEconBoost)*gspMult;
     }
     else if(id==="corpActivity"){
       // corporate profits are more GDP-sensitive than wages — policy-driven growth matters
       const gdpBoost=clamp((METRICS.gdp.value-2.0)*0.035,-0.15,0.15);
-      amt*=corpCycle*(1+gdpBoost);
+      amt*=corpCycle*(1+gdpBoost)*gspMult;
     }
-    else if(id==="salesTaxRev")amt*=salesCycle;                       // stable through downturns
+    else if(id==="salesTaxRev")amt*=salesCycle*gspMult;               // stable through downturns
     else if(id==="cannabisRev"||id==="liquorRev")amt*=sinCycle;       // sin taxes hold up
     else if(id==="lottery")amt*=sinCycle;
     if(id==="estateRev"){
@@ -6303,11 +6319,12 @@ function budgetBalance(){
   return {revenue,spend,balance:revenue-spend};
 }
 /* The accumulated-shortfall level that tips into a Structural Deficit Crisis.
-   Scaled to the size of the state budget — a $0.8B hole means far more to a
-   $30B budget than to a $60B one — rather than a fixed dollar figure. Roughly
-   2.5% of annual General Fund + Lottery spending. */
+   Scaled to the size of the state economy — a $0.8B hole means far more to a
+   $300B economy than to a $500B one — rather than a fixed dollar figure.
+   Roughly 0.26% of Gross State Product (≈ $0.8B at the starting ~$305B). */
 function fiscalCrisisThreshold(){
-  return +clamp(budgetBalance().spend*0.025, 0.5, 4).toFixed(2);
+  const gsp=METRICS.gspLevel ? METRICS.gspLevel.value : 305;
+  return +clamp(gsp*0.0026, 0.5, 5).toFixed(2);
 }
 /* end-of-quarter fiscal settlement: the kicker drains surpluses above the
    2% line (research: entire surplus refunded, not just the excess), reform
@@ -8352,6 +8369,7 @@ let currentView="board";
 const main=document.getElementById("main");
 function fmtMetric(m){
   if(m.fmt==="usd")return "$"+m.value.toFixed(2);
+  if(m.fmt==="gsp")return "$"+Math.round(m.value)+"B";
   if(m.fmt==="pctRaw")return m.value.toFixed(1)+"%";
   if(m.fmt==="pct")return Math.round(m.value)+"%";
   return Math.round(m.value);
@@ -9289,12 +9307,19 @@ function renderDetail(){
       const gi=Math.round(effective("gdp"));
       const giCol=gi>=66?'var(--good)':gi>=52?'var(--warn)':'var(--bad)';
       h+=`<div class="detailrow"><span class="pill">${ico('chart-up')} GDP Index: <b style="color:${giCol}">${gi}</b>/100</span><span class="pill">The 0–100 economic-strength score campaign promises track — <b>50 + growth×8</b> (≈60 at trend growth, ≈66 at 2%). "GDP Index ≥ 60" means growth at or above ~1.25%.</span></div>`;
+      if(METRICS.gspLevel)h+=`<div class="detailrow"><span class="pill" data-detail="m_gspLevel" style="cursor:pointer">${ico('chart-up')} Compounds into Gross State Product — now <b>$${Math.round(METRICS.gspLevel.value)}B</b></span></div>`;
+    }
+    if(k==="gspLevel"){
+      const gr=METRICS.gdp.value, thr=fiscalCrisisThreshold();
+      h+=`<div class="detailrow"><span class="pill">${ico('chart-up')} Compounding at <b>${gr>=0?'+':''}${gr.toFixed(1)}%</b>/yr</span>
+        <span class="pill" data-detail="m_gdp" style="cursor:pointer">← driven by the GDP Growth Rate</span></div>
+        <div class="sectionsub" style="margin-top:2px">This is a <b>stock</b>, not a rate: each quarter it grows by one quarter's worth of the annualized growth rate, so a run of good growth builds a permanently larger economy and a recession leaves a lasting dent. It feeds the state in three ways — a wider <b>tax base</b> (income, corporate and sales revenue scale with it), higher household <b>Disposable Income</b>, and it sets the <b>Structural Deficit Crisis</b> line, currently <b>−$${thr.toFixed(2)}B</b> (~0.26% of GSP).</div>`;
     }
     h+=`<div class="chartbox"><div class="charttitle">Value over time</div>
       ${sparkline(GAME.history["m_"+k],{axis:true, marks:policyMarksFor(k), color:m.invert?'var(--clay)':'var(--moss)',fmt:v=>m.fmt==="pctRaw"?v.toFixed(1)+"%":Math.round(v)})}
       <div class="chartnote">Dashed lines mark when policies affecting this statistic were enacted.</div></div>`;
     // ---- contributors: everything shaping this metric's target ----
-    const cons=metricContributors(k);
+    const cons=(k==="gspLevel")?[]:metricContributors(k);
     if(cons.length){
       const better=v=>m.invert?v<0:v>0;
       const real=cons.filter(c=>!c.base);
@@ -10156,7 +10181,7 @@ function renderBudget(){
       <div class="mcard"><div class="mname">Revenue / Yr</div><div class="mval" style="color:var(--good)">$${b.revenue.toFixed(1)}B</div></div>
       <div class="mcard"><div class="mname">Spending / Yr</div><div class="mval" style="color:var(--clay)">$${b.spend.toFixed(1)}B</div></div>
       <div class="mcard"><div class="mname">Balance / Yr</div><div class="mval" style="color:${b.balance>=0?'var(--good)':'var(--bad)'}">${b.balance>=0?'+':''}$${b.balance.toFixed(1)}B</div></div>
-      <div class="mcard"><div class="mname">${debt>0.005?'Accumulated Shortfall':'Reserves on Hand'}</div><div class="mval" style="color:${debt>0.005?'var(--bad)':'var(--good)'}">${debt>0.005?'−$'+debt.toFixed(1)+'B':'$'+res.toFixed(1)+'B'}</div></div>
+      <div class="mcard"><div class="mname">${debt>0.005?'Accumulated Shortfall':'Total Reserves'}</div><div class="mval" style="color:${debt>0.005?'var(--bad)':'var(--good)'}">${debt>0.005?'−$'+debt.toFixed(1)+'B':'$'+res.toFixed(1)+'B'}</div></div>
     </div>`;
   }
   // ---- fiscal machinery panel ----
@@ -10166,18 +10191,21 @@ function renderBudget(){
     const cycPct=(cyc+1)/2*100;
     const rdCol=GAME.rainyDay>1?'var(--good)':GAME.rainyDay>0.3?'var(--warn)':'var(--bad)';
     const persPct=(GAME.persRate-5.26)/(9.35-5.26)*100;
-    h+=`<div class="fiscal-panel"><div class="fiscal-title">Fiscal Machinery</div><div class="fiscal-grid">`;
+    h+=`<div class="fiscal-panel"><div class="fiscal-title">Fiscal Machinery</div>
+      <div class="fnote" style="margin:-2px 0 12px">How the budget balances between quarters: <b>reserves</b> absorb a shortfall, then it becomes <b>structural debt</b>; <b>revenue</b> swings with the economy and the kicker; <b>costs</b> grind upward on their own.</div>
+      <div class="fiscal-grid">`;
+    // --- reserves cluster ---
     {
       const totRes=(GAME.rainyDay||0)+(GAME.eduStability||0);
       const trCol=totRes>2?'var(--good)':totRes>0.6?'var(--warn)':'var(--bad)';
       h+=`<div class="fcard"><div class="fname">${ico('bank')} Total Reserves</div><div class="fval" style="color:${trCol}">$${totRes.toFixed(2)}B</div>
-        <div class="fnote">Rainy Day Fund $${(GAME.rainyDay||0).toFixed(2)}B (general reserve, drawn first against any deficit) + Education Stability Fund $${(GAME.eduStability||0).toFixed(2)}B (K-12 only). The state's cushion before a deficit becomes structural debt.</div></div>`;
+        <div class="fnote">Rainy Day Fund + Education Stability Fund — the cushion that absorbs a deficit before it becomes structural debt. Breakdown in the two cards that follow.</div></div>`;
     }
     {
       const cd=GAME.turn-(GAME.lastReserveDraw??-99);
       let rdCtl=`<div class="fnote">${POLICIES.kickerReform
         ? `With the kicker repealed, <b>every</b> above-forecast surplus accumulates here (60%) and in the Education Stability Fund (40%) — this balance is your running surplus.`
-        : `Refilled by surpluses under the 2% kicker line.`} <b>Auto-drawn</b> to cover any quarter's deficit before it turns into structural debt — or draw on it deliberately below.</div>`;
+        : `Refilled by budget surpluses under the 2% kicker line.`} <b>Auto-drawn</b> to cover any quarter's deficit before it turns into structural debt — or draw on it deliberately below.</div>`;
       if(GAME.reserveInfusion>0)
         rdCtl+=`<div class="fnote" style="color:var(--slate-blue)">↳ $${GAME.reserveInfusion.toFixed(2)}B drawn, lands in the budget at quarter's end.</div>`;
       if(reserveDrawAvailable())
@@ -10186,6 +10214,9 @@ function renderBudget(){
         rdCtl+=`<div class="fnote" style="opacity:.7;font-style:italic">${GAME.capital<4?'Need ◈4 to call a legislative draw.':cd<4?`Draw available again in ${4-cd}q.`:''}</div>`;
       h+=`<div class="fcard"><div class="fname">${ico('bank')} Rainy Day Fund</div><div class="fval" style="color:${rdCol}">$${GAME.rainyDay.toFixed(2)}B</div>${rdCtl}</div>`;
     }
+    h+=`<div class="fcard"><div class="fname">${ico('cap')} Education Stability Fund</div><div class="fval">$${GAME.eduStability.toFixed(2)}B</div>
+      <div class="fnote">Dedicated constitutional K-12 reserve (lottery-funded). <b>Not</b> available for the general deficit — it's spent only to cushion the school-fund cut when a forced deficit lands.</div></div>`;
+    // --- shortfall / crisis ---
     {
       const debt=GAME.structuralDebt||0, ds=GAME.deficitStreak||0;
       const thr=fiscalCrisisThreshold();
@@ -10196,8 +10227,9 @@ function renderBudget(){
         <div class="fnote">${near
           ? `Deficits carried past an exhausted Rainy Day Fund${ds?` — <b>${ds}</b> consecutive deficit ${ds===1?'quarter':'quarters'}`:''}. Every surplus pays this down first.`
           : `Nothing carried — every quarter's gap has been met by revenue or the Rainy Day Fund.`}
-          A <b>Structural Deficit Crisis</b> triggers past <b>−$${thr.toFixed(2)}B</b> (≈2.5% of the $${b.spend.toFixed(0)}B state budget — the bar rises as the budget grows) or four straight deficit quarters. ${(near&&GAME.rainyDay>0.3)?'Draw on the Rainy Day Fund above to pay it down.':''}</div></div>`;
+          A <b>Structural Deficit Crisis</b> triggers past <b>−$${thr.toFixed(2)}B</b> (≈0.26% of the $${Math.round((METRICS.gspLevel?METRICS.gspLevel.value:305))}B state economy — the bar rises as the economy grows) or four straight deficit quarters. ${(near&&GAME.rainyDay>0.3)?'Draw on the Rainy Day Fund above to pay it down.':''}</div></div>`;
     }
+    // --- revenue dynamics ---
     if(POLICIES.kickerReform){
       h+=`<div class="fcard"><div class="fname">${ico('cash-fly')} Kicker</div><div class="fval" style="color:var(--good)">Repealed</div>
         <div class="fnote">Every surplus over the 2% line flows straight to reserves &amp; schools — no refund, no decision.</div></div>`;
@@ -10205,11 +10237,16 @@ function renderBudget(){
       h+=`<div class="fcard"><div class="fname">${ico('cash-fly')} Kicker</div><div class="fval" style="color:#8a8270">Active</div>
         <div class="fnote">A surplus above the 2% line refunds in full to taxpayers. When one clears the line and you hold <b>◈6</b> to spend, you'll be asked at quarter's end whether to move part of it into the emergency reserves first.</div></div>`;
     }
-    h+=`<div class="fcard"><div class="fname">${ico('cap')} Education Stability Fund</div><div class="fval">$${GAME.eduStability.toFixed(2)}B</div>
-      <div class="fnote">Dedicated constitutional K-12 reserve (lottery-funded). <b>Not</b> available for the general deficit — it's spent only to cushion the school-fund cut when a forced deficit lands.</div></div>`;
     h+=`<div class="fcard"><div class="fname">${ico('chart-up')} Economic Cycle</div><div class="fval" style="color:${cycCol}">${cycWord}</div>
       <div class="fbar"><span class="fmid"></span><i style="left:${cycPct}%"></i></div>
-      <div class="fnote">Swings the income tax — your ~80% revenue source. Booms inflate revenue; recessions gut it.</div></div>`;
+      <div class="fnote">The short-term boom-bust swing. Moves the income tax — your biggest revenue source — hard: booms inflate revenue, recessions gut it.</div></div>`;
+    {
+      const gsp=METRICS.gspLevel?METRICS.gspLevel.value:305;
+      const gr=METRICS.gdp.value;
+      h+=`<div class="fcard"><div class="fname">${ico('chart-up')} State Economy (GSP)</div><div class="fval" style="color:${gsp>=METRICS.gspLevel.baseline?'var(--good)':'var(--clay)'}">$${Math.round(gsp)}B</div>
+        <div class="fnote">Total output, compounding at ${gr>=0?'+':''}${gr.toFixed(1)}%/yr. The slow structural trend under the cycle: a bigger economy widens the tax base and raises the crisis line above; a recession that shrinks it scars revenue for years. <span data-detail="m_gspLevel" style="color:var(--slate-blue);cursor:pointer">details →</span></div></div>`;
+    }
+    // --- cost pressures ---
     h+=`<div class="fcard"><div class="fname">⚰️ PERS Pension Costs</div><div class="fval" style="color:var(--clay)">$${GAME.persRate.toFixed(2)}B</div>
       <div class="fbar2"><i style="width:${clamp(persPct,0,100)}%;background:var(--clay)"></i></div>
       <div class="fnote">Rising relentlessly toward ~$9.35B by 2029 — crowds the budget no matter what you do.</div></div>`;
@@ -10423,6 +10460,8 @@ function buildWebEdges(){
     const v=(METRICS[L.from].value-L.ref)*L.coef;
     E.push({a:"m_"+L.from,b:"m_"+L.to,good:goodFor(L.to,v!==0?v:L.coef),w:Math.max(0.4,Math.abs(v))});
   }
+  // GDP growth compounds into the Gross State Product stock each quarter
+  if(METRICS.gspLevel)E.push({a:"m_gdp",b:"m_gspLevel",good:METRICS.gdp.value>=0,w:1.3});
   for(const sid in GAME.activeSituations){
     const st=SITUATIONS[sid]; if(!st)continue;
     for(const k in (st.metricEffect||{}))E.push({a:"s_"+sid,b:"m_"+k,good:goodFor(k,st.metricEffect[k]),w:Math.abs(st.metricEffect[k])});
