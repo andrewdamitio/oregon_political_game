@@ -80,6 +80,7 @@
   .hud .stat .label{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#9aa3a0}
   .hud .stat .val{font-family:var(--font-data);font-size:16px;font-weight:600}
   .val.gold{color:var(--gold)} .val.blue{color:#9fc0e0}
+  .val.debt{color:#e59a8c} .val.ok{color:#93c98d}
   /* term-progress bar tucked under the Turn / quarter readout in the topbar */
   .hud .stat-turn{min-width:96px}
   .hud .hud-termbar{height:4px;background:rgba(255,255,255,.16);border-radius:2px;margin-top:6px;overflow:hidden}
@@ -1115,6 +1116,7 @@
     <div class="stat"><div class="label">Approval</div><div class="val" id="hudApproval">50%</div></div>
     <div class="stat"><div class="label">Pol. Capital</div><div class="val gold" id="hudCapital">40</div></div>
     <div class="stat"><div class="label">Gen. Fund Bal.</div><div class="val blue" id="hudBudget">+0.0B</div></div>
+    <div class="stat" id="hudFiscalStat"><div class="label" id="hudFiscalLabel">Reserves</div><div class="val" id="hudFiscal">$0.0B</div></div>
     <button id="reportBtn" title="Reopen the last quarterly report" style="background:none;border:1px solid rgba(255,255,255,.22);color:var(--chrome-fg);padding:5px 11px;border-radius:2px;cursor:pointer;font-size:14px;margin-right:6px;line-height:1;opacity:0.85"><svg class="ico" aria-hidden="true"><use href="#ic-doc"/></svg></button>
     <button id="campBtn" title="Campaign HQ — platform, mobilisations, campaign energy" style="background:none;border:1px solid rgba(255,255,255,.22);color:var(--chrome-fg);padding:5px 11px;border-radius:2px;cursor:pointer;font-size:14px;margin-right:6px;line-height:1;opacity:0.85"><svg class="ico" aria-hidden="true"><use href="#ic-ballot"/></svg></button>
     <button id="saveBtn" title="Save your game" style="background:none;border:1px solid rgba(255,255,255,.22);color:var(--chrome-fg);padding:5px 11px;border-radius:2px;cursor:pointer;font-size:14px;margin-right:6px;line-height:1;opacity:0.85"><svg class="ico" aria-hidden="true"><use href="#ic-floppy"/></svg></button>
@@ -5160,6 +5162,8 @@ const GAME={
   eduStability:1.0,     // Education Stability Fund ($B)
   reserveInfusion:0,    // pending one-time cash from a deliberate Rainy Day draw — consumed at the next settlement
   lastReserveDraw:-99,  // turn of the last deliberate reserve draw (cooldown)
+  pendingShortfall:null,// {debt,rd} — a shortfall nearing crisis; end-quarter popup offers a Rainy Day paydown
+  lastShortfallPrompt:-99, // turn the shortfall popup last fired (so it doesn't nag every quarter)
   structuralDebt:0,     // accumulated unresolved deficit ($B) — accrues when reserves are exhausted
   deficitStreak:0,      // consecutive quarters carrying a gap after reserves are drained
   econCycle:0,          // -1 deep recession .. +1 boom; random walk each quarter
@@ -6350,6 +6354,16 @@ function settleFiscal(){
       METRICS.health.value=clamp(METRICS.health.value-bite*0.3,0,100);
       GAME.capital=Math.round(clamp(GAME.capital-Math.min(gap*6,8),0,100));
     }
+  }
+  // Proactive nudge: carrying real structural debt with reserves still on hand and
+  // drifting toward the fiscal-crisis line — the end-quarter flow will offer a
+  // deliberate Rainy Day paydown. Rate-limited so it doesn't nag every quarter.
+  if(((GAME.structuralDebt||0)>=0.5 || (GAME.deficitStreak||0)>=2)
+     && GAME.rainyDay>=0.3
+     && GAME.capital>=RESERVE_DRAW_CAPITAL
+     && (GAME.turn-(GAME.lastReserveDraw??-99))>=RESERVE_DRAW_COOLDOWN
+     && (GAME.turn-(GAME.lastShortfallPrompt??-99))>=6){
+    GAME.pendingShortfall={debt:+(GAME.structuralDebt||0).toFixed(2), rd:+GAME.rainyDay.toFixed(2)};
   }
 }
 /* Election with differential turnout and third-party dynamics.
@@ -7593,6 +7607,41 @@ function showReserveDraw(){
   card.querySelectorAll('[data-amt]').forEach(b=>b.addEventListener('click',()=>done(+b.dataset.amt)));
   document.addEventListener("keydown",onKey,true);
 }
+/* end-of-quarter popup: structural debt is high and a fiscal crisis is close, but
+   the Rainy Day Fund still has a balance. Offer to draw it down to pay off the
+   accumulated shortfall before it triggers the crisis. */
+function showShortfallChoice(next){
+  const p=GAME.pendingShortfall; GAME.pendingShortfall=null;
+  if(!p || !reserveDrawAvailable()){ if(next)next(); return; }
+  GAME.lastShortfallPrompt=GAME.turn;
+  const bal=GAME.rainyDay, debt=GAME.structuralDebt||0, ds=GAME.deficitStreak||0;
+  const card=document.getElementById("reserveCard");
+  const opt=(frac,label)=>{
+    const a=+(bal*frac).toFixed(2);
+    return `<button class="dilemma-opt" data-amt="${a}"><span class="do-label">${label} — $${a.toFixed(2)}B</span>`
+      +`<span class="do-sub">Pays down the shortfall first, then any remainder into the General Fund</span></button>`;
+  };
+  card.innerHTML=`<h2>${ico('warning')} Shortfall Building</h2>
+    <div class="sectionsub">Oregon is carrying <b>−$${debt.toFixed(2)}B</b> of accumulated shortfall${ds>=2?` after <b>${ds}</b> straight deficit quarters`:''} — a <b>Structural Deficit Crisis</b> triggers past −$0.80B or four consecutive deficit quarters, and it deepens every quarter it runs. The Rainy Day Fund still holds <b>$${bal.toFixed(2)}B</b>. Draw on it now to pay the shortfall down — <b>◈${RESERVE_DRAW_CAPITAL}</b> political capital, and fiscal conservatives will call it raiding the savings account.</div>
+    <div class="dilemma-opts" style="margin-top:14px">
+      ${opt(0.5,"Draw half")}
+      ${opt(RESERVE_DRAW_CAP,"Draw two-thirds")}
+      <button class="dilemma-opt" data-amt="0"><span class="do-label">Ride it out</span><span class="do-sub">No draw — the shortfall stands and the crisis risk grows</span></button>
+    </div>`;
+  const modal=document.getElementById("reserveModal");
+  modal.classList.remove("hidden");
+  const done=(a)=>{
+    if(a>0)drawReserves(a);
+    modal.classList.add("hidden");
+    document.removeEventListener("keydown",onKey,true);
+    render();
+    if(next)next();
+  };
+  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return;
+    if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(0); } };
+  card.querySelectorAll('[data-amt]').forEach(b=>b.addEventListener('click',()=>done(+b.dataset.amt)));
+  document.addEventListener("keydown",onKey,true);
+}
 
 /* Oregon’s 36 counties as real outlines (EPSG:2992 -> linear SVG, ~4200ft simplified):
    [name, abbr, pathData, labelX, labelY, partisan lean (-1 progressive .. +1
@@ -8132,6 +8181,7 @@ function doEndTurn(){
     else if(!GAME.skipReport)showQuarterReport();
   };
   if(GAME.pendingSurplus) showSurplusChoice(afterSurplus);
+  else if(GAME.pendingShortfall) showShortfallChoice(afterSurplus);
   else afterSurplus();
 }
 /* election quarter — ticks run for the campaign quarter, then the election fires */
@@ -8139,6 +8189,7 @@ function doElectionTurn(){
   evaluatePromises();          // judge the promises made at the LAST election, before votes are cast
   _runTicks();                 // promise grudges then flow into approval for the election
   if(GAME.pendingSurplus)_resolveSurplus(0,0);   // no room for a popup before the election — the kicker fires
+  GAME.pendingShortfall=null;                    // and no shortfall popup right before the vote
 
   _calcCapital();
   GAME.turn++; pushHistory();   // campaign quarter
@@ -10056,11 +10107,15 @@ function renderBudget(){
   const spdRows=Object.keys(SPENDING).sort((a,c)=>spd[c]-spd[a]);
   let h=`<div class="sectionhdr">State Budget</div>
     <div class="sectionsub">Annualized General Fund + Lottery, 2025-27 biennium scale. Oregon has no sales tax — the personal income tax carries the budget. Figures move as you change tax rates and program funding.</div>`;
-  h+=`<div class="mgrid" style="margin-bottom:22px">
-    <div class="mcard"><div class="mname">Revenue / Yr</div><div class="mval" style="color:var(--good)">$${b.revenue.toFixed(1)}B</div></div>
-    <div class="mcard"><div class="mname">Spending / Yr</div><div class="mval" style="color:var(--clay)">$${b.spend.toFixed(1)}B</div></div>
-    <div class="mcard"><div class="mname">Balance / Yr</div><div class="mval" style="color:${b.balance>=0?'var(--good)':'var(--bad)'}">${b.balance>=0?'+':''}$${b.balance.toFixed(1)}B</div></div>
-  </div>`;
+  {
+    const debt=GAME.structuralDebt||0, res=(GAME.rainyDay||0)+(GAME.eduStability||0);
+    h+=`<div class="mgrid" style="margin-bottom:22px">
+      <div class="mcard"><div class="mname">Revenue / Yr</div><div class="mval" style="color:var(--good)">$${b.revenue.toFixed(1)}B</div></div>
+      <div class="mcard"><div class="mname">Spending / Yr</div><div class="mval" style="color:var(--clay)">$${b.spend.toFixed(1)}B</div></div>
+      <div class="mcard"><div class="mname">Balance / Yr</div><div class="mval" style="color:${b.balance>=0?'var(--good)':'var(--bad)'}">${b.balance>=0?'+':''}$${b.balance.toFixed(1)}B</div></div>
+      <div class="mcard"><div class="mname">${debt>0.005?'Accumulated Shortfall':'Reserves on Hand'}</div><div class="mval" style="color:${debt>0.005?'var(--bad)':'var(--good)'}">${debt>0.005?'−$'+debt.toFixed(1)+'B':'$'+res.toFixed(1)+'B'}</div></div>
+    </div>`;
+  }
   // ---- fiscal machinery panel ----
   {
     const cyc=GAME.econCycle, cycWord=cyc>0.33?"Boom":cyc>0.10?"Expansion":cyc<-0.33?"Recession":cyc<-0.10?"Downturn":"Steady";
@@ -10071,7 +10126,9 @@ function renderBudget(){
     h+=`<div class="fiscal-panel"><div class="fiscal-title">Fiscal Machinery</div><div class="fiscal-grid">`;
     {
       const cd=GAME.turn-(GAME.lastReserveDraw??-99);
-      let rdCtl=`<div class="fnote">Refilled by surpluses under the 2% kicker line. <b>Auto-drawn</b> to cover any quarter's deficit before it turns into structural debt — or draw on it deliberately below.</div>`;
+      let rdCtl=`<div class="fnote">${POLICIES.kickerReform
+        ? `With the kicker repealed, <b>every</b> above-forecast surplus accumulates here (60%) and in the Education Stability Fund (40%) — this balance is your running surplus.`
+        : `Refilled by surpluses under the 2% kicker line.`} <b>Auto-drawn</b> to cover any quarter's deficit before it turns into structural debt — or draw on it deliberately below.</div>`;
       if(GAME.reserveInfusion>0)
         rdCtl+=`<div class="fnote" style="color:var(--slate-blue)">↳ $${GAME.reserveInfusion.toFixed(2)}B drawn, lands in the budget at quarter's end.</div>`;
       if(reserveDrawAvailable())
@@ -10079,6 +10136,16 @@ function renderBudget(){
       else if(GAME.rainyDay>0.15)
         rdCtl+=`<div class="fnote" style="opacity:.7;font-style:italic">${GAME.capital<4?'Need ◈4 to call a legislative draw.':cd<4?`Draw available again in ${4-cd}q.`:''}</div>`;
       h+=`<div class="fcard"><div class="fname">${ico('bank')} Rainy Day Fund</div><div class="fval" style="color:${rdCol}">$${GAME.rainyDay.toFixed(2)}B</div>${rdCtl}</div>`;
+    }
+    {
+      const debt=GAME.structuralDebt||0, ds=GAME.deficitStreak||0;
+      const dCol=debt>0.8?'var(--bad)':debt>0.3?'var(--warn)':'#8a8270';
+      const near=debt>0.005||ds>0;
+      h+=`<div class="fcard"${debt>0.3?' style="border-left-color:var(--clay)"':''}><div class="fname">${ico('warning')} Accumulated Shortfall</div>
+        <div class="fval" style="color:${dCol}">${debt>0.005?'−$'+debt.toFixed(2)+'B':'$0.00B'}</div>
+        <div class="fnote">${near
+          ? `Deficits carried past exhausted reserves${ds?` — <b>${ds}</b> consecutive deficit ${ds===1?'quarter':'quarters'}`:''}. Every surplus pays this down first; a <b>Structural Deficit Crisis</b> triggers past −$0.80B or four straight deficit quarters. ${GAME.rainyDay>0.3?'Draw on the Rainy Day Fund above to pay it down.':''}`
+          : `Nothing carried — every quarter's gap has been met by revenue or reserves.`}</div></div>`;
     }
     if(POLICIES.kickerReform){
       h+=`<div class="fcard"><div class="fname">${ico('cash-fly')} Kicker</div><div class="fval" style="color:var(--good)">Repealed</div>
@@ -10229,6 +10296,22 @@ function renderHUD(){
   }
   const b=budgetBalance();
   tweenNum(document.getElementById("hudBudget"),"hudBudget",b.balance,{dp:1,pre:b.balance>=0?"+":"",suf:"B"});
+  // fiscal position: the accumulated shortfall if we're carrying one, otherwise total reserves
+  {
+    const fEl=document.getElementById("hudFiscal"), flEl=document.getElementById("hudFiscalLabel");
+    const debt=GAME.structuralDebt||0;
+    if(fEl&&flEl){
+      if(debt>0.005){
+        flEl.textContent="Structural Debt";
+        fEl.textContent="−$"+debt.toFixed(1)+"B";
+        fEl.className="val debt";
+      } else {
+        flEl.textContent="Reserves";
+        fEl.textContent="$"+((GAME.rainyDay||0)+(GAME.eduStability||0)).toFixed(1)+"B";
+        fEl.className="val ok";
+      }
+    }
+  }
   // term-progress bar under the Turn readout
   const into=GAME.turn-(GAME.term-1)*GAME.termLengthTurns;
   const tf=document.getElementById("hTermFill");
@@ -10570,6 +10653,7 @@ document.getElementById("hudApproval").parentElement.style.cursor="pointer";
 document.getElementById("hudApproval").parentElement.addEventListener('click',()=>openDetail("approval"));
 document.getElementById("hudBudget").parentElement.style.cursor="pointer";
 document.getElementById("hudBudget").parentElement.addEventListener('click',()=>{settlePending();currentView="budget";detailKey=null;render();});
+{const fs2=document.getElementById("hudFiscalStat"); if(fs2){fs2.style.cursor="pointer";fs2.addEventListener('click',()=>{settlePending();currentView="budget";detailKey=null;render();});}}
 // seed chronic Oregon conditions the governor inherits
 for(const sid in SITUATIONS){
   if(SITUATIONS[sid].startActive){GAME.activeSituations[sid]=true;GAME.situationAge[sid]=0;}
