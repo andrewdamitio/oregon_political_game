@@ -1192,6 +1192,8 @@
 <div id="surplusModal" class="modal hidden"><div class="card" id="surplusCard"></div></div>
 <div id="reserveModal" class="modal hidden"><div class="card" id="reserveCard" style="max-width:470px"></div></div>
 <div id="newGameModal" class="modal hidden" style="z-index:70"><div class="card" id="newGameCard" style="max-width:420px"></div></div>
+<div id="recordModal" class="modal hidden" style="z-index:60"><div class="card" id="recordCard" style="max-width:640px"></div></div>
+<div id="termLimitModal" class="modal hidden" style="z-index:65"><div class="card" id="termLimitCard" style="max-width:460px"></div></div>
 <div id="welcomeModal" class="modal hidden"><div class="card" id="welcomeCard"></div></div>
 <div id="platformModal" class="modal hidden"><div class="camp-popup-card" id="platformCard"></div></div>
 <div id="resumeModal" class="modal hidden"><div class="card" style="max-width:380px;text-align:center">
@@ -3201,6 +3203,12 @@ const CATALOG={
     indicatorEffects:{businessClimate:4, taxGrievance:-6},
     blocEffect:{libertarian:10, conservative:8, businessClass:6, wealthy:5, rural:3, moderate:1, publicUnions:-10, liberal:-6, socialist:-6, students:-3, poor:-3},
     ideology:{economic:0.6, govSize:0.7}},
+  termLimitRepeal:{name:"Repeal Gubernatorial Term Limits", domain:"economy", icon:"ballot", mechanic:"law", reform:true,
+    desc:"Oregon's constitution (Article V, §1) bars anyone from serving as governor more than eight years in any twelve — two consecutive terms, then you must step aside. This amendment strikes the limit, letting a sitting governor stand for re-election with no ceiling. Supporters frame it as trusting the voters to decide; nearly everyone else calls it a naked bid to hold power, and no governor has ever spent political capital this openly on their own tenure. Enact it before your second term's campaign quarter or your governorship ends on election night — win or lose.",
+    enabled:true, costFull:0, capital:20, enactCapital:26, repealCost:16,
+    effects:{}, indicatorEffects:{},
+    blocEffect:{libertarian:-9, conservative:-5, moderate:-4, rural:-4, collegeEducated:-3, socialist:-3, wealthy:-1, publicUnions:1},
+    ideology:{govSize:0.2}},
   occupationalLicensing:{name:"Occupational Licensing Reform", domain:"economy", icon:"wrench", mechanic:"law",
     desc:"Sunset or scale back Oregon's occupational-licensing regime — universal recognition of out-of-state licenses, a right to practise your trade, and a hard look at boards that mostly protect incumbents. It opens the trades and the service economy to entrants and lifts low-end mobility; the licensing boards and the professional guilds and unions that sit on them push back.",
     enabled:true, costFull:0, capital:8, enactCapital:10, repealCost:8,
@@ -7490,7 +7498,7 @@ function showWelcome(onDone){
     <div class="eg-kicker">STATE OF OREGON · ${yr}</div>
     <div class="eg-result">GOVERNOR</div>
     <div class="wm-rule"></div>
-    <div class="eg-sub" style="font-size:18px;max-width:600px">You've taken the oath of office. <b>Eight years</b> — four terms, sixteen quarters each — to leave the state better than you found it.</div>
+    <div class="eg-sub" style="font-size:18px;max-width:600px">You've taken the oath of office. <b>Eight years</b> — two four-year terms — to leave the state better than you found it. Longer, if you can change the constitution.</div>
     <div class="welcome-body">
       <p>Enact policy from <b>New Policies</b>. The <b>Governing Board</b> maps how every lever connects to every outcome — hover a tile to light up its web. Crime, jobs, housing, schools, health, the environment, the budget: pull one and the others move.</p>
       <p>Crises, dilemmas and a persistent opposition will test you along the way. Every choice ripples, and the voters — statewide and county by county — remember.</p>
@@ -8366,14 +8374,16 @@ function showElection(r){
     modal.classList.add("hidden"); modal.classList.remove("grand");
     GAME.lastMargin=clamp((r.share-0.5)*2,-1,1);
     if(won){
-      GAME.term++;GAME.capital=clamp(GAME.capital+15,0,100);GAME.log.push("★ Term "+GAME.term+" begins");
-      GAME.skipReport=false; GAME.skipCampaign=false; // reports and campaign popup resume each new term
-      GAME.campaign={effort:{},promises:[],pool:10};
-      GAME._platformDraft=[];
-      GAME.countyCamp={};   // county campaign presence is spent — the next term's is a fresh build
-      render();
-      showPlatformModal();  // now, with a fresh mandate, commit to the term ahead
-    } else location.href=location.origin+location.pathname;   // New Game — drop any ?seed= so it's a fresh seed
+      showRecord({kind:"reelected"}, ()=>{
+        GAME.term++;GAME.capital=clamp(GAME.capital+15,0,100);GAME.log.push("★ Term "+GAME.term+" begins");
+        GAME.skipReport=false; GAME.skipCampaign=false; // reports and campaign popup resume each new term
+        GAME.campaign={effort:{},promises:[],pool:10};
+        GAME._platformDraft=[];
+        GAME.countyCamp={};   // county campaign presence is spent — the next term's is a fresh build
+        render();
+        showPlatformModal();  // now, with a fresh mandate, commit to the term ahead
+      });
+    } else showRecord({kind:"defeated"}, ()=>{ location.href=location.origin+location.pathname; });
   };
   document.getElementById("electionContinue").onclick=proceed;
   const retryBtn=document.getElementById("elecRetrySeed");
@@ -8382,6 +8392,122 @@ function showElection(r){
   window._elecKey=(e)=>{ if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); proceed(); } };
   document.addEventListener("keydown",window._elecKey,true);
   setTimeout(()=>{try{document.getElementById("electionContinue").focus({preventScroll:true});}catch(e){try{document.getElementById("electionContinue").focus();}catch(_){}}},30);
+}
+
+/* Oregon caps a governor at two consecutive terms (Const. Art. V, §1). True
+   unless the player has spent the capital to repeal it. */
+function termLimited(){
+  return GAME.term>=2 && !(POLICIES.termLimitRepeal && POLICIES.termLimitRepeal.enacted);
+}
+/* the headline "state of Oregon" gauges shown on the end-of-term record screen */
+const RECORD_STATS=[
+  ["m","education","Educational Attainment"],["m","eduOutcomes","K-12 Proficiency"],
+  ["m","unemployment","Unemployment"],["m","gdp","GDP Growth Rate"],
+  ["m","violentCrime","Violent Crime"],["m","propertyCrime","Property Crime"],
+  ["m","homelessness","Homelessness"],["m","drugUse","Drug Use Rate"],
+  ["m","health","Public Health"],["m","behavioralHealth","Mental-Health Capacity"],
+  ["m","environment","Environmental Quality"],["m","inequality","Inequality"],
+  ["m","povertyRate","Poverty Rate"],["m","taxBurden","Overall Tax Burden"],
+  ["m","disposableIncome","Disposable Income"],
+  ["i","downtown","Downtown Perception"],["i","housingAffordability","Housing Affordability"],
+  ["i","businessClimate","Business Climate"]
+];
+/* End-of-term retrospective — how every headline number moved since you were
+   sworn in. Shown after every election (win, loss, or term-limited exit). */
+function showRecord(opts, next){
+  opts=opts||{};
+  const card=document.getElementById("recordCard"), modal=document.getElementById("recordModal");
+  const yrs=Math.max(1,Math.round(GAME.turn/4));
+  const title = opts.kind==="reelected" ? "Your Record So Far"
+             : opts.kind==="termlimited" ? "Leaving Office — Term-Limited"
+             : "Leaving Office";
+  const sub = opts.kind==="reelected"
+      ? `Re-elected to term ${GAME.term+1}. ${yrs} years in — how Oregon has moved since you were sworn in.`
+      : opts.kind==="termlimited"
+      ? `Oregon's constitution bars a third consecutive term. After ${yrs} years, the state you hand on:`
+      : `After ${yrs} years and a lost election, the state you hand on:`;
+  let rows="", improved=0, worsened=0;
+  for(const [t,k,label] of RECORD_STATS){
+    let start, now, invert=false, fmtStart, fmtNow;
+    if(t==="m"){
+      const m=METRICS[k]; if(!m)continue;
+      start=m.baseline; now=m.value; invert=!!m.invert;
+      fmtStart=fmtMetric({value:start,fmt:m.fmt}); fmtNow=fmtMetric(m);
+    } else {
+      const ind=INDICATORS[k]; if(!ind)continue;
+      const hs=GAME.history["i_"+k];
+      start=(hs&&hs.length)?hs[0].value:ind.value; now=ind.value;
+      fmtStart=Math.round(start); fmtNow=Math.round(now);
+    }
+    const d=now-start;
+    const good = Math.abs(d)<0.05 ? null : (invert ? d<0 : d>0);
+    if(good===true)improved++; else if(good===false)worsened++;
+    const col = good===null?'var(--muted-3)':good?'var(--good)':'var(--bad)';
+    const arrow = good===null?'–':good?'▲':'▼';
+    const dTxt = Math.abs(d)<0.05 ? "0" : (d>0?'+':'−')+(Math.abs(d)>=10?Math.abs(d).toFixed(0):Math.abs(d).toFixed(1));
+    rows+=`<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:12px;padding:4px 0;border-bottom:1px solid var(--line);break-inside:avoid">
+      <span style="flex:1;color:var(--muted-1)">${label}</span>
+      <span style="font-family:var(--font-data);color:var(--muted-3);white-space:nowrap">${fmtStart} <span style="opacity:.6">→</span> <b style="color:var(--ink)">${fmtNow}</b></span>
+      <span style="font-family:var(--font-data);font-weight:700;min-width:52px;text-align:right;color:${col}">${arrow} ${dTxt}</span>
+    </div>`;
+  }
+  const appH=GAME.history["approval"], appStart=(appH&&appH.length)?appH[0].value:50, appNow=overallApproval();
+  const debt=GAME.structuralDebt||0, reserves=(GAME.rainyDay||0)+(GAME.eduStability||0);
+  card.innerHTML=`<div class="sectionhdr">${ico('medal')} ${title}</div>
+    <div class="sectionsub">${sub}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12px;margin:10px 0 6px;color:var(--muted-2)">
+      <span><b style="color:var(--good)">${improved}</b> improved</span>
+      <span><b style="color:var(--bad)">${worsened}</b> worse</span>
+      <span>Approval <b>${Math.round(appStart)}%</b> <span style="opacity:.6">→</span> <b>${Math.round(appNow)}%</b></span>
+    </div>
+    <div style="columns:2;column-gap:26px;margin:6px 0 12px">${rows}</div>
+    <div style="font-size:12px;color:var(--muted-2);border-top:1px solid var(--line);padding-top:8px">
+      Structural debt <b style="color:${debt>0.05?'var(--bad)':'var(--good)'}">${debt>0.05?'−$'+debt.toFixed(2)+'B':'none'}</b>
+      &nbsp;·&nbsp; Reserves <b>$${reserves.toFixed(2)}B</b></div>
+    <button class="enactbtn" id="recordGo" style="margin-top:14px">${opts.kind==="reelected"?"Set your next platform ▸":"Start a new game ▸"}</button>`;
+  modal.classList.remove("hidden");
+  const done=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); if(next)next(); };
+  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
+  document.getElementById("recordGo").onclick=done;
+  document.addEventListener("keydown",onKey,true);
+  setTimeout(()=>{try{document.getElementById("recordGo").focus();}catch(e){}},30);
+}
+/* Fires four quarters before the end of a term-limited term: your window to
+   pass the term-limit repeal if you want to keep governing. */
+function showTermLimitWarning(w, next){
+  const card=document.getElementById("termLimitCard"), modal=document.getElementById("termLimitModal");
+  const q=(w&&w.qLeft)||4;
+  card.innerHTML=`<div class="sectionhdr">${ico('warning')} Your Second Term Is Ending</div>
+    <div class="sectionsub">Oregon's constitution limits you to two consecutive terms. Your governorship ends after the vote in <b>${q} quarter${q===1?'':'s'}</b> — win or lose, you leave office.</div>
+    <div class="sectionsub" style="margin-top:10px">To keep governing, pass <b>Repeal Gubernatorial Term Limits</b> (Constitutional Reforms) <b>before the campaign quarter</b>. It is expensive and unpopular — an open bid to hold power — but it is the only path to a third term.</div>
+    <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
+      <button class="enactbtn" id="tlReforms">Open Constitutional Reforms</button>
+      <button class="enactbtn ghost" id="tlOk">Understood</button>
+    </div>`;
+  modal.classList.remove("hidden");
+  const done=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); if(next)next(); };
+  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
+  const ok=document.getElementById("tlOk"); if(ok)ok.onclick=done;
+  const rf=document.getElementById("tlReforms");
+  if(rf)rf.onclick=()=>{ GAME.openPolSections=GAME.openPolSections||{}; GAME.openPolSections.__reforms=true; currentView="policies"; detailKey=null; done(); render(); };
+  document.addEventListener("keydown",onKey,true);
+  setTimeout(()=>{try{ok.focus();}catch(e){}},30);
+}
+/* Term-limited and the repeal was never passed: run the final quarter's ticks,
+   then close on the record screen instead of an election. */
+function doTermLimitEnd(){
+  evaluatePromises();
+  _runTicks();
+  if(GAME.pendingSurplus)_resolveSurplus(0,0);
+  GAME.pendingShortfall=null;
+  _calcCapital();
+  GAME.turn++; pushHistory();
+  GAME.gameOver=true;
+  try{ recordLegacy({won:true, share:0.5+clamp((overallApproval()-50)/100,-0.49,0.49),
+    approval:overallApproval(), termLimited:true}); }catch(e){}
+  GAME.log.push(ico('medal')+" Left office — term-limited after "+Math.round(GAME.turn/4)+" years");
+  render();
+  showRecord({kind:"termlimited"}, ()=>{ location.href=location.origin+location.pathname; });
 }
 /* shared capital-income calc used by both doEndTurn and doElectionTurn */
 function _calcCapital(){
@@ -8437,11 +8563,21 @@ function doEndTurn(){
     GAME.pendingMidterm={approval:oa, verdict, deltaPts, capPerQ:deltaPts*0.1,
       year:GAME.startYear+Math.floor(GAME.turn/4), favorable:deltaPts>0.5};
   }
+  // four quarters before a term-limited term's final vote: warn once that the
+  // clock is running and the repeal is the only way to keep going.
+  if(termLimited() && GAME.termLimitWarnedTerm!==GAME.term){
+    const qLeft=(GAME.termLengthTurns-1)-into;   // quarters until the campaign/election quarter
+    if(qLeft>0 && qLeft<=4){ GAME.termLimitWarnedTerm=GAME.term; GAME.pendingTermLimitWarn={qLeft}; }
+  }
   if(GAME.log.length>8)GAME.log=GAME.log.slice(-8);
   render();
+  const afterReport=()=>{
+    if(GAME.pendingTermLimitWarn){ const w=GAME.pendingTermLimitWarn; GAME.pendingTermLimitWarn=null; showTermLimitWarning(w); }
+  };
   const afterSurplus=()=>{
-    if(GAME.pendingMidterm){ const mt=GAME.pendingMidterm; GAME.pendingMidterm=null; showMidterm(mt); }
-    else if(!GAME.skipReport)showQuarterReport();
+    if(GAME.pendingMidterm){ const mt=GAME.pendingMidterm; GAME.pendingMidterm=null; showMidterm(mt); afterReport(); }
+    else if(!GAME.skipReport){ showQuarterReport(); afterReport(); }
+    else afterReport();
   };
   if(GAME.pendingSurplus) showSurplusChoice(afterSurplus);
   else if(GAME.pendingShortfall) showShortfallChoice(afterSurplus);
@@ -8542,13 +8678,16 @@ function showCampPopup(opts){
   campPopupManual=manual;
   const nextInto=(GAME.turn+1)-(GAME.term-1)*GAME.termLengthTurns;
   const isElecQ=nextInto>=GAME.termLengthTurns-1;
+  const leaving=isElecQ&&termLimited();   // term-limited: no election to contest, you just leave
   const yearsLeft=GAME.termLengthTurns-1-((GAME.turn)-(GAME.term-1)*GAME.termLengthTurns);
   const noEnergy=GAME.campEnergy<1;
-  const advLabel=manual?"Done":isElecQ?"Hold Election ▸":(noEnergy?"Advance ▸":"Skip &amp; Advance ▸");
+  const advLabel=manual?"Done":leaving?"Leave Office ▸":isElecQ?"Hold Election ▸":(noEnergy?"Advance ▸":"Skip &amp; Advance ▸");
 
-  let h=`<div class="sectionhdr">${ico('ballot')} ${manual?"Campaign HQ":isElecQ?"Election Campaign — Final Quarter":"Campaigning"}</div>
+  let h=`<div class="sectionhdr">${ico('ballot')} ${manual?"Campaign HQ":leaving?"Your Final Quarter in Office":isElecQ?"Election Campaign — Final Quarter":"Campaigning"}</div>
     <div class="sectionsub">${manual
       ?`Where your term's platform stands, who's organised for or against you, and this quarter's campaign energy. This won't end the quarter.`
+      :leaving
+      ?`<b style="color:var(--clay)">Oregon's constitution bars a third consecutive term — you did not repeal it, so this is your last quarter in office.</b> Make your final decisions, then leave office. You'll see your full record next.`
       :isElecQ
       ?`<b style="color:var(--clay)">The election follows this quarter.</b> Make your last-minute pushes on blocs and counties, then hold the election. You'll set the next term's platform straight after the result.`
       :`Work the blocs and the county map, then end the quarter. ${yearsLeft>0?`Election in <b>${yearsLeft} quarter${yearsLeft===1?'':'s'}</b>.`:''}`
@@ -8572,7 +8711,7 @@ function showCampPopup(opts){
     if(manual){ render(); return; }               // just spending energy — don't advance the quarter
     const skipChk=document.getElementById("campSkipChk");
     if(skipChk&&skipChk.checked)GAME.skipCampaign=true;
-    if(isElecQ){ doElectionTurn(); } else { doEndTurn(); }
+    if(isElecQ){ if(termLimited()) doTermLimitEnd(); else doElectionTurn(); } else { doEndTurn(); }
   };
 }
 function endTurn(){
