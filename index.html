@@ -3353,23 +3353,23 @@ const AGENCIES={
    sizes sum to ~1.0. */
 const SIMULANTS={
   // ===== IDEOLOGY (mutually exclusive — a voter holds one, or none) =====
-  socialist:{category:"ideology", name:"Socialists", size:0.09, turnout:0.66,
+  socialist:{category:"ideology", name:"Socialists", size:0.12, turnout:0.66,
     ideology:{economic:-0.9,social:-0.7,environment:-0.7,govSize:-0.8}, approval:45,
     sensitivities:{inequality:2.2, homelessness:1.6, environment:1.4, taxes:-0.8, income:1.6, crime:0.4},
     instPref:{communityCollege:0.8, aid:1.0}},
-  liberal:{category:"ideology", name:"Liberals", size:0.32, turnout:0.72,
+  liberal:{category:"ideology", name:"Liberals", size:0.26, turnout:0.72,
     ideology:{economic:-0.5,social:-0.6,environment:-0.6,govSize:-0.4}, approval:49,
     sensitivities:{environment:1.6, homelessness:1.4, education:1.3, inequality:1.4, crime:0.7, health:1.2, income:0.9, logging:-1.2},
     instPref:{university:0.5, communityCollege:0.6, aid:0.9}},
-  moderate:{category:"ideology", name:"Moderates", size:0.30, turnout:0.66,
+  moderate:{category:"ideology", name:"Moderates", size:0.29, turnout:0.66,
     ideology:{economic:-0.05,social:-0.05,environment:-0.1,govSize:0}, approval:46,
     sensitivities:{crime:1.5, education:1.3, gdp:1.3, homelessness:1.2, taxes:1.1, gasprice:1.2, income:1.2, health:0.9},
     instPref:{university:0.8, stateCollege:0.7, communityCollege:0.6, aid:0.4}},
-  conservative:{category:"ideology", name:"Conservatives", size:0.19, turnout:0.72,
+  conservative:{category:"ideology", name:"Conservatives", size:0.25, turnout:0.72,
     ideology:{economic:0.6,social:0.6,environment:0.4,govSize:0.6}, approval:40,
     sensitivities:{taxes:1.8, crime:1.7, gdp:1.4, gasprice:1.5, homelessness:0.9, inequality:-0.5, income:1.1, logging:1.0},
     instPref:{university:0.9, stateCollege:0.85, communityCollege:0.95}},
-  libertarian:{category:"ideology", name:"Libertarians", size:0.07, turnout:0.64,
+  libertarian:{category:"ideology", name:"Libertarians", size:0.08, turnout:0.64,
     ideology:{economic:0.7,social:-0.3,environment:0.2,govSize:0.9}, approval:42,
     sensitivities:{taxes:2.0, gdp:1.3, crime:0.8, gasprice:1.4, income:1.2, inequality:-0.6},
     instPref:{}},
@@ -3504,6 +3504,22 @@ const TRAIT_TMPL={
 };
 function gauss(){let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
 function band(x,center,w){return Math.max(0,1-Math.abs(x-center)*2)*w;}
+/* Ideology assignment. Each voter is scored against the five poles by how close
+   their (econ, social) sits to each pole's vector; the score is sharpened and
+   normalised so every voter has exactly one ideology and the five shares sum to
+   100%. IDEO_SHARP sets polarisation (higher = more winner-take-all); IDEO_W
+   re-weights each pole so the emergent mix matches Oregon's actual spread
+   instead of collapsing into the centre. */
+const IDEO_SHARP=3.4;
+const IDEO_W={socialist:1.72, liberal:1.72, moderate:0.62, conservative:1.30, libertarian:0.72};
+function ideologyShares(v){
+  const sc=id=>{const I=SIMULANTS[id].ideology;
+    const fit=Math.max(0.0001,1-(Math.abs(v.econ-I.economic)+Math.abs(v.social-I.social))/2.0);
+    return Math.pow(fit,IDEO_SHARP)*(IDEO_W[id]||1);};
+  const o=sc("socialist"),l=sc("liberal"),m=sc("moderate"),c=sc("conservative"),b=sc("libertarian");
+  const s=o+l+m+c+b||1;
+  return {socialist:o/s,liberal:l/s,moderate:m/s,conservative:c/s,libertarian:b/s};
+}
 function buildVoters(){
   VOTERS.length=0;
   for(let i=0;i<NVOTERS;i++){
@@ -3546,10 +3562,8 @@ function buildVoters(){
   for(const v of VOTERS){
     for(const id in v.innate)if(!EXCLUSIVE.has(id))v.m[id]=v.innate[id];
     // ideology
-    const idScore=id=>{const I=SIMULANTS[id].ideology;return Math.max(0.0001,1-(Math.abs(v.econ-I.economic)+Math.abs(v.social-I.social))/2.0);};
-    const sh=x=>Math.pow(Math.max(0,x),5);
-    let io=sh(idScore("socialist")),il=sh(idScore("liberal")),im=sh(idScore("moderate"))*1.15,ic=sh(idScore("conservative")),ib=sh(idScore("libertarian"));
-    const is=io+il+im+ic+ib||1; v.m.socialist=io/is;v.m.liberal=il/is;v.m.moderate=im/is;v.m.conservative=ic/is;v.m.libertarian=ib/is;
+    { const q=ideologyShares(v);
+      v.m.socialist=q.socialist;v.m.liberal=q.liberal;v.m.moderate=q.moderate;v.m.conservative=q.conservative;v.m.libertarian=q.libertarian; }
     // income
     let p=clamp((0.42-v.innateIncome)*4,0,1),w=clamp((v.innateIncome-0.62)*4,0,1),mi=Math.max(0,1-p-w);
     const ps=p+w+mi||1; v.m.poor=p/ps;v.m.middleIncome=mi/ps;v.m.wealthy=w/ps;
@@ -4654,12 +4668,7 @@ function tickMembership(){
     // IDEOLOGY (mutually exclusive, sums to 1): score each pole by fit;
     // Moderates absorb the centrist remainder so every voter has exactly one
     // ideology and the five shares total 100% of the electorate.
-    const idScore=id=>{const I=SIMULANTS[id].ideology;return Math.max(0.0001,1-(Math.abs(v.econ-I.economic)+Math.abs(v.social-I.social))/2.0);};
-    const sharp=x=>Math.pow(Math.max(0,x),5);
-    let iso=sharp(idScore("socialist")), ili=sharp(idScore("liberal")),
-        imo=sharp(idScore("moderate"))*1.15, ico=sharp(idScore("conservative")), ilb=sharp(idScore("libertarian"));
-    const isum=iso+ili+imo+ico+ilb||1;
-    const idTgt={socialist:iso/isum,liberal:ili/isum,moderate:imo/isum,conservative:ico/isum,libertarian:ilb/isum};
+    const idTgt=ideologyShares(v);
     // HOUSING (mutually exclusive, sums to 1) — Oregon is ~62% owner-occupied;
     // ownership rises with income and age
     const ownT=clamp(0.62+(v.adjIncome-0.5)*0.85+(v.age-0.5)*0.62,0.04,0.98), rentT=1-ownT;
@@ -4915,6 +4924,17 @@ const SITUATIONS={
     moodMag:2, moodAxes:{social:0.15},
     groupMood:{moderate:-5, suburban:-4, businessClass:-5, wealthy:-3, retirees:-3, conservative:-2,
                parents:-2, socialist:-1, liberal:-1}},
+  costOfLiving:{name:"Cost-of-Living Crisis", kind:"bad", category:"condition",
+    desc:"The economy is working and the people in it are not. Growth is strong, the jobs are there, and rent, childcare and groceries have outrun what the jobs pay — the classic Oregon squeeze that shows up in every metric as success and in every kitchen as strain. It is a political wound out of all proportion to the statistics: renters, the young, working families and the persuadable middle all conclude the boom is happening TO them rather than for them, and they stop giving you credit for the good numbers. It drains capital and momentum every quarter it runs.\n\n→ TO FIX IT: get Housing Affordability back above 52 — build supply (Middle Housing, Single Staircase, Affordable Housing, looser land use), or let the boom itself cool. Raising incomes at the bottom (EITC, minimum wage, childcare) takes the edge off while you build.",
+    trigger:()=>GAME.turn>8 && effective("gdp")>=60 && INDICATORS.housingAffordability.value<42,
+    clear:()=>INDICATORS.housingAffordability.value>52 || effective("gdp")<50,
+    watch:{indicator:"housingAffordability", startAt:42, clearAt:52, badHigh:false},
+    minTurns:4, onTrigger:{capital:-4}, capitalDrain:-2, mandateShock:-4,
+    metricEffect:{homelessness:0.45, inequality:0.45, disposableIncome:-1.1, povertyRate:0.22},
+    indicatorEffect:{downtown:-2, tourism:-2, inMigration:-2, businessClimate:-1},
+    moodMag:3, moodAxes:{economic:-0.25},
+    groupMood:{renters:-11, poor:-9, blueCollar:-8, students:-7, parents:-6, moderate:-5,
+               middleIncome:-5, socialist:-4, liberal:-3, urban:-4, suburban:-3}},
   healthEmergency:{name:"Public Health Emergency", kind:"bad", category:"condition",
     desc:"Public health has collapsed under the combined weight of untreated addiction, obesity, alcohol use, and strained clinical capacity. Hospitals ration elective care, life expectancy gains stall, and the crisis becomes a standing political liability until sustained investment turns it around.",
     trigger:()=>METRICS.health.value<45, clear:()=>METRICS.health.value>55, onClear:{capital:3},
@@ -5278,7 +5298,7 @@ const NATIONAL_MOOD={ value:0, drift:0 };
 const GAME={
   turn:0, startYear:2025, capital:50, capitalPerTurn:7,
   lastMargin:0, crisesResolved:0, uturnCount:0, mandateShock:0, pendingMidterm:null,
-  campaign:{effort:{},promises:[],pool:10}, activePromises:[], campaignDone:false, skipReport:false, skipCampaign:false,
+  campaign:{effort:{},promises:[],pool:10}, activePromises:[], pastPromises:[], campaignDone:false, skipReport:false, skipCampaign:false,
   // ---- ground game: ongoing campaigning, independent of governing capital ----
   // campEnergy refills each quarter; perception/turnout boosts decay over time;
   // fatigue rises when you over-campaign a bloc, lowering future success odds
@@ -5301,9 +5321,11 @@ const GAME={
   structuralDebt:0,     // accumulated unresolved deficit ($B) — accrues when reserves are exhausted
   deficitStreak:0,      // consecutive quarters carrying a gap after reserves are drained
   econCycle:0,          // -1 deep recession .. +1 boom; random walk each quarter
+  natCycle:0,           // the NATIONAL cycle. Oregon can diverge on good policy, but it is pulled toward this.
   overheat:0,           // 0..1 accumulated boom pressure — drags the next cycle down (boom→bust)
   marketLevel:0,        // equity-market sub-variable; swings high-earner cap-gains
   expectations:0,       // hedonic treadmill: standing "we've had it good a while" grumble
+  changeAppetite:0,     // 0..1 "time for a change" — accrues through calm, prosperous stretches
   adaptedBaseline:{},   // per-domain level voters have normalized to (loss aversion vs this)
   persRate:5.26,        // PERS employer contribution ($B/biennium-equiv) — DERIVED from persUAL at init & each tick
   persUAL:28,           // PERS unfunded actuarial liability ($B). ~78% funded. Market returns move it; a crash blows it open.
@@ -5915,6 +5937,7 @@ function tickOpposition(){
   if((GAME.lastBalance||0)>1.5) m -= 1.2;
   m += Math.max(0, Math.abs(agendaRightwardShift())-4)*0.22;   // off-mandate drift is a wedge
   if((GAME.uturnCount||0)>0 && GAME.turn%2===0) m += 0.8;      // a record of flip-flops
+  m += (GAME.changeAppetite||0)*9;                            // a restless electorate is recruiting ground
   m += (24-m)*0.06;                                   // reversion toward a low hum when nothing's wrong
   o.momentum = clamp(m, 0, 100);
   o.barb = oppositionBarb();
@@ -5973,6 +5996,21 @@ function tickExpectations(){
   p+=clamp((cur.safety-52)/16,0,1);
   const tgt=p*2.4;                                              // 0..~9.6
   GAME.expectations=(GAME.expectations||0)+(tgt-(GAME.expectations||0))*0.05;
+  // "time for a change": quiet, prosperous quarters build restlessness; a live
+  // crisis or a slump burns it off (voters re-engage with the incumbent who is coping)
+  { const bad=Object.keys(GAME.activeSituations||{}).filter(s=>SITUATIONS[s]&&SITUATIONS[s].kind==="bad").length;
+    const quiet=clamp((4-bad)/4,0,1)*clamp((effective("gdp")-56)/24,0,1);
+    GAME.changeAppetite=clamp((GAME.changeAppetite||0)+quiet*0.075-0.030,0,1); }
+}
+/* TIME FOR A CHANGE. Long tenure plus calm, prosperous conditions breed
+   restlessness: voters stop rewarding competence and start wanting someone new.
+   This is the counterweight to a runaway — the better and longer you govern, the
+   more of your own success you have to keep re-earning. Pure read; the stock it
+   uses is accrued once per quarter in tickExpectations(). */
+function incumbencyFatigue(){
+  const terms=Math.max(0,(GAME.term||1)-1);
+  const yrs=Math.min(16,(GAME.turn||0)/4);
+  return -(terms*1.7 + yrs*0.20 + (GAME.changeAppetite||0)*5.0);
 }
 function hedonicMood(){
   const b=GAME.adaptedBaseline||{}, cur=_prosperityLevels();
@@ -5980,9 +6018,9 @@ function hedonicMood(){
   for(const k in cur){
     const base=b[k]!==undefined?b[k]:cur[k];
     const gap=cur[k]-base;
-    drag += gap>=0 ? gap*0.010 : gap*0.055;                     // gains barely register; slippage bites
+    drag += gap>=0 ? gap*0.006 : gap*0.060;                     // gains barely register; slippage bites
   }
-  drag -= (GAME.expectations||0)*0.55;                          // the standing grumble
+  drag -= (GAME.expectations||0)*0.72;                          // the standing grumble
   return drag;
 }
 function metricMood(sim, sid){
@@ -6073,6 +6111,7 @@ function metricMood(sim, sid){
   // public-sector wage expectations: in a rich, booming state public workers
   // expect raises to track private gains; falling behind sours them
   if(sid==="publicUnions")mood-=boomWageGap()*10;
+  mood+=incumbencyFatigue();   // "time for a change" drags on every bloc
   return mood;
 }
 /* Itemised version of metricMood() for one bloc: returns [{lbl,v,lnk}] where
@@ -6113,6 +6152,7 @@ function blocMoodContributors(sid){
   add("Downtown Vitality",(INDICATORS.downtown.value-50)*0.04,'i_downtown');
   add("Population Growth",(INDICATORS.inMigration.value-50)*0.03,'i_inMigration');
   add("Prosperity Expectations (hedonic treadmill)",hedonicMood(),null);
+  add("Time for a Change (incumbency fatigue)",incumbencyFatigue(),null);
   if(sid==="publicUnions")add("Public-Sector Wage Lag (boom)",-boomWageGap()*10,'m_gdp');
   if(s.ideology&&s.ideology.social>0.3)add("Rural Alienation",-(INDICATORS.ruralAlienation.value-45)*0.05*s.ideology.social,'i_ruralAlienation');
   if(ss.govSpend!==undefined){const spd=budgetBalance().spend;add("Gov. Spending Level",(spd-20)*1.2*ss.govSpend,'budget');}
@@ -6407,9 +6447,22 @@ function tickEconomy(){
   // this is what turns a boom into a bust (the sharper crash lands as a one-off
   // shock when the recession actually fires; see startSituation)
   const pull=(GAME.overheat||0)*0.18;
+  // THE NATIONAL ECONOMY. Oregon is a small open economy inside a national one:
+  // it runs its own cycle, but it is tethered. Good policy buys real divergence
+  // (the +/- band below), not immunity — you cannot boom through a US recession.
+  GAME.natCycle = clamp((GAME.natCycle||0)*0.90 + (Math.random()-0.5)*0.20, -1, 1);
+  if(GAME.activeSituations.recession) GAME.natCycle = clamp(GAME.natCycle - 0.13, -1, 1);   // a live national recession holds it down
+  if(GAME.activeSituations.federalTaxShock) GAME.natCycle = clamp(GAME.natCycle - 0.05, -1, 1);
+  const natPull = (GAME.natCycle - GAME.econCycle) * 0.34;   // reversion toward the national cycle
+  // how far Oregon is allowed to sit above the nation, earned by policy:
+  // a strong business climate, in-migration and low unemployment widen the band.
+  const divergence = clamp(0.06 + (INDICATORS.businessClimate.value-50)*0.010
+    + (INDICATORS.inMigration.value-50)*0.006 + (5.2-METRICS.unemployment.value)*0.030, 0, 0.42);
   // momentum + reversion toward 0 — high persistence, modest quarterly shock, so the
   // climate drifts through multi-year cycles instead of lurching every quarter
-  GAME.econCycle = clamp(GAME.econCycle*0.88 + (Math.random()-0.5)*0.22 - pull, -1, 1);
+  GAME.econCycle = clamp(GAME.econCycle*0.88 + (Math.random()-0.5)*0.18 - pull + natPull, -1, 1);
+  // Oregon may run above the nation only as far as its own fundamentals justify
+  GAME.econCycle = clamp(GAME.econCycle, GAME.natCycle-0.55, GAME.natCycle+divergence);
   // an overheated market runs frothier (wider swings), setting up a bigger drop
   const froth=1+(GAME.overheat||0)*0.45;
   GAME.marketLevel = clamp(GAME.marketLevel*0.82 + GAME.econCycle*0.15 + (Math.random()-0.5)*0.34*froth, -1.2, 1.2);
@@ -6529,6 +6582,14 @@ function spendingByArea(){
       const inflate=1+Math.min((0.95-sm)*1.4,0.12);   // up to +12% in full operational crisis
       for(const id in out)if(id!=="debtAdmin"&&id!=="ohp")out[id]*=inflate;   // debt service & entitlement medical are contractual
     }
+  }
+  // A HOT ECONOMY IS AN EXPENSIVE ONE. Boom-time wages, contractor rates and land
+  // prices all climb, so the same programs cost the state more to deliver. This is
+  // the quiet tax on success: a surplus built in a boom erodes as the boom runs.
+  {
+    const hot=clamp(GAME.econCycle*0.55+(GAME.overheat||0)*0.55,0,1);
+    if(hot>0.02){ const infl=1+hot*0.09;
+      for(const id in out)if(id!=="debtAdmin"&&id!=="ohp")out[id]*=infl; }
   }
   // Prevailing-Wage Repeal: public construction gets cheaper, so the capital-
   // heavy program areas deliver the same build for less money.
@@ -7058,6 +7119,7 @@ function promiseGridHTML(list){
   let h=`<div class="promgrid">`;
   for(const pid in PROMISES){
     const pr=PROMISES[pid], on=list.includes(pid);
+    if(!on&&(GAME.pastPromises||[]).includes(pid))continue;   // already pledged in an earlier term — one bite each
     if(pr.check()&&!on&&!pr.defensive)continue;   // already achieved & not pledged — hide (unless it's a "keep it this way" pledge)
     const metCount=pr.criteria.filter(cr=>cr.check()).length, total=pr.criteria.length;
     const allMet=metCount===total, someMet=!allMet&&metCount>0;
@@ -7638,6 +7700,8 @@ function showPlatformModal(){
   };
   const commit=()=>{
     GAME.activePromises=draft.slice().map(pid=>({id:pid, madeTerm:GAME.term}));
+    // a pledge can only be made once per run — bank it so later platforms exclude it
+    GAME.pastPromises=(GAME.pastPromises||[]).concat(draft.filter(p=>!(GAME.pastPromises||[]).includes(p)));
     GAME.campaign.promises=draft.slice();
     GAME._platformDraft=[];
     modal.classList.add("hidden");
@@ -10711,7 +10775,7 @@ function renderBudget(){
     }
     h+=`<div class="fcard"><div class="fname">${ico('chart-up')} Economic Cycle</div><div class="fval" style="color:${cycCol}">${cycWord}</div>
       <div class="fbar"><span class="fmid"></span><i style="left:${cycPct}%"></i></div>
-      <div class="fnote">The short-term boom-bust swing. Moves the income tax — your biggest revenue source — hard: booms inflate revenue, recessions gut it.</div></div>`;
+      <div class="fnote">The short-term boom-bust swing. Oregon sits inside a <b>national</b> cycle (currently ${GAME.natCycle>0.15?"expanding":GAME.natCycle<-0.15?"contracting":"flat"}) and is pulled toward it — strong fundamentals (business climate, in-migration, low unemployment) buy you real divergence above the nation, but not immunity. Moves the income tax — your biggest revenue source — hard: booms inflate revenue, recessions gut it.</div></div>`;
     {
       const gsp=METRICS.gspLevel?METRICS.gspLevel.value:305;
       const gr=METRICS.gdp.value;
