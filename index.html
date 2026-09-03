@@ -1535,8 +1535,11 @@ const REVENUE={
    largest area (OHA Medicaid + DHS); K-12 is the State School Fund. */
 const SPENDING={
   humanServices:{name:"Human Services (caseloads)", base:0.35, agencies:["dhs","oha"],
-    policies:["homelessServices","behavioralHealth","ohpBlockGrant"],
-    note:"Caseload growth on top of DHS + OHA agency budgets"},
+    policies:["homelessServices","behavioralHealth"],
+    note:"Child welfare, aging &amp; disability, self-sufficiency — DHS caseloads on top of the agency budgets"},
+  ohp:{name:"Oregon Health Plan", base:0, agencies:[],
+    policies:["ohpCoverage","ohpBlockGrant","medicaidWork"],
+    note:"Medicaid medical assistance. The federal match pays ~two-thirds; Oregon's share is what hits the General Fund — and it grows when enrollment surges in a downturn or Washington pulls its match back."},
   k12:{name:"K-12 Education", base:0.0, agencies:[], policies:["stateSchoolFund","phoneBanSchools"],
     note:"State School Fund ~$11.4B/biennium"},
   higherEd:{name:"Higher Education", base:0.4, agencies:[], policies:["universities","stateColleges","communityColleges","higherEd","oregonPromise"],
@@ -1818,17 +1821,21 @@ const INDICATORS={
     ],
     feedback:{}},
   pensionBurden:{name:"Pension Burden (PERS)", icon:"coffin", value:55,
-    desc:"How heavily PERS pension costs weigh on the state. Oregon's ~$28B unfunded liability drives employer rates relentlessly upward, crowding out everything else in the budget. Rises automatically over time; PERS Reform can bend the curve, at a steep political price with public unions.",
+    desc:"How heavily PERS pension costs weigh on the state. The ~$28B unfunded liability (about 78% funded) drives the employer contribution rate, crowding schools, cities and the General Fund. Investment returns move the liability both ways — a strong market pays it down, a crash blows it open — and new benefits accrue every quarter. PERS Reform bends the accrual curve modestly, at a steep price with the public unions.",
     derive:()=>{
-      let v=20+(GAME.persRate-5.26)/(9.35-5.26)*70;     // tracks the live PERS escalation
+      const funded=clamp((130-(GAME.persUAL||28))/130, 0.4, 1.0);   // ~0.78 at UAL 28
+      let v=20+(1-funded)*165;                                      // funded 1.0→20, 0.78→~56
       v+=indPolicyBoost("pensionBurden")+sitIndicatorPush("pensionBurden");
       return clamp(v,0,100);
     },
-    drivers:()=>[
-      {name:"⊕ baseline",v:20,base:true},
-      {name:"⚰️ PERS escalation ($"+GAME.persRate.toFixed(2)+"B)",v:(GAME.persRate-5.26)/(9.35-5.26)*70},
-    ],
-    feedback:{}},                                          // pure read-out of fiscal pressure (higher = worse)
+    drivers:()=>{
+      const funded=clamp((130-(GAME.persUAL||28))/130, 0.4, 1.0);
+      return [
+        {name:"⊕ baseline",v:20,base:true},
+        {name:"⚰️ Unfunded liability ($"+Math.round(GAME.persUAL||28)+"B · "+Math.round(funded*100)+"% funded · rate $"+GAME.persRate.toFixed(2)+"B)",v:(1-funded)*165},
+      ];
+    },
+    feedback:{eduOutcomes:-0.010}},                        // PERS eats district budgets — K-12 delivery slips as the rate climbs
   mandate:{name:"Political Mandate", icon:"medal", value:50,
     desc:"How much authority you command in Salem — the wind at your back when spending political capital. It rises with broad approval, a decisive election win, and crises resolved; it falls with unpopularity, U-turns, and scandals. A strong mandate means more political capital flows to you each quarter; a collapsing one starves you of the capital to act.",
     derive:()=>{
@@ -3261,6 +3268,12 @@ const CATALOG={
     },
     blocEffect:{liberal:5, moderate:7, conservative:5, rural:5, parents:5, retirees:4, businessClass:-3, wealthy:-2, timber:-2},
     ideology:{govSize:-0.3, environment:-0.1}},
+  ohpCoverage:{name:"Oregon Health Plan — Eligibility & Benefits", domain:"eduHealth", icon:"hospital", enacted:true, mechanic:"slider", phaseIn:4,
+    desc:"How broad the Oregon Health Plan is — the income line for eligibility and how rich the benefit (dental, the 138–200% FPL 'Bridge' plan launched 2024, behavioral-health parity). Oregon already covers ~1.4M people, a third of them children. The federal match pays roughly two-thirds of the marginal dollar, so broadening coverage is cheap per person — it lifts public and behavioral health and pulls families out of poverty. Tightening it books state savings on paper, but the people who lose coverage don't vanish: they turn up in ERs, shelters, and jails, billed to a different bucket. Cost is settled in the Oregon Health Plan budget line, not here.",
+    value:0.55, costFull:0, capital:6, repealCost:14,
+    effects:{ health:{b:-4.5,c:8}, behavioralHealth:{b:-3,c:5.5}, povertyRate:{b:2.6,c:-5}, homelessness:{b:1.6,c:-3}, propertyCrime:{b:1.2,c:-2.2} },
+    blocEffect:{ poor:6, liberal:4, socialist:4, parents:3, blueCollar:2, publicUnions:2, renters:2, moderate:1, conservative:-3, libertarian:-4, wealthy:-2, businessClass:-1 },
+    ideology:{economic:-0.4, govSize:-0.5} },
   ohpBlockGrant:{name:"OHP/Medicaid Block Grant", domain:"eduHealth", icon:"hospital", mechanic:"law",
     desc:"Convert Oregon Health Plan from an open Medicaid entitlement — where enrollment and cost grow automatically with need — to a capped state block grant receiving a fixed federal allotment each year. When recessions hit and enrollment surges, people lose coverage or benefits narrow automatically. Republicans have proposed this in every budget-crunch session, arguing it makes health spending predictable and forces efficiency. The math is real: it saves money. So does the human cost — people who fall off coverage don't disappear; they show up in ERs, shelters, and jails, just billed to a different bucket.",
     costFull:-0.45, capital:9, enactCapital:14, repealCost:12,
@@ -5289,7 +5302,11 @@ const GAME={
   marketLevel:0,        // equity-market sub-variable; swings high-earner cap-gains
   expectations:0,       // hedonic treadmill: standing "we've had it good a while" grumble
   adaptedBaseline:{},   // per-domain level voters have normalized to (loss aversion vs this)
-  persRate:5.26,        // PERS employer contributions ($B/biennium-equiv), escalating
+  persRate:5.26,        // PERS employer contribution ($B/biennium-equiv) — DERIVED from persUAL at init & each tick
+  persUAL:28,           // PERS unfunded actuarial liability ($B). ~78% funded. Market returns move it; a crash blows it open.
+  persRate0:5.26,       // the employer rate at game start — the budget only feels the growth ABOVE this
+  persMarketSwing:0,    // annualized $B change in the UAL from investment returns this quarter (− = fund gaining)
+  ohpEnrollIdx:1.0,     // Oregon Health Plan enrollment vs. baseline (~1.4M). Countercyclical: a recession swells it.
   fedIndex:1.0,         // federal-funds multiplier; shocked by federal events
   pendingKicker:0,      // kicker owed, paid out next cycle
   pendingSurplus:null,  // {surplus} — a kicker-eligible surplus awaiting the player's end-of-quarter choice
@@ -5807,7 +5824,14 @@ function startSituation(sid){
     GAME.mandateShock=(GAME.mandateShock||0)-Math.round(o*2.5);
     GAME.log.push(ico('chart-down')+" The downturn is amplified by the preceding boom — the correction runs deeper than usual");
   }
-  if(sid==="recession")GAME.overheat=Math.max(0,(GAME.overheat||0)-0.6); // a bust bleeds off the pressure
+  if(sid==="recession"){
+    // the market drop blows a hole in the pension fund — bigger after a frothy boom
+    const persHit = 3 + (GAME.overheat||0)*4;
+    GAME.persUAL=+clamp((GAME.persUAL||28) + persHit, 3, 70).toFixed(2);
+    GAME.persRate=+clamp(5.26 + GAME.persUAL*0.075, 5.26, 11.5).toFixed(3);
+    GAME.log.push(ico('coffin')+" The market slump adds ~$"+persHit.toFixed(0)+"B to the PERS unfunded liability");
+    GAME.overheat=Math.max(0,(GAME.overheat||0)-0.6); // a bust bleeds off the pressure
+  }
   // no-choice events surface a notification splash so the player sees the hit
   if(s.noChoice){
     const fx=[];
@@ -6390,11 +6414,49 @@ function tickEconomy(){
   if(METRICS.gdp){
     METRICS.gdp.eq = 1.3 + GAME.econCycle*0.55;
   }
-  // PERS employer costs escalate relentlessly (research: ~$5.26B → ~$9.35B by 2029)
-  // persReform bends the curve modestly — most "savings" just re-amortize the debt
-  const persEscalation = (POLICIES.persReform && POLICIES.persReform.enabled) ? 0.045 : 0.085;
-  GAME.persRate = Math.min(9.35, GAME.persRate + persEscalation);
+  // PERS — an unfunded-liability STOCK that investment returns move. The fund
+  // assumes ~6.9%/yr; the actual return tracks the equity cycle. Earn above
+  // assumption and the hole shrinks; a crash blows it wide open (plus a one-off
+  // hit when a recession actually fires — see startSituation). New service cost
+  // is added every quarter; PERS Reform (SB 1049-style) trims it modestly.
+  {
+    const persReformed = !!(POLICIES.persReform && POLICIES.persReform.enacted);
+    const assets   = Math.max(30, 130 - GAME.persUAL);
+    const assumedQ = 0.069/4;
+    const actualQ  = assumedQ + GAME.marketLevel*0.012 + GAME.econCycle*0.006;
+    const invEffect = assets*(actualQ - assumedQ);          // >0 shrinks the UAL
+    const accrual   = persReformed ? 0.16 : 0.28;           // new service cost added each quarter
+    GAME.persUAL = +clamp(GAME.persUAL - invEffect + accrual, 3, 70).toFixed(3);
+    GAME.persMarketSwing = +(-invEffect*4).toFixed(2);       // annualized, − = fund gaining
+    GAME.persRate = +clamp(5.26 + GAME.persUAL*0.075, 5.26, 11.5).toFixed(3);
+  }
+  // Oregon Health Plan enrollment — countercyclical: a downturn adds people who
+  // newly qualify, a boom sheds them, with a slow upward drift (medical inflation,
+  // demographics). Work requirements churn people off the rolls.
+  {
+    const target = 1.0 + Math.max(0,-GAME.econCycle)*0.17 - Math.max(0,GAME.econCycle)*0.05
+      + Math.min(0.10, GAME.turn*0.0018);
+    GAME.ohpEnrollIdx = (GAME.ohpEnrollIdx||1) + (target-(GAME.ohpEnrollIdx||1))*0.15
+      - (POLICIES.medicaidWork ? 0.010 : 0);
+    GAME.ohpEnrollIdx = +clamp(GAME.ohpEnrollIdx, 0.82, 1.35).toFixed(3);
+  }
   GAME.fedIndex += (1.0-GAME.fedIndex)*0.03;   // slow recovery toward baseline
+}
+/* Oregon Health Plan fiscal breakdown — total program cost, Oregon's share,
+   and the federal match. Enrollment is countercyclical; the coverage lever
+   sets eligibility breadth & benefit richness; a federal pullback or a block
+   grant shifts cost onto the state. Pure — safe to call from anywhere. */
+function ohpFiscal(){
+  const cov = POLICIES.ohpCoverage ? policyLevel(POLICIES.ohpCoverage) : 0.55;   // 0..1, status quo 0.55
+  const covMult = 0.78 + 0.44*cov;                                               // 0.78 gutted .. 1.22 max
+  const enroll  = GAME.ohpEnrollIdx || 1;
+  const total   = 8.0 * enroll * covMult;
+  let shareFrac = 0.34 + Math.max(0, 1-GAME.fedIndex)*0.85;                       // federal pullback → state backfills
+  if(POLICIES.ohpBlockGrant) shareFrac += 0.05 + Math.max(0, enroll-1)*0.35;      // block grant: state eats recession surges
+  shareFrac = clamp(shareFrac, 0.30, 0.80);
+  const stateShare = total*shareFrac;
+  const stateShare0 = 8.0 * (0.78+0.44*0.55) * 0.34;                             // ≈ $2.78B baseline
+  return {total, stateShare, stateShare0, fedShare: total-stateShare, shareFrac, enroll, covMult};
 }
 const _SPEND_CLAIMED=(()=>{const s=new Set();for(const id in SPENDING)for(const p of SPENDING[id].policies)s.add(p);return s;})();
 const _DOMAIN_AREA={economy:"economy",social:"social",eduHealth:"humanServices",envInfra:"natResources"};
@@ -6416,9 +6478,10 @@ function spendingByArea(){
     // weak state capacity inflates administration; a rotting downtown costs policing
     if(id==="debtAdmin"&&INDICATORS.digitization.value<50)amt+=(50-INDICATORS.digitization.value)*0.012;
     if(id==="publicSafety"&&INDICATORS.downtown.value<45)amt+=(45-INDICATORS.downtown.value)*0.008;
-    // PERS pension costs crowd debt/admin (research: ~$5.26B→$9.35B/biennium,
-    // shown here as a per-quarter slice escalating over the game)
-    if(id==="debtAdmin")amt+=(GAME.persRate-5.26)*0.25;
+    // PERS pension costs crowd debt/admin. The employer rate is derived from the
+    // unfunded liability; the budget feels only the GROWTH above the starting
+    // rate — which a strong market can push negative.
+    if(id==="debtAdmin")amt+=(GAME.persRate-(GAME.persRate0||5.26))*0.25;
     // structural debt interest service: each $1B of accumulated debt costs ~$40M/yr
     if(id==="debtAdmin")amt+=(GAME.structuralDebt||0)*0.04;
     // more biking & transit means fewer lane-miles to build and maintain —
@@ -6430,9 +6493,14 @@ function spendingByArea(){
       const cf=Math.max(0,policyNetCost(POLICIES.cleanFuels));
       amt-=cf*clamp((METRICS.evAdoption.value-15)/70,0,1)*0.9;
     }
-    // federal Medicaid match: dollars in (revenue) are matched by program
-    // spending out, so they're roughly net-neutral except when shocked
-    if(id==="humanServices")amt+=6.5*GAME.fedIndex;
+    // Oregon Health Plan: the federal match (mirrored by the Federal Funds
+    // revenue line, $6.5B×fedIndex) flows straight through; ON TOP of that,
+    // Oregon's OWN share grows above its ~$2.78B baseline when enrollment
+    // surges, benefits broaden, or Washington pulls its match back.
+    if(id==="ohp"){
+      const o=ohpFiscal();
+      amt+=6.5*GAME.fedIndex + (o.stateShare - o.stateShare0);
+    }
     // active crises inflate program costs (caseloads, response, recovery)
     for(const sid in GAME.activeSituations){
       const s=SITUATIONS[sid];
@@ -6456,7 +6524,7 @@ function spendingByArea(){
     const sm=serviceStrainMult();
     if(sm<0.95){                                       // only real strain (overhead ~90+) inflates costs
       const inflate=1+Math.min((0.95-sm)*1.4,0.12);   // up to +12% in full operational crisis
-      for(const id in out)if(id!=="debtAdmin")out[id]*=inflate;
+      for(const id in out)if(id!=="debtAdmin"&&id!=="ohp")out[id]*=inflate;   // debt service & entitlement medical are contractual
     }
   }
   // Prevailing-Wage Repeal: public construction gets cheaper, so the capital-
@@ -6465,9 +6533,10 @@ function spendingByArea(){
     for(const id of ["natResources","housing"])if(out[id])out[id]*=0.90;
   }
   // Constitutional Spending Limit: a standing haircut on every discretionary
-  // program area (debt service & pensions are non-discretionary, so exempt).
+  // program area (debt service, pensions & entitlement medical are
+  // non-discretionary, so exempt).
   if(POLICIES.spendingCap){
-    for(const id in out)if(id!=="debtAdmin")out[id]*=0.955;
+    for(const id in out)if(id!=="debtAdmin"&&id!=="ohp")out[id]*=0.955;
   }
   return out;
 }
@@ -10644,11 +10713,28 @@ function renderBudget(){
         <div class="fnote">The whole state economy, compounding at ${gr>=0?'+':''}${gr.toFixed(1)}%/yr. The slow structural trend under the cycle: a bigger economy widens the tax base and raises the crisis line above; a recession that shrinks it scars revenue for years. <span data-detail="m_gspLevel" style="color:var(--slate-blue);cursor:pointer">details →</span></div></div>`;
     }
     // --- cost pressures ---
-    h+=`<div class="fcard"><div class="fname">⚰️ PERS Pension Costs</div><div class="fval" style="color:var(--clay)">$${GAME.persRate.toFixed(2)}B</div>
-      <div class="fbar2"><i style="width:${clamp(persPct,0,100)}%;background:var(--clay)"></i></div>
-      <div class="fnote">Rising relentlessly toward ~$9.35B by 2029 — crowds the budget no matter what you do.</div></div>`;
+    {
+      const ual=GAME.persUAL||28, funded=clamp((130-ual)/130,0,1);
+      const growth=(GAME.persRate-(GAME.persRate0||5.26));
+      const sw=GAME.persMarketSwing||0;
+      const swTxt = Math.abs(sw)<0.05 ? "flat this year"
+        : sw<0 ? `<b style="color:var(--good)">−$${(-sw).toFixed(2)}B this year</b> (fund gaining on the market)`
+        : `<b style="color:var(--bad)">+$${sw.toFixed(2)}B this year</b> (market losses)`;
+      h+=`<div class="fcard"><div class="fname">⚰️ PERS — Unfunded Liability</div>
+        <div class="fval" style="color:${funded>=0.8?'var(--warn)':'var(--clay)'}">$${Math.round(ual)}B <span style="font-size:12px;color:var(--muted-3)">· ${Math.round(funded*100)}% funded</span></div>
+        <div class="fbar2"><i style="width:${clamp((1-funded)/0.5*100,0,100)}%;background:var(--clay)"></i></div>
+        <div class="fnote">The hole between what PERS owes and what it holds. It moves with investment returns — ${swTxt} — and new benefits accrue every quarter. Sets the employer contribution rate (<b>$${GAME.persRate.toFixed(2)}B</b>), of which <b>$${growth>=0?'+':''}${growth.toFixed(2)}B</b> above the starting rate is fresh pressure on the General Fund. ${POLICIES.persReform?'PERS Reform is bending the accrual curve.':'PERS Reform can bend the accrual curve.'}</div></div>`;
+    }
+    {
+      const o=ohpFiscal();
+      const stateDelta=o.stateShare-o.stateShare0;
+      const enrCol=o.enroll>1.04?'var(--bad)':o.enroll<0.97?'var(--good)':'#8a8270';
+      h+=`<div class="fcard"><div class="fname">${ico('hospital')} Oregon Health Plan</div>
+        <div class="fval" style="color:${stateDelta>0.15?'var(--bad)':stateDelta<-0.1?'var(--good)':'#4a463c'}">$${o.total.toFixed(1)}B total</div>
+        <div class="fnote">Oregon's share <b>$${o.stateShare.toFixed(2)}B</b> (${Math.round(o.shareFrac*100)}%), the rest is the federal match. Enrollment index <b style="color:${enrCol}">${o.enroll.toFixed(2)}×</b> — it swells in a downturn and when Washington's match weakens the state backfills, so the General Fund feels <b>$${stateDelta>=0?'+':''}${stateDelta.toFixed(2)}B</b> vs. baseline. Set the coverage lever from <span data-detail="p_ohpCoverage" style="color:var(--slate-blue);cursor:pointer">Eligibility &amp; Benefits →</span></div></div>`;
+    }
     h+=`<div class="fcard"><div class="fname">${ico('globe')} Federal Funds Index</div><div class="fval" style="color:${GAME.fedIndex<0.95?'var(--bad)':'#4a463c'}">${(GAME.fedIndex*100).toFixed(0)}%</div>
-      <div class="fnote">~$44B all-funds flows from Washington. A federal tax-law shock cuts this; it slowly recovers.</div></div>`;
+      <div class="fnote">~$44B all-funds flows from Washington. A federal tax-law shock cuts this; it slowly recovers. A weaker match pushes Oregon Health Plan cost onto the state (above).</div></div>`;
     if(GAME.pendingKicker>0)
       h+=`<div class="fcard" style="border-left-color:var(--gold)"><div class="fname">${ico('cash-fly')} Kicker Refund Due</div><div class="fval" style="color:var(--gold)">−$${GAME.pendingKicker.toFixed(2)}B</div>
         <div class="fnote">Revenue beat forecast by 2%+ — the ENTIRE surplus refunds to taxpayers next quarter. ${POLICIES.kickerReform?'':'Enact Kicker Reform to bank it instead.'}</div></div>`;
@@ -11201,6 +11287,10 @@ for(const id in CATALOG){
 }
 for(const id in POLICIES){POLICIES[id]._id=id;POLICIES[id].eff=policyLevel(POLICIES[id]);}
 for(const id in CATALOG)CATALOG[id]._id=id;
+// PERS: derive the starting employer rate from the unfunded liability, and
+// anchor the budget so it only feels growth ABOVE this baseline.
+GAME.persRate  = +clamp(5.26 + GAME.persUAL*0.075, 5.26, 11.5).toFixed(3);
+GAME.persRate0 = GAME.persRate;
 syncCannabisTab();
 for(const id in SIMULANTS)SIMULANTS[id].id=id;
 // build the simulated electorate and pre-roll to equilibrium
