@@ -3519,6 +3519,19 @@ function band(x,center,w){return Math.max(0,1-Math.abs(x-center)*2)*w;}
    instead of collapsing into the centre. */
 const IDEO_SHARP=3.4;
 const IDEO_W={socialist:1.72, liberal:1.72, moderate:0.62, conservative:1.30, libertarian:0.72};
+/* Region assignment. Each voter is scored against urban / suburban / rural by
+   where their urbanity sits, then normalised so the three sum to 1. Scored
+   rather than "urban, rural, and everyone else is suburban" — that remainder
+   structure swallowed two thirds of the state into the suburbs and left rural
+   Oregon at 8% of an electorate that is really about a fifth non-metro. */
+function regionShares(v){
+  const x=v.urban;
+  const u=Math.pow(clamp((x-0.46)/0.40,0,1),1.7)*1.15;   // Portland metro & the big cities
+  const r=Math.pow(clamp((0.78-x)/0.38,0,1),1.7)*0.84;   // small towns, the coast, the east
+  const s=Math.pow(clamp(1-Math.abs(x-0.62)/0.29,0,1),1.7)*1.16;
+  const t=u+r+s||1;
+  return {urban:u/t, suburban:s/t, rural:r/t};
+}
 function ideologyShares(v){
   const sc=id=>{const I=SIMULANTS[id].ideology;
     const fit=Math.max(0.0001,1-(Math.abs(v.econ-I.economic)+Math.abs(v.social-I.social))/2.0);
@@ -3577,8 +3590,7 @@ function buildVoters(){
     // housing — Oregon is ~62% owner-occupied; ownership rises with income and age
     const own=clamp(0.62+(v.innateIncome-0.5)*0.85+(v.age-0.5)*0.62,0.04,0.98); v.m.homeowners=own;v.m.renters=1-own;
     // region
-    let u=clamp((v.urban-0.58)*2.6,0,1),r=clamp((0.48-v.urban)*2.6,0,1),sb=Math.max(0,1-u-r);
-    const rs=u+r+sb||1; v.m.urban=u/rs;v.m.rural=r/rs;v.m.suburban=sb/rs;
+    { const g=regionShares(v); v.m.urban=g.urban; v.m.suburban=g.suburban; v.m.rural=g.rural; }
   }
 }
 const EXCLUSIVE=new Set(["socialist","liberal","moderate","conservative","libertarian",
@@ -4787,8 +4799,8 @@ function tickMembership(){
     // ownership rises with income and age
     const ownT=clamp(0.62+(v.adjIncome-0.5)*0.85+(v.age-0.5)*0.62,0.04,0.98), rentT=1-ownT;
     // REGION (mutually exclusive, sums to 1): from the voter's urbanity
-    let urbT=clamp((v.urban-0.58)*2.6,0,1), rurT=clamp((0.48-v.urban)*2.6,0,1);
-    let subT=Math.max(0,1-urbT-rurT); { const rs=urbT+rurT+subT||1; urbT/=rs; rurT/=rs; subT/=rs; }
+    const rg=regionShares(v);
+    const urbT=rg.urban, subT=rg.suburban, rurT=rg.rural;
     const tgt={poor:poorT,middleIncome:middleT,wealthy:wealthyT,
       homeowners:ownT,renters:rentT, urban:urbT,suburban:subT,rural:rurT,
       socialist:idTgt.socialist,liberal:idTgt.liberal,moderate:idTgt.moderate,conservative:idTgt.conservative,libertarian:idTgt.libertarian};
@@ -8344,7 +8356,13 @@ function assignVoterCounties(){
     // wherever size matters, so it is deliberately absent here.
     const ord=raw.map((f,i)=>i).sort((a,b)=>raw[b]-raw[a]);
     const w=new Array(names.length).fill(0); let wsum=0;
-    for(let k=0;k<12;k++){ const i=ord[k]; w[i]=raw[i]+mx*0.03; wsum+=w[i]; }
+    // Wheeler, Harney, Lake, Grant, Sherman, Wallowa and the rest of the east are
+    // entirely rural — a voter who thinks of themselves as urban does not live there.
+    for(let k=0;k<12;k++){ const i2=ord[k];
+      const urbanVoter=VOTERS[vi].m.urban||0;
+      const gate=(prof[i2].urb<0.35) ? clamp(1-urbanVoter/Math.max(0.02,prof[i2].urb+0.06),0,1) : 1;
+      w[i2]=(raw[i2]+mx*0.03)*gate; wsum+=w[i2]; }
+    if(wsum<=0){ const i2=ord[0]; w[i2]=1; wsum=1; }
     for(let i=0;i<w.length;i++) w[i]/=wsum;
     VOTERS[vi].cw=w; VOTERS[vi].county=names[ord[0]];
   }
@@ -11192,12 +11210,46 @@ function webEdgePath(e,A,B,mx,my,rB){
   if(d>1){ const back=Math.min(rB+7, d-1); ex=B.x-dx/d*back; ey=B.y-dy/d*back; }
   return `<path class="webedge ${cls}" data-a="${e.a}" data-b="${e.b}" d="M${A.x.toFixed(0)},${A.y.toFixed(0)} Q${mx.toFixed(0)},${my.toFixed(0)} ${ex.toFixed(1)},${ey.toFixed(1)}" stroke="${col}" stroke-width="${w.toFixed(2)}" fill="none"/>`;
 }
+/* What a TIER lever can reach, as opposed to what it happens to be doing at its
+   current setting. A tier policy parked on its status-quo tier often has an empty
+   effects entry, which left it drawn on the living map with no connections at all
+   — Election Administration, Drug Possession and the self-serve petrol tiers were
+   all floating unconnected. For the map we want the relationship that EXISTS, so
+   these scan every tier and return the largest effect the lever can produce. */
+function tierMetricReach(p,k){
+  if(!p||p.mechanic!=="tier"||!p.tierEffects)return 0;
+  let best=0;
+  for(const t of p.tierEffects){ const v=(t&&t[k])||0; if(Math.abs(v)>Math.abs(best))best=v; }
+  return best;
+}
+function tierIndicatorReach(p,k){
+  if(!p||p.mechanic!=="tier"||!p.tierIndicatorEffects)return 0;
+  let best=0;
+  for(const t of p.tierIndicatorEffects){ const v=(t&&t[k])||0; if(Math.abs(v)>Math.abs(best))best=v; }
+  return best;
+}
+function tierBlocReach(p,sid){
+  if(!p||p.mechanic!=="tier"||!p.tierBlocEffects)return 0;
+  let best=0;
+  for(const t of p.tierBlocEffects){ const v=(t&&t[sid])||0; if(Math.abs(v)>Math.abs(best))best=v; }
+  return best;
+}
 function buildWebEdges(){
   const E=[];
   const goodFor=(mk,v)=>{const m=METRICS[mk];return m&&m.invert? v<0 : v>0;};
   for(const id in POLICIES){
     const p=POLICIES[id];
     for(const k in METRICS){const e=policyEffect(p,k); if(Math.abs(e)>0.25)E.push({a:"p_"+id,b:"m_"+k,good:goodFor(k,e),w:Math.abs(e)});}
+    if((p.mechanic==="toggle"||p.mechanic==="intensity")&&!p.enabled){   // switched off, but still wired
+      for(const k in METRICS){const v=(p.effects&&typeof p.effects[k]==="number")?p.effects[k]:0;
+        if(Math.abs(v)>0.25)E.push({a:"p_"+id,b:"m_"+k,good:goodFor(k,v),w:Math.min(2,Math.abs(v))});}
+      for(const ik in (p.indicatorEffects||{})){const v=p.indicatorEffects[ik];
+        if(Math.abs(v)>0.5)E.push({a:"p_"+id,b:"i_"+ik,good:indDeltaGood(ik,v),w:Math.min(2,Math.abs(v))});}
+    }
+    if(p.mechanic==="tier"){   // draw what the lever CAN move, not just what it is moving now
+      for(const k in METRICS){const v=tierMetricReach(p,k); if(Math.abs(v)>0.25&&Math.abs(policyEffect(p,k))<=0.25)E.push({a:"p_"+id,b:"m_"+k,good:goodFor(k,v),w:Math.min(2,Math.abs(v))});}
+      for(const ik in (p.tierIndicatorEffects?Object.assign({},...p.tierIndicatorEffects):{})){const v=tierIndicatorReach(p,ik); if(Math.abs(v)>0.5)E.push({a:"p_"+id,b:"i_"+ik,good:indDeltaGood(ik,v),w:Math.min(2,Math.abs(v))});}
+    }
     for(const ik in (p.indicatorEffects||{})){const v=p.indicatorEffects[ik]*effLevelOf(p); if(Math.abs(v)>0.5)E.push({a:"p_"+id,b:"i_"+ik,good:indDeltaGood(ik,v),w:Math.abs(v)});}
   }
   for(const id in AGENCIES){
@@ -11218,6 +11270,7 @@ function buildWebEdges(){
     // what the crisis pushes on (outgoing)
     for(const k in (st.metricEffect||{}))E.push({a:"s_"+sid,b:"m_"+k,good:goodFor(k,st.metricEffect[k]),w:Math.abs(st.metricEffect[k])});
     for(const ik in (st.indicatorEffect||{}))E.push({a:"s_"+sid,b:"i_"+ik,good:indDeltaGood(ik,st.indicatorEffect[ik]),w:Math.abs(st.indicatorEffect[ik])/3});
+    E.push({a:"s_"+sid,b:"i_mandate",good:st.kind==="good",w:st.mandateShock?Math.min(3,Math.abs(st.mandateShock)/2):0.8});
     // what fights or feeds the crisis (incoming): any enacted lever whose effect
     // moves the crisis's watched statistic toward clearing (green) or worse (red)
     const w=st.watch||{};
@@ -11261,6 +11314,7 @@ function buildWebEdges(){
     justiceEffectiveness:["p_policing","a_judiciary","a_corrections"],
     transportFunding:["p_gasTax","p_vehicleReg","p_evFee"],
     adminOverhead:["i_digitization"],   // digitization pulls overhead down (Gov Operations already links to it directly)
+    localAutonomy:["p_readingCurriculum","p_charterSchools","p_schoolChoice"],
     mentalHealth:["m_behavioralHealth","m_health","m_homelessness"]};
   for(const iid in DD)for(const src of DD[iid])E.push({a:src,b:"i_"+iid,neutral:true,w:0.5});
   // every driver of a bloc's approval → an arrow into that voter node — the same
@@ -11276,6 +11330,46 @@ function buildWebEdges(){
       E.push({a:c.lnk,b:"v_"+sid,good:c.v>=0,w:Math.min(4,0.5+Math.abs(c.v)*0.6)});
       if(++n>=14)break;
     }
+  }
+  // ...and the same relationship seen from the LEVER's side. Building the bloc
+  // edges only from each voter group's top drivers meant a policy with a broad
+  // but individually modest effect drew no arrows at all — Public Universities
+  // touched five groups and showed none. Every lever now draws to the groups it
+  // meaningfully moves, and the two passes are de-duplicated below.
+  {
+    const src=[];
+    for(const id in POLICIES)if(POLICIES[id].enacted)src.push(["p_"+id,"policy",POLICIES[id]]);
+    for(const id in AGENCIES)src.push(["a_"+id,"agency",AGENCIES[id]]);
+    src.push(["landuse","landuse",LANDUSE]);
+    for(const [nid,kind,obj] of src){
+      const hits=[];
+      for(const sid in SIMULANTS){
+        if(SIMULANTS[sid].static)continue;
+        const r=blocReaction(kind,obj,SIMULANTS[sid]);
+        let rr=r;
+        if((rr==null||Math.abs(rr)<=0.45)&&kind==="policy"&&obj.mechanic==="tier"){
+          const tb=tierBlocReach(obj,sid); if(Math.abs(tb)>0.45)rr=tb;
+        }
+        if((rr==null||Math.abs(rr)<=0.45)&&kind==="policy"&&(obj.mechanic==="toggle"||obj.mechanic==="intensity")&&!obj.enabled){
+          const tb=(obj.blocEffect&&obj.blocEffect[sid])||0; if(Math.abs(tb)>0.45)rr=tb;
+        }
+        if(rr!=null&&Math.abs(rr)>0.45)hits.push({sid,r:rr});
+      }
+      hits.sort((a,b)=>Math.abs(b.r)-Math.abs(a.r));
+      for(const h of hits.slice(0,12))
+        E.push({a:nid,b:"v_"+h.sid,good:h.r>=0,w:Math.min(4,0.5+Math.abs(h.r)*0.6)});
+    }
+  }
+  // de-duplicate: the bloc pass and the lever pass overlap, and a couple of the
+  // structural passes can restate a link. Keep the strongest weight for each pair.
+  {
+    const seen=new Map();
+    for(const e of E){
+      const k=e.a+">"+e.b;
+      const p=seen.get(k);
+      if(!p||(e.w||0)>(p.w||0))seen.set(k,e);
+    }
+    E.length=0; for(const e of seen.values())E.push(e);
   }
   return E;
 }
