@@ -5273,7 +5273,7 @@ const GAME={
   // election, that decay each quarter. Keyed by county name.
   countyCamp:{},
   activists:{}, activistCooldowns:{},
-  termLengthTurns:16, midtermTurn:8, term:1,
+  termLengthTurns:16, midtermTurn:8, term:1, enforceTermLimit:true,
   activeSituations:{}, situationAge:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null, dilemmaCtx:{}, compassEvents:{ec:0,so:0}, prisonLaborVoteHeld:false, walkoutFreeze:0, walkoutIgnoredUntil:0, agendaBaseline:0, protestCrackdowns:0, protestIgnoredUntil:0, compassStart:{ec:0,so:0}, serviceDisrupt:0, elliottResolved:false,
   // ---- FISCAL MODEL (research: income-tax dependence + kicker + reserves) ----
   rainyDay:1.87,        // Rainy Day Fund ($B) — real 2023-25 end balance
@@ -7504,6 +7504,10 @@ function showWelcome(onDone){
       <p>Crises, dilemmas and a persistent opposition will test you along the way. Every choice ripples, and the voters — statewide and county by county — remember.</p>
       <p>Next, set the <b>platform</b> you're taking office on: the promises you'll be judged against at your first re-election.</p>
     </div>
+    <label class="welcome-optin" style="display:flex;align-items:flex-start;gap:8px;justify-content:center;max-width:520px;margin:2px auto 0;font-size:12.5px;color:var(--muted-2);line-height:1.45;cursor:pointer;text-align:left">
+      <input type="checkbox" id="welcomeTermLimit" ${GAME.enforceTermLimit!==false?'checked':''} style="margin-top:2px;flex:none">
+      <span>Enforce Oregon's <b>two consecutive-term limit</b>. Leave it on for the real rule — your second term is your last unless you pass a constitutional amendment to repeal it. Turn it off to govern indefinitely, re-election after re-election.</span>
+    </label>
     <button class="enactbtn welcome-go" id="welcomeGo">Take office ▸</button>
     <div class="welcome-seed" style="font-size:12px;color:var(--muted-3);margin-top:12px;letter-spacing:.03em">
       This run's seed: <code style="font-family:var(--font-data);letter-spacing:1px;color:var(--muted-1)">${window.RUN_SEED||'—'}</code>
@@ -7512,6 +7516,9 @@ function showWelcome(onDone){
     </div>
   </div>`;
   const go=()=>{
+    const tl=document.getElementById("welcomeTermLimit");
+    GAME.enforceTermLimit = tl ? !!tl.checked : true;
+    if(!GAME.enforceTermLimit && CATALOG.termLimitRepeal) delete CATALOG.termLimitRepeal;   // no limit ⇒ nothing to repeal
     modal.classList.add("hidden"); modal.classList.remove("grand");
     document.removeEventListener("keydown",onKey,true);
     if(onDone)onDone();
@@ -8254,7 +8261,8 @@ function recordLegacy(r){
 function loadLegacy(){ try{ return JSON.parse(localStorage.getItem("sc_legacy")||"[]")||[]; }catch(e){ return []; } }
 
 function showElection(r){
-  GAME.gameOver=!r.won;
+  const succ=!!r.successor;              // term-limited out: the race is for your successor, not you
+  GAME.gameOver=!r.won||succ;
   recordLegacy(r);
   const card=document.getElementById("electionCard");
   let thirdLine='';
@@ -8271,8 +8279,13 @@ function showElection(r){
   }
   const marginPts=(r.share-0.5)*200;
   const won=r.won;
-  const bigWord = won ? "RE-ELECTED" : "DEFEATED";
-  const flavour = won
+  const who = succ ? "Your successor" : "You";
+  const bigWord = succ ? (won?"HELD":"LOST") : (won ? "RE-ELECTED" : "DEFEATED");
+  const flavour = succ
+    ? (won
+        ? (marginPts>=22?"Your chosen successor held the office comfortably" : marginPts>=8?"Your successor held the office" : "Your successor scraped in")
+        : (marginPts<=-14?"Your successor was turned out decisively" : "Your successor lost the office by a hair"))
+    : won
     ? (marginPts>=22?"A commanding win" : marginPts>=8?"A solid win" : "Held on by a whisker")
     : (marginPts<=-14?"A decisive loss" : "Lost by a hair");
   const third=r.thirdShare||0, oppTotal=clamp(1-r.share-third,0,1);
@@ -8280,19 +8293,20 @@ function showElection(r){
   const cRows=countyResults(r);
   const wonCty=cRows.filter(c=>c.win==="you").length;
   card.innerHTML=`<div class="egrand">
-    <div class="eg-kicker">GENERAL ELECTION · ${yr} · STATE OF OREGON</div>
+    <div class="eg-kicker">${succ?'OPEN-SEAT ELECTION':'GENERAL ELECTION'} · ${yr} · STATE OF OREGON</div>
     <div class="eg-result ${won?'win':'lose'}">${bigWord}</div>
     <div class="wm-rule"></div>
     <div class="eg-sub" style="font-size:18px">${flavour} — <b>${(r.share*100).toFixed(1)}%</b> to <b>${(oppTotal*100).toFixed(1)}%</b></div>
+    ${succ?`<div class="eg-sub" style="font-size:12px;color:var(--muted-2)">You are term-limited and not on the ballot. The vote is a referendum on the record you leave behind.</div>`:``}
     <div class="eg-bar" role="img" aria-label="Statewide vote shares">
-      <i data-w="${(r.share*100).toFixed(1)}" data-t="You — ${(r.share*100).toFixed(1)}%" title="You — ${(r.share*100).toFixed(1)}%" style="width:0;background:var(--moss)"></i>
+      <i data-w="${(r.share*100).toFixed(1)}" data-t="${who} — ${(r.share*100).toFixed(1)}%" title="${who} — ${(r.share*100).toFixed(1)}%" style="width:0;background:var(--moss)"></i>
       <i data-w="${((r.thirdShareL||0)*100).toFixed(1)}" data-t="Left splinter — ${((r.thirdShareL||0)*100).toFixed(1)}%" title="Left splinter — ${((r.thirdShareL||0)*100).toFixed(1)}%" style="width:0;background:var(--slate-blue)"></i>
       <i data-w="${((r.thirdShareR||0)*100).toFixed(1)}" data-t="Right splinter — ${((r.thirdShareR||0)*100).toFixed(1)}%" title="Right splinter — ${((r.thirdShareR||0)*100).toFixed(1)}%" style="width:0;background:var(--gold)"></i>
       <i data-w="${(oppTotal*100).toFixed(1)}" data-t="Challenger — ${(oppTotal*100).toFixed(1)}%" title="Challenger — ${(oppTotal*100).toFixed(1)}%" style="width:0;background:var(--clay)"></i>
     </div>
     <div class="eg-barread" id="egBarRead">Hover a segment for its exact share</div>
-    <div class="eg-legend"><span><i style="background:var(--moss)"></i>You</span><span><i style="background:var(--slate-blue)"></i>Left splinter</span><span><i style="background:var(--gold)"></i>Right splinter</span><span><i style="background:var(--clay)"></i>Challenger</span></div>
-    <div class="eg-sub" style="font-size:13px">Turnout <b>${(r.turnout*100).toFixed(0)}%</b> · Final approval <b>${r.approval.toFixed(1)}%</b> · <span id="egReporting">0% reporting</span> · you carried <b id="egCty">0</b> / 36 counties</div>
+    <div class="eg-legend"><span><i style="background:var(--moss)"></i>${who}</span><span><i style="background:var(--slate-blue)"></i>Left splinter</span><span><i style="background:var(--gold)"></i>Right splinter</span><span><i style="background:var(--clay)"></i>Challenger</span></div>
+    <div class="eg-sub" style="font-size:13px">Turnout <b>${(r.turnout*100).toFixed(0)}%</b> · Final approval <b>${r.approval.toFixed(1)}%</b> · <span id="egReporting">0% reporting</span> · ${succ?'your successor':'you'} carried <b id="egCty">0</b> / 36 counties</div>
     ${(()=>{ const m=r.oppMomentum||25;
       const lvl=m>=78?"surging":m>=60?"high":m>=42?"building":m>=24?"present":"dormant";
       const col=m>=60?'var(--clay)':m>=42?'#8a7a3a':'var(--muted-2)';
@@ -8310,7 +8324,9 @@ function showElection(r){
     <div class="eg-third">${thirdLine}</div>
     ${egRcvTable(r)}
     ${egBlocCharts(r.blocs)}
-    ${won
+    ${succ
+      ? `<button id="electionContinue" class="enactbtn">See your record ▸</button>`
+      : won
       ? `<button id="electionContinue" class="enactbtn">Begin Next Term ▸</button>`
       : `<div class="eg-seedline">Seed <code>${window.RUN_SEED||"—"}</code></div>
          <div class="eg-endbtns">
@@ -8373,7 +8389,9 @@ function showElection(r){
     if(window._elecKey){document.removeEventListener("keydown",window._elecKey,true);window._elecKey=null;}
     modal.classList.add("hidden"); modal.classList.remove("grand");
     GAME.lastMargin=clamp((r.share-0.5)*2,-1,1);
-    if(won){
+    if(succ){
+      showRecord({kind:"termlimited"}, ()=>{ location.href=location.origin+location.pathname; });
+    } else if(won){
       showRecord({kind:"reelected"}, ()=>{
         GAME.term++;GAME.capital=clamp(GAME.capital+15,0,100);GAME.log.push("★ Term "+GAME.term+" begins");
         GAME.skipReport=false; GAME.skipCampaign=false; // reports and campaign popup resume each new term
@@ -8395,9 +8413,12 @@ function showElection(r){
 }
 
 /* Oregon caps a governor at two consecutive terms (Const. Art. V, §1). True
-   unless the player has spent the capital to repeal it. */
+   unless the player turned the limit off at the start, or has since spent the
+   capital to repeal it by amendment. */
 function termLimited(){
-  return GAME.term>=2 && !(POLICIES.termLimitRepeal && POLICIES.termLimitRepeal.enacted);
+  return GAME.enforceTermLimit!==false
+    && GAME.term>=2
+    && !(POLICIES.termLimitRepeal && POLICIES.termLimitRepeal.enacted);
 }
 /* the headline "state of Oregon" gauges shown on the end-of-term record screen */
 const RECORD_STATS=[
@@ -8493,21 +8514,24 @@ function showTermLimitWarning(w, next){
   document.addEventListener("keydown",onKey,true);
   setTimeout(()=>{try{ok.focus();}catch(e){}},30);
 }
-/* Term-limited and the repeal was never passed: run the final quarter's ticks,
-   then close on the record screen instead of an election. */
+/* Term-limited and the repeal was never passed: you are not on the ballot, but
+   the seat is still contested. Run the same campaign + election ticks, then show
+   the result as your SUCCESSOR's race — a referendum on the record you leave —
+   and hand off to the record screen. */
 function doTermLimitEnd(){
   evaluatePromises();
   _runTicks();
   if(GAME.pendingSurplus)_resolveSurplus(0,0);
   GAME.pendingShortfall=null;
   _calcCapital();
-  GAME.turn++; pushHistory();
-  GAME.gameOver=true;
-  try{ recordLegacy({won:true, share:0.5+clamp((overallApproval()-50)/100,-0.49,0.49),
-    approval:overallApproval(), termLimited:true}); }catch(e){}
+  GAME.turn++; pushHistory();   // campaign quarter
+  GAME.turn++; pushHistory();   // election day
+  if(GAME.log.length>8)GAME.log=GAME.log.slice(-8);
+  GAME.campaignDone=false;
+  const r=runElection(); r.successor=true;
   GAME.log.push(ico('medal')+" Left office — term-limited after "+Math.round(GAME.turn/4)+" years");
   render();
-  showRecord({kind:"termlimited"}, ()=>{ location.href=location.origin+location.pathname; });
+  showElection(r);
 }
 /* shared capital-income calc used by both doEndTurn and doElectionTurn */
 function _calcCapital(){
