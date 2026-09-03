@@ -1584,6 +1584,9 @@ const METRICS={
     inertia:0.14, invert:true, realNote:"Income gap; higher = more unequal"},
   gasPrice:{name:"Gas Price", icon:"fuel", value:3.95, baseline:3.95, eq:3.82, min:2.5,max:7,
     inertia:0.35, invert:true, fmt:"usd", realNote:"$/gal regular — taxes, mandates, oil markets"},
+  electricRate:{name:"Electricity Price", icon:"plug", value:13.5, baseline:13.5, eq:13.9, min:7, max:34,
+    inertia:0.22, invert:true, fmt:"cents",
+    realNote:"Residential ¢/kWh. Oregon has long enjoyed cheap hydro power, but PGE and PacifiCorp have pushed through repeated double-digit increases: grid upgrades, wildfire hardening, transmission for new renewables, and a surge of data-centre demand all land on the household bill. Decarbonisation raises it in the short run; new firm clean generation brings it back down. It is the most visible price in politics after petrol."},
   transitShare:{name:"Bike/Transit Commute Share", icon:"bike", value:8, baseline:8, eq:5, min:0,max:40,
     inertia:0.12, fmt:"pct", realNote:"% commuting by transit, bike, or foot — blunts gas-price pain"},
   taxBurden:{name:"Overall Tax Burden", icon:"receipt", value:38, baseline:38, eq:12, min:0,max:100,
@@ -2226,6 +2229,10 @@ const METRIC_LINKS=[
   // →disposableIncome) and through the shrinking GDP stock. The growth RATE has
   // no separate direct line here — that was double-counting the same force.
   {from:"gspLevel",    to:"disposableIncome", coef:0.045,ref:305}, // a larger economy lifts household incomes; a recession that shrinks it scars them for years
+  // --- the power bill: a household cost and an industrial input ---
+  {from:"electricRate", to:"disposableIncome", coef:-0.55, ref:13.5},
+  {from:"electricRate", to:"gdp",              coef:-0.030, ref:13.5},
+  {from:"electricRate", to:"povertyRate",      coef:0.10,  ref:13.5},
   {from:"inequality",  to:"disposableIncome", coef:-0.40, ref:55}, // high inequality means GDP gains pile up at the top; working households don't feel the growth
   {from:"disposableIncome", to:"gdp",         coef:0.006, ref:52}, // consumer spending
   // --- poverty: what drives it, and what it drives ---
@@ -2498,7 +2505,7 @@ const POLICIES={
     ]},
   carbonProgram:{name:"Climate Protection Program", domain:"envInfra", icon:"globe", enacted:true, mechanic:"law", phaseIn:5,
     desc:"Oregon's cap-and-reduce program for large emitters — a declining pollution ceiling with allowance trading. Revenue is reinvested in clean energy, low-income utility assistance, and transit. The program survived a 2024 repeal attempt; weakening it draws national climate backlash and destabilizes forward revenue projections.",
-    enabled:true, revenue:0.6, capital:10, effects:{environment:{b:2,c:7,i:5},gdp:-0.25},
+    enabled:true, revenue:0.6, capital:10, effects:{environment:{b:2,c:7,i:5},gdp:-0.25,electricRate:0.7},
     ideology:{economic:-0.5,social:-0.3,environment:-0.9,govSize:-0.5}},
   renewablePortfolio:{name:"Renewable Portfolio Standard", domain:"envInfra", icon:"sun", enacted:true, mechanic:"tier", phaseIn:8,
     desc:"Oregon's HB 2021 (Clean Electricity and Coal Transition Act) requires large utilities to reach 100% clean electricity by 2040, with coal fully off the grid by 2030. Oregon's mix is already ~70% renewable, but meeting the mandate requires costly grid upgrades, new transmission lines, and backup generation — pushing electricity rates up for households and businesses. Relaxing the standard saves money but surrenders Oregon's climate leadership.",
@@ -2506,11 +2513,11 @@ const POLICIES={
     tierIndex:4, capital:12, repealCost:16,
     costByTier:[0, 0.05, 0.12, 0.22, 0.40],
     tierEffects:[
-      {environment:-3, gdp:0.08, disposableIncome:1},
-      {environment:2, gdp:-0.03, disposableIncome:0},
-      {environment:5, gdp:-0.08, disposableIncome:-0.5},
-      {environment:9, gdp:-0.18, disposableIncome:-1},
-      {environment:14, gdp:-0.30, disposableIncome:-1.5}
+      {environment:-3, gdp:0.08, disposableIncome:1, electricRate:-1.4},
+      {environment:2, gdp:-0.03, disposableIncome:0, electricRate:-0.3},
+      {environment:5, gdp:-0.08, disposableIncome:-0.5, electricRate:0.8},
+      {environment:9, gdp:-0.18, disposableIncome:-1, electricRate:2.2},
+      {environment:14, gdp:-0.30, disposableIncome:-1.5, electricRate:3.8}
     ],
     tierIndicatorEffects:[
       {businessClimate:3, inMigration:-2, tourism:-1},
@@ -2943,7 +2950,7 @@ const CATALOG={
   dataCenterEnergy:{name:"Data-Center Energy Framework", domain:"economy", icon:"monitor", mechanic:"slider",
     desc:"Rules governing the surge of data-center and chip-fab electricity demand — special rate classes, grid-cost allocation, and clean-power requirements. Higher strictness protects ratepayers and the climate but cools a booming investment sector; looser rules court the investment at the cost of grid strain and household power bills.",
     value:0.4, costFull:0.05, capital:6, enactCapital:10,
-    effects:{gdp:-0.08, environment:3, disposableIncome:1},
+    effects:{gdp:-0.08, environment:3, disposableIncome:1, electricRate:-1.1},
     indicatorEffects:{businessClimate:-3},
     blocEffect:{liberal:2, renters:1, businessClass:-4, conservative:-2},
     real:{min:0,max:100,unit:"/100 strictness",decimals:0,label:"ratepayer protection"},
@@ -3105,7 +3112,7 @@ const CATALOG={
     desc:"A direct per-ton tax on carbon emissions — more transparent than cap-and-trade, raising real revenue while pushing fuel and energy prices up across the economy.",
     value:0.5, revenueFull:1.5, capital:9, enactCapital:13, taxDir:"burden",
     real:{min:0,max:60,unit:"$/ton",decimals:0,label:"price per ton"},
-    effects:{environment:8,gdp:-0.3,gasPrice:0.45,taxBurden:7}, ideology:{environment:-0.7,economic:-0.4,govSize:-0.3}},
+    effects:{environment:8,gdp:-0.3,gasPrice:0.45,taxBurden:7,electricRate:2.6}, ideology:{environment:-0.7,economic:-0.4,govSize:-0.3}},
   taxCut:{name:"Across-the-Board Tax Cut", domain:"economy", icon:"chart-down", mechanic:"slider",
     desc:"Broad personal and business tax relief funded by spending restraint. Popular with taxpayers and business; blows a hole in the General Fund that forces service cuts.",
     value:0.5, revenue:-2.5, capital:10, enactCapital:14, taxDir:"cut",
@@ -3160,7 +3167,7 @@ const CATALOG={
   nuclearRepeal:{name:"Repeal Nuclear Moratorium", domain:"envInfra", icon:"atom", mechanic:"law", reform:true,
     desc:"Repeal Oregon's 1980 voter-approved ban on new nuclear plants (in place until a federal waste repository exists). Opens the door to carbon-free baseload power — splitting environmentalists between climate hawks and anti-nuclear traditionalists.",
     enabled:true, costFull:0, capital:12, enactCapital:20, repealCost:14,
-    effects:{environment:5,gdp:0.35}, indicatorEffects:{businessClimate:4},
+    effects:{environment:5,gdp:0.35,electricRate:-1.6}, indicatorEffects:{businessClimate:4},
     ideology:{economic:0.3,govSize:0.1}},
   safeConsumption:{name:"Safe Consumption Sites", domain:"social", icon:"syringe", mechanic:"slider",
     desc:"Supervised drug consumption facilities staffed by medical personnel — people bring their own substances, use under medical watch, and can be connected to treatment on the spot. No one overdoses alone. Oregon cities explored this after Measure 110; Vancouver's Insite and Amsterdam's facilities have 25+ years of data behind them: overdose deaths fall sharply, ER visits drop, and connection to treatment rises. The politics are brutal — every conservative ad writes itself, and rural Oregon sees this as Portland telling addicts their habit is fine.",
@@ -3664,10 +3671,14 @@ const MEMBERSHIP_DRIVERS={
       {name:ico('heart')+" Oregon's aging population",v:0.002},
     ]},
   parents:{
-    f:()=>(INDICATORS.inMigration.value-50)*0.0010,
-    desc:"Young families move in when Oregon is thriving.",
+    f:()=>(INDICATORS.inMigration.value-50)*0.0010
+      -(POLICIES.abortion?((POLICIES.abortion.tierIndex/3)-0.5)*0.006:0)
+      +(POLICIES.childcareSubsidy?(effLevelOf(POLICIES.childcareSubsidy)-0.3)*0.010:0),
+    desc:"Young families move in when Oregon is thriving. Broad reproductive access lowers the birth rate at the margin and slowly thins the bloc; childcare support does the opposite, making it affordable to raise kids here.",
     drivers:()=>[
       {name:ico('chart-up')+" In-migration of families",v:(INDICATORS.inMigration.value-50)*0.0010,link:"i_inMigration"},
+      {name:ico('heart')+" Reproductive access (birth rate)",v:-(POLICIES.abortion?((POLICIES.abortion.tierIndex/3)-0.5)*0.006:0),link:"p_abortion"},
+      {name:ico('teddy')+" Childcare support",v:(POLICIES.childcareSubsidy?(effLevelOf(POLICIES.childcareSubsidy)-0.3)*0.010:0),link:"p_childcareSubsidy"},
     ]},
 };
 /* entrenchment: fraction of the gap closed per quarter (D4 inertia-scaling:
@@ -4273,6 +4284,49 @@ const DILEMMAS={
          GAME.log.push(ico('doc')+" Let the Portland protest wave run its course");
        }},
     ]},
+  pucRateCase:{title:"The PUC Rate Case", icon:"plug", cooldown:10,
+    text:"PacifiCorp and PGE have filed for a general rate increase — grid hardening against wildfire liability, transmission for the new renewables the mandate requires, and a surge of data-centre load that someone has to pay to serve. The Public Utility Commission is nominally independent, but you appoint every commissioner on it and everyone in Salem knows what a phone call from the Governor's office means. Households are already writing to you about their bills.",
+    influence:()=>METRICS.electricRate.value>13.0?0.55:0.05,
+    options:[
+      {label:"Lean on the PUC to reject it",
+       text:"Your office makes its view known and the Commission cuts the request to almost nothing. Bills hold and ratepayers notice. The utilities defer the grid and wildfire work they said the money was for — you have borrowed against reliability and fire risk, and the investment climate for anyone who needs firm power cools.",
+       apply:()=>{
+         GAME.capital=clamp(GAME.capital-5,0,100);
+         createGrudge("m_electricRate",-0.55,0.90,"Rate increase rejected");
+         createGrudge("i_businessClimate",-3,0.90,"Regulatory risk — utilities burned");
+         createGrudge("v_poor",7,0.9,"Held the line on power bills");
+         createGrudge("v_retirees",6,0.9,"Held the line on power bills");
+         createGrudge("v_renters",5,0.9,"Held the line on power bills");
+         createGrudge("v_rural",5,0.9,"Held the line on power bills");
+         createGrudge("v_businessClass",-5,0.9,"Political interference in the PUC");
+         createGrudge("v_libertarian",-4,0.9,"Political interference in the PUC");
+         GAME.log.push(ico('plug')+" Pressured the PUC to reject the rate increase");
+         shiftCompass(-0.35,0);}},
+      {label:"Let the Commission decide on the merits",
+       text:"You say — publicly and repeatedly — that the PUC is independent and you will not interfere. It approves most of the request. Bills go up, the grid work gets funded, and you own the increase anyway, because voters do not draw the distinction you are drawing.",
+       apply:()=>{
+         createGrudge("m_electricRate",0.75,0.92,"Rate increase approved");
+         createGrudge("i_businessClimate",2,0.9,"Regulatory stability");
+         createGrudge("v_poor",-6,0.92,"Power bills went up");
+         createGrudge("v_retirees",-6,0.92,"Power bills went up");
+         createGrudge("v_rural",-5,0.92,"Power bills went up");
+         createGrudge("v_moderate",-3,0.9,"Bills up, nothing done");
+         createGrudge("v_businessClass",4,0.9,"Independent regulation respected");
+         GAME.log.push(ico('plug')+" Left the rate case to the PUC — bills rise");}},
+      {label:"Approve it, but ring-fence low-income bills",
+       text:"You back the increase and spend the capital to bolt a serious low-income bill credit onto it, funded from the climate programme's proceeds. The grid gets its money, the households least able to absorb it are largely held harmless, and the middle pays for both. It is the responsible answer and nobody thanks you for it.",
+       apply:()=>{
+         GAME.capital=clamp(GAME.capital-7,0,100);
+         createGrudge("m_electricRate",0.45,0.92,"Rate rise with bill assistance");
+         createGrudge("i_businessClimate",1,0.9,"Regulatory stability");
+         createGrudge("v_poor",4,0.9,"Bill credit protected us");
+         createGrudge("v_liberal",3,0.9,"Progressive rate design");
+         createGrudge("v_middleIncome",-5,0.92,"Paying for everyone else");
+         createGrudge("v_suburban",-4,0.92,"Paying for everyone else");
+         createGrudge("v_conservative",-3,0.9,"Another subsidy");
+         GAME.log.push(ico('plug')+" Approved the rate case with a low-income bill credit");
+         shiftCompass(-0.25,-0.15);}},
+    ]},
   ransomware:{title:"Ransomware Demand", icon:"monitor", cooldown:24,
     text:"The attackers have sent a ransom demand: $4.2M in cryptocurrency to decrypt state systems and restore citizen data before it's published on the dark web. The FBI advises against paying — it funds criminal enterprises and invites repeat attacks. But every day the portals stay down, benefits go unpaid, DMV queues stretch around the block, and public-sector workers are processing claims by hand.",
     influence:()=>GAME.activeSituations.cyberattack?0.80:-1.5,
@@ -4550,6 +4604,54 @@ function tickCynComp(){
    share is pulled 18% lower). These are LEVEL shifts: while the condition
    holds, the family converges to the tilted mix and stays there; when it
    lifts, it converges back. Entrenchment keeps the transition gradual. */
+/* POLICY -> ELECTORATE. Laws do not just move statistics, they change WHO
+   Oregonians are: who moves in, who leaves, who gets organised, whose kids stay.
+   Values are the multiplicative tilt at FULL strength, scaled by how far the lever
+   is actually pushed. These accumulate slowly through GAME.makeupShift, so a term
+   of consistent governing genuinely re-shapes the electorate you face next time. */
+const POLICY_IDEO_SHIFT={
+  // ---- the right builds its own electorate ----
+  rightToWork:        {conservative:0.14, libertarian:0.10, socialist:-0.16, liberal:-0.10},
+  spendingCap:        {libertarian:0.13, conservative:0.10, socialist:-0.10, liberal:-0.06},
+  taxCut:             {conservative:0.10, libertarian:0.08, moderate:0.03, socialist:-0.08, liberal:-0.06},
+  deregulation:       {conservative:0.08, libertarian:0.08, socialist:-0.06, liberal:-0.05},
+  schoolChoice:       {conservative:0.09, libertarian:0.05, liberal:-0.06, socialist:-0.05},
+  prevailingWageRepeal:{conservative:0.07, socialist:-0.08, liberal:-0.04},
+  truthInSentencing:  {conservative:0.07, moderate:0.03, socialist:-0.05, liberal:-0.04},
+  policeShield:       {conservative:0.07, moderate:0.02, socialist:-0.06, liberal:-0.04},
+  parentalRights:     {conservative:0.09, liberal:-0.05, socialist:-0.03},
+  localPreemption:    {conservative:0.06, socialist:-0.05, liberal:-0.03, urban:-0.07, suburban:0.04},
+  occupationalLicensing:{libertarian:0.07, conservative:0.03, socialist:-0.03},
+  // people vote with their feet: these push young, urban and progressive Oregonians out
+  abortionRestrict:   {conservative:0.10, liberal:-0.12, socialist:-0.06, urban:-0.11, rural:0.06},
+  sanctuaryRepeal:    {conservative:0.10, liberal:-0.08, socialist:-0.06, urban:-0.09, rural:0.05},
+  eVerify:            {conservative:0.08, liberal:-0.06, urban:-0.08, rural:0.04},
+  medicaidWork:       {conservative:0.05, socialist:-0.05, poor:-0.10, middleIncome:0.04},
+  ohpBlockGrant:      {conservative:0.06, libertarian:0.04, socialist:-0.06, poor:-0.09, middleIncome:0.04},
+  // ---- the left builds its own electorate ----
+  preschoolForAll:    {liberal:0.07, socialist:0.04, conservative:-0.03, libertarian:-0.03},
+  universalMeals:     {liberal:0.05, socialist:0.04, conservative:-0.03},
+  childcareSubsidy:   {liberal:0.06, socialist:0.04, conservative:-0.03},
+  eitc:               {socialist:0.07, liberal:0.04, poor:0.06, conservative:-0.03},
+  rentStabilization:  {socialist:0.06, liberal:0.04, urban:0.05, conservative:-0.03},
+  paidLeave:          {liberal:0.05, socialist:0.04, conservative:-0.03},
+  ohpCoverage:        {liberal:0.05, socialist:0.04, poor:0.05, conservative:-0.03, libertarian:-0.03},
+  collectiveBargaining:{socialist:0.09, liberal:0.05, conservative:-0.06, libertarian:-0.05},
+  universities:       {liberal:0.07, socialist:0.03, urban:0.05, conservative:-0.05},
+  communityColleges:  {liberal:0.04, socialist:0.03, conservative:-0.02},
+  stateSchoolFund:    {liberal:0.04, socialist:0.03, conservative:-0.03},
+  motorVoter:         {liberal:0.05, socialist:0.04, conservative:-0.04},
+  abortion:           {liberal:0.05, socialist:0.03, urban:0.04, conservative:-0.03},
+};
+/* the tilt a policy currently exerts, scaled by how far its lever is pushed. */
+function policyIdeoTilt(id){
+  const p=POLICIES[id]; if(!p||!p.enacted)return null;
+  const base=POLICY_IDEO_SHIFT[id]; if(!base)return null;
+  let scale=effLevelOf(p);
+  if(!isFinite(scale))scale=1;
+  const out={}; for(const k in base)out[k]=base[k]*scale;
+  return out;
+}
 function ELECTORATE_SHIFT(){
   const sw={};
   const add=(id,v)=>sw[id]=(sw[id]||0)+v;
@@ -4563,14 +4665,26 @@ function ELECTORATE_SHIFT(){
   if(GAME.activeSituations.crimeWave)disorder+=0.8;
   if(GAME.activeSituations.propertySpike)disorder+=0.45;
   if(GAME.activeSituations.doomLoop)disorder+=0.6;
-  disorder+=clamp((METRICS.drugUse.value-62)/30,0,1)*0.6;
-  disorder+=clamp((METRICS.violentCrime.value-58)/28,0,1)*0.5;
+  disorder+=clamp((METRICS.drugUse.value-56)/30,0,1)*0.7;
+  disorder+=clamp((METRICS.violentCrime.value-42)/30,0,1)*0.85;
+  disorder+=clamp((METRICS.propertyCrime.value-62)/34,0,1)*0.55;
   disorder+=clamp((INDICATORS.downtown.value<40?(40-INDICATORS.downtown.value):0)/40,0,1)*0.5;
   disorder=Math.min(disorder,3);
   if(disorder>0){
     add("liberal",-0.38*disorder); add("socialist",-0.46*disorder);
     add("conservative",0.34*disorder); add("moderate",0.14*disorder);
   }
+  // EVERY ENACTED LAW LEANS ON THE ELECTORATE. Summed here so a term of
+  // consistent governing changes who you are governing next term.
+  for(const pid in POLICY_IDEO_SHIFT){
+    const t=policyIdeoTilt(pid); if(!t)continue;
+    for(const k in t)add(k,t[k]);
+  }
+  // a safe, orderly state reassures the centre and centre-right — the counterpart
+  // to the disorder backlash above, so law-and-order governing BUILDS a coalition
+  // rather than only avoiding a penalty
+  { const order=clamp((44-METRICS.violentCrime.value)/22,0,1)*clamp((INDICATORS.downtown.value-48)/26,0,1);
+    if(order>0){ add("moderate",0.16*order); add("conservative",0.09*order); add("socialist",-0.10*order); } }
   // sustained inequality & economic unrest: the populist-left realignment —
   // visible hardship grows the socialist bloc and thins the center and the
   // pro-market right
@@ -4935,6 +5049,13 @@ const SITUATIONS={
     moodMag:3, moodAxes:{economic:-0.25},
     groupMood:{renters:-11, poor:-9, blueCollar:-8, students:-7, parents:-6, moderate:-5,
                middleIncome:-5, socialist:-4, liberal:-3, urban:-4, suburban:-3}},
+  offshoreWind:{name:"Offshore Wind Comes Online", kind:"good", category:"event",
+    desc:"The first commercial floating wind array off the southern Oregon coast has energised. Coos Bay got the assembly yards and the union jobs, the grid got a large block of firm-ish clean power that does not depend on a dry winter in the Columbia, and the rate pressure that decarbonisation has been putting on households finally runs the other way. Fishing fleets and some coastal towns remain furious.",
+    metricEffect:{electricRate:-1.1, environment:2, gdp:0.12, unemployment:-0.1},
+    indicatorEffect:{businessClimate:3, ruralAlienation:-2},
+    minTurns:3, mandateShock:2, noChoice:true,
+    onTrigger:{capital:3, grudges:[{target:"m_electricRate", value:-0.5, decay:0.88, label:"New clean generation easing the grid"}]},
+    groupMood:{blueCollar:6, liberal:5, businessClass:4, timber:3, moderate:2, urban:2, rural:-3}},
   healthEmergency:{name:"Public Health Emergency", kind:"bad", category:"condition",
     desc:"Public health has collapsed under the combined weight of untreated addiction, obesity, alcohol use, and strained clinical capacity. Hospitals ration elective care, life expectancy gains stall, and the crisis becomes a standing political liability until sustained investment turns it around.",
     trigger:()=>METRICS.health.value<45, clear:()=>METRICS.health.value>55, onClear:{capital:3},
@@ -5262,6 +5383,11 @@ const SITUATIONS={
    probability and an optional `gate` (only eligible if true). Severity of
    the world nudges some up. */
 const EVENT_POOL=[
+  // the first floating array off Coos Bay — likelier once the clean-power mandate
+  // is actually pushing, and once the state has the capacity to permit it
+  {id:"offshoreWind", prob:0.05, gate:()=>GAME.turn>10 && METRICS.electricRate.value>13.6
+     && (POLICIES.renewablePortfolio?POLICIES.renewablePortfolio.tierIndex:0)>=3,
+   probMult:()=>1+clamp((INDICATORS.businessClimate.value-48)/40,0,0.8)},
   {id:"wildfireSeason", prob:0.09, gate:()=>true, seasonal:[2,3],
    probMult:()=>{
      const envFactor=1-(METRICS.environment.value-60)*0.01;             // healthier forests/watersheds burn less
@@ -6088,6 +6214,11 @@ function metricMood(sim, sid){
   }
   // disposable income: pocketbook term in every group's voter model
   mood+=(METRICS.disposableIncome.value-52)*0.10*(s.income!==undefined?s.income:1);
+  // the power bill: universally felt, worst for fixed incomes, rural electric heat
+  // and anyone already stretched — the most visible price in politics after petrol
+  { const eb=-(METRICS.electricRate.value-13.5)*0.42;
+    const w=(sid==="poor"||sid==="retirees"||sid==="rural"||sid==="blueCollar"||sid==="renters")?1.55:1.0;
+    mood+=eb*w; }
   if(s.govSpend!==undefined){
     const spd=budgetBalance().spend;
     mood+=(spd-20)*1.2*s.govSpend; // public unions like higher spending
@@ -6148,6 +6279,9 @@ function blocMoodContributors(sid){
   if(ss.incarceration!==undefined)add("Incarceration Rate",(METRICS.incarcerationRate.value-50)*0.04*ss.incarceration,'m_incarcerationRate');
   if(ss.taxes!==undefined){let tx=(38-METRICS.taxBurden.value)*0.32*ss.taxes;if(ss.taxes>1.2)tx-=(INDICATORS.taxGrievance.value-42)*0.06*(ss.taxes-0.6);add("Tax Burden",tx,'m_taxBurden');}
   {const rawGas=-(METRICS.gasPrice.value-3.6)*4.0*blunt*gw; add("Gas Prices",rawGas,'m_gasPrice'); const evBase2=clamp(METRICS.evAdoption.value/100,0,1); const evFactor=sid==="motorists"?0.55:0.25; const evBenefit=-rawGas*evBase2*evFactor; if(Math.abs(evBenefit)>0.08)add(ico('plug')+" EV Adoption (cushions gas-price pain)",evBenefit,'m_evAdoption');}
+  { const eb=-(METRICS.electricRate.value-13.5)*0.42;
+    const ew=(sid==="poor"||sid==="retirees"||sid==="rural"||sid==="blueCollar"||sid==="renters")?1.55:1.0;
+    add("Electricity Price",eb*ew,"m_electricRate"); }
   {let bc=(INDICATORS.businessClimate.value-50)*0.06;if(ss.gdp!==undefined&&ss.gdp>1.0)bc+=(INDICATORS.businessClimate.value-50)*0.03*(ss.gdp-0.5);add("Business Climate",bc,'i_businessClimate');}
   add("Downtown Vitality",(INDICATORS.downtown.value-50)*0.04,'i_downtown');
   add("Population Growth",(INDICATORS.inMigration.value-50)*0.03,'i_inMigration');
@@ -8562,7 +8696,7 @@ const RECORD_STATS=[
   ["m","homelessness","Homelessness"],["m","drugUse","Drug Use Rate"],
   ["m","health","Public Health"],["m","behavioralHealth","Mental-Health Capacity"],
   ["m","environment","Environmental Quality"],["m","inequality","Inequality"],
-  ["m","povertyRate","Poverty Rate"],["m","taxBurden","Overall Tax Burden"],
+  ["m","povertyRate","Poverty Rate"],["m","taxBurden","Overall Tax Burden"],["m","electricRate","Electricity Price"],
   ["m","disposableIncome","Disposable Income"],
   ["i","downtown","Downtown Perception"],["i","housingAffordability","Housing Affordability"],
   ["i","businessClimate","Business Climate"]
@@ -8881,6 +9015,7 @@ const main=document.getElementById("main");
 function fmtMetric(m){
   if(m.fmt==="usd")return "$"+m.value.toFixed(2);
   if(m.fmt==="gsp")return "$"+Math.round(m.value)+"B";
+  if(m.fmt==="cents")return m.value.toFixed(1)+"¢";
   if(m.fmt==="pctRaw")return m.value.toFixed(1)+"%";
   if(m.fmt==="pct")return Math.round(m.value)+"%";
   return Math.round(m.value);
@@ -9111,7 +9246,7 @@ function blocReaction(kind,obj,sim){
 function metricSensKey(metricKey){
   const map={unemployment:"unemployment",education:"education",violentCrime:"crime",propertyCrime:"crime",
     homelessness:"homelessness",health:"health",environment:"environment",gdp:"gdp",
-    inequality:"inequality",loggingRate:"logging",incarcerationRate:"incarceration",povertyRate:"income"};
+    inequality:"inequality",loggingRate:"logging",incarcerationRate:"incarceration",povertyRate:"income",electricRate:"gasprice"};
   return map[metricKey]||null;
 }
 
