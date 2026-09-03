@@ -8485,13 +8485,24 @@ function showRecord(opts, next){
     <div style="font-size:12px;color:var(--muted-2);border-top:1px solid var(--line);padding-top:8px">
       Structural debt <b style="color:${debt>0.05?'var(--bad)':'var(--good)'}">${debt>0.05?'−$'+debt.toFixed(2)+'B':'none'}</b>
       &nbsp;·&nbsp; Reserves <b>$${reserves.toFixed(2)}B</b></div>
-    <button class="enactbtn" id="recordGo" style="margin-top:14px">${opts.kind==="reelected"?"Set your next platform ▸":"Start a new game ▸"}</button>`;
+    <button class="enactbtn" id="recordGo" style="margin-top:14px" disabled>${opts.kind==="reelected"?"Set your next platform ▸":"Start a new game ▸"}</button>`;
   modal.classList.remove("hidden");
-  const done=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); if(next)next(); };
-  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
-  document.getElementById("recordGo").onclick=done;
+  // a held Enter or a mashed click carried over from the election screen must not
+  // blow straight through the record. Require a fresh keypress (a keyup since the
+  // modal opened), with a time fallback, and disable the button briefly.
+  const openedAt=Date.now();
+  const goBtn=document.getElementById("recordGo");
+  let keyReady=false;
+  const onUp=()=>{ keyReady=true; };
+  const cleanup=()=>{ document.removeEventListener("keydown",onKey,true); document.removeEventListener("keyup",onUp,true); };
+  const done=()=>{ if(Date.now()-openedAt<450)return; modal.classList.add("hidden"); cleanup(); if(next)next(); };
+  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return;
+    if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation();
+      if(keyReady || Date.now()-openedAt>=1400) done(); } };
+  goBtn.onclick=done;
   document.addEventListener("keydown",onKey,true);
-  setTimeout(()=>{try{document.getElementById("recordGo").focus();}catch(e){}},30);
+  document.addEventListener("keyup",onUp,true);
+  setTimeout(()=>{ try{ goBtn.disabled=false; goBtn.focus(); }catch(e){} },470);
 }
 /* Fires four quarters before the end of a term-limited term: your window to
    pass the term-limit repeal if you want to keep governing. */
@@ -8503,16 +8514,19 @@ function showTermLimitWarning(w, next){
     <div class="sectionsub" style="margin-top:10px">To keep governing, pass <b>Repeal Gubernatorial Term Limits</b> (Constitutional Reforms) <b>before the campaign quarter</b>. It is expensive and unpopular — an open bid to hold power — but it is the only path to a third term.</div>
     <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
       <button class="enactbtn" id="tlReforms">Open Constitutional Reforms</button>
-      <button class="enactbtn ghost" id="tlOk">Understood</button>
+      <button class="enactbtn ghost" id="tlOk" disabled>Understood</button>
     </div>`;
   modal.classList.remove("hidden");
-  const done=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); if(next)next(); };
+  const openedAt=Date.now();
+  const armed=()=>Date.now()-openedAt>=550;
+  const done=()=>{ if(!armed())return; modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); if(next)next(); };
   const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
+  const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
   const ok=document.getElementById("tlOk"); if(ok)ok.onclick=done;
+  setTimeout(()=>{ try{ ok.disabled=false; ok.focus(); }catch(e){} },560);
   const rf=document.getElementById("tlReforms");
-  if(rf)rf.onclick=()=>{ GAME.openPolSections=GAME.openPolSections||{}; GAME.openPolSections.__reforms=true; currentView="policies"; detailKey=null; done(); render(); };
+  if(rf)rf.onclick=()=>{ close(); GAME.openPolSections=GAME.openPolSections||{}; GAME.openPolSections.__reforms=true; currentView="policies"; detailKey=null; render(); if(next)next(); };
   document.addEventListener("keydown",onKey,true);
-  setTimeout(()=>{try{ok.focus();}catch(e){}},30);
 }
 /* Term-limited and the repeal was never passed: you are not on the ballot, but
    the seat is still contested. Run the same campaign + election ticks, then show
