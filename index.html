@@ -2633,7 +2633,7 @@ const POLICIES={
       {conservative:2, moderate:1, socialist:-2, liberal:-2},
       {liberal:3, socialist:2, publicUnions:2, collegeEducated:1, moderate:1, conservative:-2},
       {liberal:5, socialist:5, publicUnions:2, collegeEducated:3, conservative:-5, libertarian:-3, rural:-3, businessClass:-2}]},
-  electionAdmin:{name:"Election Administration", domain:"pubservices", icon:"ballot", enacted:true, mechanic:"tier", noRepeal:true, phaseIn:2,
+  electionAdmin:{name:"Election Administration", domain:"social", icon:"ballot", enacted:true, mechanic:"tier", noRepeal:true, phaseIn:2,
     desc:"How Oregon runs its elections. The state pioneered all-mail voting (1998) and automatic registration at the DMV (2016), and turnout is among the nation's highest. Tightening the system — dropping automatic registration, or moving to in-person voting with strict photo ID — reliably lowers turnout, and the drop lands hardest on young, low-income, and less-partisan voters; loosening it further pushes participation up. Every move is a first-order fight over who gets to vote.",
     tiers:["In-person + strict photo ID","Vote-by-mail, opt-in registration","Vote-by-mail + automatic registration","VBM + same-day reg + prepaid return"],
     tierIndex:2, costByTier:[0.05,0.02,0.05,0.12], capital:12,
@@ -2933,7 +2933,7 @@ const CATALOG={
     blocEffect:{renters:4, blueCollar:2, businessClass:2, moderate:1},
     real:{min:0,max:100,unit:"/100 ambition",decimals:0,label:"production push"},
     ideology:{economic:-0.2,govSize:-0.2}},
-  singleStair:{name:"Single Staircase Building Reform", domain:"social", icon:"house", mechanic:"slider",
+  singleStair:{name:"Single Staircase Building Reform", domain:"social", icon:"house", mechanic:"slider", niche:true,
     desc:"Allow residential buildings up to 6 stories to be built with a single exit staircase instead of the required two. Oregon passed the core reform in 2023 (HB 2780), but implementation is uneven and the reform is limited to smaller buildings. Expanding it to more building types and heights unlocks much cheaper, deeper floorplates — the floor area previously lost to a second stairwell becomes a bedroom or studio. Developers estimate it cuts per-unit construction costs 12–18% in mid-rise projects, enabling more missing-middle infill in cities that can't support towers. Every major peer nation already allows this. It is a building-code change — it costs the treasury nothing; the fight is purely political.",
     value:0.5, capital:6, enactCapital:10, phaseIn:5,
     effects:{homelessness:{b:-1,c:-8,i:4}, inequality:-2, gdp:0.1},
@@ -5211,14 +5211,14 @@ const SITUATIONS={
     moodMag:1,
     groupMood:{businessClass:5,liberal:3,collegeEducated:5,urban:3}},
   adminStrain:{name:"Administrative Strain", kind:"bad", category:"condition",
-    desc:"Administrative Overhead has crossed 85 and the apparatus is buckling. Three things happen at once, all scaling with how far over 85 you are (maxing around overhead 100):\n\n1. Delivery weakens — every active policy (except revenue and Government Operations itself) moves the statistics less than its stated level, up to ~15% weaker.\n2. Credit dries up — voters give less approval for the programs you fund, because the benefit isn't reaching them.\n3. Costs inflate — every program area's budget rises (overtime, duplicated work, emergency contractors, coordination failures), up to ~+18%.\n\nOverhead rises with every dollar of program spending — large programs like the State School Fund are the biggest contributors. Fix it by investing in Government Operations (builds Digitization capacity) or trimming lower-priority spending. Past 95, Administrative Overload activates on top.",
+    desc:"Administrative Overhead has crossed 85 and the apparatus is buckling. Three things happen at once, all scaling with how far over 85 you are (maxing around overhead 100):\n\n1. Delivery weakens — every active policy (except revenue and Government Operations itself) moves the statistics less than its stated level, up to ~15% weaker.\n2. Credit dries up — voters give less approval for the programs you fund, because the benefit isn't reaching them.\n3. Costs inflate — every program area's budget rises (overtime, duplicated work, emergency contractors, coordination failures), up to ~+18%.\n\n→ TO FIX IT: raise the Government Operations & Workforce budget (it builds Gov. Digitization capacity, which is what actually drives overhead down), enact Business Deregulation or Civil Service Merit Exams (both cut red tape directly), or trim lower-priority program spending — overhead rises with every dollar you spend, and large programs like the State School Fund are the biggest contributors. Past overhead 95, Administrative Overload activates on top.",
     trigger:()=>INDICATORS.adminOverhead.value>85,
     clear:()=>INDICATORS.adminOverhead.value<82, onClear:{capital:1},
     watch:{indicator:"adminOverhead", startAt:90, clearAt:82, badHigh:true},
     moodAxes:{govSize:-0.2}, moodMag:1,
     groupMood:{businessClass:-3, moderate:-2, poor:-2, parents:-2, suburban:-1}},
   adminCrisis:{name:"Administrative Overload", kind:"bad", category:"condition",
-    desc:"Administrative Overhead has crossed 95 — the strain that was already eroding policy effectiveness has now broken into a full operational crisis. Inter-agency coordination has collapsed, permit backlogs have paralyzed DEQ, and enrollment failures are spreading through ODHS. On top of the policy effectiveness penalty already in effect, you are now losing 1 capital per turn to bureaucratic friction and the economic drag is visible in GDP and employer confidence.\n\nThis will not self-correct. It persists until Administrative Overhead falls below 88, which requires cutting active program spending, investing in Government Digitization, or boosting the Government Operations budget.",
+    desc:"Administrative Overhead has crossed 95 — the strain that was already eroding policy effectiveness has now broken into a full operational crisis. Inter-agency coordination has collapsed, permit backlogs have paralyzed DEQ, and enrollment failures are spreading through ODHS. On top of the policy effectiveness penalty already in effect, you are now losing 1 capital per turn to bureaucratic friction and the economic drag is visible in GDP and employer confidence.\n\n→ TO FIX IT: this will not self-correct. It persists until Administrative Overhead falls below 88 — raise the Government Operations & Workforce budget (builds Gov. Digitization), cut active program spending, or pass Business Deregulation / Civil Service Merit Exams.",
     trigger:()=>INDICATORS.adminOverhead.value>95,
     clear:()=>INDICATORS.adminOverhead.value<88, onClear:{capital:2},
     watch:{indicator:"adminOverhead", startAt:95, clearAt:88, badHigh:true},
@@ -9075,7 +9075,9 @@ function projectedMembershipDeltas(policy){
   const out=[];
   for(const sid in MEMBERSHIP_DRIVERS){
     const d=proj[sid]-base[sid];
-    if(Math.abs(d)*100>=0.01&&SIMULANTS[sid])out.push({sid,name:SIMULANTS[sid].name,delta:d});
+    // only show projected shifts of real weight — the tiny 3rd-order ripples
+    // (e.g. a housing bill nudging union headcount via crisis-spending) are noise
+    if(Math.abs(d)*100>=0.04&&SIMULANTS[sid])out.push({sid,name:SIMULANTS[sid].name,delta:d});
   }
   return out.sort((a,b)=>b.delta-a.delta);
 }
@@ -9325,12 +9327,13 @@ function renderBoard(){
   const edges=(typeof buildWebEdges==="function")?buildWebEdges():[];
   const W=1300,H=1040,cx=W/2,cy=H/2;
   const nodes={};
-  // stats (metrics + indicators) — inner
+  // stats (metrics + indicators) — inner. A stat sitting in bad territory is
+  // AMBER, not red: red (and a dashed ring) is reserved for an actual crisis.
   for(const s of allStats()){
     const key=s.key, nid=(s.ind?"i_":"m_")+key, m=s.stat;
     const good=s.ind?indLevelGood(key,m.value):(m.invert?(m.value<m.baseline+3):(m.value>m.baseline-3));
     nodes[nid]={icon:m.icon||"chart-up", label:m.name, kind:"stat",
-      stroke:good?'var(--moss)':'var(--clay)',
+      stroke:good?'var(--moss)':'var(--warn)',
       val:s.ind?Math.round(m.value):fmtMetric(m), sec:sectionFor(key)};
   }
   // active crises/situations as nodes too (so the board shows the full system,
@@ -9511,7 +9514,7 @@ function renderBoard(){
       shapeEl=`<circle class="bn-ring" r="${r}" fill="${sitFill}" stroke="${n.stroke}" stroke-width="3.5" stroke-dasharray="5 3"/>`;
       icoSize=34; icoCol=n.stroke;
     } else {
-      const statFill=n.stroke==='var(--clay)'?"var(--tint-bad)":"var(--tint-good)";
+      const statFill=n.stroke==='var(--warn)'?"var(--tint-warn)":n.stroke==='var(--clay)'?"var(--tint-bad)":"var(--tint-good)";
       shapeEl=`<circle class="bn-ring" r="${r}" fill="${statFill}" stroke="${n.stroke}" stroke-width="2.8"/>`;
       icoSize=38; icoCol="var(--ink)";
     }
@@ -9541,8 +9544,8 @@ function renderBoard(){
   // legend for the graph node types — sits between the key metrics and the map
   h+=`<div class="boardlegend">
       <span class="blg"><svg width="20" height="20"><rect x="2" y="2" width="16" height="16" rx="4" ry="4" fill="var(--paper)" stroke="var(--slate-blue)" stroke-width="2.2"/></svg>Policy / agency — your levers</span>
-      <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="var(--paper)" stroke="var(--moss)" stroke-width="1.6"/></svg>Statistic — an outcome your policies shape</span>
-      <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="var(--tint-bad)" stroke="var(--bad)" stroke-width="3.5" stroke-dasharray="5 3"/></svg>Active crisis</span>
+      <span class="blg"><svg width="20" height="20"><circle cx="6.5" cy="10" r="4.5" fill="var(--tint-good)" stroke="var(--moss)" stroke-width="1.8"/><circle cx="15" cy="10" r="4.5" fill="var(--tint-warn)" stroke="var(--warn)" stroke-width="1.8"/></svg>Statistic — an outcome you shape (<b style="color:var(--moss)">green</b> = healthy · <b style="color:var(--gold)">amber</b> = struggling)</span>
+      <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="var(--tint-bad)" stroke="var(--bad)" stroke-width="3.5" stroke-dasharray="5 3"/></svg>Active crisis (red, dashed)</span>
       <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="var(--tint-good)" stroke="var(--good)" stroke-width="3.5" stroke-dasharray="5 3"/></svg>Positive situation</span>
       <span class="blg"><svg width="20" height="20"><circle cx="10" cy="10" r="7" fill="var(--paper-2)" stroke="var(--warn)" stroke-width="3"/></svg>Voter group (left column) — hover a lever to see who it pleases / angers</span>
       <span class="blg blg-seed" id="boardSeed" title="Click to copy a link that replays this run">seed <code>${window.RUN_SEED||"—"}</code></span>
@@ -9883,7 +9886,7 @@ function renderDetail(){
       <span class="pill ${isRevPol?'rev':'spend'}">${isRevPol?'+$'+Math.max(0,-net).toFixed(2)+'B/yr revenue':'$'+net.toFixed(2)+'B/yr cost'}</span>
       <span class="pill cap">${capPillTxt}</span>
       ${phasePill}
-      <span class="pill dom">${DOMAINS[p.domain].name}</span></div>`;}
+      <span class="pill dom">${(DOMAINS[p.domain]||{name:p.domain}).name}</span></div>`;}
     // control
     h+=`<div class="ctrlbox">${policyControlHTML(id,p)}</div>`;
     // live revenue readout for tax policies linked to a REVENUE entry
@@ -10947,8 +10950,35 @@ function buildWebEdges(){
   if(METRICS.gspLevel)E.push({a:"m_gdp",b:"m_gspLevel",good:METRICS.gdp.value>=0,w:1.3});
   for(const sid in GAME.activeSituations){
     const st=SITUATIONS[sid]; if(!st)continue;
+    // what the crisis pushes on (outgoing)
     for(const k in (st.metricEffect||{}))E.push({a:"s_"+sid,b:"m_"+k,good:goodFor(k,st.metricEffect[k]),w:Math.abs(st.metricEffect[k])});
     for(const ik in (st.indicatorEffect||{}))E.push({a:"s_"+sid,b:"i_"+ik,good:indDeltaGood(ik,st.indicatorEffect[ik]),w:Math.abs(st.indicatorEffect[ik])/3});
+    // what fights or feeds the crisis (incoming): any enacted lever whose effect
+    // moves the crisis's watched statistic toward clearing (green) or worse (red)
+    const w=st.watch||{};
+    const wKey=w.indicator||w.metric;
+    if(wKey && st.kind!=="good"){
+      const isInd=!!INDICATORS[wKey]&&!METRICS[wKey];
+      const clearSign = w.badHigh!==undefined ? (w.badHigh?-1:1)
+        : isInd ? (indHigherIsBad(wKey)?-1:1)
+        : ((METRICS[wKey]&&METRICS[wKey].invert)?-1:1);   // +1 ⇒ raising wKey clears it
+      const addLeverEdge=(nid,e)=>{
+        if(Math.abs(e)<0.4)return;
+        E.push({a:nid,b:"s_"+sid,good:(e*clearSign)>0,w:Math.min(3.5,0.7+Math.abs(e)*0.3)});
+      };
+      for(const id in POLICIES){
+        const p=POLICIES[id]; if(!p.enacted)continue;
+        addLeverEdge("p_"+id, isInd
+          ? ((p.indicatorEffects&&p.indicatorEffects[wKey])||0)*effLevelOf(p)
+          : policyEffect(p,wKey));
+      }
+      for(const id in AGENCIES){
+        const ag=AGENCIES[id];
+        addLeverEdge("a_"+id, isInd
+          ? ((ag.indicatorEffects&&ag.indicatorEffects[wKey])||0)*(ag.funding??0.5)
+          : effExpr((ag.effects&&ag.effects[wKey])||0,(ag.funding??0.5)));
+      }
+    }
   }
   for(const iid in INDICATORS){
     const ind=INDICATORS[iid];
@@ -10989,10 +11019,10 @@ function renderWeb(){
   // metrics inner ring
   const mIds=Object.keys(METRICS).map(k=>"m_"+k);
   for(const k in METRICS){const m=METRICS[k];const good=m.invert?(m.value<m.baseline+3):(m.value>m.baseline-3);
-    nodes["m_"+k]={icon:"",label:m.name,cls:"metric",stroke:good?'var(--moss)':'var(--clay)',val:fmtMetric(m)};}
+    nodes["m_"+k]={icon:"",label:m.name,cls:"metric",stroke:good?'var(--moss)':'var(--warn)',val:fmtMetric(m)};}
   // indicators + active situations middle ring
   const iIds=Object.keys(INDICATORS).map(k=>"i_"+k);
-  for(const k in INDICATORS){const iv=INDICATORS[k];const igood=indLevelGood(k,iv.value);nodes["i_"+k]={icon:iv.icon,label:iv.name,cls:"metric",stroke:igood?'var(--moss)':'var(--clay)',val:Math.round(iv.value)};}
+  for(const k in INDICATORS){const iv=INDICATORS[k];const igood=indLevelGood(k,iv.value);nodes["i_"+k]={icon:iv.icon,label:iv.name,cls:"metric",stroke:igood?'var(--moss)':'var(--warn)',val:Math.round(iv.value)};}
   const sIds=Object.keys(GAME.activeSituations).filter(k=>SITUATIONS[k]).map(k=>"s_"+k);
   for(const k of Object.keys(GAME.activeSituations))if(SITUATIONS[k])nodes["s_"+k]={icon:SITUATIONS[k].kind==="good"?"sparkle":"warning",label:SITUATIONS[k].name,cls:"situation",stroke:SITUATIONS[k].kind==="good"?'var(--good)':'var(--bad)',val:""};
   // policies + agencies + landuse outer ring
