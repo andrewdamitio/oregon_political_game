@@ -5592,12 +5592,23 @@ function effExpr(raw,x,key){
 /* severity 0..1: ramps smoothly from the CLEAR threshold (sev→0) through
    the START threshold (sev=0.5) to "deep crisis" (sev=1) — D4's fix for
    situations slamming on at full strength the moment they trigger. */
+/* FESTERING. A crisis you merely live with gets worse. Past its first two years
+   active, a standing condition compounds — the institutions around it decay, the
+   people caught in it lose ground you cannot easily give back, and the political
+   cost of having tolerated it accumulates. Caps at +40% so it sharpens the
+   mid-game against coasting without making a bad opening unrecoverable. */
+function festerMult(sid){
+  const st=SITUATIONS[sid];
+  if(!st||st.category==="event"||st.kind==="good")return 1;
+  const age=(GAME.situationAge&&GAME.situationAge[sid])||0;
+  return 1+clamp((age-8)/40,0,0.40);
+}
 function sitSeverity(sid){
   const st=SITUATIONS[sid];
   if(!st||!GAME.activeSituations[sid])return 0;
-  if(sid==="nonprofitComplex")return nonprofitSeverity();   // spend-driven, can exceed 1
+  if(sid==="nonprofitComplex")return nonprofitSeverity()*festerMult(sid);   // spend-driven, can exceed 1
   const w=st.watch;
-  if(!w)return 1;                                   // events run at full strength
+  if(!w)return festerMult(sid);                      // no gauge to read — age is the only scale
   const cur=w.metric==="balance"?GAME.lastBalance
     :(w.metric&&METRICS[w.metric]?METRICS[w.metric].value
     :(w.indicator&&INDICATORS[w.indicator]?INDICATORS[w.indicator].value:50));
@@ -5606,7 +5617,7 @@ function sitSeverity(sid){
   let sev;
   if(w.badHigh)sev=(cur-w.clearAt)/(2*span);
   else sev=(w.clearAt-cur)/(2*span);
-  return clamp(sev,0.12,1);
+  return clamp(sev,0.12,1)*festerMult(sid);
 }
 function tickEffSm(){
   GAME.effSm=GAME.effSm||{};
@@ -10314,6 +10325,13 @@ function renderDetail(){
       <span class="pill ${s.kind==='good'?'rev':'spend'}">${s.kind==="good"?"Positive":"Negative"} situation</span>
       <span class="pill dom">${catLabel}</span>
       <span class="pill">Active ${age+1} quarter${age?'s':''}</span></div>`;
+    {
+      const fm=festerMult(sid);
+      if(fm>1.005)
+        h+=`<div class="pendbanner" style="margin:6px 0 12px">${ico('warning')} <b>Festering — running at ${Math.round((fm-1)*100)}% above its base strength.</b> A crisis you merely live with gets worse: past two years active the institutions around it decay and the ground lost stops being easy to give back. Every effect on this page is already scaled up by it, and it keeps climbing to +40%. Ending it is the only thing that resets this.</div>`;
+      else if(s.category!=="event"&&s.kind!=="good"&&age>=5)
+        h+=`<div class="threshline" style="margin:6px 0 10px;font-style:italic">Left running past eight quarters, this will begin to <b>fester</b> — compounding up to +40% above its base strength the longer it stands.</div>`;
+    }
     if(s.watch){
       const isInd=!!s.watch.indicator;
       const wm=isInd?INDICATORS[s.watch.indicator]:METRICS[s.watch.metric];
