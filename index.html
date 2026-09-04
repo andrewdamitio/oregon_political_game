@@ -761,6 +761,10 @@
   .camp-sec .sec-caret{font-size:13px;color:var(--slate-blue);width:12px;flex:none}
   .ebgroup{background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:9px 12px}
   .ebnote{font-size:12px;color:var(--muted-3);font-style:italic;margin:6px 0}
+  /* a bloc marked down purely because a tier it backs is underfunded — a demand
+     for more money, not opposition to the programme */
+  .eb-want{font-family:var(--font-data);font-size:8.5px;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--warn);border:1px solid var(--warn);padding:0 4px;margin-left:6px;white-space:nowrap;vertical-align:1px}
   .ebrow{display:flex;align-items:center;gap:8px;padding:3px 0}
   .eblabel{font-size:11px;width:150px;flex:none;color:#3a3a36;line-height:1.2}
   .ebtrack{flex:1;height:12px;background:var(--paper);border-radius:var(--radius);position:relative;overflow:visible}
@@ -6553,7 +6557,13 @@ function blocMoodContributors(sid){
   if(sid==="publicUnions")add("Public-Sector Wage Lag (boom)",-boomWageGap()*10,'m_gdp');
   if(s.ideology&&s.ideology.social>0.3)add("Rural Alienation",-(INDICATORS.ruralAlienation.value-45)*0.05*s.ideology.social,'i_ruralAlienation');
   if(ss.govSpend!==undefined){const spd=budgetBalance().spend;add("Gov. Spending Level",(spd-20)*1.2*ss.govSpend,'budget');}
-  for(const id in POLICIES){const r=blocReaction("policy",POLICIES[id],s);if(r!==null&&Math.abs(r)>0.05)mc.push({lbl:ico(POLICIES[id].icon)+' '+POLICIES[id].name,v:r,lnk:"p_"+id});}
+  for(const id in POLICIES){
+    const r=blocReaction("policy",POLICIES[id],s);
+    if(r===null||Math.abs(r)<=0.05)continue;
+    // a negative that is purely a funding shortfall is a demand, not opposition
+    const want=wantsMoreFunding("policy",POLICIES[id],s,r);
+    mc.push({lbl:ico(POLICIES[id].icon)+" "+POLICIES[id].name+(want?" <span class=\"eb-want\">wants more funding</span>":""),v:r,lnk:"p_"+id});
+  }
   for(const id in AGENCIES){const r=blocReaction("agency",AGENCIES[id],s);if(r!==null&&Math.abs(r)>0.05)mc.push({lbl:ico(AGENCIES[id].icon)+' '+AGENCIES[id].name,v:r,lnk:"a_"+id});}
   {const r=blocReaction("landuse",LANDUSE,s);if(r!==null&&Math.abs(r)>0.05)mc.push({lbl:ico(LANDUSE.icon)+' '+LANDUSE.name,v:r,lnk:"landuse"});}
   mc.sort((a,b)=>Math.abs(b.v)-Math.abs(a.v));
@@ -9471,6 +9481,27 @@ function getSizeEffects(kind,obj){
   return out.sort((a,b)=>b.delta-a.delta);
 }
 
+/* The institution-preference term measures a bloc against the adequacy line
+   (0.5), not against the policy. A group with a POSITIVE instPref whose reaction
+   reads negative is saying "this tier is funded below what I think it needs" —
+   it is not opposition. Nearly every instPref in the game is positive, so a
+   tier parked under 0.5 otherwise shows its own strongest backers as its
+   loudest opponents. These two helpers let the UI tell the two apart. */
+function instPrefShortfall(kind,obj,sim){
+  if(kind!=="policy"||!obj||!obj.instTier)return 0;
+  const pref=sim.instPref&&sim.instPref[obj.instTier];
+  if(!pref||pref<=0)return 0;
+  const lvl=policyLevel(obj);
+  if(lvl>=0.5)return 0;
+  return pref*(lvl-0.5)*6;              // negative by construction
+}
+/* True when the ONLY thing making this bloc negative is the funding shortfall —
+   strip that term out and they are neutral-or-better on the policy itself. */
+function wantsMoreFunding(kind,obj,sim,r){
+  if(r===null||r>=0)return false;
+  const sf=instPrefShortfall(kind,obj,sim);
+  return sf<0 && (r-sf)>=-0.05;
+}
 function blocReaction(kind,obj,sim){
   let m=0, engaged=false;
   const s=sim.sensitivities||{};
@@ -9722,16 +9753,19 @@ function effectsBreakdownHTML(kind,obj){
   const reactions=[];
   for(const sid in SIMULANTS){
     const r=blocReaction(kind,obj,SIMULANTS[sid]);
-    if(r!==null&&Math.abs(r)>0.05)reactions.push({sid,name:SIMULANTS[sid].name,r});
+    if(r!==null&&Math.abs(r)>0.05)reactions.push({sid,name:SIMULANTS[sid].name,r,want:wantsMoreFunding(kind,obj,SIMULANTS[sid],r)});
   }
   if(reactions.length){
     reactions.sort((a,b)=>b.r-a.r);
     h+=`<div class="ebgroup-label">Voter bloc reactions (${reactions.length} of ${Object.keys(SIMULANTS).length} groups affected)</div><div class="ebgroup">`;
     const scale=Math.max(1,...reactions.map(x=>Math.abs(x.r)));
     for(const x of reactions)
-      h+=effectBar(x.name, x.r, scale, {color:x.r>=0?'var(--good)':'var(--clay)',
-        link:"v_"+x.sid, fmt:v=>(v>=0?'+':'')+v.toFixed(1)});
+      h+=effectBar(x.name+(x.want?` <span class="eb-want">wants more funding</span>`:``), x.r, scale,
+        {color:x.r>=0?`var(--good)`:(x.want?`var(--warn)`:`var(--clay)`),
+        link:"v_"+x.sid, fmt:v=>(v>=0?`+`:``)+v.toFixed(1)});
     h+=`</div>`;
+    if(reactions.some(x=>x.want))
+      h+=`<div class="ebnote">Groups marked <b>wants more funding</b> are not against this — they back it, and are marking it down because the level sits below what they consider adequate. Raise it and they turn positive.</div>`;
   } else {
     h+=`<div class="ebgroup-label">Voter bloc reactions</div><div class="ebnote">No voter group is significantly affected by this on its own.</div>`;
   }
