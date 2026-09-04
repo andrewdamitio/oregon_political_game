@@ -128,10 +128,13 @@
   .val.gold{color:var(--gold)} .val.blue{color:#9fc0e0}
   .val.debt{color:#e59a8c} .val.ok{color:#93c98d}
   /* term-progress bar tucked under the Turn / quarter readout in the topbar */
-  .hud .stat-turn{min-width:96px}
-  .hud .hud-termbar{height:4px;background:rgba(255,255,255,.16);border-radius:var(--radius);margin-top:6px;overflow:hidden}
+  .hud .stat-turn{min-width:152px}
+  .hud .hud-termbar{position:relative;height:4px;background:rgba(255,255,255,.16);border-radius:var(--radius);margin-top:6px;overflow:hidden}
+  /* where the midterm falls in the term — the other ballot you answer to */
+  .hud .hud-termbar::after{content:"";position:absolute;left:var(--mt,50%);top:-2px;bottom:-2px;
+    width:2px;background:var(--gold);opacity:.85;pointer-events:none}
   .hud .hud-termbar i{display:block;height:100%;background:var(--gold);transition:width var(--motion-slow) var(--ease-step)}
-  .hud .hud-termcap{font-family:var(--font-data);font-size:9px;letter-spacing:.5px;color:#9aa3a0;margin-top:3px}
+  .hud .hud-termcap{white-space:nowrap;font-family:var(--font-data);font-size:9px;letter-spacing:.5px;color:#9aa3a0;margin-top:3px}
   /* ---- HUD INSTRUMENTS ----
      The readouts in the topbar are not the same kind of quantity, so they do not
      get the same shape. Approval is a threshold gauge — the 50% line is the one
@@ -980,6 +983,36 @@
   .meas-energy{margin-left:auto;font-family:var(--font-data);font-size:10px;color:var(--muted-3)}
   .meas-blocs{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:10.5px;line-height:1.4}
   .mb-for{color:var(--moss)} .mb-ag{color:var(--clay)}
+  /* what the campaign's own events have done to the number */
+  .meas-swing{font-family:var(--font-data);font-size:10.5px;margin-top:7px;padding:3px 7px;display:inline-block;
+    border:1px solid var(--line)}
+  .meas-swing.up{color:var(--moss);border-color:var(--moss)}
+  .meas-swing.down{color:var(--clay);border-color:var(--clay)}
+  .meas-evs{margin-top:8px;display:flex;flex-direction:column;gap:5px}
+  .mev{font-size:11px;line-height:1.45;padding:6px 9px;border-left:3px solid var(--line);background:var(--paper)}
+  .mev.good{border-left-color:var(--moss)} .mev.bad{border-left-color:var(--clay)}
+  .mev b{display:block;font-size:11.5px;margin-bottom:1px}
+  /* targeting */
+  .meas-toggle{width:100%;margin-top:8px;background:var(--paper);color:var(--ink);
+    border:var(--rule) solid var(--ink);box-shadow:3px 3px 0 var(--ink);padding:7px 10px;cursor:pointer;
+    font-family:var(--font-display);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;
+    transition:transform var(--motion-fast),box-shadow var(--motion-fast)}
+  .meas-toggle:hover{transform:translate(1px,1px);box-shadow:2px 2px 0 var(--ink)}
+  .meas-toggle:active{transform:translate(3px,3px);box-shadow:0 0 0 var(--ink)}
+  .mtgt-cat{font-family:var(--font-data);font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--muted-1);font-weight:700;margin:12px 0 6px;border-bottom:1px solid var(--line-faint);padding-bottom:3px}
+  .mtgt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px}
+  .mtgt{border:var(--rule) solid var(--ink);background:var(--paper);padding:7px 9px}
+  /* a group in striking distance is worth the energy — say so on the card */
+  .mtgt.prime-target{border-left:5px solid var(--moss);background:var(--tint-good)}
+  .mtgt.contestable{border-left:5px solid var(--gold)}
+  .mtgt.uphill{border-left:5px solid var(--line)}
+  .mtgt.low-yield{border-left:5px solid var(--line);opacity:.6}
+  .mtgt-top{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
+  .mtgt-name{font-size:11.5px;font-weight:600;line-height:1.2}
+  .mtgt-yes{font-family:var(--font-data);font-size:12px;font-weight:700}
+  .mtgt-meta{font-size:9.5px;color:var(--muted-3);text-transform:uppercase;letter-spacing:.05em;margin:2px 0 6px}
+  .mtgt .cb2-btn{width:100%}
   /* the ballot strip on the Governing Board */
   .ballotstrip{border:var(--rule) solid var(--ink);border-left:6px solid var(--gold);
     background:var(--tint-warn);padding:9px 13px;margin-bottom:14px;cursor:pointer;
@@ -9150,6 +9183,7 @@ function _runTicks(){
   GAME.lastBalance=budgetBalance().balance;
   settleFiscal(); tickNationalMood(); tickSituations(); tickOpposition(); maybeFireDilemma();
   tickIndicators(); tickGrudges(); tickCynComp(); tickExpectations(); tickGroundGame(); tickCountyCamp();
+  tickBallotCampaign();
   tickApproval(); tickVoterApproval(); checkActivistTriggers();
   if((GAME.serviceDisrupt||0)>0)GAME.serviceDisrupt--;   // acute operational disruption bleeds off
 }
@@ -9221,7 +9255,8 @@ function doElectionTurn(){
    ============================================================ */
 const BALLOT_NO_BIAS=0.55;      // "when in doubt, vote no" — the status quo starts ahead
 const BALLOT_DROPOFF=0.86;      // down-ballot roll-off: fewer people vote a measure than the top race
-const BALLOT_ENERGY_PULL=0.45;  // net-units of persuasion per sqrt(energy) spent on the campaign
+const BALLOT_ENERGY_PULL=0.45;  // net-units of persuasion per sqrt(energy) spent broadly
+const BALLOT_TARGET_PULL=1.90;  // ...and per sqrt(effective energy) aimed at one group: hits far harder, reaches far fewer
 const BALLOT_SENSITIVITY=0.052; // net-units → probability of voting yes
 const BALLOT_STANDING=0.075;    // net-units per approval point either side of 50
 
@@ -9285,35 +9320,78 @@ function measureBlocLeans(m){
   return lean;
 }
 /* Expected YES share, run over the same 2,000-voter electorate as the general
-   election. Two separate pulls: a CONCRETE INTEREST (do the groups I belong to
-   have a stake?) averaged only over blocs with a stake, and an IDEOLOGICAL fit
-   with the voter's own position. The voter model carries two axes, so govSize
-   folds into economic and environment into social. This is the poll;
-   resolveBallot() adds election-night variance on top. */
+   election. Four pulls on each voter:
+     INTEREST   do the groups I belong to have a stake, from the policy's own
+                blocEffect, averaged only over blocs the measure names
+     IDEOLOGY   fit with my own position (govSize folds into economic and
+                environment into social — the voter model carries two axes)
+     CUE        do I like the governor whose amendment this is. Ballot voters
+                take the cue from a politician they trust, so courting the very
+                groups a measure hurts genuinely raises its floor
+     CAMPAIGN   broad spend, plus anything aimed at a bloc I belong to, plus
+                whatever the campaign's own events have done to it
+   This is the poll; resolveBallot() adds election-night variance on top. */
 function measureYesShare(m){
   const p=measureFor(m.id); if(!p)return 0.5;
+  const parts=measureBreakdown(m);
+  return parts.yes;
+}
+/* One pass over the electorate that yields the headline share AND the per-bloc
+   split, so the targeting UI can rank blocs without re-walking 2,000 voters
+   once per group. */
+function measureBreakdown(m){
+  const p=measureFor(m.id);
+  if(!p)return {yes:0.5, blocs:{}};
   const ideo=policyIdeology(p), flip=(m.dir==="repeal")?-1:1;
   const lean=measureBlocLeans(m);
   const ideoEc=((ideo.economic||0)+(ideo.govSize||0)*0.7)*flip;
   const ideoSo=((ideo.social||0)+(ideo.environment||0)*0.6)*flip;
-  const camp=BALLOT_ENERGY_PULL*Math.sqrt(Math.max(0,m.energy||0));
-  // whose amendment it is matters. A governor the state likes can carry a hard
-  // measure; one it has soured on drags down even a reasonable one. This is what
-  // makes amending the constitution something you have to earn standing for.
-  const standing=(overallApproval()-50)*BALLOT_STANDING;
+  const gen=BALLOT_ENERGY_PULL*Math.sqrt(Math.max(0,m.energy||0));
+  const ev=m.swing||0;
+  // targeted spend: concentrated on one group, so it hits harder per unit but
+  // only reaches the people in it
+  // blocPull is EFFECTIVE energy, banked at the receptiveness the group had when
+  // you pushed it — so the "prime target / low yield" advice on the card is the
+  // actual payoff, not just a hint, and timing a push for when a group is in
+  // striking distance is worth something.
+  // ONE diminishing curve across all targeted spend, then split by where you
+  // aimed it — otherwise splitting a push across four groups would dodge the
+  // diminishing returns entirely and be strictly better than concentrating.
+  const bp=m.blocPull||{}, bPull={};
+  let tgtTot=0; for(const sid in bp)tgtTot+=Math.max(0,bp[sid]);
+  if(tgtTot>0){ const k=BALLOT_TARGET_PULL*Math.sqrt(tgtTot)/tgtTot;
+    for(const sid in bp)bPull[sid]=Math.max(0,bp[sid])*k; }
+  const blocs={};
+  for(const sid in SIMULANTS)blocs[sid]={y:0,w:0};
   let yes=0,tot=0;
   for(const v of VOTERS){
     let s=0,w=0;
     for(const sid in lean){ const mw=v.m[sid]; if(!(mw>0))continue; s+=mw*lean[sid]; w+=mw; }
     let net=(w>0?s/w:0);
     net+=(ideoEc*(v.econ||0)+ideoSo*(v.social||0))*3.2;
-    net+=camp+standing-BALLOT_NO_BIAS;
+    net+=(v.approval-50)*BALLOT_STANDING;         // cue-taking, voter by voter
+    for(const sid in bPull){ const mw=v.m[sid]; if(mw>0)net+=bPull[sid]*mw; }
+    net+=gen+ev-BALLOT_NO_BIAS;
     const prob=clamp(0.5+net*BALLOT_SENSITIVITY,0.02,0.98);
     const t=clamp(turnoutProb(v),0.03,0.98)*BALLOT_DROPOFF;
     tot+=t; yes+=t*prob;
+    for(const sid in v.m){ const mw=v.m[sid]; if(!(mw>0))continue;
+      const B=blocs[sid]; if(!B)continue; B.y+=t*prob*mw; B.w+=t*mw; }
   }
-  return tot>0?clamp(yes/tot,0.02,0.98):0.5;
+  const out={};
+  for(const sid in blocs){ const B=blocs[sid]; if(B.w>0.0001)out[sid]={yes:B.y/B.w, weight:B.w}; }
+  return {yes: tot>0?clamp(yes/tot,0.02,0.98):0.5, blocs:out};
 }
+/* How much a push on this group actually converts. Most where the group sits
+   near the line and is worth reaching; least where it is already lost or
+   already won — the same striking-distance logic the county map uses. */
+function measureBlocValue(bd,sid){
+  const B=bd.blocs[sid]; if(!B)return 0;
+  const near=clamp(1.25-Math.abs(B.yes-0.5)*2.2,0.22,1.25);   // striking distance
+  const reach=0.45+0.55*clamp(B.weight/260,0,1);              // and enough of them to matter
+  return near*reach;
+}
+function measureValueWord(v){ return v>=0.95?"prime target":v>=0.72?"contestable":v>=0.45?"uphill":"low yield"; }
 
 /* Ballot night. Every pending measure is decided; the ones that pass take
    effect immediately, the ones that fail are simply gone — the capital that
@@ -9355,6 +9433,88 @@ function campMeasure(id){
   GAME.log.push(msg);
   campRedraw();
 }
+/* Aim a quarter's energy at one group rather than at everyone. */
+function campMeasureBloc(id,sid){
+  const m=pendingMeasure(id); if(!m||!SIMULANTS[sid])return;
+  if(GAME.campEnergy<1){ GAME.log.push("✗ Not enough campaign energy to work the measure"); campRedraw(); return; }
+  // bank the push at the value this group carries RIGHT NOW — a group in
+  // striking distance converts; one already lost or already won barely moves
+  const val=measureBlocValue(measureBreakdown(m),sid);
+  GAME.campEnergy-=1;
+  m.blocEnergy=m.blocEnergy||{};  m.blocPull=m.blocPull||{};
+  m.blocEnergy[sid]=(m.blocEnergy[sid]||0)+1;
+  m.blocPull[sid]=(m.blocPull[sid]||0)+val;
+  const msg="✓ Worked "+SIMULANTS[sid].name+" on "+m.name+" ("+measureValueWord(val)+", −1 energy)";
+  GAME.campLog.unshift({turn:GAME.turn, kind:"measure", name:m.name, ok:true, msg});
+  if(GAME.campLog.length>12)GAME.campLog.pop();
+  GAME.log.push(msg);
+  campRedraw();
+}
+
+/* ---- CAMPAIGN EVENTS ----
+   A measure campaign is not just a spend. Things happen to it: an endorsement
+   lands, the other side buys airtime, a fiscal headline makes your case for
+   you. Each is CONDITIONAL on the state of the game, so what befalls your
+   campaign is a read on how you have governed, not a dice roll. They move
+   m.swing, which is a standing shift on the measure's support. */
+const BALLOT_EVENTS=[
+  {id:"endorse", good:true, w:m=>overallApproval()>52?1.5:0.4,
+   title:"The papers come out for it",
+   text:m=>`The Oregonian and the Register-Guard both endorse ${m.name}. Editorial boards do not move many votes on their own, but they give the undecided permission.`,
+   swing:0.55},
+  {id:"oppbuy", good:false, w:m=>((GAME.opposition?GAME.opposition.momentum:25)/40),
+   title:"The other side goes on air",
+   text:m=>`${(GAME.opposition&&GAME.opposition.name)||"The opposition"} has funded a statewide airtime buy against ${m.name}. It is running in every media market and it is working.`,
+   swing:-0.75},
+  {id:"coalition", good:true, w:m=>1.0,
+   title:"A coalition forms behind it",
+   text:m=>`Supportive groups have stopped free-riding and put together a real campaign committee for ${m.name} — shared lists, shared money, one message.`,
+   swing:0.5},
+  {id:"taxrevolt", good:false,
+   w:m=>{const p=measureFor(m.id); const raises=p&&((p.effects&&p.effects.taxBurden>0)||(p.indicatorEffects&&p.indicatorEffects.taxGrievance>0));
+         return raises?(INDICATORS.taxGrievance.value>52?2.2:0.6):0;},
+   title:"The anti-tax committee finds its issue",
+   text:m=>`With tax grievance already running hot, the organised anti-tax groups have made ${m.name} their rallying point. Signature gatherers are outside every grocery store in the state.`,
+   swing:-0.9},
+  {id:"fiscalcase", good:true,
+   w:m=>{const p=measureFor(m.id); const raises=p&&(p.revenue>0||p.revenueFull>0);
+         return raises?(((GAME.structuralDebt||0)>0.5)?1.8:0.3):0;},
+   title:"The budget makes your argument",
+   text:m=>`A grim revenue forecast and the structural shortfall are in every paper this week. ${m.name} suddenly reads less like a tax and more like arithmetic.`,
+   swing:0.7},
+  {id:"ruralrevolt", good:false, w:m=>(INDICATORS.ruralAlienation.value>55?1.6:0.35),
+   title:"Rural Oregon organises against it",
+   text:m=>`County commissions east of the Cascades are passing resolutions against ${m.name}. It is being read out there as one more thing decided for them in the valley.`,
+   swing:-0.6},
+  {id:"gaffe", good:false, w:m=>0.7,
+   title:"A bad week for the campaign",
+   text:m=>`A surrogate went off-message on ${m.name} and spent three days walking it back. The clip is still circulating.`,
+   swing:-0.45},
+  {id:"turnoutmachine", good:true, w:m=>((m.energy||0)+Object.values(m.blocEnergy||{}).reduce((a,b)=>a+b,0)>=6?1.6:0.25),
+   title:"The field programme is landing",
+   text:m=>`The doors your campaign has been knocking on ${m.name} are showing up in the tracking. Organisation, for once, is beating money.`,
+   swing:0.6}
+];
+/* One roll per pending measure per quarter. */
+function tickBallotCampaign(){
+  const pend=(GAME.ballot&&GAME.ballot.pending)||[];
+  for(const m of pend){
+    if(GAME.turn-(m.referredTurn||0)<1)continue;       // nothing happens the quarter you refer it
+    if(Math.random()>0.42)continue;
+    m.seen=m.seen||[];
+    const pool=BALLOT_EVENTS.filter(e=>m.seen.indexOf(e.id)<0).map(e=>({e,w:Math.max(0,e.w(m))})).filter(x=>x.w>0);
+    if(!pool.length)continue;
+    let tot=0; for(const x of pool)tot+=x.w;
+    let r=Math.random()*tot, pick=pool[pool.length-1];
+    for(const x of pool){ r-=x.w; if(r<=0){pick=x;break;} }
+    const e=pick.e;
+    m.seen.push(e.id);
+    m.swing=(m.swing||0)+e.swing;
+    m.events=m.events||[];
+    m.events.push({id:e.id, good:e.good, title:e.title, text:e.text(m), swing:e.swing, turn:GAME.turn});
+    GAME.log.push((e.good?ico('sparkle'):ico('warning'))+" "+m.name+": "+e.title);
+  }
+}
 function energyBarHTML(){
   return `<div class="energybar" style="margin-top:14px"><span class="energy-label">Campaign energy remaining</span>
     <span class="energy-pips">${Array.from({length:GAME.campEnergyMax},(_,i)=>`<i class="${i<GAME.campEnergy?'on':''}"></i>`).join("")}</span>
@@ -9371,13 +9531,14 @@ function ballotCampaignHTML(){
     h+=`<div class="ebnote" style="margin-top:14px">No measure is currently before the voters. Refer one from <b>New Policies → Constitutional Reforms</b>, or by repealing an amendment already in force.
       Next ballot: <b>${nb.label}</b>${nb.quartersAway>0?` — ${nb.quartersAway} quarter${nb.quartersAway===1?'':'s'} away`:` — this quarter`}.</div>`;
   }
+  const CATS=[["ideology","Ideology"],["region","Region"],["income","Income"],["housing","Housing"],
+              ["lifestage","Life stage"],["sector","Work & lifestyle"],["universal","Everyone"]];
   for(const m of pend){
-    const poll=measureYesShare(m), pct=Math.round(poll*100);
+    const bd=measureBreakdown(m), poll=bd.yes, pct=Math.round(poll*100);
     const lead=poll>=0.5;
-    const lean=measureBlocLeans(m);
-    const forB=Object.keys(lean).filter(s=>lean[s]>0.5).sort((a,b)=>lean[b]-lean[a]).slice(0,4).map(s=>SIMULANTS[s].name);
-    const agB=Object.keys(lean).filter(s=>lean[s]<-0.5).sort((a,b)=>lean[a]-lean[b]).slice(0,4).map(s=>SIMULANTS[s].name);
+    const targeted=Object.values(m.blocEnergy||{}).reduce((a,b)=>a+b,0);
     const noE=GAME.campEnergy<1;
+    const open=(GAME.ballotOpen||{})[m.id];
     h+=`<div class="meascard">
       <div class="meas-top">
         <span class="meas-name">${ico(m.icon)} ${m.dir==="repeal"?"Repeal — ":""}${m.name}</span>
@@ -9387,19 +9548,48 @@ function ballotCampaignHTML(){
         ? `A vote to strike this amendment back out of the constitution. It stays in force until the voters say otherwise.`
         : `A vote to write this into the constitution. It does nothing until the voters approve it.`}</div>
       <div class="pollbar" title="Estimated yes share — the real count moves a point or two either way">
-        <i class="poll-yes" style="width:${Math.round(poll*100)}%"></i>
-        <span class="poll-mid"></span>
+        <i class="poll-yes" style="width:${pct}%"></i><span class="poll-mid"></span>
       </div>
       <div class="meas-poll">
         <span class="mono" style="color:${lead?'var(--good)':'var(--bad)'};font-weight:700">${pct}% yes</span>
         <span class="meas-verdict">${lead?"passing":"failing"} — ${Math.abs(pct-50)<=3?"too close to call":lead?"holding a lead":"needs a real campaign"}</span>
-        <span class="meas-energy">${m.energy||0} energy invested</span>
-      </div>
-      ${(forB.length||agB.length)?`<div class="meas-blocs">
-        ${forB.length?`<span class="mb-for">For: ${forB.join(", ")}</span>`:``}
-        ${agB.length?`<span class="mb-ag">Against: ${agB.join(", ")}</span>`:``}</div>`:``}
-      <button class="enactbtn" data-campmeas="${m.id}" ${noE?'disabled':''} style="width:100%;margin-top:10px">${noE?'Need 1 energy':'Campaign for it — 1 energy'}</button>
-    </div>`;
+        <span class="meas-energy">${m.energy||0} broad · ${targeted} targeted</span>
+      </div>`;
+    // what the campaign itself has done to the number
+    if(m.swing)h+=`<div class="meas-swing ${m.swing>0?'up':'down'}">Campaign events have moved this ${m.swing>0?'+':''}${(m.swing*BALLOT_SENSITIVITY*100).toFixed(1)} pts</div>`;
+    if(m.events&&m.events.length){
+      h+=`<div class="meas-evs">`;
+      for(const e of m.events.slice(-4).reverse())
+        h+=`<div class="mev ${e.good?'good':'bad'}"><b>${e.title}</b> ${e.text}</div>`;
+      h+=`</div>`;
+    }
+    // broad spend
+    h+=`<button class="enactbtn" data-campmeas="${m.id}" ${noE?'disabled':''} style="width:100%;margin-top:10px">${noE?'Need 1 energy':'Campaign statewide — 1 energy'}</button>`;
+    // targeted spend
+    h+=`<button class="meas-toggle" data-meastgt="${m.id}">${open?'▾':'▸'} Target a group or a region ${open?'':`— ${Object.keys(bd.blocs).length} to choose from`}</button>`;
+    if(open){
+      h+=`<div class="sectionsub" style="margin:2px 0 8px">A targeted push hits far harder per unit of energy than a statewide buy, but only reaches the people in that group. It does the most where the group is genuinely <b>in play</b> — near the line and big enough to matter — and least where they are already lost or already with you.</div>`;
+      for(const [cat,label] of CATS){
+        const ids=Object.keys(SIMULANTS).filter(s=>(SIMULANTS[s].category||"sector")===cat&&bd.blocs[s])
+          .sort((a,b)=>measureBlocValue(bd,b)-measureBlocValue(bd,a));
+        if(!ids.length)continue;
+        h+=`<div class="mtgt-cat">${label}</div><div class="mtgt-grid">`;
+        for(const sid of ids){
+          const B=bd.blocs[sid], val=measureBlocValue(bd,sid), by=Math.round(B.yes*100);
+          const spent=(m.blocEnergy||{})[sid]||0;
+          const word=measureValueWord(val);
+          h+=`<div class="mtgt ${word.replace(/ /g,"-")}">
+            <div class="mtgt-top"><span class="mtgt-name">${SIMULANTS[sid].name}</span>
+              <span class="mtgt-yes" style="color:${B.yes>=0.5?'var(--good)':'var(--bad)'}">${by}%</span></div>
+            <div class="mtgt-meta">${word}${spent?` · ${spent} in`:``}</div>
+            <button class="cb2-btn persuade" data-measbloc="${m.id}" data-sid="${sid}" ${noE?'disabled':''}>
+              <span class="cb2-kind">Push</span><span class="cb2-odds">1 ⚡</span></button>
+          </div>`;
+        }
+        h+=`</div>`;
+      }
+    }
+    h+=`</div>`;
   }
   if(hist.length){
     h+=`<div class="camp-sec" style="margin-top:18px">${ico('doc')} Past measures</div><div class="ebgroup" style="margin-top:8px">`;
@@ -9479,6 +9669,11 @@ function wireCampHQ(root){
     GAME.campTab=el.dataset.camptab; campRedraw();
   }));
   root.querySelectorAll('[data-campmeas]').forEach(el=>el.addEventListener('click',()=>campMeasure(el.dataset.campmeas)));
+  root.querySelectorAll('[data-measbloc]').forEach(el=>el.addEventListener('click',()=>campMeasureBloc(el.dataset.measbloc, el.dataset.sid)));
+  root.querySelectorAll('[data-meastgt]').forEach(el=>el.addEventListener('click',()=>{
+    const k=el.dataset.meastgt; GAME.ballotOpen=GAME.ballotOpen||{};
+    GAME.ballotOpen[k]=!GAME.ballotOpen[k]; campRedraw();
+  }));
   root.querySelectorAll('[data-push]').forEach(el=>el.addEventListener('click',()=>{
     const r=campPush(el.dataset.push, el.dataset.sid);
     if(r)GAME.log.push(r.msg);
@@ -11793,7 +11988,15 @@ function renderHUD(){
   const tf=document.getElementById("hTermFill");
   if(tf)tf.style.width=(into/GAME.termLengthTurns*100)+"%";
   const tc=document.getElementById("hudTermCap");
-  if(tc)tc.textContent=`Term ${GAME.term} · ${into+1}/${GAME.termLengthTurns}`;
+  if(tc){
+    // the next date that actually matters: the midterm, then the election
+    const mtIn=GAME.midtermTurn-into, elIn=(GAME.termLengthTurns-1)-into;
+    const nextTxt = mtIn>0 ? `midterm in ${mtIn}q` : elIn>0 ? `election in ${elIn}q` : `election now`;
+    tc.textContent=`Term ${GAME.term} · ${into+1}/${GAME.termLengthTurns} · ${nextTxt}`;
+  }
+  // a notch on the term bar marking where the midterm falls
+  {const tb=document.querySelector(".hud-termbar");
+   if(tb)tb.style.setProperty("--mt",(GAME.midtermTurn/GAME.termLengthTurns*100)+"%");}
 }
 /* ============================================================
    ISSUE WEB — Democracy-style bubble map. Every metric, indicator,
