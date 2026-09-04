@@ -992,13 +992,6 @@
   .mev{font-size:11px;line-height:1.45;padding:6px 9px;border-left:3px solid var(--line);background:var(--paper)}
   .mev.good{border-left-color:var(--moss)} .mev.bad{border-left-color:var(--clay)}
   .mev b{display:block;font-size:11.5px;margin-bottom:1px}
-  /* targeting */
-  .meas-toggle{width:100%;margin-top:8px;background:var(--paper);color:var(--ink);
-    border:var(--rule) solid var(--ink);box-shadow:3px 3px 0 var(--ink);padding:7px 10px;cursor:pointer;
-    font-family:var(--font-display);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;
-    transition:transform var(--motion-fast),box-shadow var(--motion-fast)}
-  .meas-toggle:hover{transform:translate(1px,1px);box-shadow:2px 2px 0 var(--ink)}
-  .meas-toggle:active{transform:translate(3px,3px);box-shadow:0 0 0 var(--ink)}
   .mtgt-cat{font-family:var(--font-data);font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;
     color:var(--muted-1);font-weight:700;margin:12px 0 6px;border-bottom:1px solid var(--line-faint);padding-bottom:3px}
   .mtgt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px}
@@ -9257,6 +9250,10 @@ const BALLOT_NO_BIAS=0.55;      // "when in doubt, vote no" — the status quo s
 const BALLOT_DROPOFF=0.86;      // down-ballot roll-off: fewer people vote a measure than the top race
 const BALLOT_ENERGY_PULL=0.45;  // net-units of persuasion per sqrt(energy) spent broadly
 const BALLOT_TARGET_PULL=1.90;  // ...and per sqrt(effective energy) aimed at one group: hits far harder, reaches far fewer
+// A voter belongs to many overlapping groups but essentially one county, so an
+// identical push through the map reaches a far thinner slice than one through a
+// bloc. Geographic work is scaled up to sit level with demographic work.
+const BALLOT_COUNTY_MULT=8.5;
 const BALLOT_SENSITIVITY=0.052; // net-units → probability of voting yes
 const BALLOT_STANDING=0.075;    // net-units per approval point either side of 50
 
@@ -9336,33 +9333,36 @@ function measureYesShare(m){
   const parts=measureBreakdown(m);
   return parts.yes;
 }
-/* One pass over the electorate that yields the headline share AND the per-bloc
-   split, so the targeting UI can rank blocs without re-walking 2,000 voters
-   once per group. */
+/* One pass over the electorate that yields the headline share, the per-bloc
+   split AND the per-county split, so the targeting surfaces can rank
+   themselves without re-walking 2,000 voters once per group. */
+let _ORCIX=null;
+function orCountyIndex(){
+  if(!_ORCIX){ _ORCIX={}; OR_COUNTIES.forEach((r,i)=>{_ORCIX[r[0]]=i;}); }
+  return _ORCIX;
+}
 function measureBreakdown(m){
   const p=measureFor(m.id);
-  if(!p)return {yes:0.5, blocs:{}};
+  if(!p)return {yes:0.5, blocs:{}, counties:[]};
   const ideo=policyIdeology(p), flip=(m.dir==="repeal")?-1:1;
   const lean=measureBlocLeans(m);
   const ideoEc=((ideo.economic||0)+(ideo.govSize||0)*0.7)*flip;
   const ideoSo=((ideo.social||0)+(ideo.environment||0)*0.6)*flip;
   const gen=BALLOT_ENERGY_PULL*Math.sqrt(Math.max(0,m.energy||0));
   const ev=m.swing||0;
-  // targeted spend: concentrated on one group, so it hits harder per unit but
-  // only reaches the people in it
-  // blocPull is EFFECTIVE energy, banked at the receptiveness the group had when
-  // you pushed it — so the "prime target / low yield" advice on the card is the
-  // actual payoff, not just a hint, and timing a push for when a group is in
-  // striking distance is worth something.
-  // ONE diminishing curve across all targeted spend, then split by where you
-  // aimed it — otherwise splitting a push across four groups would dodge the
-  // diminishing returns entirely and be strictly better than concentrating.
-  const bp=m.blocPull||{}, bPull={};
-  let tgtTot=0; for(const sid in bp)tgtTot+=Math.max(0,bp[sid]);
-  if(tgtTot>0){ const k=BALLOT_TARGET_PULL*Math.sqrt(tgtTot)/tgtTot;
-    for(const sid in bp)bPull[sid]=Math.max(0,bp[sid])*k; }
-  const blocs={};
-  for(const sid in SIMULANTS)blocs[sid]={y:0,w:0};
+  // ONE diminishing curve across ALL targeted spend — groups and counties
+  // together — then split by where it was aimed. Otherwise splitting a push
+  // between the two surfaces would dodge diminishing returns entirely.
+  const bp=m.blocPull||{}, cp=m.countyPull||{}, ix=orCountyIndex();
+  let tgtTot=0;
+  for(const sid in bp)tgtTot+=Math.max(0,bp[sid]);
+  for(const nm in cp)tgtTot+=Math.max(0,cp[nm]);
+  const k=tgtTot>0?BALLOT_TARGET_PULL*Math.sqrt(tgtTot)/tgtTot:0;
+  const bPull={}; for(const sid in bp)bPull[sid]=Math.max(0,bp[sid])*k;
+  const cPull=[]; let cAny=false;
+  for(const nm in cp){ const ci=ix[nm]; if(ci!=null){ cPull[ci]=Math.max(0,cp[nm])*k*BALLOT_COUNTY_MULT; cAny=true; } }
+  const blocs={}; for(const sid in SIMULANTS)blocs[sid]={y:0,w:0};
+  const counties=OR_COUNTIES.map(()=>({y:0,w:0}));
   let yes=0,tot=0;
   for(const v of VOTERS){
     let s=0,w=0;
@@ -9371,16 +9371,20 @@ function measureBreakdown(m){
     net+=(ideoEc*(v.econ||0)+ideoSo*(v.social||0))*3.2;
     net+=(v.approval-50)*BALLOT_STANDING;         // cue-taking, voter by voter
     for(const sid in bPull){ const mw=v.m[sid]; if(mw>0)net+=bPull[sid]*mw; }
+    if(cAny&&v.cw)for(let ci=0;ci<v.cw.length;ci++){ const wq=v.cw[ci]; if(wq>0&&cPull[ci])net+=cPull[ci]*wq; }
     net+=gen+ev-BALLOT_NO_BIAS;
     const prob=clamp(0.5+net*BALLOT_SENSITIVITY,0.02,0.98);
     const t=clamp(turnoutProb(v),0.03,0.98)*BALLOT_DROPOFF;
     tot+=t; yes+=t*prob;
     for(const sid in v.m){ const mw=v.m[sid]; if(!(mw>0))continue;
       const B=blocs[sid]; if(!B)continue; B.y+=t*prob*mw; B.w+=t*mw; }
+    if(v.cw)for(let ci=0;ci<v.cw.length;ci++){ const wq=v.cw[ci]; if(wq<=0)continue;
+      const C=counties[ci]; if(!C)continue; C.y+=t*prob*wq; C.w+=t*wq; }
   }
-  const out={};
-  for(const sid in blocs){ const B=blocs[sid]; if(B.w>0.0001)out[sid]={yes:B.y/B.w, weight:B.w}; }
-  return {yes: tot>0?clamp(yes/tot,0.02,0.98):0.5, blocs:out};
+  const outB={};
+  for(const sid in blocs){ const B=blocs[sid]; if(B.w>0.0001)outB[sid]={yes:B.y/B.w, weight:B.w}; }
+  const outC=counties.map(C=>C.w>0.0001?{yes:C.y/C.w, weight:C.w}:{yes:0.5, weight:0});
+  return {yes: tot>0?clamp(yes/tot,0.02,0.98):0.5, blocs:outB, counties:outC};
 }
 /* How much a push on this group actually converts. Most where the group sits
    near the line and is worth reaching; least where it is already lost or
@@ -9418,20 +9422,6 @@ function resolveBallot(kind){
   }
   GAME.ballot.pending=[];
   return results;
-}
-/* Put a quarter's campaign energy behind an amendment you referred. The pool is
-   the SAME one the county map and the bloc pushes draw on — an amendment you
-   care about is paid for out of your own re-election ground game. */
-function campMeasure(id){
-  const m=pendingMeasure(id); if(!m)return;
-  if(GAME.campEnergy<1){ GAME.log.push("✗ Not enough campaign energy to work the measure"); campRedraw(); return; }
-  GAME.campEnergy-=1;
-  m.energy=(m.energy||0)+1;
-  const msg="✓ Campaigned for "+(m.dir==="repeal"?"repeal of ":"")+m.name+" (−1 energy)";
-  GAME.campLog.unshift({turn:GAME.turn, kind:"measure", name:m.name, ok:true, msg});
-  if(GAME.campLog.length>12)GAME.campLog.pop();
-  GAME.log.push(msg);
-  campRedraw();
 }
 /* Aim a quarter's energy at one group rather than at everyone. */
 function campMeasureBloc(id,sid){
@@ -9520,7 +9510,100 @@ function energyBarHTML(){
     <span class="energy-pips">${Array.from({length:GAME.campEnergyMax},(_,i)=>`<i class="${i<GAME.campEnergy?'on':''}"></i>`).join("")}</span>
     <span class="energy-num">${GAME.campEnergy} / ${GAME.campEnergyMax}</span></div>`;
 }
-/* The ballot-measure half of Campaign HQ. */
+/* How much a push in this county converts: striking distance, times how many
+   voters actually live there. */
+function measureCountyValue(bd,ci){
+  const C=bd.counties&&bd.counties[ci]; if(!C||!(C.weight>0))return 0;
+  const tot=OR_COUNTIES.reduce((s,r)=>s+r[6],0);
+  const share=OR_COUNTIES[ci][6]/tot;
+  const near=clamp(1.25-Math.abs(C.yes-0.5)*2.2,0.22,1.25);
+  return near*(0.42+0.58*clamp(share*8,0,1));
+}
+/* Work one county for a measure. Same energy pool, same banking rule as a
+   group push: you keep the value the county carried when you worked it. */
+function campMeasureCounty(id,name){
+  const m=pendingMeasure(id); if(!m)return;
+  const ix=orCountyIndex(), ci=ix[name]; if(ci==null)return;
+  if(GAME.campEnergy<1){ GAME.log.push("✗ Not enough campaign energy to work "+name+" County"); campRedraw(); return; }
+  const val=measureCountyValue(measureBreakdown(m),ci);
+  GAME.campEnergy-=1;
+  m.countyEnergy=m.countyEnergy||{}; m.countyPull=m.countyPull||{};
+  m.countyEnergy[name]=(m.countyEnergy[name]||0)+1;
+  m.countyPull[name]=(m.countyPull[name]||0)+val;
+  const msg="✓ Worked "+name+" County on "+m.name+" ("+measureValueWord(val)+", −1 energy)";
+  GAME.campLog.unshift({turn:GAME.turn, kind:"measure", name:m.name, ok:true, msg});
+  if(GAME.campLog.length>12)GAME.campLog.pop();
+  GAME.log.push(msg);
+  campRedraw();
+}
+/* The county map for a measure: counties shaded by how they would vote on it
+   right now, not by your own standing. Where the state is open to the argument
+   and where it is not, at a glance. */
+function measureMapMarkup(m,bd){
+  let paths="",labels="";
+  OR_COUNTIES.forEach((r,ci)=>{
+    const C=bd.counties[ci]||{yes:0.5,weight:0};
+    // diverging: clay where it loses, moss where it wins, paper at the line
+    const d=clamp((C.yes-0.5)*2.6+0.5,0,1);
+    const fill=d>=0.5?cmMix((d-0.5)*2,"#efe9d8","#2f6d3a"):cmMix((0.5-d)*2,"#efe9d8","#a8412c");
+    const worked=(m.countyEnergy||{})[r[0]]||0;
+    paths+=`<path class="cm-cty${worked?' mm-worked':''}" data-mc="${r[0]}" tabindex="0" role="button" aria-label="${r[0]} County" d="${r[2]}" fill="${fill}"></path>`;
+    labels+=`<text class="cm-lbl" x="${r[3]}" y="${r[4]+1.8}" text-anchor="middle">${r[1]}</text>`;
+  });
+  const svg=`<svg class="cmap-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="County support for this measure">${paths}${labels}</svg>`;
+  const worked=Object.keys(m.countyEnergy||{});
+  const list=worked.sort((a,b)=>(m.countyEnergy[b])-(m.countyEnergy[a]))
+    .map(n=>`<div class="ci-row"><span>${n}</span><span>${m.countyEnergy[n]} in</span></div>`).join("");
+  return `<div class="cmap-layout" style="margin-top:10px">
+      ${svg}
+      <div class="cmap-info" id="measMapInfo">
+        <h4>${worked.length?worked.length+(worked.length===1?" county worked":" counties worked"):"Where the state stands"}</h4>
+        <div class="ci-sub">Shaded by how each county would vote on this measure today. Hover for the readout · click to work it.</div>
+        ${list}
+        <div class="cmap-legend"><span><i style="background:#a8412c"></i>Votes no</span><span><i style="background:#2f6d3a"></i>Votes yes</span></div>
+      </div>
+    </div>`;
+}
+function wireMeasureMap(root,m,bd){
+  const cmi=root.querySelector("#measMapInfo"); if(!cmi)return;
+  const defaultHTML=cmi.innerHTML, ix=orCountyIndex();
+  const tot=OR_COUNTIES.reduce((s,r)=>s+r[6],0);
+  const paint=(name,committed)=>{
+    const ci=ix[name], C=bd.counties[ci]||{yes:0.5}, prof=COUNTY_PROFILE[name]||{};
+    const val=measureCountyValue(bd,ci), yes=Math.round(C.yes*100);
+    const share=OR_COUNTIES[ci][6]/tot*100;
+    const spent=(m.countyEnergy||{})[name]||0;
+    const afford=GAME.campEnergy>=1;
+    cmi.innerHTML=`<h4>${name} County</h4>
+      <div class="ci-sub">${_cmLeanWord(prof.ideo)} · ${share.toFixed(1)}% of the state's voters</div>
+      <div class="ci-row"><span>Would vote</span><span style="color:${C.yes>=0.5?'var(--good)':'var(--bad)'}">${yes}% yes</span></div>
+      <div class="ci-row"><span>Value of a push here</span><span>${measureValueWord(val)}</span></div>
+      <div class="ci-row"><span>Energy invested</span><span>${spent||"none"}</span></div>
+      ${committed
+        ? `<button class="enactbtn" id="measHereBtn" ${afford?'':'disabled'} style="width:100%;margin-top:12px">${afford?`Campaign here — 1 energy`:`Need 1 energy`}</button>`
+        : `<div class="ci-sub" style="margin:10px 0 0;text-align:center">Click the county to target it ▸</div>`}`;
+    const b=root.querySelector("#measHereBtn");
+    if(b)b.addEventListener('click',()=>campMeasureCounty(m.id,name));
+  };
+  const restore=()=>{ if(measMapSel&&ix[measMapSel]!=null){ paint(measMapSel,true); } else { cmi.innerHTML=defaultHTML; } };
+  root.querySelectorAll('.cm-cty[data-mc]').forEach(el=>{
+    const name=el.dataset.mc;
+    el.addEventListener('mouseenter',()=>paint(name,false));
+    const sel=()=>{ measMapSel=name; root.querySelectorAll('.cm-cty.sel').forEach(x=>x.classList.remove('sel')); el.classList.add('sel'); paint(name,true); };
+    el.addEventListener('focus',sel);
+    el.addEventListener('click',sel);
+  });
+  const svgEl=root.querySelector('.cmap-svg');
+  if(svgEl)svgEl.addEventListener('mouseleave',restore);
+  if(measMapSel&&ix[measMapSel]!=null){
+    const el=root.querySelector(`.cm-cty[data-mc="${measMapSel}"]`);
+    if(el){ el.classList.add('sel'); paint(measMapSel,true); }
+  }
+}
+let measMapSel=null;   // county selected on a measure map, kept across redraws
+/* The ballot-measure half of Campaign HQ. Same two surfaces the re-election
+   ground game uses — the county map and the voter groups — because a measure
+   campaign is worked the same way, out of the same energy. */
 function ballotCampaignHTML(){
   const pend=GAME.ballot.pending||[], hist=GAME.ballot.history||[];
   const nb=nextBallotInfo();
@@ -9536,9 +9619,9 @@ function ballotCampaignHTML(){
   for(const m of pend){
     const bd=measureBreakdown(m), poll=bd.yes, pct=Math.round(poll*100);
     const lead=poll>=0.5;
-    const targeted=Object.values(m.blocEnergy||{}).reduce((a,b)=>a+b,0);
+    const tgtB=Object.values(m.blocEnergy||{}).reduce((a,b)=>a+b,0);
+    const tgtC=Object.values(m.countyEnergy||{}).reduce((a,b)=>a+b,0);
     const noE=GAME.campEnergy<1;
-    const open=(GAME.ballotOpen||{})[m.id];
     h+=`<div class="meascard">
       <div class="meas-top">
         <span class="meas-name">${ico(m.icon)} ${m.dir==="repeal"?"Repeal — ":""}${m.name}</span>
@@ -9553,9 +9636,8 @@ function ballotCampaignHTML(){
       <div class="meas-poll">
         <span class="mono" style="color:${lead?'var(--good)':'var(--bad)'};font-weight:700">${pct}% yes</span>
         <span class="meas-verdict">${lead?"passing":"failing"} — ${Math.abs(pct-50)<=3?"too close to call":lead?"holding a lead":"needs a real campaign"}</span>
-        <span class="meas-energy">${m.energy||0} broad · ${targeted} targeted</span>
+        <span class="meas-energy">${tgtC} county · ${tgtB} group</span>
       </div>`;
-    // what the campaign itself has done to the number
     if(m.swing)h+=`<div class="meas-swing ${m.swing>0?'up':'down'}">Campaign events have moved this ${m.swing>0?'+':''}${(m.swing*BALLOT_SENSITIVITY*100).toFixed(1)} pts</div>`;
     if(m.events&&m.events.length){
       h+=`<div class="meas-evs">`;
@@ -9563,31 +9645,31 @@ function ballotCampaignHTML(){
         h+=`<div class="mev ${e.good?'good':'bad'}"><b>${e.title}</b> ${e.text}</div>`;
       h+=`</div>`;
     }
-    // broad spend
-    h+=`<button class="enactbtn" data-campmeas="${m.id}" ${noE?'disabled':''} style="width:100%;margin-top:10px">${noE?'Need 1 energy':'Campaign statewide — 1 energy'}</button>`;
-    // targeted spend
-    h+=`<button class="meas-toggle" data-meastgt="${m.id}">${open?'▾':'▸'} Target a group or a region ${open?'':`— ${Object.keys(bd.blocs).length} to choose from`}</button>`;
-    if(open){
-      h+=`<div class="sectionsub" style="margin:2px 0 8px">A targeted push hits far harder per unit of energy than a statewide buy, but only reaches the people in that group. It does the most where the group is genuinely <b>in play</b> — near the line and big enough to matter — and least where they are already lost or already with you.</div>`;
-      for(const [cat,label] of CATS){
-        const ids=Object.keys(SIMULANTS).filter(s=>(SIMULANTS[s].category||"sector")===cat&&bd.blocs[s])
-          .sort((a,b)=>measureBlocValue(bd,b)-measureBlocValue(bd,a));
-        if(!ids.length)continue;
-        h+=`<div class="mtgt-cat">${label}</div><div class="mtgt-grid">`;
-        for(const sid of ids){
-          const B=bd.blocs[sid], val=measureBlocValue(bd,sid), by=Math.round(B.yes*100);
-          const spent=(m.blocEnergy||{})[sid]||0;
-          const word=measureValueWord(val);
-          h+=`<div class="mtgt ${word.replace(/ /g,"-")}">
-            <div class="mtgt-top"><span class="mtgt-name">${SIMULANTS[sid].name}</span>
-              <span class="mtgt-yes" style="color:${B.yes>=0.5?'var(--good)':'var(--bad)'}">${by}%</span></div>
-            <div class="mtgt-meta">${word}${spent?` · ${spent} in`:``}</div>
-            <button class="cb2-btn persuade" data-measbloc="${m.id}" data-sid="${sid}" ${noE?'disabled':''}>
-              <span class="cb2-kind">Push</span><span class="cb2-odds">1 ⚡</span></button>
-          </div>`;
-        }
-        h+=`</div>`;
+    // ---- surface one: the map ----
+    h+=`<div class="camp-sec" style="margin-top:16px">${ico('map')} Take it to the counties</div>
+      <div class="sectionsub" style="margin-top:0">Where the state already agrees with you, and where it does not. A push does the most in a county that is close and populous, and least where the argument is already lost or already won.</div>`;
+    h+=measureMapMarkup(m,bd);
+    // ---- surface two: the groups ----
+    h+=`<div class="camp-sec" style="margin-top:18px">${ico('handshake')} Take it to the groups</div>
+      <div class="sectionsub" style="margin-top:0">The same energy, aimed at who a voter <b>is</b> rather than where they live.</div>`;
+    for(const [cat,label] of CATS){
+      const ids=Object.keys(SIMULANTS).filter(s=>(SIMULANTS[s].category||"sector")===cat&&bd.blocs[s])
+        .sort((a,b)=>measureBlocValue(bd,b)-measureBlocValue(bd,a));
+      if(!ids.length)continue;
+      h+=`<div class="mtgt-cat">${label}</div><div class="mtgt-grid">`;
+      for(const sid of ids){
+        const B=bd.blocs[sid], val=measureBlocValue(bd,sid), by=Math.round(B.yes*100);
+        const spent=(m.blocEnergy||{})[sid]||0;
+        const word=measureValueWord(val);
+        h+=`<div class="mtgt ${word.replace(/ /g,"-")}">
+          <div class="mtgt-top"><span class="mtgt-name">${SIMULANTS[sid].name}</span>
+            <span class="mtgt-yes" style="color:${B.yes>=0.5?'var(--good)':'var(--bad)'}">${by}%</span></div>
+          <div class="mtgt-meta">${word}${spent?` · ${spent} in`:``}</div>
+          <button class="cb2-btn persuade" data-measbloc="${m.id}" data-sid="${sid}" ${noE?'disabled':''}>
+            <span class="cb2-kind">Push</span><span class="cb2-odds">1 ⚡</span></button>
+        </div>`;
       }
+      h+=`</div>`;
     }
     h+=`</div>`;
   }
@@ -9668,12 +9750,10 @@ function wireCampHQ(root){
   root.querySelectorAll('[data-camptab]').forEach(el=>el.addEventListener('click',()=>{
     GAME.campTab=el.dataset.camptab; campRedraw();
   }));
-  root.querySelectorAll('[data-campmeas]').forEach(el=>el.addEventListener('click',()=>campMeasure(el.dataset.campmeas)));
   root.querySelectorAll('[data-measbloc]').forEach(el=>el.addEventListener('click',()=>campMeasureBloc(el.dataset.measbloc, el.dataset.sid)));
-  root.querySelectorAll('[data-meastgt]').forEach(el=>el.addEventListener('click',()=>{
-    const k=el.dataset.meastgt; GAME.ballotOpen=GAME.ballotOpen||{};
-    GAME.ballotOpen[k]=!GAME.ballotOpen[k]; campRedraw();
-  }));
+  // each pending measure gets its own county map wired to the same energy pool
+  for(const m of ((GAME.ballot&&GAME.ballot.pending)||[]))
+    wireMeasureMap(root,m,measureBreakdown(m));
   root.querySelectorAll('[data-push]').forEach(el=>el.addEventListener('click',()=>{
     const r=campPush(el.dataset.push, el.dataset.sid);
     if(r)GAME.log.push(r.msg);
