@@ -1094,6 +1094,23 @@
   .coal-chip{font-size:11px;border:1px solid var(--line);padding:2px 7px;background:var(--paper-2);white-space:nowrap}
   .coal-chip.for{border-left:3px solid var(--moss)}
   .coal-chip.against{border-left:3px solid var(--clay)}
+  /* ---- seat forecast ---- */
+  .fc-standing{font-size:12.5px;line-height:1.55;border:1px solid var(--line);background:var(--paper);padding:9px 12px;margin:10px 0 12px;border-left:4px solid var(--line-em)}
+  .fc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}
+  .fc-card{border:var(--rule) solid var(--ink);background:var(--paper-2);padding:11px 12px;box-shadow:3px 3px 0 var(--shadow-hard)}
+  .fc-top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:3px}
+  .fc-name{font-family:var(--font-display);font-size:15px;font-weight:600;flex:1}
+  .fc-head{font-family:var(--font-data);font-size:13px}
+  .fc-head b{font-size:19px}
+  .fc-range{color:var(--muted-1);font-size:11.5px;margin-left:4px}
+  .fc-sub{font-size:11px;color:var(--muted-2);line-height:1.5;margin-bottom:6px}
+  .fc-curve{width:100%;height:auto;display:block;background:var(--paper);border:1px solid var(--line)}
+  .fc-odds{display:flex;gap:16px;flex-wrap:wrap;margin:7px 0 8px;font-size:11px;color:var(--muted-2)}
+  .fc-odd i{display:inline-block;width:9px;height:9px;margin-right:5px;vertical-align:-1px}
+  .fc-map{width:100%;height:auto;display:block;background:var(--paper);border:1px solid var(--line)}
+  .fc-map .fc-d{cursor:pointer;transition:filter var(--motion)}
+  .fc-map .fc-d:hover,.fc-map .fc-d:focus{filter:brightness(1.12);stroke:var(--ink);stroke-width:1.1;outline:none}
+  .fc-read{font-size:11px;color:var(--muted-1);min-height:2.6em;margin-top:6px;line-height:1.45}
   .legmap-card.zoom .legmap-zoomhint::after{content:" — click to shrink"}
   /* ---- midterm night: one county map per decided measure ---- */
   .mres-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:14px;margin-top:12px}
@@ -9719,6 +9736,181 @@ function legTipDrivers(sm, chamber){
   return `<br><span style="color:var(--muted-3)">${tag} ${sm.tipping} turns on ${d.map(o=>
     `<b>${o.name}</b> (${o.over>0?"+":""}${Math.round(o.over*100)} pts vs the state, ${Math.round(SIMULANTS[o.b].approval)}% for you)`).join(", ")}.</span>`;
 }
+/* ============================================================
+   SEAT FORECAST — the chamber as a poll rather than a result.
+
+   Two kinds of error, because that is what actually makes seat forecasts
+   uncertain. FC_NAT is a single correlated miss applied to every district in a
+   draw: the whole state breaking a couple of points differently from the
+   model, which is how real polling goes wrong and why seat totals swing far
+   more than any one seat's margin suggests. FC_SEAT is idiosyncratic — a
+   candidate, a scandal, a local fight — drawn independently per district.
+
+   Running both a few thousand times gives a distribution rather than a point
+   estimate: a median, a range, and a win probability for every seat.
+   ============================================================ */
+const FC_NAT=4.2, FC_SEAT=3.4, FC_DRAWS=3000;
+/* A forecast that re-rolls on every redraw is useless — you could not tell a
+   campaign push from Monte Carlo noise. The draws are seeded from the state
+   the forecast actually depends on, so the numbers hold still until something
+   really moves, and then change because it moved. */
+function _fcSeed(chamber){
+  let h=chamber==="senate"?9176:2411;
+  h=(h*31+(GAME.senateClass|0))|0;
+  h=(h*31+((GAME.legis&&GAME.legis.house)|0))|0;
+  h=(h*31+((GAME.legis&&GAME.legis.senate)|0))|0;
+  for(const b of LEG_BLOCS){ const S=SIMULANTS[b];
+    h=(h*31+Math.round((S?S.approval:50)*4))|0;
+    h=(h*31+Math.round((S?S.size:0)*400))|0; }
+  return (h>>>0)||1;
+}
+function _fcRng(seed){ let x=seed>>>0;
+  return ()=>{ x^=x<<13; x>>>=0; x^=x>>>17; x^=x<<5; x>>>=0; return x/4294967296; }; }
+function _fcGauss(rnd){ let u=0,v=0; while(!u)u=rnd(); while(!v)v=rnd();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+function seatForecast(chamber){
+  const rows=chamberSupport(chamber);
+  const total=chamber==="senate"?LEGIS.senate:LEGIS.house;
+  // the Senate only puts one class of 15 on the next ballot; the rest are held
+  const nextCls=GAME.senateClass?0:1;
+  const upSet=chamber==="senate"
+    ? new Set(OR_SENATE_DISTRICTS.map(r=>r[0]).filter(id=>(id%2)===(nextCls?0:1)))
+    : null;
+  // before the first legislative election there is no per-seat record yet, so
+  // derive one from the seat count — otherwise the half of the Senate that is
+  // not on the ballot reads as already lost
+  let sHeld=(GAME.legis&&Array.isArray(GAME.legis.sHeld))?GAME.legis.sHeld:null;
+  if(chamber==="senate"&&!sHeld)
+    sHeld=[...legisSeatMap(OR_SENATE_DISTRICTS,(GAME.legis&&GAME.legis.senate)||0).mine];
+  const heldOver=(chamber==="senate"&&sHeld)?sHeld.filter(id=>!upSet.has(id)):[];
+  const contested=rows.filter(r=>!upSet||upSet.has(r.id));
+  const rnd=_fcRng(_fcSeed(chamber));
+  const hist=new Array(total+1).fill(0);
+  const wins={}; contested.forEach(r=>wins[r.id]=0);
+  for(let d=0;d<FC_DRAWS;d++){
+    const nat=_fcGauss(rnd)*FC_NAT;
+    let c=heldOver.length;
+    for(const r of contested){
+      if(r.support+nat+_fcGauss(rnd)*FC_SEAT>50){ c++; wins[r.id]++; }
+    }
+    hist[Math.max(0,Math.min(total,c))]++;
+  }
+  // median and an 80% credible interval off the cumulative distribution
+  const q=f=>{ let acc=0; const want=FC_DRAWS*f;
+    for(let k=0;k<hist.length;k++){ acc+=hist[k]; if(acc>=want)return k; } return total; };
+  let mean=0; hist.forEach((c,k)=>mean+=c*k); mean/=FC_DRAWS;
+  const prob={}; for(const id in wins)prob[id]=wins[id]/FC_DRAWS;
+  heldOver.forEach(id=>prob[id]=1);            // already won, not on this ballot
+  const maj=chamber==="senate"?LEGIS.majS:LEGIS.majH;
+  const sup=chamber==="senate"?LEGIS.superS:LEGIS.superH;
+  let pMaj=0,pSup=0; hist.forEach((c,k)=>{ if(k>=maj)pMaj+=c; if(k>=sup)pSup+=c; });
+  return {chamber,total,hist,prob,heldOver,upSet,contested:contested.length,
+          median:q(0.5), lo:q(0.10), hi:q(0.90), mean,
+          maj, sup, pMaj:pMaj/FC_DRAWS, pSup:pSup/FC_DRAWS,
+          now:(chamber==="senate"?(GAME.legis&&GAME.legis.senate):(GAME.legis&&GAME.legis.house))||0};
+}
+/* The seat distribution as a curve: every outcome the model thinks is
+   plausible, with the 80% range shaded and the majority line marked. */
+function forecastCurveHTML(fc){
+  const W=520,H=132,PAD=26;
+  const peak=Math.max(...fc.hist)||1;
+  const x=k=>PAD+(k/fc.total)*(W-PAD*2);
+  const y=v=>H-18-(v/peak)*(H-38);
+  let area="",bars="";
+  for(let k=0;k<=fc.total;k++){
+    const inR=k>=fc.lo&&k<=fc.hi;
+    const hgt=(fc.hist[k]/peak)*(H-38);
+    if(hgt<0.4&&!inR)continue;
+    bars+=`<rect x="${(x(k)-((W-PAD*2)/fc.total)/2).toFixed(1)}" y="${y(fc.hist[k]).toFixed(1)}" width="${Math.max(1.4,((W-PAD*2)/fc.total)*0.86).toFixed(1)}" height="${Math.max(0.6,hgt).toFixed(1)}" fill="${inR?'var(--moss)':'var(--line-em)'}" opacity="${inR?0.92:0.5}"><title>${k} seats — ${(fc.hist[k]/FC_DRAWS*100).toFixed(1)}% of runs</title></rect>`;
+  }
+  const line=(k,col,lab,dash)=>`<line x1="${x(k).toFixed(1)}" y1="10" x2="${x(k).toFixed(1)}" y2="${H-18}" stroke="${col}" stroke-width="1.6"${dash?' stroke-dasharray="3 3"':''}/>`
+    +`<text x="${x(k).toFixed(1)}" y="7" text-anchor="middle" font-size="8" font-family="var(--font-data)" fill="${col}">${lab}</text>`;
+  return `<svg class="fc-curve" viewBox="0 0 ${W} ${H}" role="img" aria-label="Distribution of likely seat outcomes">
+    ${area}${bars}
+    ${line(fc.maj,'var(--gold)','majority '+fc.maj,true)}
+    ${line(fc.sup,'var(--slate-blue)','3/5 '+fc.sup,true)}
+    <line x1="${x(fc.median).toFixed(1)}" y1="10" x2="${x(fc.median).toFixed(1)}" y2="${H-18}" stroke="var(--ink)" stroke-width="2"/>
+    <line x1="${PAD}" y1="${H-18}" x2="${W-PAD}" y2="${H-18}" stroke="var(--line-em)" stroke-width="1"/>
+    <text x="${PAD}" y="${H-6}" font-size="8.5" font-family="var(--font-data)" fill="var(--muted-1)">0</text>
+    <text x="${W-PAD}" y="${H-6}" text-anchor="end" font-size="8.5" font-family="var(--font-data)" fill="var(--muted-1)">${fc.total}</text>
+    <text x="${x(fc.median).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="9" font-weight="700" font-family="var(--font-data)" fill="var(--ink)">${fc.median}</text>
+  </svg>`;
+}
+/* The same forecast as a map: every seat shaded by how likely you are to win
+   it, not by who holds it now. */
+function forecastMapHTML(fc){
+  const rows=fc.chamber==="senate"?OR_SENATE_DISTRICTS:OR_HOUSE_DISTRICTS;
+  const tag=fc.chamber==="senate"?"SD":"HD";
+  let paths="";
+  for(const [id,d,cx,cy,lean] of rows){
+    const pr=fc.prob[id];
+    const held=fc.upSet&&!fc.upSet.has(id);
+    const fill=pr==null?"var(--paper-2)"
+      :pr>=0.5?cmMix(Math.min(1,(pr-0.5)*2*0.9+0.25),"#e7e3d5","#2f5130")
+              :cmMix(Math.min(1,(0.5-pr)*2*0.9+0.25),"#e7e3d5","#93242a");
+    const word=pr==null?"—":held?"not on this ballot — you hold it":
+      pr>=0.95?"safe for you":pr>=0.8?"likely yours":pr>=0.6?"leaning yours":
+      pr>0.4?"a tossup":pr>0.2?"leaning against":pr>0.05?"likely lost":"safe against";
+    paths+=`<path class="fc-d" data-fcd="${id}" tabindex="0" d="${d}" fill="${fill}" fill-opacity="${held?0.4:1}" stroke="var(--paper)" stroke-width="0.35"><title>${tag} ${id} — ${Math.round(pr*100)}% to win · ${word}</title></path>`;
+  }
+  return `<svg class="fc-map" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Seat-by-seat win probability">${paths}</svg>`;
+}
+function forecastCardHTML(fc){
+  const nm=fc.chamber==="senate"?"Senate":"House";
+  const delta=fc.median-fc.now;
+  const pct=x=>Math.round(x*100)+"%";
+  return `<div class="fc-card">
+    <div class="fc-top">
+      <span class="fc-name">${nm}</span>
+      <span class="fc-head"><b>${fc.median}</b> seats <span class="fc-range">${fc.lo}–${fc.hi}</span></span>
+    </div>
+    <div class="fc-sub">You hold <b>${fc.now}</b> now — ${delta===0?"the model has you level":`the model has you ${delta>0?"up":"down"} <b style="color:${delta>0?'var(--good)':'var(--clay)'}">${delta>0?"+":""}${delta}</b>`}. ${fc.chamber==="senate"?`${fc.contested} seats are on the next ballot; ${fc.heldOver.length} you already hold are not.`:`All ${fc.total} seats are on the next ballot.`}</div>
+    ${forecastCurveHTML(fc)}
+    <div class="fc-odds">
+      <span class="fc-odd"><i style="background:var(--gold)"></i>Majority (${fc.maj}+) <b>${pct(fc.pMaj)}</b></span>
+      <span class="fc-odd"><i style="background:var(--slate-blue)"></i>Three-fifths (${fc.sup}+) <b>${pct(fc.pSup)}</b></span>
+    </div>
+    ${forecastMapHTML(fc)}
+    <div class="fc-read" data-fcread="${fc.chamber}">Hover a district for its odds</div>
+  </div>`;
+}
+/* Campaign HQ's third surface: the legislature as polling. */
+function legForecastHTML(){
+  const hf=seatForecast("house"), sf=seatForecast("senate");
+  window._FC={house:hf,senate:sf};
+  const st=legisStanding();
+  return `<div class="camp-sec" style="margin-top:6px">${ico('columns')} Where the chambers stand</div>
+    <div class="sectionsub" style="margin-top:0">A running estimate, not a result. Every district is scored on how the interest groups over-represented there feel about you right now, then the whole map is re-run ${FC_DRAWS.toLocaleString()} times with two kinds of polling error — one correlated miss applied to the entire state, plus an independent wobble in each seat. The bar is the median outcome and the shaded span is the middle 80%. Seats move when the groups that live in them move, so working a bloc in <b>Your re-election</b> shows up here.</div>
+    <div class="fc-standing"><b>${st.label}.</b> ${st.note}</div>
+    <div class="fc-grid">${forecastCardHTML(hf)}${forecastCardHTML(sf)}</div>
+    ${coalitionHTML("house", new Set(chamberSupport("house").filter(r=>r.support>50).map(r=>r.id)))}`;
+}
+/* hover readout on the forecast maps */
+function wireForecast(root){
+  root.querySelectorAll('[data-fcread]').forEach(rd=>{
+    const card=rd.closest('.fc-card'); if(!card)return;
+    const ch=rd.dataset.fcread, fc=(window._FC||{})[ch]; if(!fc)return;
+    const dflt=rd.textContent, tag=ch==="senate"?"SD":"HD";
+    const geo={}; (ch==="senate"?OR_SENATE_DISTRICTS:OR_HOUSE_DISTRICTS).forEach(r=>geo[r[0]]=r);
+    const comp={}; legCompRows(ch).forEach(r=>comp[r[0]]=r[1]);
+    const sfeel=stateFeel();
+    card.querySelectorAll('[data-fcd]').forEach(el=>{
+      const id=+el.dataset.fcd;
+      const show=()=>{
+        const pr=fc.prob[id], held=fc.upSet&&!fc.upSet.has(id);
+        const dr=districtDrivers(comp[id],sfeel,2);
+        rd.innerHTML=`<b>${tag} ${id}</b> — <b style="color:${pr>=0.5?'var(--good)':'var(--bad)'}">${Math.round(pr*100)}%</b> to win`
+          +(held?` · <i>not on this ballot, you hold it</i>`:``)
+          +(dr.length?` · turns on ${dr.map(o=>`${o.name} (+${Math.round(o.over*100)} pts here, ${Math.round(SIMULANTS[o.b].approval)}% for you)`).join(", ")}`:``);
+      };
+      el.addEventListener('mouseenter',show);
+      el.addEventListener('focus',show);
+      el.addEventListener('click',show);
+    });
+    const svg=card.querySelector('.fc-map');
+    if(svg)svg.addEventListener('mouseleave',()=>{ rd.textContent=dflt; });
+  });
+}
 /* Click / Enter on a legislative map card enlarges it to the full width of the
    section and back. */
 function wireLegMaps(root){
@@ -10786,13 +10978,15 @@ function campHQBodyHTML(){
   let h="";
   // ---- two campaigns run out of one office and one pool of energy: your own
   //      re-election, and any amendment you have put before the voters ----
-  const tab=(GAME.campTab==="ballot")?"ballot":"reelect";
+  const tab=(GAME.campTab==="ballot")?"ballot":(GAME.campTab==="legis")?"legis":"reelect";
   const nPend=(GAME.ballot&&GAME.ballot.pending?GAME.ballot.pending.length:0);
   h+=`<div class="camptabs">
     <button class="camptab ${tab==="reelect"?"on":""}" data-camptab="reelect">${ico('people')} Your re-election</button>
     <button class="camptab ${tab==="ballot"?"on":""}" data-camptab="ballot">${ico('ballot')} Ballot measures${nPend?`<span class="ct-badge">${nPend}</span>`:``}</button>
+    <button class="camptab ${tab==="legis"?"on":""}" data-camptab="legis">${ico('columns')} The legislature</button>
   </div>`;
   if(tab==="ballot")return h+ballotCampaignHTML();
+  if(tab==="legis")return h+legForecastHTML();
   // ---- platform this term: read-only. Pledges are committed right after you
   //      win (showPlatformModal), then tracked here through the term ----
   const nAp=(GAME.activePromises||[]).length;
@@ -10846,6 +11040,7 @@ function wireCampHQ(root){
   root.querySelectorAll('[data-camptab]').forEach(el=>el.addEventListener('click',()=>{
     GAME.campTab=el.dataset.camptab; campRedraw();
   }));
+  wireForecast(root);
   root.querySelectorAll('[data-measbloc]').forEach(el=>el.addEventListener('click',()=>campMeasureBloc(el.dataset.measbloc, el.dataset.sid)));
   root.querySelectorAll('[data-meastoggle]').forEach(el=>{
     const tog=()=>{ const m=pendingMeasure(el.dataset.meastoggle); if(!m)return; m._open=(m._open===false); campRedraw(); };
