@@ -9168,26 +9168,55 @@ function showTermLimitWarning(w, next){
 /* Fires roughly four quarters before a ballot that citizen initiatives have
    just qualified for — the same lead time the term-limit warning gives you,
    so you learn what's coming with time to decide whether to get involved. */
+/* What a measure would actually DO if it carried — spelled out, because the
+   whole point of the eve-of-ballot reminder is that a policy shouldn't change
+   under you and leave you wondering where it came from. */
+function measureConsequenceText(m){
+  const p=measureFor(m.id); if(!p)return "";
+  if(m.dir==="set"){
+    const from=(p.mechanic==="tier"&&p.tiers)?p.tiers[p.tierIndex]:policyRealLabel(p);
+    return `would move it from <b>${from}</b> to <b>${measureTargetLabel(m)}</b>`;
+  }
+  if(m.dir==="repeal")return `would strike it off the books entirely`;
+  return `would write it into law`;
+}
 function showBallotNotice(bn, next){
   const card=document.getElementById("ballotNoticeCard"), modal=document.getElementById("ballotNoticeModal");
-  const nb=bn.nb||nextBallotInfo(), n=bn.measures.length;
+  const nb=bn.nb||nextBallotInfo(), n=bn.measures.length, eve=(bn.kind==="eve");
   let rows="";
   for(const m of bn.measures){
     const poll=measureYesShare(m), pct=Math.round(poll*100);
+    const citizen=m.source==="citizen";
+    const tag=citizen?(m.stance?`you are ${m.stance==="support"?"backing":"opposing"} it`:`you have taken no side`)
+                     :`your own referral`;
     rows+=`<div class="rrow"><span class="rlabel">${ico(m.icon)} ${measureTitle(m)}</span>
       <span class="rval" style="color:${poll>=0.5?'var(--good)':'var(--bad)'}">${pct}% yes</span></div>
-      <div class="sectionsub" style="margin:-4px 0 10px;font-size:11px">${m.sponsor}</div>`;
+      <div class="sectionsub" style="margin:-4px 0 10px;font-size:11px">${
+        eve ? `${measureConsequenceText(m)} · <i>${tag}</i>` : (m.sponsor||"")
+      }</div>`;
   }
-  card.innerHTML=`<div class="sectionhdr">${ico('ballot')} Citizens Are Circulating Petitions</div>
-    <div class="sectionsub">${n} measure${n===1?'':'s'} — none of them yours — ${n===1?'has':'have'} qualified for <b>${nb.label}</b>${nb.quartersAway>0?`, ${nb.quartersAway} quarter${nb.quartersAway===1?'':'s'} away`:', this quarter'}. They cost you nothing to reach the ballot, and nothing if they pass — you didn't refer them. You can campaign for or against any of them from <b>Campaign HQ → Ballot Measures</b>, or leave every one of them to the voters.</div>
+  const hdr = eve
+    ? `${ico('ballot')} On the Ballot ${nb.quartersAway<=0?"This Quarter":"Next Quarter"}`
+    : `${ico('ballot')} Citizens Are Circulating Petitions`;
+  const blurb = eve
+    ? `${n} measure${n===1?'':'s'} ${n===1?'is':'are'} decided at <b>${nb.label}</b>${nb.quartersAway<=0?' this quarter':' next quarter'} — the last chance to move any of them is now. Anything that passes takes effect immediately, whether you campaigned on it or not.`
+    : `${n} measure${n===1?'':'s'} — none of them yours — ${n===1?'has':'have'} qualified for <b>${nb.label}</b>${nb.quartersAway>0?`, ${nb.quartersAway} quarter${nb.quartersAway===1?'':'s'} away`:', this quarter'}. They cost you nothing to reach the ballot, and nothing if they pass — you didn't refer them. You can campaign for or against any of them from <b>Campaign HQ → Ballot Measures</b>, or leave every one of them to the voters.`;
+  card.innerHTML=`<div class="sectionhdr">${hdr}</div>
+    <div class="sectionsub">${blurb}</div>
     <div class="rsection" style="margin-top:10px">${rows}</div>
-    <button class="enactbtn" id="bnOk">Understood ▸</button>`;
+    <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
+      <button class="enactbtn" id="bnGo">Open Campaign HQ</button>
+      <button class="enactbtn ghost" id="bnOk">Understood ▸</button>
+    </div>`;
   modal.classList.remove("hidden");
   const openedAt=Date.now();
   const armed=()=>Date.now()-openedAt>=400;
-  const done=()=>{ if(!armed())return; modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); if(next)next(); };
+  const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
+  const done=()=>{ if(!armed())return; close(); if(next)next(); };
   const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
   const ok=document.getElementById("bnOk"); if(ok)ok.onclick=done;
+  const go=document.getElementById("bnGo");
+  if(go)go.onclick=()=>{ close(); GAME.campTab="ballot"; currentView="camphq"; detailKey=null; render(); if(next)next(); };
   document.addEventListener("keydown",onKey,true);
 }
 /* Term-limited and the repeal was never passed: you are not on the ballot, but
@@ -9282,13 +9311,19 @@ function doEndTurn(){
   // ballot — generated once per cycle, entirely independent of you
   {
     const nb=nextBallotInfo();
-    if(nb.quartersAway>=1 && nb.quartersAway<=4){
-      const key=GAME.term+"|"+nb.kind;
-      if(GAME.ballot.citizenGenKey!==key){
-        GAME.ballot.citizenGenKey=key;
-        const created=refreshCitizenBallot();
-        if(created.length)GAME.pendingBallotNotice={measures:created, nb};
-      }
+    const key=GAME.term+"|"+nb.kind;
+    if(nb.quartersAway>=1 && nb.quartersAway<=4 && GAME.ballot.citizenGenKey!==key){
+      GAME.ballot.citizenGenKey=key;
+      const created=refreshCitizenBallot();
+      if(created.length)GAME.pendingBallotNotice={measures:created, nb, kind:"qualified"};
+    }
+    // ...and one quarter out, a last look at EVERYTHING that is about to be
+    // decided — yours and theirs — so nothing changes without you having seen
+    // the question first. Fires once per ballot.
+    else if(nb.quartersAway<=1 && GAME.ballot.eveNoticeKey!==key){
+      GAME.ballot.eveNoticeKey=key;
+      const pend=(GAME.ballot.pending||[]).slice();
+      if(pend.length)GAME.pendingBallotNotice={measures:pend, nb, kind:"eve"};
     }
   }
   if(GAME.log.length>8)GAME.log=GAME.log.slice(-8);
