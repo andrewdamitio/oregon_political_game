@@ -603,6 +603,13 @@
   .ks-ico{font-size:22px;line-height:1}
   .ks-label{font-size:10.5px;color:var(--muted-1);text-transform:uppercase;letter-spacing:.05em;font-weight:700}
   .ks-val{font-family:var(--font-data);font-size:16px;font-weight:600;color:var(--ink);margin-top:1px}
+  /* crisis progress: are your levers actually reaching the clearing line? */
+  .sitprog{border:var(--rule) solid var(--ink);border-left-width:6px;background:var(--paper);padding:11px 14px;margin-bottom:14px}
+  .sitprog.good{border-left-color:var(--moss);background:var(--tint-good)}
+  .sitprog.warn{border-left-color:var(--gold);background:var(--tint-warn)}
+  .sitprog.bad{border-left-color:var(--clay);background:var(--tint-bad)}
+  .sitprog-v{font-size:12.5px;line-height:1.5;color:var(--ink)}
+  .sitprog .chartbox{background:var(--paper);margin-bottom:0}
   .chartbox{background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px}
   .charttitle{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted-2);margin-bottom:6px}
   .spark{width:100%;height:auto;display:block}
@@ -10132,6 +10139,17 @@ function sparkline(series, opts={}){
         <text x="${mx}" y="${pad-7}" text-anchor="middle" class="sparkmark">${mk.label}</text>`;
     }
   }
+  // horizontal threshold lines — the level a crisis clears at, the level it
+  // triggered at — so the target is visible on the chart, not just described
+  let hl="";
+  if(opts.hlines&&opts.hlines.length){
+    for(const L of opts.hlines){
+      if(L.value<lo||L.value>hi)continue;
+      const hy=y(L.value).toFixed(1), c=L.color||"var(--muted-3)";
+      hl+=`<line x1="${pad}" y1="${hy}" x2="${w-pad}" y2="${hy}" stroke="${c}" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.9"/>
+        <text x="${w-pad-2}" y="${(+hy-4).toFixed(1)}" text-anchor="end" class="sparkmark" fill="${c}">${L.label}</text>`;
+    }
+  }
   // x-axis quarter labels (start, middle, end)
   let axis="";
   if(opts.axis){
@@ -10144,6 +10162,7 @@ function sparkline(series, opts={}){
   return `<svg viewBox="0 0 ${w} ${ht}" class="spark" preserveAspectRatio="none">
     <defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" style="stop-color:${col};stop-opacity:0.22"/><stop offset="100%" style="stop-color:${col};stop-opacity:0"/></linearGradient></defs>
     <polygon points="${area}" fill="url(#${gradId})"/>
+    ${hl}
     ${marks}
     <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="2.5"/>
     <circle cx="${x(series.length-1)}" cy="${y(last)}" r="3.5" fill="${col}"/>
@@ -10151,6 +10170,73 @@ function sparkline(series, opts={}){
     <text x="${w-pad}" y="14" text-anchor="end" class="sparklbl" fill="${col}">${opts.fmt?opts.fmt(last):last.toFixed(1)}</text>
     ${axis}
   </svg>`;
+}
+/* ---- ARE YOU WINNING? ----
+   A crisis states its clear threshold in words, but words don't tell you
+   whether the thing you did last quarter is working. This charts the watched
+   statistic against the level that actually ends the crisis, reads the recent
+   trend, and says plainly whether you are on pace, stalled, or going backwards. */
+function situationProgressHTML(sid){
+  const s=SITUATIONS[sid]; if(!s||!s.watch)return "";
+  const w=s.watch, isInd=!!w.indicator;
+  const key=isInd?("i_"+w.indicator):(w.metric==="balance"?"balance":("m_"+w.metric));
+  const series=(GAME.history&&GAME.history[key])||[];
+  const wm=isInd?INDICATORS[w.indicator]:(w.metric==="balance"?null:METRICS[w.metric]);
+  const nm=wm?wm.name:(w.metric==="balance"?"Quarterly balance":(w.metric||w.indicator));
+  const isBal=(!isInd&&w.metric==="balance");
+  const cur=isBal?(GAME.lastBalance||0):(wm?wm.value:0);
+  const fmt=v=>isBal?("$"+v.toFixed(2)+"B"):((wm&&wm.fmt==="pctRaw")?v.toFixed(1)+"%":Math.round(v).toString());
+
+  // trend over the last few quarters of actual history
+  const look=series.slice(-7);
+  const slope=look.length>=2?(look[look.length-1].value-look[0].value)/(look.length-1):0;
+  const need=w.clearAt-cur;                    // signed distance still to travel
+  const toward=w.badHigh?(slope<-0.01):(slope>0.01);
+  const away=w.badHigh?(slope>0.01):(slope<-0.01);
+  const cleared=w.badHigh?(cur<=w.clearAt):(cur>=w.clearAt);
+  const eta=(toward&&Math.abs(slope)>0.02)?Math.ceil(Math.abs(need/slope)):null;
+
+  // A bright spot works the other way round: clearAt is the level at which you
+  // LOSE it, so "moving toward the line" is bad news, not progress.
+  const sGood=s.kind==="good";
+  let verdict,vcls;
+  if(sGood){
+    if(cleared){ verdict=`<b>Slipping away.</b> ${nm} has crossed ${fmt(w.clearAt)} — this is about to lapse.`; vcls="bad"; }
+    else if(toward&&eta!==null&&eta<=16){ verdict=`<b>At risk.</b> ${nm} is sliding ${fmt(Math.abs(slope))} a quarter toward the ${fmt(w.clearAt)} that ends this — roughly <b>${eta} quarter${eta===1?'':'s'}</b> of margin left.`; vcls="bad"; }
+    else if(toward){ verdict=`Drifting the wrong way, slowly. ${nm} is easing toward the ${fmt(w.clearAt)} that would end this, but there is room yet.`; vcls="warn"; }
+    else if(away){ verdict=`Holding and strengthening — ${nm} is moving ${fmt(Math.abs(slope))} a quarter further from the ${fmt(w.clearAt)} that would cost you this.`; vcls="good"; }
+    else { verdict=`Holding steady at ${fmt(cur)}. You would have to let ${nm} reach ${fmt(w.clearAt)} to lose this.`; vcls="good"; }
+  }
+  else if(cleared){ verdict=`${nm} is already past the clearing line — this should lift within a quarter or two.`; vcls="good"; }
+  else if(toward&&eta!==null&&eta<=16){ verdict=`Moving the right way — ${fmt(Math.abs(slope))} a quarter. At this rate ${nm} reaches ${fmt(w.clearAt)} in about <b>${eta} quarter${eta===1?'':'s'}</b>.`; vcls="good"; }
+  else if(toward){ verdict=`Moving the right way, but barely — at ${fmt(Math.abs(slope))} a quarter this takes longer than your term. It needs a bigger lever.`; vcls="warn"; }
+  else if(away){ verdict=`<b>Going the wrong way.</b> ${nm} is moving ${fmt(Math.abs(slope))} a quarter further from the ${fmt(w.clearAt)} it has to reach. Whatever you are doing is not touching this.`; vcls="bad"; }
+  else { verdict=`<b>Stalled.</b> ${nm} is flat at ${fmt(cur)} and needs to reach ${fmt(w.clearAt)}. Nothing currently in force is moving it.`; vcls="bad"; }
+
+  const hlines=[{value:w.clearAt,label:sGood?"lost here":"clears here",color:sGood?"var(--clay)":"var(--moss)"}];
+  if(w.startAt!==null&&w.startAt!==undefined)hlines.push({value:w.startAt,label:"triggered here",color:"var(--clay)"});
+  const pad=Math.max(2,Math.abs(w.clearAt-cur)*0.25);
+  const chart=sparkline(series.slice(-24),{
+    color:vcls==="good"?"var(--moss)":"var(--clay)", axis:true, hlines,
+    min:Math.min(w.clearAt,cur)-pad, max:Math.max(w.clearAt,cur)+pad, fmt
+  });
+  let also="";
+  if(w.alsoMetric){
+    const am=METRICS[w.alsoMetric];
+    if(am){
+      const ok=am.value<=w.alsoClearAt;
+      also=`<div class="threshline" style="margin-top:6px">Second condition: <b>${am.name}</b> must also be below ${w.alsoClearAt} — currently ${Math.round(am.value)}. <span style="color:${ok?'var(--good)':'var(--bad)'}">${ok?'met':'not met'}</span>.</div>`;
+    }
+  }
+  return `<div class="ebgroup-label">${sGood?"Are you keeping it?":"Are you ending it?"}</div>
+    <div class="sitprog ${vcls}">
+      <div class="sitprog-v">${verdict}</div>
+      ${also}
+      <div class="chartbox" style="margin:10px 0 0">
+        <div class="charttitle">${nm} vs the level that ${sGood?"would cost you this":"clears this"} — last ${Math.min(24,series.length)} quarters</div>
+        ${chart}
+      </div>
+    </div>`;
 }
 /* policy-pass markers for a metric chart: when did enacted policies that
    affect metric k get enacted? reads GAME.enactedAt + current effects. */
@@ -11463,6 +11549,8 @@ function renderDetail(){
       if(s.watch.alsoMetric){const am=METRICS[s.watch.alsoMetric];thr+=` AND ${am.name} below ${s.watch.alsoClearAt}`;}
       thr+=`. Currently ${nm}: ${curTxt}.`;
       h+=`<div class="ebgroup-label">Trigger thresholds</div><div class="ebgroup"><div class="threshline">${thr}</div></div>`;
+      // ...and whether you are actually getting there
+      h+=situationProgressHTML(sid);
       // ---- what's improving or worsening the crisis ----
       if(isInd){
         // contributors to an indicator: policies/agencies with indicatorEffects on it
