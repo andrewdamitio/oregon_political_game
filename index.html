@@ -967,11 +967,18 @@
 
   .meascard{border:var(--rule) solid var(--ink);background:var(--paper-2);
     box-shadow:4px 4px 0 var(--shadow-hard);padding:13px 15px;margin-top:13px}
+  /* a citizen initiative reads as somebody else's business landing on your desk */
+  .meascard.citizen{border-left:6px solid var(--slate-blue)}
   .meas-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
   .meas-name{font-family:var(--font-display);font-size:15px;font-weight:600}
   .meas-when{font-family:var(--font-data);font-size:9.5px;text-transform:uppercase;
     letter-spacing:.06em;color:var(--muted-1);border:1px solid var(--line);padding:1px 6px;white-space:nowrap}
+  .meas-sponsor{font-size:11px;font-style:italic;color:var(--slate-blue);margin-top:3px}
   .meas-sub{font-size:11.5px;color:var(--muted-3);margin:5px 0 10px;line-height:1.45}
+  .meas-engage{border:1px solid var(--line);background:var(--paper);padding:10px 12px;margin-top:12px}
+  .meas-stance{font-size:11.5px;margin-top:10px;padding:6px 10px;border:1px solid var(--line);background:var(--paper)}
+  .meas-stance.support{border-left:4px solid var(--moss)}
+  .meas-stance.oppose{border-left:4px solid var(--clay)}
   /* the poll: a yes bar against a hard 50% line — the only number that matters */
   .pollbar{position:relative;height:16px;background:var(--paper);border:var(--rule) solid var(--ink);overflow:hidden}
   .pollbar .poll-yes{display:block;height:100%;background:var(--moss);
@@ -1465,6 +1472,7 @@
 <div id="reserveModal" class="modal hidden"><div class="card" id="reserveCard" style="max-width:470px"></div></div>
 <div id="newGameModal" class="modal hidden" style="z-index:70"><div class="card" id="newGameCard" style="max-width:420px"></div></div>
 <div id="termLimitModal" class="modal hidden" style="z-index:65"><div class="card" id="termLimitCard" style="max-width:460px"></div></div>
+<div id="ballotNoticeModal" class="modal hidden" style="z-index:65"><div class="card" id="ballotNoticeCard" style="max-width:540px"></div></div>
 <div id="welcomeModal" class="modal hidden"><div class="card" id="welcomeCard"></div></div>
 <div id="platformModal" class="modal hidden"><div class="camp-popup-card" id="platformCard"></div></div>
 <div id="resumeModal" class="modal hidden"><div class="card" style="max-width:380px;text-align:center">
@@ -8911,7 +8919,10 @@ function showElection(r){
     <div class="eg-result ${won?'win':'lose'}">${bigWord}</div>
     <div class="wm-rule"></div>
     <div class="eg-sub" style="font-size:18px">${flavour} — <b>${(r.share*100).toFixed(1)}%</b> to <b>${(oppTotal*100).toFixed(1)}%</b></div>
-    ${succ?`<div class="eg-sub" style="font-size:12px;color:var(--muted-2)">You are term-limited and not on the ballot. The vote is a referendum on the record you leave behind.</div>`:``}
+    ${succ?(r.flippedByMeasure
+      ? `<div class="eg-sub" style="font-size:12px;color:var(--muted-2)">A measure on this same ballot just reinstated Oregon's two-term limit — you were running for a third term, but the seat turns out not to have been yours to seek. Tonight counts as your successor's election.</div>`
+      : `<div class="eg-sub" style="font-size:12px;color:var(--muted-2)">You are term-limited and not on the ballot. The vote is a referendum on the record you leave behind.</div>`
+    ):``}
     <div class="eg-bar" role="img" aria-label="Statewide vote shares">
       <i data-w="${(r.share*100).toFixed(1)}" data-t="${who} — ${(r.share*100).toFixed(1)}%" title="${who} — ${(r.share*100).toFixed(1)}%" style="width:0;background:var(--moss)"></i>
       <i data-w="${((r.thirdShareL||0)*100).toFixed(1)}" data-t="Left splinter — ${((r.thirdShareL||0)*100).toFixed(1)}%" title="Left splinter — ${((r.thirdShareL||0)*100).toFixed(1)}%" style="width:0;background:var(--slate-blue)"></i>
@@ -9122,6 +9133,31 @@ function showTermLimitWarning(w, next){
   if(rf)rf.onclick=()=>{ close(); GAME.openPolSections=GAME.openPolSections||{}; GAME.openPolSections.__reforms=true; currentView="policies"; detailKey=null; render(); if(next)next(); };
   document.addEventListener("keydown",onKey,true);
 }
+/* Fires roughly four quarters before a ballot that citizen initiatives have
+   just qualified for — the same lead time the term-limit warning gives you,
+   so you learn what's coming with time to decide whether to get involved. */
+function showBallotNotice(bn, next){
+  const card=document.getElementById("ballotNoticeCard"), modal=document.getElementById("ballotNoticeModal");
+  const nb=bn.nb||nextBallotInfo(), n=bn.measures.length;
+  let rows="";
+  for(const m of bn.measures){
+    const poll=measureYesShare(m), pct=Math.round(poll*100);
+    rows+=`<div class="rrow"><span class="rlabel">${ico(m.icon)} ${m.dir==="repeal"?"Repeal — ":""}${m.name}</span>
+      <span class="rval" style="color:${poll>=0.5?'var(--good)':'var(--bad)'}">${pct}% yes</span></div>
+      <div class="sectionsub" style="margin:-4px 0 10px;font-size:11px">${m.sponsor}</div>`;
+  }
+  card.innerHTML=`<div class="sectionhdr">${ico('ballot')} Citizens Are Circulating Petitions</div>
+    <div class="sectionsub">${n} measure${n===1?'':'s'} — none of them yours — ${n===1?'has':'have'} qualified for <b>${nb.label}</b>${nb.quartersAway>0?`, ${nb.quartersAway} quarter${nb.quartersAway===1?'':'s'} away`:', this quarter'}. They cost you nothing to reach the ballot, and nothing if they pass — you didn't refer them. You can campaign for or against any of them from <b>Campaign HQ → Ballot Measures</b>, or leave every one of them to the voters.</div>
+    <div class="rsection" style="margin-top:10px">${rows}</div>
+    <button class="enactbtn" id="bnOk">Understood ▸</button>`;
+  modal.classList.remove("hidden");
+  const openedAt=Date.now();
+  const armed=()=>Date.now()-openedAt>=400;
+  const done=()=>{ if(!armed())return; modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); if(next)next(); };
+  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
+  const ok=document.getElementById("bnOk"); if(ok)ok.onclick=done;
+  document.addEventListener("keydown",onKey,true);
+}
 /* Term-limited and the repeal was never passed: you are not on the ballot, but
    the seat is still contested. Run the same campaign + election ticks, then show
    the result as your SUCCESSOR's race — a referendum on the record you leave —
@@ -9136,7 +9172,10 @@ function doTermLimitEnd(){
   GAME.turn++; pushHistory();   // election day
   if(GAME.log.length>8)GAME.log=GAME.log.slice(-8);
   GAME.campaignDone=false;
-  const r=runElection(); r.successor=true;
+  // anything on the ballot this term — your own referrals, citizen initiatives
+  // — is decided the same night as the succession vote, same as a normal election
+  const measures=resolveBallot("election");
+  const r=runElection(); r.successor=true; r.measures=measures;
   GAME.log.push(ico('medal')+" Left office — term-limited after "+Math.round(GAME.turn/4)+" years");
   render();
   showElection(r);
@@ -9204,10 +9243,25 @@ function doEndTurn(){
     const qLeft=(GAME.termLengthTurns-1)-into;   // quarters until the campaign/election quarter
     if(qLeft>0 && qLeft<=4){ GAME.termLimitWarnedTerm=GAME.term; GAME.pendingTermLimitWarn={qLeft}; }
   }
+  // roughly four quarters out, citizens put their own measures on the coming
+  // ballot — generated once per cycle, entirely independent of you
+  {
+    const nb=nextBallotInfo();
+    if(nb.quartersAway>=1 && nb.quartersAway<=4){
+      const key=GAME.term+"|"+nb.kind;
+      if(GAME.ballot.citizenGenKey!==key){
+        GAME.ballot.citizenGenKey=key;
+        const created=refreshCitizenBallot();
+        if(created.length)GAME.pendingBallotNotice={measures:created, nb};
+      }
+    }
+  }
   if(GAME.log.length>8)GAME.log=GAME.log.slice(-8);
   render();
   const afterReport=()=>{
-    if(GAME.pendingTermLimitWarn){ const w=GAME.pendingTermLimitWarn; GAME.pendingTermLimitWarn=null; showTermLimitWarning(w); }
+    const showTL=()=>{ if(GAME.pendingTermLimitWarn){ const w=GAME.pendingTermLimitWarn; GAME.pendingTermLimitWarn=null; showTermLimitWarning(w); } };
+    if(GAME.pendingBallotNotice){ const bn=GAME.pendingBallotNotice; GAME.pendingBallotNotice=null; showBallotNotice(bn, showTL); }
+    else showTL();
   };
   const afterSurplus=()=>{
     if(GAME.pendingMidterm){ const mt=GAME.pendingMidterm; GAME.pendingMidterm=null; showMidterm(mt); afterReport(); }
@@ -9233,7 +9287,17 @@ function doElectionTurn(){
   // amendments you referred share the ballot with your own name — decided on
   // the same night, before the result screen is built so it can show both
   const measures=resolveBallot("election");
+  // You could only be running because the two-term limit was not in force —
+  // that's the ONLY way this function is reached instead of doTermLimitEnd().
+  // But a measure on this SAME ballot may have just reinstated it. The vote
+  // above already ran as a straight incumbent-vs-challenger race; what changes
+  // is whose race it turns out to have been.
+  const flippedByMeasure=termLimited();
   const res=runElection(); res.measures=measures;
+  if(flippedByMeasure){
+    res.successor=true; res.flippedByMeasure=true;
+    GAME.log.push(ico('medal')+" A measure on tonight's ballot reinstated the two-term limit — this race counts as your successor's");
+  }
   render(); showElection(res);
 }
 /* ============================================================
@@ -9263,7 +9327,7 @@ function measureResultsHTML(list,heading){
   let h=`<div class="rsection"><div class="rsec-h">${ico("ballot")} ${heading||"On the same ballot"}</div>`;
   for(const r of list)
     h+=`<div class="measres ${r.passed?"pass":"fail"}">
-      <span>${ico(r.icon)} ${r.dir==="repeal"?"Repeal — ":""}${r.name}</span>
+      <span>${ico(r.icon)} ${r.source==="citizen"?"Citizen — ":""}${r.dir==="repeal"?"Repeal — ":""}${r.name}</span>
       <span class="mr-verdict">${r.passed?"Passed":"Failed"}</span>
       <span class="mr-share">${Math.round(r.share*100)}% yes</span></div>`;
   return h+`</div>`;
@@ -9353,14 +9417,17 @@ function measureBreakdown(m){
   // ONE diminishing curve across ALL targeted spend — groups and counties
   // together — then split by where it was aimed. Otherwise splitting a push
   // between the two surfaces would dodge diminishing returns entirely.
+  // pulls are SIGNED — a citizen measure can be pushed toward yes (support) or
+  // no (oppose) — so the diminishing curve has to run on magnitude while the
+  // sign carries through to what actually gets applied to the vote.
   const bp=m.blocPull||{}, cp=m.countyPull||{}, ix=orCountyIndex();
   let tgtTot=0;
-  for(const sid in bp)tgtTot+=Math.max(0,bp[sid]);
-  for(const nm in cp)tgtTot+=Math.max(0,cp[nm]);
+  for(const sid in bp)tgtTot+=Math.abs(bp[sid]);
+  for(const nm in cp)tgtTot+=Math.abs(cp[nm]);
   const k=tgtTot>0?BALLOT_TARGET_PULL*Math.sqrt(tgtTot)/tgtTot:0;
-  const bPull={}; for(const sid in bp)bPull[sid]=Math.max(0,bp[sid])*k;
+  const bPull={}; for(const sid in bp)bPull[sid]=bp[sid]*k;
   const cPull=[]; let cAny=false;
-  for(const nm in cp){ const ci=ix[nm]; if(ci!=null){ cPull[ci]=Math.max(0,cp[nm])*k*BALLOT_COUNTY_MULT; cAny=true; } }
+  for(const nm in cp){ const ci=ix[nm]; if(ci!=null){ cPull[ci]=cp[nm]*k*BALLOT_COUNTY_MULT; cAny=true; } }
   const blocs={}; for(const sid in SIMULANTS)blocs[sid]={y:0,w:0};
   const counties=OR_COUNTIES.map(()=>({y:0,w:0}));
   let yes=0,tot=0;
@@ -9396,6 +9463,14 @@ function measureBlocValue(bd,sid){
   return near*reach;
 }
 function measureValueWord(v){ return v>=0.95?"prime target":v>=0.72?"contestable":v>=0.45?"uphill":"low yield"; }
+/* A measure YOU referred is always being campaigned for — you would not have
+   spent the capital otherwise. A citizen initiative is not automatically
+   yours: it needs a stance (support/oppose) before a push means anything, and
+   that stance sets the SIGN a push is banked with. */
+function measureStanceSign(m){
+  if(m.source!=="citizen")return 1;
+  return m.stance==="oppose"?-1:m.stance==="support"?1:0;
+}
 
 /* Ballot night. Every pending measure is decided; the ones that pass take
    effect immediately, the ones that fail are simply gone — the capital that
@@ -9405,36 +9480,156 @@ function resolveBallot(kind){
   if(!pend.length)return [];
   const results=[];
   for(const m of pend){
+    const citizen=m.source==="citizen";
     const poll=measureYesShare(m);
     const share=clamp(poll+(Math.random()-0.5)*0.055,0.01,0.99);
     const passed=share>0.5;
     if(passed){
-      if(m.dir==="enact")_applyEnact(m.id); else _applyRepeal(m.id,{voted:true});
+      if(m.dir==="enact")_applyEnact(m.id);
+      else {
+        // a citizen repeal you campaigned FOR is yours to answer for like any
+        // other; one you sat out or fought is barely your doing at all
+        const blame=citizen?(m.stance==="support"?0.45:0.12):0.45;
+        _applyRepeal(m.id,{voted:true,blame});
+      }
     }
     const r={id:m.id,dir:m.dir,name:m.name,icon:m.icon,share,passed,
-             energy:m.energy||0,turn:GAME.turn,kind:kind||m.kind};
+             energy:m.energy||0,turn:GAME.turn,kind:kind||m.kind,
+             source:m.source||"referred",sponsor:m.sponsor||null,stance:m.stance||null};
     results.push(r);
     GAME.ballot.history.push(r);
     GAME.log.push((passed?ico('ballot')+" Measure PASSED — ":ico('ban')+" Measure failed — ")
-      +(m.dir==="repeal"?"repeal of ":"")+m.name+" ("+Math.round(share*100)+"% yes)");
-    // the voters ruling on your amendment is a mandate event either way
-    createGrudge("capital", passed?2:-2);
+      +(citizen?"citizen initiative — ":"")+(m.dir==="repeal"?"repeal of ":"")+m.name+" ("+Math.round(share*100)+"% yes)");
+    // an amendment YOU referred is a mandate event either way. A citizen
+    // initiative only touches your standing if you actually took a side on it
+    // — campaign for it and win, or against it and lose, and it's on you.
+    if(!citizen) createGrudge("capital", passed?2:-2);
+    else if(m.stance==="support") createGrudge("capital", passed?1.2:-1.2);
+    else if(m.stance==="oppose") createGrudge("capital", passed?-1.2:1.2);
   }
   GAME.ballot.pending=[];
   return results;
 }
+/* ============================================================
+   CITIZEN INITIATIVES — 3-4 ordinary (non-constitutional) measures put on
+   the SAME ballot by third-party sponsors, entirely independent of you. They
+   cost you no capital either way — you did not refer them — and you can
+   ignore them completely, or spend energy to campaign for or against one
+   from Campaign HQ. If you enact or repeal the same policy yourself first,
+   the initiative is moot: there is no question left for the voters to
+   settle, so it drops off the ballot.
+   ============================================================ */
+function citizenCandidatePool(){
+  const out=[];
+  for(const id in CATALOG){
+    const p=CATALOG[id];
+    if(p.reform||!p.blocEffect||pendingMeasure(id))continue;
+    out.push({id,dir:"enact"});
+  }
+  for(const id in POLICIES){
+    const p=POLICIES[id];
+    if(p.reform||p.noRepeal||!p.blocEffect||pendingMeasure(id))continue;
+    out.push({id,dir:"repeal"});
+  }
+  return out;
+}
+/* Weight a candidate as a citizen-sponsor target: a genuinely polarizing
+   policy makes a real fight; a bloc already organized AGAINST you
+   (GAME.activists) is a natural sponsor of anything that reads as a win for
+   them; the rest is random, since real petition drives don't wait for a
+   perfect opening. */
+function citizenSponsorWeight(cand){
+  const p=measureFor(cand.id); if(!p||!p.blocEffect)return 0;
+  const flip=cand.dir==="repeal"?-1:1;
+  let polar=0; for(const k in p.blocEffect)polar+=Math.abs(p.blocEffect[k]);
+  let align=0;
+  for(const aid in (GAME.activists||{})){
+    const a=GAME.activists[aid];
+    const groups=[a.ownGroup].concat(a.alliedGroups||[]);
+    let s=0; for(const g of groups) if(p.blocEffect[g]!==undefined)s+=p.blocEffect[g];
+    s*=flip;
+    align+=(a.dir==="against"?s:-s);
+  }
+  return Math.max(0.1, polar*0.35 + Math.max(0,align)*3 + Math.random()*2.2);
+}
+/* Who's behind it, named the way the rest of the ballot UI already names
+   blocs — no invented organizations, just the groups the measure actually
+   helps, and a rough left/right read of the policy itself. */
+function citizenSponsorText(id,dir){
+  const p=measureFor(id); if(!p)return "A citizen coalition";
+  const flip=dir==="repeal"?-1:1;
+  const be=p.blocEffect||{};
+  const top=Object.keys(be).map(k=>[k,be[k]*flip]).filter(([,v])=>v>0)
+    .sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k])=>SIMULANTS[k]?SIMULANTS[k].name:k);
+  const ideo=policyIdeology(p);
+  const tilt=((ideo.economic||0)+(ideo.govSize||0)*0.5)*flip;
+  const wing=tilt>0.08?"A conservative-aligned":tilt<-0.08?"A progressive-aligned":"A nonpartisan";
+  return top.length?`${wing} coalition led by ${top.join(" and ")}`:`${wing} citizen coalition`;
+}
+/* Pick 3-4 measures for the coming ballot: shortlist by sponsor weight, with
+   at least one likely to pass and one that is not, where the pool allows —
+   "some ... high and some ... low chance of success". */
+function generateCitizenMeasures(){
+  const pool=citizenCandidatePool(); if(!pool.length)return [];
+  const scored=pool.map(c=>({...c,w:citizenSponsorWeight(c)})).sort((a,b)=>b.w-a.w);
+  const short=scored.slice(0,12);
+  for(const c of short)c.poll=measureYesShare({id:c.id,dir:c.dir,energy:0});
+  const count=Math.min(short.length, 3+Math.floor(Math.random()*2));
+  const chosen=[];
+  const likely=short.filter(c=>c.poll>=0.55);
+  const unlikely=short.filter(c=>c.poll<=0.45);
+  if(likely.length)chosen.push(likely[Math.floor(Math.random()*likely.length)]);
+  if(unlikely.length){
+    const pick=unlikely[Math.floor(Math.random()*unlikely.length)];
+    if(!chosen.some(c=>c.id===pick.id))chosen.push(pick);
+  }
+  const remaining=short.filter(c=>!chosen.some(x=>x.id===c.id));
+  while(chosen.length<count && remaining.length){
+    const i=Math.floor(Math.random()*remaining.length);
+    chosen.push(remaining.splice(i,1)[0]);
+  }
+  return chosen;
+}
+/* Put this cycle's citizen initiatives on the ballot. */
+function refreshCitizenBallot(){
+  const list=generateCitizenMeasures(), created=[];
+  const nb=nextBallotInfo();
+  for(const c of list){
+    const p=measureFor(c.id); if(!p)continue;
+    const entry={id:c.id, dir:c.dir, name:p.name, icon:p.icon||"ballot",
+      referredTurn:GAME.turn, kind:nb.kind, energy:0,
+      source:"citizen", sponsor:citizenSponsorText(c.id,c.dir), stance:null};
+    GAME.ballot.pending.push(entry);
+    created.push(entry);
+  }
+  return created;
+}
+/* If you act on a policy yourself, any citizen initiative already circulating
+   on that same policy becomes moot — the question the petitioners were
+   funding no longer has anything left to ask. Never touches a measure YOU
+   referred: a constitutional reform can only ever reach POLICIES/CATALOG
+   through the ballot in the first place, so this never collides with your
+   own referrals. */
+function mootCitizenMeasure(id,verbedByPlayer){
+  const m=pendingMeasure(id);
+  if(!m||m.source!=="citizen")return;
+  GAME.ballot.pending=GAME.ballot.pending.filter(x=>x!==m);
+  GAME.log.push(ico('ballot')+" The "+m.name+" initiative is withdrawn — you "+verbedByPlayer+" it yourself first.");
+}
 /* Aim a quarter's energy at one group rather than at everyone. */
 function campMeasureBloc(id,sid){
   const m=pendingMeasure(id); if(!m||!SIMULANTS[sid])return;
+  const sign=measureStanceSign(m);
+  if(sign===0){ GAME.log.push("✗ Choose a side on "+m.name+" before campaigning on it"); campRedraw(); return; }
   if(GAME.campEnergy<1){ GAME.log.push("✗ Not enough campaign energy to work the measure"); campRedraw(); return; }
   // bank the push at the value this group carries RIGHT NOW — a group in
   // striking distance converts; one already lost or already won barely moves
-  const val=measureBlocValue(measureBreakdown(m),sid);
+  const val=measureBlocValue(measureBreakdown(m),sid)*sign;
   GAME.campEnergy-=1;
   m.blocEnergy=m.blocEnergy||{};  m.blocPull=m.blocPull||{};
   m.blocEnergy[sid]=(m.blocEnergy[sid]||0)+1;
   m.blocPull[sid]=(m.blocPull[sid]||0)+val;
-  const msg="✓ Worked "+SIMULANTS[sid].name+" on "+m.name+" ("+measureValueWord(val)+", −1 energy)";
+  const msg="✓ Worked "+SIMULANTS[sid].name+" "+(sign>0?"for":"against")+" "+m.name+" ("+measureValueWord(Math.abs(val))+", −1 energy)";
   GAME.campLog.unshift({turn:GAME.turn, kind:"measure", name:m.name, ok:true, msg});
   if(GAME.campLog.length>12)GAME.campLog.pop();
   GAME.log.push(msg);
@@ -9524,13 +9719,15 @@ function measureCountyValue(bd,ci){
 function campMeasureCounty(id,name){
   const m=pendingMeasure(id); if(!m)return;
   const ix=orCountyIndex(), ci=ix[name]; if(ci==null)return;
+  const sign=measureStanceSign(m);
+  if(sign===0){ GAME.log.push("✗ Choose a side on "+m.name+" before campaigning on it"); campRedraw(); return; }
   if(GAME.campEnergy<1){ GAME.log.push("✗ Not enough campaign energy to work "+name+" County"); campRedraw(); return; }
-  const val=measureCountyValue(measureBreakdown(m),ci);
+  const val=measureCountyValue(measureBreakdown(m),ci)*sign;
   GAME.campEnergy-=1;
   m.countyEnergy=m.countyEnergy||{}; m.countyPull=m.countyPull||{};
   m.countyEnergy[name]=(m.countyEnergy[name]||0)+1;
   m.countyPull[name]=(m.countyPull[name]||0)+val;
-  const msg="✓ Worked "+name+" County on "+m.name+" ("+measureValueWord(val)+", −1 energy)";
+  const msg="✓ Worked "+name+" County "+(sign>0?"for":"against")+" "+m.name+" ("+measureValueWord(Math.abs(val))+", −1 energy)";
   GAME.campLog.unshift({turn:GAME.turn, kind:"measure", name:m.name, ok:true, msg});
   if(GAME.campLog.length>12)GAME.campLog.pop();
   GAME.log.push(msg);
@@ -9554,9 +9751,13 @@ function measureMapMarkup(m,bd){
   const worked=Object.keys(m.countyEnergy||{});
   const list=worked.sort((a,b)=>(m.countyEnergy[b])-(m.countyEnergy[a]))
     .map(n=>`<div class="ci-row"><span>${n}</span><span>${m.countyEnergy[n]} in</span></div>`).join("");
-  return `<div class="cmap-layout" style="margin-top:10px">
+  // scoped to THIS measure — with several pending at once (a citizen batch is
+  // 3-4 by itself, plus anything you've referred) every id below has to be
+  // unique per card, or wiring one map wires all of them to the same panel
+  // and the same click handlers stack across every other pending measure.
+  return `<div class="cmap-layout mm-wrap" id="mm-${m.id}" style="margin-top:10px">
       ${svg}
-      <div class="cmap-info" id="measMapInfo">
+      <div class="cmap-info mm-info">
         <h4>${worked.length?worked.length+(worked.length===1?" county worked":" counties worked"):"Where the state stands"}</h4>
         <div class="ci-sub">Shaded by how each county would vote on this measure today. Hover for the readout · click to work it.</div>
         ${list}
@@ -9565,7 +9766,8 @@ function measureMapMarkup(m,bd){
     </div>`;
 }
 function wireMeasureMap(root,m,bd){
-  const cmi=root.querySelector("#measMapInfo"); if(!cmi)return;
+  const wrap=root.querySelector("#mm-"+m.id); if(!wrap)return;
+  const cmi=wrap.querySelector(".mm-info"); if(!cmi)return;
   const defaultHTML=cmi.innerHTML, ix=orCountyIndex();
   const tot=OR_COUNTIES.reduce((s,r)=>s+r[6],0);
   const paint=(name,committed)=>{
@@ -9573,34 +9775,34 @@ function wireMeasureMap(root,m,bd){
     const val=measureCountyValue(bd,ci), yes=Math.round(C.yes*100);
     const share=OR_COUNTIES[ci][6]/tot*100;
     const spent=(m.countyEnergy||{})[name]||0;
-    const afford=GAME.campEnergy>=1;
+    const afford=GAME.campEnergy>=1 && measureStanceSign(m)!==0;
+    const sign=measureStanceSign(m), verb=sign<0?"against":"for";
     cmi.innerHTML=`<h4>${name} County</h4>
       <div class="ci-sub">${_cmLeanWord(prof.ideo)} · ${share.toFixed(1)}% of the state's voters</div>
       <div class="ci-row"><span>Would vote</span><span style="color:${C.yes>=0.5?'var(--good)':'var(--bad)'}">${yes}% yes</span></div>
       <div class="ci-row"><span>Value of a push here</span><span>${measureValueWord(val)}</span></div>
       <div class="ci-row"><span>Energy invested</span><span>${spent||"none"}</span></div>
       ${committed
-        ? `<button class="enactbtn" id="measHereBtn" ${afford?'':'disabled'} style="width:100%;margin-top:12px">${afford?`Campaign here — 1 energy`:`Need 1 energy`}</button>`
+        ? `<button class="enactbtn mm-here-btn" ${afford?'':'disabled'} style="width:100%;margin-top:12px">${afford?`Campaign here ${verb} it — 1 energy`:GAME.campEnergy<1?`Need 1 energy`:`Choose a side first`}</button>`
         : `<div class="ci-sub" style="margin:10px 0 0;text-align:center">Click the county to target it ▸</div>`}`;
-    const b=root.querySelector("#measHereBtn");
+    const b=cmi.querySelector(".mm-here-btn");
     if(b)b.addEventListener('click',()=>campMeasureCounty(m.id,name));
   };
-  const restore=()=>{ if(measMapSel&&ix[measMapSel]!=null){ paint(measMapSel,true); } else { cmi.innerHTML=defaultHTML; } };
-  root.querySelectorAll('.cm-cty[data-mc]').forEach(el=>{
+  const restore=()=>{ if(m.mapSel&&ix[m.mapSel]!=null){ paint(m.mapSel,true); } else { cmi.innerHTML=defaultHTML; } };
+  wrap.querySelectorAll('.cm-cty[data-mc]').forEach(el=>{
     const name=el.dataset.mc;
     el.addEventListener('mouseenter',()=>paint(name,false));
-    const sel=()=>{ measMapSel=name; root.querySelectorAll('.cm-cty.sel').forEach(x=>x.classList.remove('sel')); el.classList.add('sel'); paint(name,true); };
+    const sel=()=>{ m.mapSel=name; wrap.querySelectorAll('.cm-cty.sel').forEach(x=>x.classList.remove('sel')); el.classList.add('sel'); paint(name,true); };
     el.addEventListener('focus',sel);
     el.addEventListener('click',sel);
   });
-  const svgEl=root.querySelector('.cmap-svg');
+  const svgEl=wrap.querySelector('.cmap-svg');
   if(svgEl)svgEl.addEventListener('mouseleave',restore);
-  if(measMapSel&&ix[measMapSel]!=null){
-    const el=root.querySelector(`.cm-cty[data-mc="${measMapSel}"]`);
-    if(el){ el.classList.add('sel'); paint(measMapSel,true); }
+  if(m.mapSel&&ix[m.mapSel]!=null){
+    const el=wrap.querySelector(`.cm-cty[data-mc="${m.mapSel}"]`);
+    if(el){ el.classList.add('sel'); paint(m.mapSel,true); }
   }
 }
-let measMapSel=null;   // county selected on a measure map, kept across redraws
 /* The ballot-measure half of Campaign HQ. Same two surfaces the re-election
    ground game uses — the county map and the voter groups — because a measure
    campaign is worked the same way, out of the same energy. */
@@ -9608,28 +9810,33 @@ function ballotCampaignHTML(){
   const pend=GAME.ballot.pending||[], hist=GAME.ballot.history||[];
   const nb=nextBallotInfo();
   let h=`<div class="camp-sec" style="margin-top:6px">${ico('ballot')} Measures on the ballot</div>
-    <div class="sectionsub" style="margin-top:0">Oregon's constitution belongs to the voters — you can refer an amendment, but you cannot pass one. Referred measures are decided at the next statewide ballot: <b>the midterm</b>, or <b>alongside your own re-election</b>. Never a special election. Energy you spend here comes out of the same pool as county and bloc work.</div>`;
+    <div class="sectionsub" style="margin-top:0">Two kinds of measure land here. Constitutional amendments are ones <b>you</b> referred — Oregon's constitution belongs to the voters, so spending capital only puts one on the ballot, never passes it. Citizen initiatives are ordinary policy changes third-party groups put on the ballot themselves — they cost you nothing either way, and you can leave every one of them alone. Both are decided at the next statewide ballot: <b>the midterm</b>, or <b>alongside your own re-election</b>. Never a special election. Energy you spend here comes out of the same pool as county and bloc work.</div>`;
   h+=energyBarHTML();
   if(!pend.length){
-    h+=`<div class="ebnote" style="margin-top:14px">No measure is currently before the voters. Refer one from <b>New Policies → Constitutional Reforms</b>, or by repealing an amendment already in force.
+    h+=`<div class="ebnote" style="margin-top:14px">No measure is currently before the voters. Refer one from <b>New Policies → Constitutional Reforms</b>, or by repealing an amendment already in force. Citizen initiatives, when any qualify, appear here on their own about four quarters before a ballot.
       Next ballot: <b>${nb.label}</b>${nb.quartersAway>0?` — ${nb.quartersAway} quarter${nb.quartersAway===1?'':'s'} away`:` — this quarter`}.</div>`;
   }
   const CATS=[["ideology","Ideology"],["region","Region"],["income","Income"],["housing","Housing"],
               ["lifestage","Life stage"],["sector","Work & lifestyle"],["universal","Everyone"]];
   for(const m of pend){
+    const citizen=m.source==="citizen";
     const bd=measureBreakdown(m), poll=bd.yes, pct=Math.round(poll*100);
     const lead=poll>=0.5;
     const tgtB=Object.values(m.blocEnergy||{}).reduce((a,b)=>a+b,0);
     const tgtC=Object.values(m.countyEnergy||{}).reduce((a,b)=>a+b,0);
     const noE=GAME.campEnergy<1;
-    h+=`<div class="meascard">
+    const engaged=!citizen||!!m.stance;   // referred measures are always "yours"; citizen ones need a stance first
+    h+=`<div class="meascard${citizen?' citizen':''}">
       <div class="meas-top">
         <span class="meas-name">${ico(m.icon)} ${m.dir==="repeal"?"Repeal — ":""}${m.name}</span>
-        <span class="meas-when">${m.kind==="midterm"?"Midterm ballot":"On your re-election ballot"}</span>
+        <span class="meas-when">${citizen?"Citizen initiative":"Your referral"} · ${m.kind==="midterm"?"Midterm ballot":"On your re-election ballot"}</span>
       </div>
+      ${citizen?`<div class="meas-sponsor">${m.sponsor}</div>`:``}
       <div class="meas-sub">${m.dir==="repeal"
-        ? `A vote to strike this amendment back out of the constitution. It stays in force until the voters say otherwise.`
-        : `A vote to write this into the constitution. It does nothing until the voters approve it.`}</div>
+        ? (citizen ? `A citizen vote to repeal this policy outright. It stays in force until the voters strike it down.`
+                   : `A vote to strike this amendment back out of the constitution. It stays in force until the voters say otherwise.`)
+        : (citizen ? `A citizen vote to write this into law, over your head. It does nothing until the voters approve it.`
+                   : `A vote to write this into the constitution. It does nothing until the voters approve it.`)}</div>
       <div class="pollbar" title="Estimated yes share — the real count moves a point or two either way">
         <i class="poll-yes" style="width:${pct}%"></i><span class="poll-mid"></span>
       </div>
@@ -9645,38 +9852,51 @@ function ballotCampaignHTML(){
         h+=`<div class="mev ${e.good?'good':'bad'}"><b>${e.title}</b> ${e.text}</div>`;
       h+=`</div>`;
     }
-    // ---- surface one: the map ----
-    h+=`<div class="camp-sec" style="margin-top:16px">${ico('map')} Take it to the counties</div>
-      <div class="sectionsub" style="margin-top:0">Where the state already agrees with you, and where it does not. A push does the most in a county that is close and populous, and least where the argument is already lost or already won.</div>`;
-    h+=measureMapMarkup(m,bd);
-    // ---- surface two: the groups ----
-    h+=`<div class="camp-sec" style="margin-top:18px">${ico('handshake')} Take it to the groups</div>
-      <div class="sectionsub" style="margin-top:0">The same energy, aimed at who a voter <b>is</b> rather than where they live.</div>`;
-    for(const [cat,label] of CATS){
-      const ids=Object.keys(SIMULANTS).filter(s=>(SIMULANTS[s].category||"sector")===cat&&bd.blocs[s])
-        .sort((a,b)=>measureBlocValue(bd,b)-measureBlocValue(bd,a));
-      if(!ids.length)continue;
-      h+=`<div class="mtgt-cat">${label}</div><div class="mtgt-grid">`;
-      for(const sid of ids){
-        const B=bd.blocs[sid], val=measureBlocValue(bd,sid), by=Math.round(B.yes*100);
-        const spent=(m.blocEnergy||{})[sid]||0;
-        const word=measureValueWord(val);
-        h+=`<div class="mtgt ${word.replace(/ /g,"-")}">
-          <div class="mtgt-top"><span class="mtgt-name">${SIMULANTS[sid].name}</span>
-            <span class="mtgt-yes" style="color:${B.yes>=0.5?'var(--good)':'var(--bad)'}">${by}%</span></div>
-          <div class="mtgt-meta">${word}${spent?` · ${spent} in`:``}</div>
-          <button class="cb2-btn persuade" data-measbloc="${m.id}" data-sid="${sid}" ${noE?'disabled':''}>
-            <span class="cb2-kind">Push</span><span class="cb2-odds">1 ⚡</span></button>
-        </div>`;
+    if(citizen && !m.stance){
+      h+=`<div class="meas-engage">
+        <div class="sectionsub" style="margin:10px 0 8px">Not your measure — leave it to the voters, or get involved:</div>
+        <div style="display:flex;gap:8px">
+          <button class="enactbtn" data-measstance="${m.id}" data-side="support" style="flex:1">${ico('handshake')} Support it</button>
+          <button class="repealbtn" data-measstance="${m.id}" data-side="oppose" style="flex:1;padding:8px">${ico('ban')} Oppose it</button>
+        </div>
+      </div>`;
+    } else if(citizen){
+      h+=`<div class="meas-stance ${m.stance}">Your campaign is <b>${m.stance==="support"?"supporting":"opposing"}</b> this measure.</div>`;
+    }
+    if(engaged){
+      // ---- surface one: the map ----
+      h+=`<div class="camp-sec" style="margin-top:16px">${ico('map')} Take it to the counties</div>
+        <div class="sectionsub" style="margin-top:0">Where the state already agrees with you, and where it does not. A push does the most in a county that is close and populous, and least where the argument is already lost or already won.</div>`;
+      h+=measureMapMarkup(m,bd);
+      // ---- surface two: the groups ----
+      h+=`<div class="camp-sec" style="margin-top:18px">${ico('handshake')} Take it to the groups</div>
+        <div class="sectionsub" style="margin-top:0">The same energy, aimed at who a voter <b>is</b> rather than where they live.</div>`;
+      for(const [cat,label] of CATS){
+        const ids=Object.keys(SIMULANTS).filter(s=>(SIMULANTS[s].category||"sector")===cat&&bd.blocs[s])
+          .sort((a,b)=>measureBlocValue(bd,b)-measureBlocValue(bd,a));
+        if(!ids.length)continue;
+        h+=`<div class="mtgt-cat">${label}</div><div class="mtgt-grid">`;
+        for(const sid of ids){
+          const B=bd.blocs[sid], val=measureBlocValue(bd,sid), by=Math.round(B.yes*100);
+          const spent=(m.blocEnergy||{})[sid]||0;
+          const word=measureValueWord(val);
+          h+=`<div class="mtgt ${word.replace(/ /g,"-")}">
+            <div class="mtgt-top"><span class="mtgt-name">${SIMULANTS[sid].name}</span>
+              <span class="mtgt-yes" style="color:${B.yes>=0.5?'var(--good)':'var(--bad)'}">${by}%</span></div>
+            <div class="mtgt-meta">${word}${spent?` · ${spent} in`:``}</div>
+            <button class="cb2-btn persuade" data-measbloc="${m.id}" data-sid="${sid}" ${noE?'disabled':''}>
+              <span class="cb2-kind">Push</span><span class="cb2-odds">1 ⚡</span></button>
+          </div>`;
+        }
+        h+=`</div>`;
       }
-      h+=`</div>`;
     }
     h+=`</div>`;
   }
   if(hist.length){
     h+=`<div class="camp-sec" style="margin-top:18px">${ico('doc')} Past measures</div><div class="ebgroup" style="margin-top:8px">`;
     for(const r of hist.slice(-8).reverse())
-      h+=`<div class="ci-row"><span>${r.dir==="repeal"?"Repeal — ":""}${r.name}</span>
+      h+=`<div class="ci-row"><span>${r.source==="citizen"?"Citizen — ":""}${r.dir==="repeal"?"Repeal — ":""}${r.name}</span>
         <span style="color:${r.passed?'var(--good)':'var(--bad)'}">${r.passed?"passed":"failed"} ${Math.round(r.share*100)}%</span></div>`;
     h+=`</div>`;
   }
@@ -9751,6 +9971,13 @@ function wireCampHQ(root){
     GAME.campTab=el.dataset.camptab; campRedraw();
   }));
   root.querySelectorAll('[data-measbloc]').forEach(el=>el.addEventListener('click',()=>campMeasureBloc(el.dataset.measbloc, el.dataset.sid)));
+  // a citizen initiative needs a stance chosen before you can campaign on it
+  root.querySelectorAll('[data-measstance]').forEach(el=>el.addEventListener('click',()=>{
+    const m=pendingMeasure(el.dataset.measstance); if(!m||m.stance)return;
+    m.stance=el.dataset.side;
+    GAME.log.push((el.dataset.side==="support"?"You're now campaigning FOR ":"You're now campaigning AGAINST ")+m.name+".");
+    campRedraw();
+  }));
   // each pending measure gets its own county map wired to the same energy pool
   for(const m of ((GAME.ballot&&GAME.ballot.pending)||[]))
     wireMeasureMap(root,m,measureBreakdown(m));
@@ -11533,6 +11760,7 @@ function enactPolicy(id){
   const ecost=policyEnactCost(src);
   if(GAME.capital<ecost){GAME.log.push("✗ Not enough capital to enact "+src.name);render();return;}
   GAME.capital-=ecost;
+  mootCitizenMeasure(id,"enacted");
   _applyEnact(id);
   openDetail("p_"+id);
 }
@@ -11549,6 +11777,7 @@ function repealPolicy(id){
   const cost=p.repealCost!==undefined?p.repealCost:(p.capital||6);
   if(GAME.capital<cost){GAME.log.push("✗ Not enough capital to repeal "+p.name);render();return;}
   GAME.capital-=cost;
+  mootCitizenMeasure(id,"repealed");
   _applyRepeal(id,{});
 }
 /* The mechanical half of repeal — backlash, the ghost fade, and moving the
@@ -11563,8 +11792,10 @@ function _applyRepeal(id,opts){
   if(uturn)GAME.uturnCount=(GAME.uturnCount||0)+1;
   GAME.repealCount=(GAME.repealCount||0)+1;
   // a repeal the VOTERS carried is only half yours — backers are sore, but the
-  // blame is shared with the electorate that voted for it
-  const blame=voted?0.45:1;
+  // blame is shared with the electorate that voted for it. A repeal a THIRD
+  // PARTY put on the ballot and carried is barely yours at all unless you
+  // campaigned for it yourself — opts.blame lets resolveBallot() say so.
+  const blame=(opts&&opts.blame!==undefined)?opts.blame:(voted?0.45:1);
   for(const sid in SIMULANTS){
     const r=blocReaction("policy",p,SIMULANTS[sid]);
     if(r!==null&&r>0.5){
