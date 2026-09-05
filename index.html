@@ -989,6 +989,10 @@
   .meas-stance{font-size:11.5px;margin-top:10px;padding:6px 10px;border:1px solid var(--line);background:var(--paper)}
   .meas-stance.support{border-left:4px solid var(--moss)}
   .meas-stance.oppose{border-left:4px solid var(--clay)}
+  .meas-stance.neutral{border-left:4px solid var(--line-em);color:var(--muted)}
+  .stance-preview{font-size:11.5px;color:var(--muted);margin:6px 0 0;line-height:1.5}
+  .stance-preview b.up{color:var(--good)}
+  .stance-preview b.down{color:var(--bad)}
   /* the poll: a yes bar against a hard 50% line — the only number that matters */
   .pollbar{position:relative;height:16px;background:var(--paper);border:var(--rule) solid var(--ink);overflow:hidden}
   .pollbar .poll-yes{display:block;height:100%;background:var(--moss);
@@ -9187,8 +9191,11 @@ function showBallotNotice(bn, next){
   for(const m of bn.measures){
     const poll=measureYesShare(m), pct=Math.round(poll*100);
     const citizen=m.source==="citizen";
-    const tag=citizen?(m.stance?`you are ${m.stance==="support"?"backing":"opposing"} it`:`you have taken no side`)
-                     :`your own referral`;
+    const tag=!citizen?`your own referral`
+      :m.stance==="support"?`you are backing it`
+      :m.stance==="oppose"?`you are opposing it`
+      :m.stance==="neutral"?`you have declared neutrality`
+      :`you have taken no side yet`;
     rows+=`<div class="rrow"><span class="rlabel">${ico(m.icon)} ${measureTitle(m)}</span>
       <span class="rval" style="color:${poll>=0.5?'var(--good)':'var(--bad)'}">${pct}% yes</span></div>
       <div class="sectionsub" style="margin:-4px 0 10px;font-size:11px">${
@@ -9390,6 +9397,17 @@ const BALLOT_TARGET_PULL=1.90;  // ...and per sqrt(effective energy) aimed at on
 const BALLOT_COUNTY_MULT=8.5;
 const BALLOT_SENSITIVITY=0.052; // net-units → probability of voting yes
 const BALLOT_STANDING=0.075;    // net-units per approval point either side of 50
+const BALLOT_STANCE_PULL=2.10;  // what a governor publicly taking a side is worth on day one
+
+/* A sitting governor coming out for or against a measure is not a slow grind
+   like a field campaign — it lands the day it is said, in every paper in the
+   state, and it is worth exactly as much as the office-holder saying it. A
+   governor at 58% can carry a measure most of the way on the announcement
+   alone; at 44% it is still worth several points; under about 38% the
+   cue-taking term below outruns it and your backing actively costs the
+   measure support. Popular governors get asked to endorse. Unpopular ones get
+   asked, politely, to stay home. */
+function endorsementWeight(){ return clamp((overallApproval()-30)/20,0,1.45); }
 
 /* One decided measure, for the midterm and election-night screens. */
 function measureResultsHTML(list,heading){
@@ -9573,6 +9591,12 @@ function measureBreakdown(m){
     flip=1;   // the difference already carries direction and size
   }
   const lean=measureBlocLeans(m);
+  const stance=measureStanceSign(m);
+  // A measure YOU referred already had your name on it the day you spent the
+  // capital to refer it — that endorsement is priced into the referral. A
+  // citizen initiative is not yours until you say so out loud, and saying so
+  // is an event in itself: it moves the number the moment it happens.
+  const endorse=(m.source==="citizen"&&stance)?BALLOT_STANCE_PULL*endorsementWeight():0;
   const ideoEc=((ideo.economic||0)+(ideo.govSize||0)*0.7)*flip;
   const ideoSo=((ideo.social||0)+(ideo.environment||0)*0.6)*flip;
   const gen=BALLOT_ENERGY_PULL*Math.sqrt(Math.max(0,m.energy||0));
@@ -9599,7 +9623,10 @@ function measureBreakdown(m){
     for(const sid in lean){ const mw=v.m[sid]; if(!(mw>0))continue; s+=mw*lean[sid]; w+=mw; }
     let net=(w>0?s/w:0);
     net+=(ideoEc*(v.econ||0)+ideoSo*(v.social||0))*3.2;
-    net+=(v.approval-50)*BALLOT_STANDING;         // cue-taking, voter by voter
+    // Cue-taking, voter by voter — but only if you have given them a cue.
+    // Voters cannot follow a governor who has not said anything, so a measure
+    // you are publicly silent on is argued on its own merits alone.
+    if(stance)net+=stance*((v.approval-50)*BALLOT_STANDING+endorse);
     for(const sid in bPull){ const mw=v.m[sid]; if(mw>0)net+=bPull[sid]*mw; }
     if(cAny&&v.cw)for(let ci=0;ci<v.cw.length;ci++){ const wq=v.cw[ci]; if(wq>0&&cPull[ci])net+=cPull[ci]*wq; }
     net+=gen+ev-BALLOT_NO_BIAS;
@@ -9632,8 +9659,20 @@ function measureValueWord(v){ return v>=0.95?"prime target":v>=0.72?"contestable
    that stance sets the SIGN a push is banked with. */
 function measureStanceSign(m){
   if(m.source!=="citizen")return 1;
-  return m.stance==="oppose"?-1:m.stance==="support"?1:0;
+  return m.stance==="oppose"?-1:m.stance==="support"?1:0;   // "neutral" and undeclared both read as 0
 }
+/* What taking each side would be worth RIGHT NOW, in points of yes-share, so
+   the choice is made with the number visible rather than after the fact. Runs
+   the real model twice with the stance swapped in and diffs it, which costs
+   two passes but is exact — no second formula to drift out of sync. */
+function stancePreview(m){
+  const was=m.stance, base=measureYesShare(m);
+  m.stance="support"; const up=measureYesShare(m);
+  m.stance="oppose";  const dn=measureYesShare(m);
+  m.stance=was;
+  return {support:(up-base)*100, oppose:(dn-base)*100};
+}
+function stancePtsText(v){ return (v>=0?"+":"")+v.toFixed(1)+" pts"; }
 
 /* Ballot night. Every pending measure is decided; the ones that pass take
    effect immediately, the ones that fail are simply gone — the capital that
@@ -10009,7 +10048,7 @@ function ballotCampaignHTML(){
     const tgtB=Object.values(m.blocEnergy||{}).reduce((a,b)=>a+b,0);
     const tgtC=Object.values(m.countyEnergy||{}).reduce((a,b)=>a+b,0);
     const noE=GAME.campEnergy<1;
-    const engaged=!citizen||!!m.stance;   // referred measures are always "yours"; citizen ones need a stance first
+    const engaged=measureStanceSign(m)!==0;   // referred measures are always "yours"; a citizen one needs a SIDE, and neutral is not one
     h+=`<div class="meascard${citizen?' citizen':''}">
       <div class="meas-top">
         <span class="meas-name">${ico(m.icon)} ${measureTitle(m)}</span>
@@ -10043,15 +10082,25 @@ function ballotCampaignHTML(){
       h+=`</div>`;
     }
     if(citizen && !m.stance){
+      const pv=stancePreview(m), w=endorsementWeight();
+      const worth=w>=1.15?"At this approval your word can carry a measure by itself"
+                 :w>=0.8?"Your word carries real weight right now"
+                 :w>=0.45?"Your word is worth something here"
+                 :"You are unpopular enough that your backing is a liability";
       h+=`<div class="meas-engage">
-        <div class="sectionsub" style="margin:10px 0 8px">Not your measure — leave it to the voters, or get involved:</div>
-        <div style="display:flex;gap:8px">
+        <div class="sectionsub" style="margin:10px 0 4px">Not your measure — but a governor taking a public side is front-page news the day it happens. ${worth}.</div>
+        <div class="stance-preview">Declaring today would move this <b class="${pv.support>=0?'up':'down'}">${stancePtsText(pv.support)}</b> if you back it, <b class="${pv.oppose<=0?'up':'down'}">${stancePtsText(pv.oppose)}</b> if you fight it. Staying out costs and gains nothing.</div>
+        <div style="display:flex;gap:8px;margin-top:8px">
           <button class="enactbtn" data-measstance="${m.id}" data-side="support" style="flex:1">${ico('handshake')} Support it</button>
+          <button class="enactbtn ghost" data-measstance="${m.id}" data-side="neutral" style="flex:1;padding:8px">${ico('scales')} Stay neutral</button>
           <button class="repealbtn" data-measstance="${m.id}" data-side="oppose" style="flex:1;padding:8px">${ico('ban')} Oppose it</button>
         </div>
       </div>`;
+    } else if(citizen && m.stance==="neutral"){
+      h+=`<div class="meas-stance neutral">You have publicly stayed out of this one. No campaign, no credit, no blame — however it lands, it lands without you.</div>`;
     } else if(citizen){
-      h+=`<div class="meas-stance ${m.stance}">Your campaign is <b>${m.stance==="support"?"supporting":"opposing"}</b> this measure.</div>`;
+      h+=`<div class="meas-stance ${m.stance}">Your campaign is <b>${m.stance==="support"?"supporting":"opposing"}</b> this measure.${
+        m.endorseShift!=null?` Coming out ${m.stance==="support"?"for":"against"} it moved the polling <b>${stancePtsText(m.endorseShift)}</b> on the day.`:``}</div>`;
     }
     if(engaged){
       // ---- surface one: the map ----
@@ -10164,8 +10213,16 @@ function wireCampHQ(root){
   // a citizen initiative needs a stance chosen before you can campaign on it
   root.querySelectorAll('[data-measstance]').forEach(el=>el.addEventListener('click',()=>{
     const m=pendingMeasure(el.dataset.measstance); if(!m||m.stance)return;
-    m.stance=el.dataset.side;
-    GAME.log.push((el.dataset.side==="support"?"You're now campaigning FOR ":"You're now campaigning AGAINST ")+m.name+".");
+    const side=el.dataset.side, before=measureYesShare(m);
+    m.stance=side;
+    if(side==="neutral"){
+      GAME.log.push(ico('scales')+" You declined to take a position on "+m.name+".");
+    }else{
+      // record what the announcement itself was worth, so the card can show it
+      m.endorseShift=(measureYesShare(m)-before)*100;
+      GAME.log.push((side==="support"?"You came out FOR ":"You came out AGAINST ")+m.name
+        +" — polling moved "+stancePtsText(m.endorseShift)+" on the announcement.");
+    }
     campRedraw();
   }));
   // each pending measure gets its own county map wired to the same energy pool
