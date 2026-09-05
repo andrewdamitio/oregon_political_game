@@ -1081,13 +1081,10 @@
   .mres-card.fail .mres-verdict b{color:var(--clay)}
   .mm-result-svg{width:100%;height:auto;display:block;background:var(--paper);border:1px solid var(--line)}
   .mres-foot{font-size:10.5px;color:var(--muted-2);margin-top:7px;font-style:italic}
-  .mres-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;cursor:pointer;user-select:none}
-  .mres-head .mrh-caret{font-family:var(--font-data);font-size:10px;color:var(--muted-1);flex:none;transition:transform .12s}
-  .mres-card.open .mres-head .mrh-caret{transform:rotate(90deg)}
+  .mres-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
   .mres-head .mrh-verdict{font-family:var(--font-data);font-weight:700;font-size:10.5px;letter-spacing:.05em}
   .mres-card.pass .mrh-verdict{color:var(--moss)} .mres-card.fail .mrh-verdict{color:var(--clay)}
   .mres-head .mrh-share{margin-left:auto;font-family:var(--font-data);font-weight:700;font-size:12px}
-  .mres-body{margin-top:9px}
   .mres-blocs{margin-top:9px}
   .mres-bloc-h{font-family:var(--font-data);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-1);margin:8px 0 4px}
   .mres-blocrow{display:flex;align-items:center;gap:7px;font-size:11px;margin:2px 0}
@@ -8495,8 +8492,10 @@ function showMidterm(m){
   const modal=document.getElementById("midtermModal");
   modal.classList.add("grand");
   modal.classList.remove("hidden");
-  wireMeasureResultCards(card);
-  const done=()=>{
+  // open at the top — the scroll container is .egrand inside the card
+  const _top=()=>{ card.scrollTop=0; const g=card.querySelector('.egrand'); if(g)g.scrollTop=0; };
+  _top(); requestAnimationFrame(_top);
+  const done=()=>{  /* wireMeasureResultCards removed — measures are always open */
     modal.classList.add("hidden");
     modal.classList.remove("grand");
     document.removeEventListener("keydown",onKey,true);
@@ -8506,7 +8505,7 @@ function showMidterm(m){
     if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
   document.getElementById("midtermContinue").onclick=done;
   document.addEventListener("keydown",onKey,true);
-  setTimeout(()=>{try{document.getElementById("midtermContinue").focus();}catch(e){}},30);
+  setTimeout(()=>{try{document.getElementById("midtermContinue").focus({preventScroll:true});}catch(e){try{document.getElementById("midtermContinue").focus();}catch(_){}}},30);
 }
 
 /* settle a kicker-eligible surplus once the player has chosen. `fraction` of the
@@ -9126,7 +9125,6 @@ function showElection(r){
     });
     card.querySelectorAll(barSel).forEach(bar=>bar.addEventListener('mouseleave',()=>{ rd.textContent=dflt; }));
   };
-  wireMeasureResultCards(card);
   wireBarRead("egBarRead", ".eg-bar", true);      // 4 segments — keyboard-navigable
   wireBarRead("egBlkRead", ".eg-blk-bar", false); // dozens of bars — hover only
   const order=cRows.map((c,i)=>i).sort((a,b)=>cRows[a].popK-cRows[b].popK);
@@ -9559,15 +9557,15 @@ function measureBlocResultHTML(blocs){
   if(no.length){  h+=`<div class="mres-bloc-h">Strongest no</div>` +no.map(row).join(""); }
   return h+`</div>`;
 }
-/* Every decided measure as its own card. Collapsed to a headline; click for the
-   county map and the interest-group split. */
+/* Every decided measure as its own card — headline, its county map, and the
+   interest-group split, all shown at once. */
 function measureResultMapsHTML(list){
   if(!list||!list.length)return "";
   let h=`<div class="eg-section">
     <div class="eg-h3">${ico('ballot')} The measures</div>
-    <div class="eg-note">Everything else that was decided tonight. Click any measure for how all 36 counties and the interest groups voted on it — green carried the yes side, the deeper the colour the wider the margin.</div>
+    <div class="eg-note">Everything else that was decided tonight, and how all 36 counties and the interest groups voted on each — green carried the yes side, the deeper the colour the wider the margin.</div>
     <div class="mres-grid">`;
-  list.forEach((r,idx)=>{
+  for(const r of list){
     const carried=(r.counties||[]).filter(y=>y>=0.5).length;
     const mine=r.source!=="citizen";
     const stanceTxt=mine?"Your referral"
@@ -9576,32 +9574,18 @@ function measureResultMapsHTML(list){
       :r.stance==="neutral"?"You declared neutrality"
       :"You took no side";
     h+=`<div class="mres-card ${r.passed?'pass':'fail'}">
-      <div class="mres-head" data-mres="${idx}" role="button" tabindex="0" aria-expanded="false">
-        <span class="mrh-caret">▸</span>
+      <div class="mres-head">
         <span class="mres-name" style="flex:1 1 60%">${ico(r.icon)} ${r.source==="citizen"?"Citizen — ":""}${measureTitle(r)}</span>
         <span class="mrh-verdict">${r.passed?"PASSED":"FAILED"}</span>
         <span class="mrh-share" style="color:${r.share>=0.5?'var(--good)':'var(--bad)'}">${Math.round(r.share*100)}% yes</span>
       </div>
-      <div class="mres-body" hidden>
-        <div class="mres-verdict">${r.counties&&r.counties.length?`carried ${carried}/36 counties · `:``}${stanceTxt}${r.energy?` · ${r.energy} campaign energy spent`:``}</div>
-        ${measureMapSVG(r)}
-        ${measureBlocResultHTML(r.blocs)}
-      </div>
+      <div class="mres-verdict">${r.counties&&r.counties.length?`carried ${carried}/36 counties · `:``}${stanceTxt}${r.energy?` · ${r.energy} campaign energy spent`:``}</div>
+      ${measureMapSVG(r)}
+      ${measureBlocResultHTML(r.blocs)}
     </div>`;
-  });
+  }
   h+=`</div><div class="mres-legend"><span><i style="background:#33562f"></i>Voted yes</span><span><i style="background:#e7e3d5"></i>Close</span><span><i style="background:#9b2226"></i>Voted no</span></div>`;
   return h+`</div>`;
-}
-/* Shared: wire expand/collapse on measure result cards in an election modal. */
-function wireMeasureResultCards(root){
-  root.querySelectorAll('[data-mres]').forEach(el=>{
-    const toggle=()=>{ const card=el.closest('.mres-card'); if(!card)return;
-      const body=card.querySelector('.mres-body'); if(!body)return;
-      body.hidden=!body.hidden; card.classList.toggle('open',!body.hidden);
-      el.setAttribute('aria-expanded', String(!body.hidden)); };
-    el.addEventListener('click',toggle);
-    el.addEventListener('keydown',ev=>{ if(ev.key==="Enter"||ev.key===" "){ ev.preventDefault(); toggle(); } });
-  });
 }
 /* One chamber, as a seat bar with the three-fifths line marked on it. */
 function legisBarHTML(name,total,seats,superLine,change){
@@ -9795,7 +9779,12 @@ function measureBreakdown(m){
   const endorse=(m.source==="citizen"&&stance)?BALLOT_STANCE_PULL*endorsementWeight():0;
   const ideoEc=((ideo.economic||0)+(ideo.govSize||0)*0.7)*flip;
   const ideoSo=((ideo.social||0)+(ideo.environment||0)*0.6)*flip;
-  const gen=BALLOT_ENERGY_PULL*Math.sqrt(Math.max(0,m.energy||0));
+  // Working the counties and the interest groups is a ground operation, not a
+  // press release: an unpopular governor's field campaign converts WORSE, but
+  // it never runs in reverse the way a public endorsement can. This multiplies
+  // only the campaign-energy pulls (below), never the stance-cue term.
+  const pushEff=clamp(0.55+0.5*endorsementWeight(), 0.55, 1.15);
+  const gen=BALLOT_ENERGY_PULL*Math.sqrt(Math.max(0,m.energy||0))*pushEff;
   const ev=m.swing||0;
   // ONE diminishing curve across ALL targeted spend — groups and counties
   // together — then split by where it was aimed. Otherwise splitting a push
@@ -9807,7 +9796,7 @@ function measureBreakdown(m){
   let tgtTot=0;
   for(const sid in bp)tgtTot+=Math.abs(bp[sid]);
   for(const nm in cp)tgtTot+=Math.abs(cp[nm]);
-  const k=tgtTot>0?BALLOT_TARGET_PULL*Math.sqrt(tgtTot)/tgtTot:0;
+  const k=tgtTot>0?BALLOT_TARGET_PULL*Math.sqrt(tgtTot)/tgtTot*pushEff:0;
   const bPull={}; for(const sid in bp)bPull[sid]=bp[sid]*k;
   const cPull=[]; let cAny=false;
   for(const nm in cp){ const ci=ix[nm]; if(ci!=null){ cPull[ci]=cp[nm]*k*BALLOT_COUNTY_MULT; cAny=true; } }
