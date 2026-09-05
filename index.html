@@ -1079,6 +1079,13 @@
   .legmap-legend{display:flex;gap:15px;justify-content:center;flex-wrap:wrap;font-size:10.5px;color:var(--muted-2);margin-top:4px}
   .legmap-legend i{display:inline-block;width:11px;height:11px;margin-right:5px;vertical-align:-1px}
   .legmap-legend i.tipbox{background:transparent;border:2px solid var(--gold)}
+  .legmap-legend i.dimbox{background:#93242a;opacity:.32}
+  .legmap-card{position:relative;cursor:zoom-in;transition:box-shadow .12s}
+  .legmap-card:hover{box-shadow:5px 5px 0 var(--shadow-hard)}
+  .legmap-card.zoom{grid-column:1 / -1;cursor:zoom-out}
+  .legmap-card.zoom .leg-map-svg{max-width:760px;margin:2px auto 0}
+  .legmap-zoomhint{font-family:var(--font-data);font-size:9px;font-weight:400;text-transform:uppercase;letter-spacing:.06em;color:var(--muted-2);margin-left:6px}
+  .legmap-card.zoom .legmap-zoomhint::after{content:" — click to shrink"}
   /* ---- midterm night: one county map per decided measure ---- */
   .mres-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:14px;margin-top:12px}
   .mres-card{border:var(--rule) solid var(--ink);background:var(--paper-2);padding:10px 11px;box-shadow:3px 3px 0 var(--shadow-hard)}
@@ -5810,7 +5817,8 @@ const GAME={
   // three-fifths of each (18 / 36) is the line that matters: Article IV §25
   // requires a 3/5 supermajority to raise revenue at all. You take office on
   // the real 2025 numbers, which sit exactly on that line in both chambers.
-  legis:{senate:18, house:36},
+  legis:{senate:18, house:36},   // sHeld / senateClass are filled in at the first legislative election
+  senateClass:0,
   activeSituations:{}, situationAge:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null, dilemmaCtx:{}, compassEvents:{ec:0,so:0}, walkoutFreeze:0, walkoutIgnoredUntil:0, agendaBaseline:0, protestCrackdowns:0, protestIgnoredUntil:0, compassStart:{ec:0,so:0}, serviceDisrupt:0, elliottResolved:false,
   // ---- FISCAL MODEL (research: income-tax dependence + kicker + reserves) ----
   rainyDay:1.87,        // Rainy Day Fund ($B) — real 2023-25 end balance
@@ -8477,10 +8485,10 @@ function showMidterm(m){
 
     <div class="eg-section">
       <div class="eg-h3">${ico('columns')} The legislature</div>
-      <div class="eg-note">Oregon runs a 30-seat Senate and a 60-seat House. Three-fifths of each — 18 and 36, the dashed line on both bars — is the threshold that matters: Article IV §25 requires it to raise revenue at all.</div>
+      <div class="eg-note">Oregon runs a 30-seat Senate and a 60-seat House. The whole House was on this ballot; the Senate runs staggered four-year terms, so only half of it — 15 seats — was. Three-fifths of each chamber — 18 and 36, the dashed line on both bars — is the threshold that matters: Article IV §25 requires it to raise revenue at all.</div>
       ${legisBarHTML("Senate",LEGIS.senate,L.after.senate,LEGIS.superS,L.sSwing)}
       ${legisBarHTML("House",LEGIS.house,L.after.house,LEGIS.superH,L.hSwing)}
-      ${legMapsHTML(L.after)}
+      ${legMapsHTML(L)}
       <div class="lg-verdict ${st.tier}"><b>${st.label}.</b> ${st.note}${flipped?` <b style="color:${capCol(capDelta)}">That is a change from tonight — you went in with ${stBefore.label.charAt(0).toLowerCase()+stBefore.label.slice(1)}.</b>`:``}</div>
       <div class="rrow"><span class="rlabel">Chambers → political capital</span>
         <span class="rval" style="color:${capCol(st.cap)}">${st.cap===0?'no bonus, no penalty':`${st.cap>0?'+':''}${st.cap.toFixed(1)} ◈/qtr`}</span></div>
@@ -8505,6 +8513,7 @@ function showMidterm(m){
   // open at the top — the scroll container is .egrand inside the card
   const _top=()=>{ card.scrollTop=0; const g=card.querySelector('.egrand'); if(g)g.scrollTop=0; };
   _top(); requestAnimationFrame(_top);
+  wireLegMaps(card);
   const done=()=>{  /* wireMeasureResultCards removed — measures are always open */
     modal.classList.add("hidden");
     modal.classList.remove("grand");
@@ -9136,6 +9145,7 @@ function showElection(r){
     });
     card.querySelectorAll(barSel).forEach(bar=>bar.addEventListener('mouseleave',()=>{ rd.textContent=dflt; }));
   };
+  wireLegMaps(card);
   wireBarRead("egBarRead", ".eg-bar", true);      // 4 segments — keyboard-navigable
   wireBarRead("egBlkRead", ".eg-blk-bar", false); // dozens of bars — hover only
   const order=cRows.map((c,i)=>i).sort((a,b)=>cRows[a].popK-cRows[b].popK);
@@ -9448,9 +9458,21 @@ const LEGIS={senate:30, house:60, superS:18, superH:36, majS:16, majH:31};
    own record, safest first. Holding N seats means holding the N friendliest
    districts, which is why losing seats surfaces as the marginals flipping and
    never as a safe seat vanishing at random. */
-function legisSeatMap(rows, seats){
+function legisSeatMap(rows, seats, opts){
+  opts=opts||{};
   const g=govIdeologyPoint();
   const left=(g.economic+g.social)<0;
+  // explicit per-seat holders — the Senate after a staggered election, where
+  // the ~15 seats not on the ballot keep whoever won them last time
+  if(opts.held){
+    const mine=new Set(opts.held);
+    const pool=rows.filter(r=>!opts.contested||opts.contested.has(r[0]));
+    const ranked=pool.map(r=>({id:r[0],aff:left?r[4]:100-r[4],mine:mine.has(r[0])}))
+                     .sort((a,b)=>b.aff-a.aff);
+    const lastMine=[...ranked].reverse().find(r=>r.mine);
+    const firstNot=ranked.find(r=>!r.mine);
+    return {mine, left, tipping:lastMine?lastMine.id:null, nextUp:firstNot?firstNot.id:null};
+  }
   const ranked=rows.map(r=>({id:r[0], aff:left?r[4]:100-r[4]}))
                    .sort((a,b)=>b.aff-a.aff);
   const mine=new Set();
@@ -9460,20 +9482,25 @@ function legisSeatMap(rows, seats){
   const next=ranked[Math.min(seats,ranked.length)];
   return {mine, left, tipping:held?held.id:null, nextUp:next?next.id:null};
 }
-/* One chamber drawn as a real district map: every seat you hold in moss,
-   every seat you do not in clay, the seat that decided control outlined. */
-function legMapSVG(rows, seats, seatMap){
-  const sm=seatMap||legisSeatMap(rows,seats);
-  let base="",fills="",edge="";
+/* One chamber drawn as a real district map: every seat your side holds in
+   green, every seat the opposition holds in red. The governor is never
+   assigned a party, so the map speaks only of "your party" vs "the
+   opposition" — the shade shows how safe the seat is, not which way it leans
+   in the abstract. Seats not on this ballot (half the Senate, every cycle)
+   are dimmed. The seat that decided control is outlined. */
+function legMapSVG(rows, seatMap, contested){
+  const sm=seatMap;
+  let base="",edge="";
   for(const [id,d,cx,cy,lean] of rows){
     const mine=sm.mine.has(id);
-    const shade=sm.left?lean:100-lean;                       // how friendly to you
+    const up=!contested||contested.has(id);
+    const shade=sm.left?lean:100-lean;                       // how safe the seat is for your side
     const t=clamp((shade-28)/44,0,1);
     const fill=mine?cmMix(0.35+0.65*t,"#8fa88a","#2f5130"):cmMix(0.35+0.65*(1-t),"#c9a3a3","#93242a");
-    base+=`<path d="${d}" fill="${fill}" stroke="var(--paper)" stroke-width="0.35"><title>District ${id} — ${mine?"yours":"opposition"} · ${lean.toFixed(1)}% progressive</title></path>`;
+    base+=`<path d="${d}" fill="${fill}" fill-opacity="${up?1:0.32}" stroke="var(--paper)" stroke-width="0.35"><title>District ${id} — ${mine?"your party":"the opposition"}${up?"":" · not on this ballot (seat held over)"}</title></path>`;
     if(id===sm.tipping)edge+=`<path d="${d}" fill="none" stroke="var(--gold)" stroke-width="1.4"/>`;
   }
-  return `<svg class="leg-map-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Legislative district map">${base}${fills}${edge}</svg>`;
+  return `<svg class="leg-map-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Legislative district map">${base}${edge}</svg>`;
 }
 /* The legislature as it stands after a statewide election — the seat bars, the
    two district maps, and what the result is worth per quarter. Shared by the
@@ -9489,7 +9516,7 @@ function legislatureSectionHTML(L){
     <div class="eg-note">Oregon elects its legislature every even year, so the whole House and half the Senate were on tonight's ballot with you. Three-fifths of each — 18 and 36, the dashed line on both bars — is the threshold that matters: Article IV §25 requires it to raise revenue at all.</div>
     ${legisBarHTML("Senate",LEGIS.senate,L.after.senate,LEGIS.superS,L.sSwing)}
     ${legisBarHTML("House",LEGIS.house,L.after.house,LEGIS.superH,L.hSwing)}
-    ${legMapsHTML(L.after)}
+    ${legMapsHTML(L)}
     <div class="lg-verdict ${st.tier}"><b>${st.label}.</b> ${st.note}${flipped?` <b style="color:${capCol(capDelta)}">That is a change from tonight — you went in with ${stBefore.label.charAt(0).toLowerCase()+stBefore.label.slice(1)}.</b>`:``}</div>
     <div class="rrow"><span class="rlabel">Chambers → political capital</span>
       <span class="rval" style="color:${capCol(st.cap)}">${st.cap===0?'no bonus, no penalty':`${st.cap>0?'+':''}${st.cap.toFixed(1)} ◈/qtr`}</span></div>
@@ -9497,23 +9524,41 @@ function legislatureSectionHTML(L){
       <span class="rval" style="color:${capCol(capDelta)}">${capDelta===0?'unchanged':`${capDelta>0?'+':''}${capDelta.toFixed(1)} ◈/qtr`}</span></div>
   </div>`;
 }
-/* Both chambers side by side, with the seat that tipped control named. */
-function legMapsHTML(L){
-  const hs=legisSeatMap(OR_HOUSE_DISTRICTS, L.house);
-  const ss=legisSeatMap(OR_SENATE_DISTRICTS, L.senate);
+/* Both chambers side by side. R is the runLegislativeElection() result (or, as
+   a fallback, a bare {senate,house}). The whole House is up every cycle; only
+   the ~15 Senate seats in this cycle's class are — the rest are drawn dimmed
+   and keep their prior holder. Click either map to enlarge it. */
+function legMapsHTML(R){
+  const after=R.after||R;
+  const hs=legisSeatMap(OR_HOUSE_DISTRICTS, after.house);
+  const sUp=(R.senateUp&&R.senateUp.length)?new Set(R.senateUp):null;
+  const sHeld=(GAME.legis&&Array.isArray(GAME.legis.sHeld))?GAME.legis.sHeld:null;
+  const ss=sHeld
+    ? legisSeatMap(OR_SENATE_DISTRICTS, after.senate, {held:sHeld, contested:sUp})
+    : legisSeatMap(OR_SENATE_DISTRICTS, after.senate);
+  const upN=sUp?sUp.size:LEGIS.senate;
   return `<div class="legmap-grid">
-    <div class="legmap-card">
-      <div class="legmap-h">House — ${L.house} of ${LEGIS.house}</div>
-      ${legMapSVG(OR_HOUSE_DISTRICTS, L.house, hs)}
-      <div class="legmap-foot">${hs.tipping?`Your ${_cmNth(L.house)} seat is <b>HD ${hs.tipping}</b>`:`You hold no House seat`}${hs.nextUp?` · the next one up is <b>HD ${hs.nextUp}</b>`:``}</div>
+    <div class="legmap-card" data-legzoom role="button" tabindex="0" title="Click to enlarge">
+      <div class="legmap-h">House — ${after.house} of ${LEGIS.house} <span class="legmap-zoomhint">⤢ click to enlarge</span></div>
+      ${legMapSVG(OR_HOUSE_DISTRICTS, hs)}
+      <div class="legmap-foot">All ${LEGIS.house} seats were on this ballot. ${hs.tipping?`Your ${_cmNth(after.house)} seat is <b>HD ${hs.tipping}</b>`:`You hold no House seat`}${hs.nextUp?` · the next one up is <b>HD ${hs.nextUp}</b>`:``}</div>
     </div>
-    <div class="legmap-card">
-      <div class="legmap-h">Senate — ${L.senate} of ${LEGIS.senate}</div>
-      ${legMapSVG(OR_SENATE_DISTRICTS, L.senate, ss)}
-      <div class="legmap-foot">${ss.tipping?`Your ${_cmNth(L.senate)} seat is <b>SD ${ss.tipping}</b>`:`You hold no Senate seat`}${ss.nextUp?` · the next one up is <b>SD ${ss.nextUp}</b>`:``}</div>
+    <div class="legmap-card" data-legzoom role="button" tabindex="0" title="Click to enlarge">
+      <div class="legmap-h">Senate — ${after.senate} of ${LEGIS.senate} <span class="legmap-zoomhint">⤢ click to enlarge</span></div>
+      ${legMapSVG(OR_SENATE_DISTRICTS, ss, sUp)}
+      <div class="legmap-foot">${upN} of ${LEGIS.senate} seats were up this cycle — the rest (dimmed) hold their four-year terms. ${ss.tipping?`Your ${_cmNth(after.senate)} seat is <b>SD ${ss.tipping}</b>`:`You hold no Senate seat`}${ss.nextUp?` · the next one up is <b>SD ${ss.nextUp}</b>`:``}</div>
     </div>
   </div>
-  <div class="legmap-legend"><span><i style="background:#2f5130"></i>Seats you hold</span><span><i style="background:#93242a"></i>Opposition</span><span><i class="tipbox"></i>The seat that decides control</span></div>`;
+  <div class="legmap-legend"><span><i style="background:#2f5130"></i>Your party</span><span><i style="background:#93242a"></i>Opposition</span><span><i class="dimbox"></i>Not on this ballot</span><span><i class="tipbox"></i>The seat that decides control</span></div>`;
+}
+/* Click / Enter on a legislative map card enlarges it to the full width of the
+   section and back. */
+function wireLegMaps(root){
+  root.querySelectorAll('[data-legzoom]').forEach(el=>{
+    const toggle=()=>el.classList.toggle('zoom');
+    el.addEventListener('click',toggle);
+    el.addEventListener('keydown',ev=>{ if(ev.key==="Enter"||ev.key===" "){ ev.preventDefault(); toggle(); } });
+  });
 }
 /* Where you stand in Salem and what it is worth per quarter. The 3/5 line is
    not flavour: below it you cannot raise revenue without opposition votes, so
@@ -9542,19 +9587,40 @@ function legisStanding(L){
 }
 /* Legislative seats, run at every statewide election — the midterm AND the
    gubernatorial year, because Oregon elects its legislature every even year.
-   The whole House is up each time; the Senate runs staggered four-year terms,
-   so only about half of it is on any given ballot, which is why a wave moves
-   the House roughly twice as far as the Senate. */
+   The whole House is up each time. The Senate runs staggered four-year terms:
+   exactly half the chamber — one class of 15 districts — is on any given
+   ballot, and the other half keeps whoever won it last time. The class
+   alternates each election (odd-numbered districts, then even). */
 function runLegislativeElection(approval){
   const L=GAME.legis||(GAME.legis={senate:LEGIS.superS,house:LEGIS.superH});
   const before={senate:L.senate, house:L.house};
   const standingBefore=legisStanding(before);
   const margin=clamp((approval-50)/50,-1,1);
+  const g=govIdeologyPoint(), left=(g.economic+g.social)<0;
+
+  // ---- House: all 60 up ----
   const hSw=Math.round(margin*9+(Math.random()-0.5)*2.4);
+  L.house=Math.round(clamp(L.house+hSw,0,LEGIS.house));
+
+  // ---- Senate: only this cycle's class of 15 is on the ballot ----
+  GAME.senateClass = GAME.senateClass ? 0 : 1;
+  const cls=GAME.senateClass;
+  const up=OR_SENATE_DISTRICTS.map(r=>r[0]).filter(id => (id%2) === (cls?0:1));
+  if(!Array.isArray(L.sHeld)){
+    // first time: seed holders from the starting seat count, safest first
+    L.sHeld=[...legisSeatMap(OR_SENATE_DISTRICTS, L.senate).mine];
+  }
+  const notUpMine=L.sHeld.filter(id=>!up.includes(id));       // held-over seats you keep
   const sSw=Math.round(margin*4+(Math.random()-0.5)*1.6);
-  L.house =Math.round(clamp(L.house +hSw,0,LEGIS.house));
-  L.senate=Math.round(clamp(L.senate+sSw,0,LEGIS.senate));
-  return {before, after:{senate:L.senate,house:L.house},
+  const wantContested=clamp((before.senate + sSw) - notUpMine.length, 0, up.length);
+  const rankedUp=up.map(id=>{ const row=OR_SENATE_DISTRICTS.find(r=>r[0]===id);
+    return {id, aff:left?row[4]:100-row[4]}; }).sort((a,b)=>b.aff-a.aff);
+  const newHeld=notUpMine.slice();
+  for(let i=0;i<wantContested;i++)newHeld.push(rankedUp[i].id);
+  L.sHeld=newHeld;
+  L.senate=newHeld.length;
+
+  return {before, after:{senate:L.senate,house:L.house}, senateUp:up, senateClass:cls,
           sSwing:L.senate-before.senate, hSwing:L.house-before.house,
           standingBefore, standingAfter:legisStanding(L)};
 }
