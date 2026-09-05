@@ -9174,7 +9174,7 @@ function showBallotNotice(bn, next){
   let rows="";
   for(const m of bn.measures){
     const poll=measureYesShare(m), pct=Math.round(poll*100);
-    rows+=`<div class="rrow"><span class="rlabel">${ico(m.icon)} ${m.dir==="repeal"?"Repeal — ":""}${m.name}</span>
+    rows+=`<div class="rrow"><span class="rlabel">${ico(m.icon)} ${measureTitle(m)}</span>
       <span class="rval" style="color:${poll>=0.5?'var(--good)':'var(--bad)'}">${pct}% yes</span></div>
       <div class="sectionsub" style="margin:-4px 0 10px;font-size:11px">${m.sponsor}</div>`;
   }
@@ -9362,7 +9362,7 @@ function measureResultsHTML(list,heading){
   let h=`<div class="rsection"><div class="rsec-h">${ico("ballot")} ${heading||"On the same ballot"}</div>`;
   for(const r of list)
     h+=`<div class="measres ${r.passed?"pass":"fail"}">
-      <span>${ico(r.icon)} ${r.source==="citizen"?"Citizen — ":""}${r.dir==="repeal"?"Repeal — ":""}${r.name}</span>
+      <span>${ico(r.icon)} ${r.source==="citizen"?"Citizen — ":""}${measureTitle(r)}</span>
       <span class="mr-verdict">${r.passed?"Passed":"Failed"}</span>
       <span class="mr-share">${Math.round(r.share*100)}% yes</span></div>`;
   return h+`</div>`;
@@ -9393,26 +9393,112 @@ function referMeasure(id,dir){
   const nb=nextBallotInfo();
   GAME.ballot.pending.push({id,dir,name:p.name,icon:p.icon||"ballot",
     referredTurn:GAME.turn, kind:nb.kind, energy:0});
-  GAME.log.push(ico('ballot')+" Referred to the voters: "+(dir==="repeal"?"repeal of ":"")+p.name
+  GAME.log.push(ico('ballot')+" Referred to the voters: "+measureTitle({id,dir,target:undefined})
     +" — on "+nb.label+(nb.quartersAway>0?" in "+nb.quartersAway+"q":" this quarter"));
   return true;
 }
 
+/* Where a "set" measure would leave the dial, in the policy's own units. */
+function measureTargetLabel(m){
+  const p=measureFor(m.id); if(!p)return "";
+  if(p.mechanic==="tier"&&p.tiers)return p.tiers[m.target]||"";
+  if(p.real){
+    const v=p.real.min+(p.real.max-p.real.min)*m.target;
+    return v.toFixed(p.real.decimals)+p.real.unit;
+  }
+  if(p.costFull)return "$"+(p.costFull*m.target).toFixed(2)+"B/yr";
+  return Math.round(m.target*100)+"%";
+}
+/* The proposition in plain words — used everywhere a measure is named. */
+function measureTitle(m){
+  const p=measureFor(m.id), nm=(p&&p.name)||m.name;
+  if(m.dir==="repeal")return "Repeal — "+nm;
+  if(m.dir==="set")return nm+" → "+measureTargetLabel(m);
+  return nm;
+}
+/* Voters carried a value change: move the dial, without charging you anything
+   and without the repeal machinery — nothing is being taken off the books, so
+   there are no backers to grudge. The ongoing approval model picks the new
+   setting up on its own, the way it would if you had moved it yourself. */
+function _applySetMeasure(id,target){
+  const p=POLICIES[id]; if(!p)return;
+  if(p.mechanic==="tier")p.tierIndex=clamp(Math.round(target),(p.tierMin||0),p.tiers.length-1);
+  else if(p.mechanic==="intensity")p.intensity=clamp(target,0,1);
+  else p.value=clamp(target,(p.sliderFloor||0),1);
+  GAME.log.push(ico('ballot')+" Voters set "+p.name+" to "+measureTargetLabel({id,dir:"set",target}));
+}
+/* A realistic proposal for where a citizen measure would move a dial: tiers
+   move a step or two, rates move by a real fraction — never a token nudge and
+   never to an absurd extreme. Returns null when the policy has nowhere to go. */
+function proposeSetTarget(id){
+  const p=POLICIES[id]; if(!p)return null;
+  if(p.mechanic==="tier"&&p.tiers){
+    const lo=p.tierMin||0, hi=p.tiers.length-1;
+    const opts=[];
+    for(const step of [1,-1,2,-2]){
+      const t=p.tierIndex+step;
+      if(t>=lo&&t<=hi)opts.push({t,w:Math.abs(step)===1?3:1});
+    }
+    if(!opts.length)return null;
+    let tot=0; for(const o of opts)tot+=o.w;
+    let r=Math.random()*tot;
+    for(const o of opts){ r-=o.w; if(r<=0)return o.t; }
+    return opts[0].t;
+  }
+  if(p.mechanic==="slider"||p.mechanic==="intensity"){
+    const cur=(p.mechanic==="intensity")?(p.intensity||0):(p.value||0);
+    const floor=p.sliderFloor||0;
+    const size=0.2+Math.random()*0.3;                 // a real move, not a nudge
+    const up=cur+size, down=cur-size;
+    const canUp=up<=1.0001, canDown=down>=floor-0.0001;
+    if(!canUp&&!canDown)return null;
+    const goUp=canUp&&(!canDown||Math.random()<0.5);
+    return +clamp(goUp?up:down,floor,1).toFixed(2);
+  }
+  return null;
+}
 /* Where each voter bloc sits on a YES vote — the policy's own blocEffect, the
    same data that drives approval, so a bloc that hates the policy votes against
    it and a repeal flips every sign. Only blocs the measure actually NAMES get
    an entry: a group with no stake should not dilute the opinion of one that
    has, which is what flattened every measure toward the same number. */
+/* How big a change the measure proposes, signed, on a -1..+1 scale.
+   enact = +1 (nothing → in force), repeal = -1 (in force → nothing), and a
+   "set" measure is the distance it moves the dial: raising the minimum wage
+   one tier of four is +0.33, halving a tax rate is about -0.5. Everything
+   downstream — bloc leans, ideology pull, the sponsor's framing — scales off
+   this, so a modest adjustment is a modest fight and a drastic one is not. */
+function measureMagnitude(m){
+  if(m.dir==="enact")return 1;
+  if(m.dir==="repeal")return -1;
+  const p=measureFor(m.id); if(!p)return 0;
+  if(p.mechanic==="tier"&&p.tiers){
+    const n=Math.max(1,p.tiers.length-1);
+    return clamp(((m.target??p.tierIndex)-p.tierIndex)/n,-1,1);
+  }
+  const cur=(p.mechanic==="intensity")?(p.intensity||0):(p.value||0);
+  return clamp((m.target??cur)-cur,-1,1);
+}
 function measureBlocLeans(m){
   const p=measureFor(m.id), lean={};
+  const mag=measureMagnitude(m);
+  // A tier policy states directly how each bloc feels at each setting, so a
+  // "set" measure is the DIFFERENCE between the two settings — much truer than
+  // scaling one blanket reaction, since tiers are not evenly spaced politically.
+  if(m.dir==="set"&&p&&p.mechanic==="tier"&&p.tierBlocEffects){
+    const from=p.tierBlocEffects[p.tierIndex]||{}, to=p.tierBlocEffects[m.target]||{};
+    const keys=new Set([...Object.keys(from),...Object.keys(to)]);
+    for(const sid of keys)
+      if(SIMULANTS[sid])lean[sid]=(to[sid]||0)-(from[sid]||0);
+    return lean;
+  }
   // blocEffect answers "how does this group feel about you for doing it" — which
   // is not always the same question as "how would they vote on it." A policy can
   // set ballotLean to answer the second separately; most don't need to.
   const src=p&&(p.ballotLean||p.blocEffect);
   if(!p||!src)return lean;
-  const flip=(m.dir==="repeal")?-1:1;
   for(const sid in src)
-    if(SIMULANTS[sid])lean[sid]=src[sid]*flip;
+    if(SIMULANTS[sid])lean[sid]=src[sid]*mag;
   return lean;
 }
 /* Expected YES share, run over the same 2,000-voter electorate as the general
@@ -9443,7 +9529,14 @@ function orCountyIndex(){
 function measureBreakdown(m){
   const p=measureFor(m.id);
   if(!p)return {yes:0.5, blocs:{}, counties:[]};
-  const ideo=policyIdeology(p), flip=(m.dir==="repeal")?-1:1;
+  // for a tier "set" measure the ideological pull is the difference between the
+  // two settings' own ideology vectors, not the current one scaled
+  let ideo=policyIdeology(p), flip=measureMagnitude(m);
+  if(m.dir==="set"&&p.mechanic==="tier"&&p.tierIdeology){
+    const a=p.tierIdeology[p.tierIndex]||{}, b=p.tierIdeology[m.target]||{};
+    ideo={}; for(const k of AXES)ideo[k]=(b[k]||0)-(a[k]||0);
+    flip=1;   // the difference already carries direction and size
+  }
   const lean=measureBlocLeans(m);
   const ideoEc=((ideo.economic||0)+(ideo.govSize||0)*0.7)*flip;
   const ideoSo=((ideo.social||0)+(ideo.environment||0)*0.6)*flip;
@@ -9521,6 +9614,7 @@ function resolveBallot(kind){
     const passed=share>0.5;
     if(passed){
       if(m.dir==="enact")_applyEnact(m.id);
+      else if(m.dir==="set")_applySetMeasure(m.id,m.target);
       else {
         // a citizen repeal you campaigned FOR is yours to answer for like any
         // other; one you sat out or fought is barely your doing at all
@@ -9528,13 +9622,13 @@ function resolveBallot(kind){
         _applyRepeal(m.id,{voted:true,blame});
       }
     }
-    const r={id:m.id,dir:m.dir,name:m.name,icon:m.icon,share,passed,
+    const r={id:m.id,dir:m.dir,target:m.target,name:m.name,icon:m.icon,share,passed,
              energy:m.energy||0,turn:GAME.turn,kind:kind||m.kind,
              source:m.source||"referred",sponsor:m.sponsor||null,stance:m.stance||null};
     results.push(r);
     GAME.ballot.history.push(r);
     GAME.log.push((passed?ico('ballot')+" Measure PASSED — ":ico('ban')+" Measure failed — ")
-      +(citizen?"citizen initiative — ":"")+(m.dir==="repeal"?"repeal of ":"")+m.name+" ("+Math.round(share*100)+"% yes)");
+      +(citizen?"citizen initiative — ":"")+measureTitle(m)+" ("+Math.round(share*100)+"% yes)");
     // an amendment YOU referred is a mandate event either way. A citizen
     // initiative only touches your standing if you actually took a side on it
     // — campaign for it and win, or against it and lose, and it's on you.
@@ -9563,8 +9657,14 @@ function citizenCandidatePool(){
   }
   for(const id in POLICIES){
     const p=POLICIES[id];
-    if(p.reform||p.noRepeal||!p.blocEffect||pendingMeasure(id))continue;
-    out.push({id,dir:"repeal"});
+    if(p.reform||!p.blocEffect||pendingMeasure(id))continue;
+    // most ballot fights are not about abolishing a programme — they are about
+    // how far it goes. Anything with a dial can be asked to move.
+    if(p.mechanic==="tier"||p.mechanic==="slider"||p.mechanic==="intensity"){
+      const t=proposeSetTarget(id);
+      if(t!==null)out.push({id,dir:"set",target:t});
+    }
+    if(!p.noRepeal)out.push({id,dir:"repeal"});
   }
   return out;
 }
@@ -9575,14 +9675,18 @@ function citizenCandidatePool(){
    perfect opening. */
 function citizenSponsorWeight(cand){
   const p=measureFor(cand.id); if(!p||!p.blocEffect)return 0;
-  const flip=cand.dir==="repeal"?-1:1;
+  // scale by how much the proposal actually changes: a one-tier nudge is a
+  // smaller prize for a sponsor than an outright repeal
+  const mag=measureMagnitude(cand);
+  if(Math.abs(mag)<0.02)return 0;
   let polar=0; for(const k in p.blocEffect)polar+=Math.abs(p.blocEffect[k]);
+  polar*=Math.min(1,Math.abs(mag)+0.35);
   let align=0;
   for(const aid in (GAME.activists||{})){
     const a=GAME.activists[aid];
     const groups=[a.ownGroup].concat(a.alliedGroups||[]);
     let s=0; for(const g of groups) if(p.blocEffect[g]!==undefined)s+=p.blocEffect[g];
-    s*=flip;
+    s*=mag;
     align+=(a.dir==="against"?s:-s);
   }
   return Math.max(0.1, polar*0.35 + Math.max(0,align)*3 + Math.random()*2.2);
@@ -9590,14 +9694,16 @@ function citizenSponsorWeight(cand){
 /* Who's behind it, named the way the rest of the ballot UI already names
    blocs — no invented organizations, just the groups the measure actually
    helps, and a rough left/right read of the policy itself. */
-function citizenSponsorText(id,dir){
-  const p=measureFor(id); if(!p)return "A citizen coalition";
-  const flip=dir==="repeal"?-1:1;
-  const be=p.blocEffect||{};
-  const top=Object.keys(be).map(k=>[k,be[k]*flip]).filter(([,v])=>v>0)
+function citizenSponsorText(m){
+  const p=measureFor(m.id); if(!p)return "A citizen coalition";
+  // for a tier "set" the leans already ARE the difference between settings
+  const tierSet=(m.dir==="set"&&p.mechanic==="tier"&&p.tierBlocEffects);
+  const be=tierSet?measureBlocLeans(m):(p.blocEffect||{});
+  const scale=tierSet?1:measureMagnitude(m);
+  const top=Object.keys(be).map(k=>[k,be[k]*scale]).filter(([,v])=>v>0)
     .sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k])=>SIMULANTS[k]?SIMULANTS[k].name:k);
   const ideo=policyIdeology(p);
-  const tilt=((ideo.economic||0)+(ideo.govSize||0)*0.5)*flip;
+  const tilt=((ideo.economic||0)+(ideo.govSize||0)*0.5)*measureMagnitude(m);
   const wing=tilt>0.08?"A conservative-aligned":tilt<-0.08?"A progressive-aligned":"A nonpartisan";
   return top.length?`${wing} coalition led by ${top.join(" and ")}`:`${wing} citizen coalition`;
 }
@@ -9607,8 +9713,15 @@ function citizenSponsorText(id,dir){
 function generateCitizenMeasures(){
   const pool=citizenCandidatePool(); if(!pool.length)return [];
   const scored=pool.map(c=>({...c,w:citizenSponsorWeight(c)})).sort((a,b)=>b.w-a.w);
-  const short=scored.slice(0,12);
-  for(const c of short)c.poll=measureYesShare({id:c.id,dir:c.dir,energy:0});
+  // Shortlist by DIRECTION, not just by weight. The catalog of unpassed policy
+  // is far bigger than the list of enacted dials, so a straight top-N is always
+  // 12 "pass this new thing" measures and never a rate change or a repeal — and
+  // a real Oregon ballot is a mix of all three.
+  const take=(dir,n)=>scored.filter(c=>c.dir===dir).slice(0,n);
+  const short=[...take("enact",5),...take("set",5),...take("repeal",4)]
+    .sort((a,b)=>b.w-a.w);
+  if(!short.length)return [];
+  for(const c of short)c.poll=measureYesShare({id:c.id,dir:c.dir,target:c.target,energy:0});
   const count=Math.min(short.length, 3+Math.floor(Math.random()*2));
   const chosen=[];
   const likely=short.filter(c=>c.poll>=0.55);
@@ -9631,9 +9744,9 @@ function refreshCitizenBallot(){
   const nb=nextBallotInfo();
   for(const c of list){
     const p=measureFor(c.id); if(!p)continue;
-    const entry={id:c.id, dir:c.dir, name:p.name, icon:p.icon||"ballot",
+    const entry={id:c.id, dir:c.dir, target:c.target, name:p.name, icon:p.icon||"ballot",
       referredTurn:GAME.turn, kind:nb.kind, energy:0,
-      source:"citizen", sponsor:citizenSponsorText(c.id,c.dir), stance:null};
+      source:"citizen", sponsor:citizenSponsorText(c), stance:null};
     GAME.ballot.pending.push(entry);
     created.push(entry);
   }
@@ -9864,11 +9977,17 @@ function ballotCampaignHTML(){
     const engaged=!citizen||!!m.stance;   // referred measures are always "yours"; citizen ones need a stance first
     h+=`<div class="meascard${citizen?' citizen':''}">
       <div class="meas-top">
-        <span class="meas-name">${ico(m.icon)} ${m.dir==="repeal"?"Repeal — ":""}${m.name}</span>
+        <span class="meas-name">${ico(m.icon)} ${measureTitle(m)}</span>
         <span class="meas-when">${citizen?"Citizen initiative":"Your referral"} · ${m.kind==="midterm"?"Midterm ballot":"On your re-election ballot"}</span>
       </div>
       ${citizen?`<div class="meas-sponsor">${m.sponsor}</div>`:``}
-      <div class="meas-sub">${m.dir==="repeal"
+      <div class="meas-sub">${
+        m.dir==="set"
+        ? (()=>{ const p=measureFor(m.id);
+            const from=(p&&p.mechanic==="tier"&&p.tiers)?p.tiers[p.tierIndex]:policyRealLabel(p||{});
+            return `A citizen vote to move this from <b>${from}</b> to <b>${measureTargetLabel(m)}</b> — not to create or abolish it, just to set where the dial sits. It stays where it is unless the voters move it.`;
+          })()
+        : m.dir==="repeal"
         ? (citizen ? `A citizen vote to repeal this policy outright. It stays in force until the voters strike it down.`
                    : `A vote to strike this amendment back out of the constitution. It stays in force until the voters say otherwise.`)
         : (citizen ? `A citizen vote to write this into law, over your head. It does nothing until the voters approve it.`
@@ -9932,7 +10051,7 @@ function ballotCampaignHTML(){
   if(hist.length){
     h+=`<div class="camp-sec" style="margin-top:18px">${ico('doc')} Past measures</div><div class="ebgroup" style="margin-top:8px">`;
     for(const r of hist.slice(-8).reverse())
-      h+=`<div class="ci-row"><span>${r.source==="citizen"?"Citizen — ":""}${r.dir==="repeal"?"Repeal — ":""}${r.name}</span>
+      h+=`<div class="ci-row"><span>${r.source==="citizen"?"Citizen — ":""}${measureTitle(r)}</span>
         <span style="color:${r.passed?'var(--good)':'var(--bad)'}">${r.passed?"passed":"failed"} ${Math.round(r.share*100)}%</span></div>`;
     h+=`</div>`;
   }
@@ -10692,7 +10811,7 @@ function renderBoard(){
       const poll=measureYesShare(m), pct=Math.round(poll*100);
       h+=`<div class="ballotstrip" data-gotoballot="1">
         <span class="bs-tag">On the ballot</span>
-        <span class="bs-name">${ico(m.icon)} ${m.dir==="repeal"?"Repeal — ":""}${m.name}</span>
+        <span class="bs-name">${ico(m.icon)} ${measureTitle(m)}</span>
         <span style="font-size:11px;color:var(--muted-3)">${nb.quartersAway>0?nb.quartersAway+"q away":"votes this quarter"} · ${m.energy||0} energy in</span>
         <span class="bs-poll" style="color:${poll>=0.5?"var(--good)":"var(--bad)"}">${pct}% yes</span></div>`;
     }
