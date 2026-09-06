@@ -378,7 +378,7 @@
   .startrow{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin:16px auto 4px;max-width:740px}
   .startcard{flex:1 1 320px;max-width:352px;text-align:left;background:var(--paper-2);border:var(--rule) solid var(--ink);
     border-radius:var(--radius);padding:15px 18px;cursor:pointer;font-family:inherit;color:var(--ink);
-    box-shadow:4px 4px 0 var(--ink);transition:transform .12s,box-shadow .12s,background .12s}
+    box-sizing:border-box;box-shadow:4px 4px 0 var(--ink);transition:transform .12s,box-shadow .12s,background .12s}
   .startcard:hover{transform:translate(2px,2px);box-shadow:2px 2px 0 var(--ink);background:var(--paper)}
   .startcard.selected{background:var(--paper);box-shadow:4px 4px 0 var(--gold);cursor:default}
   .startcard.selected:hover{transform:none}
@@ -404,11 +404,42 @@
     color:var(--muted-1);margin:2px 0 4px}
   .welcome-title .eg-role b{color:var(--ink)}
   .welcome-grand .welcome-optin{display:flex;align-items:flex-start;gap:8px;justify-content:center;max-width:520px;
-    margin:14px auto 4px;font-size:12.5px;color:var(--muted-2);line-height:1.45;cursor:pointer;text-align:left}
+    margin:16px auto 2px;font-size:12.5px;color:var(--muted-2);line-height:1.45;cursor:pointer;text-align:left}
   .welcome-grand .welcome-optin input{margin-top:2px;flex:none}
-  .welcome-grand .welcome-choosehint{font-size:12px;color:var(--clay);margin-top:6px}
-  .welcome-grand .welcome-go[disabled]{opacity:.4;cursor:not-allowed;box-shadow:none}
-  .welcome-grand .welcome-body{margin-top:20px}
+  .welcome-grand .welcome-go[disabled]{opacity:.38;cursor:not-allowed;box-shadow:none}
+  .welcome-title .eg-role{max-width:560px}
+  .welcome-title .startprompt{font-family:var(--font-display);font-size:15px;letter-spacing:1.5px;
+    text-transform:uppercase;color:var(--muted-1);margin:18px 0 -4px}
+  .welcome-title .startprompt b{color:var(--ink)}
+  .welcome-title .startnote{font-size:12.5px;max-width:600px;color:var(--muted-2);margin-top:2px}
+  .welcome-title .welcome-help{max-width:600px;margin:18px auto 0;text-align:left;
+    border-top:1px solid var(--line);padding-top:10px}
+  .welcome-title .welcome-help summary{font-family:var(--font-display);font-size:13px;letter-spacing:1px;
+    text-transform:uppercase;color:var(--muted-1);cursor:pointer;list-style:none;text-align:center}
+  .welcome-title .welcome-help summary::-webkit-details-marker{display:none}
+  .welcome-title .welcome-help summary::after{content:" ▾";color:var(--muted-3)}
+  .welcome-title .welcome-help[open] summary::after{content:" ▴"}
+  .welcome-title .welcome-help .welcome-body{border-top:0;padding-top:8px;margin-top:0}
+  .welcome-title .welcome-seed{font-size:12px;color:var(--muted-3);margin-top:14px;letter-spacing:.03em}
+  .welcome-title .welcome-seed code{font-family:var(--font-data);letter-spacing:1px;color:var(--muted-1)}
+  .welcome-title .welcome-seed button{background:none!important;border:none!important;color:var(--slate-blue)!important;
+    cursor:pointer;font-size:12px!important;text-decoration:underline;padding:0!important;margin:0!important;
+    box-shadow:none!important;letter-spacing:0!important;text-transform:none!important;font-family:inherit!important}
+  /* the title screen must never scroll sideways on a phone */
+  .welcome-title{overflow-x:hidden;max-width:100%}
+  .welcome-title>*{max-width:100%;box-sizing:border-box}
+  .startrow{box-sizing:border-box}
+  @media(max-width:700px){
+    .egrand{padding:22px 14px}
+    .welcome-title .eg-result{font-size:clamp(40px,14vw,68px);letter-spacing:2px}
+    .welcome-title .eg-tagline{letter-spacing:2px;font-size:clamp(15px,4.2vw,24px)}
+    .welcome-title .eg-role{font-size:13px;letter-spacing:.5px}
+    .welcome-title .startprompt{font-size:13px}
+    .startrow{gap:12px;max-width:100%}
+    .startcard{flex:1 1 100%;max-width:100%;padding:15px 16px}
+    .startcard .sc-blurb{font-size:12px}
+    .welcome-grand .welcome-go{min-width:0;width:100%;max-width:340px;padding:14px 18px;font-size:15px}
+  }
   .welcome-grand .welcome-body{max-width:600px;text-align:left;font-size:13.5px;line-height:1.7;color:var(--muted-1);margin-top:14px;border-top:1px solid var(--line);padding-top:18px}
   .welcome-grand .welcome-body p{margin:0 0 11px}
   .welcome-grand .welcome-go{margin-top:22px;padding:15px 28px;font-size:16px;letter-spacing:1.5px;min-width:280px}
@@ -8385,11 +8416,7 @@ function showWelcome(onDone){
   const modal=document.getElementById("welcomeModal"), card=document.getElementById("welcomeCard");
   if(!modal||!card){ if(onDone)onDone(); return; }
   const yr=GAME.startYear||2025;
-  // Arriving here fresh you must pick a coalition before Take office unlocks.
-  // Coming back from a switch-reload, sc_startChosen is set — the reload WAS
-  // the choice, so the pick is already made.
-  let chosen=false;
-  try{ if(localStorage.getItem("sc_startChosen")){ chosen=true; localStorage.removeItem("sc_startChosen"); } }catch(e){}
+  const chosen=!!GAME._coalitionChosen;
   const cur=STARTS[GAME.startId]?GAME.startId:activeStartId();
   const cardFor=(S)=>`<button class="startcard${(chosen&&S.id===cur)?' selected':''}" data-start="${S.id}">
       <div class="sc-name">${S.name}</div>
@@ -8402,30 +8429,31 @@ function showWelcome(onDone){
     <div class="eg-result">OREGON</div>
     <div class="eg-tagline">Political Simulator</div>
     <div class="wm-rule"></div>
-    <div class="eg-role">You have been elected <b>Governor</b>.</div>
-    <div class="eg-sub" style="font-size:17px;max-width:600px">You take the oath with <b>eight years</b> — two four-year terms — to leave the state better than you found it. Longer, if you can change the constitution.</div>
-    <div class="eg-sub" style="font-size:13px;max-width:600px;margin-top:10px;color:var(--muted-2)">Same Oregon either way — the same laws on the books, the same budget hole. What changes is the coalition that elected you, and therefore which seats in Salem are yours and which half of the policy list the floor will carry.</div>
+    <div class="eg-role">You have been elected <b>Governor</b>. Eight years to leave the state better than you found it.</div>
+    <div class="startprompt">First — <b>how did you win?</b></div>
     <div class="startrow">${cardFor(STARTS.liberal)}${cardFor(STARTS.conservative)}</div>
+    <div class="eg-sub startnote">Same Oregon either way: the same laws, the same crises, the same budget hole. The coalition decides which seats in Salem are yours and which half of the policy list the floor will carry.</div>
     <label class="welcome-optin">
       <input type="checkbox" id="welcomeTermLimit" ${GAME.enforceTermLimit!==false?'checked':''}>
-      <span>Enforce Oregon's <b>two consecutive-term limit</b>. Leave it on for the real rule — your second term is your last unless you pass a constitutional amendment to repeal it. Turn it off to govern indefinitely, re-election after re-election.</span>
+      <span>Enforce Oregon's <b>two consecutive-term limit</b> — your second term is your last unless you amend the constitution. Off means re-election without end.</span>
     </label>
-    <button class="enactbtn welcome-go" id="welcomeGo"${chosen?'':' disabled'}>Take office ▸</button>
-    <div class="welcome-choosehint" id="welcomeChooseHint"${chosen?' hidden':''}>Choose the coalition that elected you to continue.</div>
-    <div class="welcome-body">
-      <p>Enact policy from <b>New Policies</b>. The <b>Governing Board</b> maps how every lever connects to every outcome — hover a tile to light up its web. Crime, jobs, housing, schools, health, the environment, the budget: pull one and the others move.</p>
-      <p>Crises, dilemmas and a persistent opposition will test you along the way. Every choice ripples, and the voters — statewide and county by county — remember.</p>
-      <p>Next, set the <b>platform</b> you're taking office on: the promises you'll be judged against at your first re-election.</p>
-    </div>
-    <div class="welcome-seed" style="font-size:12px;color:var(--muted-3);margin-top:12px;letter-spacing:.03em">
-      This run's seed: <code style="font-family:var(--font-data);letter-spacing:1px;color:var(--muted-1)">${window.RUN_SEED||'—'}</code>
-      · <button id="welcomeSeedBtn" style="background:none;border:none;color:var(--slate-blue);cursor:pointer;font-size:12px;text-decoration:underline;padding:0">play a specific seed</button>
-      <div style="margin-top:3px;color:var(--muted-3)">The seed just fixes your starting conditions — same seed, same opening.</div>
+    <button class="enactbtn welcome-go" id="welcomeGo"${chosen?'':' disabled'}>${chosen?'Take office ▸':'Choose a coalition to begin'}</button>
+    <details class="welcome-help">
+      <summary>How to play</summary>
+      <div class="welcome-body">
+        <p>Enact policy from <b>New Policies</b>. The <b>Governing Board</b> maps how every lever connects to every outcome — hover a tile to light up its web. Crime, jobs, housing, schools, health, the environment, the budget: pull one and the others move.</p>
+        <p>Anything substantial goes to the <b>floor</b>: you get a whip count seat by seat, the odds, and the chance to buy the margin. Crises, dilemmas and a persistent opposition test you along the way, and the voters — statewide and county by county — remember.</p>
+        <p>After this screen you set your <b>platform</b>: the promises you'll be judged against at your first re-election.</p>
+      </div>
+    </details>
+    <div class="welcome-seed">
+      Seed <code>${window.RUN_SEED||'—'}</code>
+      · <button id="welcomeSeedBtn">play a specific seed</button>
     </div>
   </div>`;
   const goBtn=document.getElementById("welcomeGo");
   const go=()=>{
-    if(!chosen)return;                                   // pick a coalition first
+    if(!GAME._coalitionChosen)return;                    // pick a coalition first
     const tl=document.getElementById("welcomeTermLimit");
     GAME.enforceTermLimit = tl ? !!tl.checked : true;
     if(!GAME.enforceTermLimit && CATALOG.termLimitRepeal) delete CATALOG.termLimitRepeal;   // no limit ⇒ nothing to repeal
@@ -8439,27 +8467,23 @@ function showWelcome(onDone){
   goBtn.onclick=go;
   {const wsb=document.getElementById("welcomeSeedBtn");
    if(wsb)wsb.onclick=()=>newGame();}
-  // A coalition other than the one loaded means re-running the boot
-  // calibration, which only happens at load — so it reloads with the choice
-  // stored, exactly as picking a seed does. The coalition already loaded just
-  // needs the click to confirm and unlock Take office.
+  // Switching coalition rebuilds the world in place — same seed, same opening,
+  // no page reload. The reload was invisible on desktop and looked like a
+  // crash-and-restart on a phone.
   card.querySelectorAll('[data-start]').forEach(b=>b.onclick=()=>{
     const id=b.dataset.start;
-    if(id===cur){
-      chosen=true;
-      card.querySelectorAll('.startcard').forEach(x=>x.classList.toggle('selected', x.dataset.start===id));
-      goBtn.disabled=false;
-      const hint=document.getElementById("welcomeChooseHint"); if(hint)hint.hidden=true;
-      setTimeout(()=>{try{goBtn.focus({preventScroll:true});}catch(e){}},10);
+    const keepTL=document.getElementById("welcomeTermLimit");
+    if(keepTL)GAME.enforceTermLimit=!!keepTL.checked;
+    GAME._coalitionChosen=true;
+    try{ localStorage.setItem("sc_start", id); }catch(e){}
+    if(id!==GAME.startId){
+      bootWorld(id);
+      showWelcome(onDone);                                // redraw against the new world
       return;
     }
-    try{
-      localStorage.setItem("sc_start", id);
-      localStorage.setItem("sc_startChosen", "1");
-      localStorage.setItem("sc_freshGame", "1");
-      if(window.RUN_SEED)localStorage.setItem("sc_nextSeed", window.RUN_SEED);
-    }catch(e){}
-    location.href=location.origin+location.pathname+(window.RUN_SEED?"?seed="+window.RUN_SEED:"");
+    card.querySelectorAll('.startcard').forEach(x=>x.classList.toggle('selected', x.dataset.start===id));
+    goBtn.disabled=false; goBtn.textContent="Take office ▸";
+    setTimeout(()=>{try{goBtn.focus({preventScroll:true});}catch(e){}},10);
   });
   modal.classList.remove("hidden");
   modal.classList.add("grand");
@@ -15291,48 +15315,110 @@ function applyStart(id){
 function startIndShift(id){
   return (GAME.startInds&&GAME.startInds[id])||0;
 }
-applyStart(activeStartId());
+/* ============================================================
+   THE AUTHORED WORLD, AND BOOTING IT
 
-// build the simulated electorate and pre-roll to equilibrium
-buildVoters();
-for(let pr=0;pr<10;pr++){tickMembership();tickVoterApproval();}
-assignVoterCounties();   // soft-assign the electorate to Oregon's 36 counties for the results map
-// seed indicators from the REAL starting metrics (two passes so cross-derived
-// indicators like In-Migration ← Downtown settle)
-for(let _i=0;_i<3;_i++)for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();
-// fire the condition crises Oregon starts inside (homeless emergency, doom loop…)
-// BEFORE calibration so their drag is part of the inherited status quo
-for(const sid in SITUATIONS){
-  const s=SITUATIONS[sid];
-  if(s.category==="condition"&&!GAME.activeSituations[sid]&&s.trigger&&s.trigger())
-    {GAME.activeSituations[sid]=true;GAME.situationAge[sid]=0;}
+   Everything above this line is data: the metric seeds, the bloc approvals,
+   the agency budgets as written. Everything below is derived from them by
+   calibration. Snapshotting the data means the derivation can be run again —
+   which is what lets the opening screen switch coalitions in place instead of
+   reloading the page. (It used to reload. On desktop that reads as a blink;
+   on a phone it reads as the game resetting on you.)
+
+   Restoring the seeds first is what makes the re-run exact: calibration always
+   starts from the same base, so picking conservative and then liberal lands
+   in precisely the world you would have got by loading straight into liberal.
+   ============================================================ */
+const WORLD_SEED={
+  m:(()=>{const o={};for(const k in METRICS)o[k]=METRICS[k].value;return o;})(),
+  i:(()=>{const o={};for(const id in INDICATORS)o[id]=INDICATORS[id].value;return o;})(),
+  s:(()=>{const o={};for(const sid in SIMULANTS)o[sid]={a:SIMULANTS[sid].approval,z:SIMULANTS[sid].size};return o;})(),
+  a:(()=>{const o={};for(const id in AGENCIES)o[id]={f:AGENCIES[id].funding,l:AGENCIES[id].logging};return o;})(),
+  lu:LANDUSE.index,
+  legis:{house:GAME.legis.house, senate:GAME.legis.senate}
+};
+function bootWorld(startId){
+  // ---- deterministic streams. The opening crises are drawn from one stream
+  // and gameplay from another, both keyed off the run seed, so booting the
+  // world twice (which is what switching coalitions does) gives exactly the
+  // world a single boot would have — and the seed still means what it says.
+  try{
+    const sd=window.RUN_SEED||"";
+    Math.random=mulberry32(xmur3(sd+"|boot")());
+  }catch(e){}
+  // ---- run state that boot-time code reads, back to its turn-zero value
+  GAME.agendaBaseline=0; GAME.compassStart={ec:0,so:0}; GAME.compassEvents={ec:0,so:0};
+  GAME.mandateShock=0; GAME.changeAppetite=0; GAME.uturnCount=0; GAME.protestCrackdowns=0;
+  GAME.floorFail={}; GAME.enactedAt={}; GAME.senateClass=0; GAME.serviceDisrupt=0;
+  GAME.pendingKicker=0; GAME.pendingSurplus=null; GAME.elliottResolved=false;
+  GAME.legisElections=0;
+  // ---- back to the authored data
+  for(const k in METRICS){ METRICS[k].value=WORLD_SEED.m[k]; METRICS[k].calib=0; }
+  for(const id in INDICATORS){ INDICATORS[id].value=WORLD_SEED.i[id]; delete INDICATORS[id].base0; }
+  for(const sid in SIMULANTS){ const S=SIMULANTS[sid], z=WORLD_SEED.s[sid];
+    S.approval=z.a; S.size=z.z; S.calib=0; S.cynicism=0; }
+  for(const id in AGENCIES){ const A=AGENCIES[id], z=WORLD_SEED.a[id];
+    A.funding=z.f; A.logging=z.l; delete A.fundingBase; }
+  LANDUSE.index=WORLD_SEED.lu;
+  GAME.legis.house=WORLD_SEED.legis.house; GAME.legis.senate=WORLD_SEED.legis.senate;
+  GAME.legis.hHeld=null; GAME.legis.sHeld=null; GAME.legis.favors={};
+  GAME.activeSituations={}; GAME.situationAge={}; GAME.grudges=[]; GAME.history={};
+  GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.lawLock={};
+  GAME.walkoutFreeze=0; GAME.walkoutIgnoredUntil=0; GAME.protestIgnoredUntil=0;
+  // the chronic Oregon conditions the governor inherits, re-seeded
+  for(const sid in SITUATIONS)
+    if(SITUATIONS[sid].startActive){GAME.activeSituations[sid]=true;GAME.situationAge[sid]=0;}
+
+  applyStart(startId);
+
+  // build the simulated electorate and pre-roll to equilibrium
+  buildVoters();
+  for(let pr=0;pr<10;pr++){tickMembership();tickVoterApproval();}
+  assignVoterCounties();   // soft-assign the electorate to Oregon's 36 counties for the results map
+  // seed indicators from the REAL starting metrics (two passes so cross-derived
+  // indicators like In-Migration ← Downtown settle)
+  for(let _i=0;_i<3;_i++)for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();
+  // fire the condition crises Oregon starts inside (homeless emergency, doom loop…)
+  // BEFORE calibration so their drag is part of the inherited status quo
+  for(const sid in SITUATIONS){
+    const s=SITUATIONS[sid];
+    if(s.category==="condition"&&!GAME.activeSituations[sid]&&s.trigger&&s.trigger())
+      {GAME.activeSituations[sid]=true;GAME.situationAge[sid]=0;}
+  }
+  // CALIBRATION: anchor each metric so that, at the default policy mix — WITH the
+  // inherited chronic and condition crises active — its equilibrium IS its
+  // real-world seed value. Policy changes then move the world relative to actual
+  // 2025 Oregon: resolve a crisis and things improve BEYOND today; neglect the
+  // structural pressures (PERS, deficits) and they get worse.
+  for(const id in INDICATORS)INDICATORS[id].base0=INDICATORS[id].value;   // feedback anchor
+  for(const id in AGENCIES)AGENCIES[id].fundingBase=AGENCIES[id].funding; // overhead anchor — only funding CHANGES from the inherited default add coordination burden
+  for(const k in METRICS)METRICS[k].calib=0;
+  for(const k in METRICS)METRICS[k].calib=METRICS[k].value-metricTarget(k);
+  for(let _i=0;_i<2;_i++)for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();
+  // pre-seed lastBalance so fiscal situation severity is correct during approval calibration
+  GAME.lastBalance=budgetBalance().balance;
+  // APPROVAL CALIBRATION: anchor every bloc so its equilibrium at the inherited
+  // status quo equals its authored seed approval (a realistic new-governor spread),
+  // mirroring the metric calibration. From here, approval moves only in response
+  // to what the player actually does and to how conditions change.
+  for(const sid in SIMULANTS)SIMULANTS[sid].calib=0;
+  for(const sid in SIMULANTS){const s=SIMULANTS[sid];s.calib=s.approval-approvalTarget(sid,true);}
+  for(let _a=0;_a<4;_a++)tickApproval();
+  tickVoterApproval();   // blend the equilibrated bloc moods into the 2,000 voters
+  // reset prevMetrics/prevIndicators so turn-0 shows no spurious trend arrows
+  GAME.prevMetrics={};for(const k in METRICS)GAME.prevMetrics[k]=METRICS[k].value;
+  GAME.prevIndicators={};for(const id in INDICATORS)GAME.prevIndicators[id]=INDICATORS[id].value;
+  GAME.agendaBaseline=agendaConservatism();   // the inherited status quo — protests measure drift FROM here
+  GAME.compassStart=agendaVector();            // where the mandate sits on the political compass
+  pushHistory(); // seed turn 0
+  // hand gameplay its own stream, so the run plays the same however many times
+  // the opening screen rebuilt the world
+  try{
+    const sd=window.RUN_SEED||"";
+    Math.random=mulberry32(xmur3(sd+"|play")());
+  }catch(e){}
 }
-// CALIBRATION: anchor each metric so that, at the default policy mix — WITH the
-// inherited chronic and condition crises active — its equilibrium IS its
-// real-world seed value. Policy changes then move the world relative to actual
-// 2025 Oregon: resolve a crisis and things improve BEYOND today; neglect the
-// structural pressures (PERS, deficits) and they get worse.
-for(const id in INDICATORS)INDICATORS[id].base0=INDICATORS[id].value;   // feedback anchor
-for(const id in AGENCIES)AGENCIES[id].fundingBase=AGENCIES[id].funding; // overhead anchor — only funding CHANGES from the inherited default add coordination burden
-for(const k in METRICS)METRICS[k].calib=0;
-for(const k in METRICS)METRICS[k].calib=METRICS[k].value-metricTarget(k);
-for(let _i=0;_i<2;_i++)for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();
-// pre-seed lastBalance so fiscal situation severity is correct during approval calibration
-GAME.lastBalance=budgetBalance().balance;
-// APPROVAL CALIBRATION: anchor every bloc so its equilibrium at the inherited
-// status quo equals its authored seed approval (a realistic new-governor spread),
-// mirroring the metric calibration. From here, approval moves only in response
-// to what the player actually does and to how conditions change.
-for(const sid in SIMULANTS)SIMULANTS[sid].calib=0;
-for(const sid in SIMULANTS){const s=SIMULANTS[sid];s.calib=s.approval-approvalTarget(sid,true);}
-for(let _a=0;_a<4;_a++)tickApproval();
-tickVoterApproval();   // blend the equilibrated bloc moods into the 2,000 voters
-// reset prevMetrics/prevIndicators so turn-0 shows no spurious trend arrows
-GAME.prevMetrics={};for(const k in METRICS)GAME.prevMetrics[k]=METRICS[k].value;
-GAME.prevIndicators={};for(const id in INDICATORS)GAME.prevIndicators[id]=INDICATORS[id].value;
-GAME.agendaBaseline=agendaConservatism();   // the inherited status quo — protests measure drift FROM here
-GAME.compassStart=agendaVector();            // where the mandate sits on the political compass
-pushHistory(); // seed turn 0
+bootWorld(activeStartId());
 
 // ---- SAVE / RESUME ----
 let _resumedFromSave=false, _resumePrompted=false;
