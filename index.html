@@ -7310,6 +7310,9 @@ function approvalTarget(sid, raw){
     let a=30+(sim.calib||0)+policyMood+metricMood(sim,sid)+sitMood
       +groupGrudge(sid)-(sim.cynicism||0)-(sim.complacency||0)+groundPerception(sid);
     if(raw)return a;   // pre-squash — calibration needs this to anchor a bloc exactly
+    // Honeymoon: a new administration gets the benefit of the doubt. A small
+    // lift on every bloc for the first year that decays to nothing by quarter 4.
+    { const hm = 4-(GAME.turn||0); if(hm>0) a += hm*1.2; }
     // diminishing returns near the extremes — even a bloc that loves you has a
     // realistic ceiling (you can't govern a group to unanimous adoration), and even
     // one that loathes you keeps a small floor of "eh, could be worse".
@@ -10950,8 +10953,14 @@ function legisStanding(L){
    exactly half the chamber — one class of 15 districts — is on any given
    ballot, and the other half keeps whoever won it last time. The class
    alternates each election (odd-numbered districts, then even). */
+function firstElectionGrace(){
+  if((GAME.legisElections||0)>0 || GAME.startId!=="conservative") return 0;
+  const need=clamp((46-overallApproval())/20, 0, 1);
+  return 3.0*need;   // very slight — was 9.0, and it used to apply to both sides
+}
 function runLegislativeElection(approval){
   const L=GAME.legis||(GAME.legis={senate:LEGIS.superS,house:LEGIS.superH});
+  const grace=firstElectionGrace();
   GAME.legisElections=(GAME.legisElections||0)+1;
   const before={senate:L.senate, house:L.house};
   const standingBefore=legisStanding(before);
@@ -10963,7 +10972,7 @@ function runLegislativeElection(approval){
 
   // ---- House: all 60 contested ----
   const hRank=chamberSupport("house");
-  const hWon=hRank.filter(r=>r.support+jitter()>50).map(r=>r.id);
+  const hWon=hRank.filter(r=>r.support+grace+jitter()>50).map(r=>r.id);
   L.house=clamp(hWon.length,0,LEGIS.house);
   L.hHeld=hWon;
 
@@ -10975,11 +10984,11 @@ function runLegislativeElection(approval){
   if(!Array.isArray(L.sHeld))L.sHeld=[...legisSeatMap(OR_SENATE_DISTRICTS, L.senate).mine];
   const notUpMine=L.sHeld.filter(id=>!upSet.has(id));         // held-over seats you keep
   const sRank=chamberSupport("senate");
-  const wonUp=sRank.filter(r=>upSet.has(r.id) && r.support+jitter()>50).map(r=>r.id);
+  const wonUp=sRank.filter(r=>upSet.has(r.id) && r.support+grace+jitter()>50).map(r=>r.id);
   L.sHeld=notUpMine.concat(wonUp);
   L.senate=L.sHeld.length;
 
-  return {before, after:{senate:L.senate,house:L.house}, senateUp:up, senateClass:cls,
+  return {before, after:{senate:L.senate,house:L.house}, senateUp:up, senateClass:cls, grace,
           sSwing:L.senate-before.senate, hSwing:L.house-before.house,
           standingBefore, standingAfter:legisStanding(L)};
 }
