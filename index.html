@@ -10341,6 +10341,21 @@ function goesToFloor(pol, dir){
   if(dir==="repeal")return pol.mechanic==="law";   // striking a law needs a bill
   return true;                               // creating ANY new programme is a bill
 }
+/* Why the vote button is disabled, in numbers. A bill can be blocked two
+   ways: no majority exists at any price (members you would have to flip
+   cannot survive the vote), or the whip bill is real but larger than you
+   could ever hold. Either way the player should see the shortfall, not a
+   bare "Cannot pass" or a misleading "Not enough capital". */
+function floorBlockLabel(w){
+  if(!w.possible){
+    const seg=(C,name)=>{ if(!C||C.short<=0)return null;
+      const u=C.unbuyable||0;
+      return C.short+" short in the "+name+(u>0?" ("+u+" won't vote for it at any price)":""); };
+    const parts=[seg(w.house,"House"),seg(w.senate,"Senate")].filter(Boolean);
+    return "No majority \u2014 "+(parts.join(", ")||"the votes are not there");
+  }
+  return "Needs \u25c8"+w.cost+" to whip \u2014 you hold \u25c8"+Math.floor(GAME.capital);
+}
 /* Why one member is a holdout, in the language of who lives in their seat. */
 function holdoutReason(m, pol, dir){
   const rows=legCompRows(m.chamber);
@@ -10453,7 +10468,7 @@ function drawFloor(){
     ${(w.house.buy.length+w.senate.buy.length)?`<div class="whip-owed">Members you whip will owe you nothing afterwards — they have already paid. The next bill that hurts their seat, they are gone.</div>`:``}
     <div style="display:flex;gap:10px;margin:6px 0 4px;flex-wrap:wrap">
       <button class="enactbtn" id="floorGo" ${(w.possible&&afford)?'':'disabled'}>${
-        !w.possible?"Cannot pass":!afford?"Not enough capital"
+        (!w.possible||!afford)?floorBlockLabel(w)
         :"Call the vote"+(binary?"":" — "+(dialed?dialLab(F.narrowed):(F.narrowed>=1?"full bill":Math.round(F.narrowed*100)+"% strength")))
           +((w.house.buy.length+w.senate.buy.length)?", whipping "+(w.house.buy.length+w.senate.buy.length):"")}</button>
       <button class="enactbtn ghost" id="floorNo">Pull the bill</button>
@@ -14518,7 +14533,7 @@ function paintPendingFloor(){
         <span class="wc-num ${afford?'':'broke'}">◈ ${total} <span class="wc-have">of ◈ ${Math.floor(GAME.capital)}</span></span></div>
       <div style="display:flex;gap:10px;margin:6px 0 4px;flex-wrap:wrap">
         <button class="enactbtn" id="pfGo" ${(w.possible&&afford)?'':'disabled'}>${
-          !w.possible?"No majority exists":!afford?"Not enough capital"
+          (!w.possible||!afford)?floorBlockLabel(w)
           :"Call the vote"+(w.cost?` — whipping ${w.house.buy.length+w.senate.buy.length}`:"")}</button>
         <button class="enactbtn ghost" id="pfNo">Withdraw the change</button>
       </div>
