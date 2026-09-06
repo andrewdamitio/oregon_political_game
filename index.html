@@ -3098,7 +3098,12 @@ const POLICIES={
     tierIndex:2, costByTier:[0,0.02,0.06,0.10,0.15], capital:10,
     tierEffects:[{environment:0,gdp:0.05,loggingRate:25},{environment:2,gdp:-0.05,loggingRate:12},{environment:4.5,gdp:-0.125,loggingRate:0},{environment:9,gdp:-0.30,loggingRate:-15},{environment:16,gdp:-0.55,loggingRate:-28}],
     tierSizeEffects:[{timber:0.045},{timber:0.022},{},{timber:-0.027},{timber:-0.050}],
-    tierBlocEffects:[{timber:3,rural:2},{timber:2,rural:1},{},{timber:-2,rural:-1},{timber:-3,rural:-2}],
+    tierBlocEffects:[
+      {timber:8, rural:5, businessClass:5, blueCollar:3, libertarian:3, conservative:2, liberal:-6, urban:-4, collegeEducated:-4, socialist:-4, students:-2},
+      {timber:4, rural:3, businessClass:2, blueCollar:1, liberal:-3, urban:-2, collegeEducated:-2, socialist:-2},
+      {},
+      {timber:-5, rural:-3, businessClass:-3, blueCollar:-2, conservative:-1, liberal:4, urban:3, collegeEducated:3, socialist:3, students:1},
+      {timber:-9, rural:-6, businessClass:-5, blueCollar:-3, libertarian:-3, conservative:-2, liberal:7, urban:5, collegeEducated:4, socialist:5, students:2}],
     tierIdeology:[{environment:0.8,economic:0.4},{environment:0.4,economic:0.2},{environment:-0.1},{environment:-0.5,economic:-0.2},{environment:-0.8,economic:-0.4}]},
   incomeTax:{name:"Personal Income Tax", domain:"economy", icon:"receipt", enacted:true, mechanic:"slider",
     desc:"Oregon's top personal rate (currently 9.9% above $125k — among the nation's highest). With no sales tax, the income tax carries ~85% of the General Fund; raising it funds the state but drags growth and risks out-migration.",
@@ -3252,6 +3257,11 @@ const POLICIES={
       {environment:6,gdp:-0.15,gasPrice:0.35,evAdoption:5},
       {environment:11,gdp:-0.28,gasPrice:0.6,evAdoption:10}],
     tierIndicatorEffects:[{ruralAlienation:-3},{ruralAlienation:1},{ruralAlienation:4},{ruralAlienation:7}],
+    tierBlocEffects:[
+      {motorists:6, rural:5, blueCollar:3, businessClass:4, conservative:3, libertarian:3, liberal:-5, urban:-4, collegeEducated:-3, socialist:-4, transitCommuters:-2},
+      {motorists:2, rural:2, businessClass:1, conservative:1, liberal:-2, urban:-1, socialist:-2},
+      {},
+      {motorists:-5, rural:-5, blueCollar:-3, businessClass:-4, conservative:-3, libertarian:-3, liberal:5, urban:4, collegeEducated:3, socialist:5, transitCommuters:2, students:2}],
     tierIdeology:[{environment:0.6},{environment:0.2},{environment:-0.4},{environment:-0.8,economic:-0.3}]},
   cannabis:{name:"Cannabis Program (Measure 91)", domain:"economy", icon:"cannabis", enacted:true, mechanic:"tier", noRepeal:true,
     desc:"Oregon legalized recreational cannabis in 2014. Choose the access tier: full prohibition, home cultivation only, medical dispensaries, or full recreational retail. Higher tiers generate tax revenue and shrink the illicit market but raise public-health and youth-access concerns.",
@@ -10346,8 +10356,9 @@ const VOTE_SD=1.9;         // vote-day noise per member: absences, conscience, a
 const VOTE_PROMISE=3.9;    // where a whipped member sits once they have taken the deal — committed, ~98% firm
 const VOTE_DRAWS=600;
 const VOTE_MARGIN=1.3;     // aim just past the line; the cushion buttons buy real insurance on top. Was 2.0, which baked two of the priciest (convex) votes into every "no push" quote.
+function contentionVoteSD(cont){ return VOTE_SD*(1+Math.max(0,(cont||0)-0.35)*1.7); }  // divisive bills wobble more on the day
 /* Probability one member votes yes, given their inclination and vote-day noise. */
-function votePr(incl){ return 1/(1+Math.exp(-incl*1.7/VOTE_SD)); }
+function votePr(incl, sd){ return 1/(1+Math.exp(-incl*1.7/(sd||VOTE_SD))); }
 
 /* How the people of one district feel about one bill. blocEffect where the
    policy carries one; the ideology vector against the seat's own lean where it
@@ -10436,7 +10447,8 @@ function chamberWhip(chamber, pol, dir, ctx, cushion){
   // A member at inclination +0.2 is a coin flip on the day, not a yes. Count
   // the expected vote — the sum of each member's probability of voting for it —
   // so the headline number means something and the odds follow from it.
-  let expect=0; for(const m of members)expect+=votePr(m.incl);
+  const _sd=ctx.voteSD||VOTE_SD;
+  let expect=0; for(const m of members)expect+=votePr(m.incl,_sd);
   const yes=members.filter(m=>m.incl>0);
   // aim a little past the line: landing exactly on it is a coin flip. A pending
   // change buys only to the line and sells the safety margin separately, so the
@@ -10444,7 +10456,7 @@ function chamberWhip(chamber, pol, dir, ctx, cushion){
   const mgn=(ctx.margin==null?VOTE_MARGIN:ctx.margin);
   const short=Math.max(0,Math.ceil(need+mgn-expect));
   // the cheapest holdouts, in order, and what each further vote adds
-  const pool=members.filter(m=>votePr(m.incl)<0.72&&m.buyable).sort((a,b)=>a.resist-b.resist);
+  const pool=members.filter(m=>votePr(m.incl,_sd)<0.72&&m.buyable).sort((a,b)=>a.resist-b.resist);
   // buying past the minimum is insurance: the vote is not certain, and a
   // cushion is what a whip actually spends money on
   const want=Math.min(pool.length, short+(cushion||0));
@@ -10505,7 +10517,7 @@ function votePassOdds(w){
       let yes=0;
       for(const m of C.members){
         const base=bought.has(m.id)?VOTE_PROMISE:m.incl;
-        if(base+_voteGauss(rnd)*VOTE_SD>0)yes++;
+        if(base+_voteGauss(rnd)*(w.voteSD||VOTE_SD)>0)yes++;
       }
       if(yes<C.need){ ok=false; break; }
     }
@@ -10523,7 +10535,7 @@ function runFloorVote(w){
     let yes=0;
     for(const m of C.members){
       const base=bought.has(m.id)?VOTE_PROMISE:m.incl;
-      if(base+gauss()*VOTE_SD>0)yes++;
+      if(base+gauss()*(w.voteSD||VOTE_SD)>0)yes++;
     }
     out[key]={yes, need:C.need, ok:yes>=C.need};
     if(yes<C.need)passed=false;
@@ -14619,7 +14631,9 @@ function lawLockDrag(x){
 function pendingWhip(key, origSnap, curSnap, cushion){
   const spec=pendingBillSpec(key,origSnap,curSnap); if(!spec)return null;
   const _sf=stateFeel();
-  const ctx={ sf:_sf, align:coalitionAlignment(_sf), ease:spec.ease, supportW:spec.supportW, margin:0,
+  const _cvSD=contentionVoteSD(spec.cont);
+  const _cvMgn=spec.cont>=0.35 ? VOTE_MARGIN+(spec.cont-0.35)*3.0 : 0;
+  const ctx={ sf:_sf, align:coalitionAlignment(_sf), ease:spec.ease, supportW:spec.supportW, margin:_cvMgn, voteSD:_cvSD,
     hHeld:new Set((GAME.legis&&GAME.legis.hHeld)||[...legisSeatMap(OR_HOUSE_DISTRICTS,(GAME.legis&&GAME.legis.house)||0).mine]),
     sHeld:new Set((GAME.legis&&GAME.legis.sHeld)||[...legisSeatMap(OR_SENATE_DISTRICTS,(GAME.legis&&GAME.legis.senate)||0).mine]) };
   const cu=cushion||0;
@@ -14627,11 +14641,14 @@ function pendingWhip(key, origSnap, curSnap, cushion){
   // an ordinary programme change costs no floor time — it rides an existing
   // budget bill. A revenue bill is its own fight and is billed as one.
   const base=(spec.kind==="program"&&spec.cont<0.35)?0:Math.round(BILL_FLOOR_COST*oppositionCapitalMult());
-  const w={house:H, senate:S, narrowed:1, cushion:cu, spec, kind:spec.kind,
+  const w={house:H, senate:S, narrowed:1, cushion:cu, spec, kind:spec.kind, voteSD:_cvSD,
            needsSuper:spec.needsSuper, cost:H.cost+S.cost+base, base,
            possible:H.possible&&S.possible,
            free:(H.short===0&&S.short===0&&cu===0&&base===0)};
   w.odds=votePassOdds(w);
+  // a real fight is never a certainty, however comfortable the arithmetic looks:
+  // something goes sideways on a divisive vote often enough that you cannot bank it
+  if(spec.cont>=0.4) w.odds=Math.min(w.odds, 1-(spec.cont-0.4)*0.38);
   return w;
 }
 /* Roll a pending change's vote on a whip count you have already paid for. */
