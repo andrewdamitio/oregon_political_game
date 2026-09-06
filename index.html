@@ -1146,6 +1146,14 @@
   .whip-prev.buy{border-left-color:var(--gold)}
   .whip-prev.broke,.whip-prev.dead{border-left-color:var(--clay)}
   .whip-prev .wpv-s{font-family:var(--font-data);font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-1)}
+  .odds-box{display:flex;align-items:center;gap:12px;border:1px solid var(--line);background:var(--paper);
+    padding:9px 12px;margin:12px 0 4px;border-left:5px solid var(--line-em)}
+  .odds-box.good{border-left-color:var(--moss)} .odds-box.mid{border-left-color:var(--gold)}
+  .odds-box.bad{border-left-color:var(--clay)}
+  .odds-n{font-family:var(--font-data);font-size:26px;font-weight:700;flex:none}
+  .odds-box.good .odds-n{color:var(--moss)} .odds-box.mid .odds-n{color:var(--gold)}
+  .odds-box.bad .odds-n{color:var(--clay)}
+  .odds-t{font-size:11.5px;color:var(--muted-2);line-height:1.5}
   .legmap-card.zoom .legmap-zoomhint::after{content:" — click to shrink"}
   /* ---- midterm night: one county map per decided measure ---- */
   .mres-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:14px;margin-top:12px}
@@ -3197,13 +3205,25 @@ const POLICIES={
     tierIndicatorEffects:[{ruralAlienation:5},{ruralAlienation:7},{ruralAlienation:-3},{ruralAlienation:6}],
     tierBlocEffects:[{rural:-3,timber:-2,businessClass:2,poor:-3},{rural:-4,timber:-3,poor:3,blueCollar:2},{rural:2,blueCollar:1},{rural:-5,timber:-4,businessClass:-3,blueCollar:2,poor:2}],
     tierIdeology:[{economic:0.7,govSize:0.5},{economic:0.1},{economic:-0.3},{economic:-0.7,govSize:-0.4}]},
-  agMinWageExempt:{name:"Agricultural Minimum-Wage Exemption", domain:"economy", icon:"tractor", enacted:true, mechanic:"toggle", noRepeal:true,
+  agMinWageExempt:{name:"Agricultural Wage & Hour Exemption", domain:"economy", icon:"tractor", enacted:true, mechanic:"tier", noRepeal:true,
     desc:"Whether farm labor is exempted from the standard minimum wage and overtime rules. Oregon spent decades with carve-outs, then phased in farmworker overtime (HB 4002, 2022) — closing the exemption. Keeping the exemption placates farmers and the rural economy; closing it raises farmworker pay and equity but squeezes growers.",
-    enabled:false, costFull:0, capital:6,
-    effects:{inequality:2, gdp:0.05},
-    indicatorEffects:{ruralAlienation:-5, businessClimate:1},
-    blocEffect:{rural:4, timber:3, businessClass:2, poor:-3, socialist:-3, liberal:-2},
-    ideology:{economic:0.4,social:0.2}},
+    tiers:["No exemption","Overtime exemption","Full wage & hour exemption"],
+    tierIndex:0, capital:6,
+    // HB 4002 (2022) phased farmworker overtime IN, closing the carve-out, so
+    // Oregon sits at tier 0; re-opening it is a step back up the ladder.
+    tierEffects:[
+      {},
+      {inequality:1,   gdp:0.03},
+      {inequality:2,   gdp:0.05}],
+    tierIndicatorEffects:[
+      {},
+      {ruralAlienation:-3, businessClimate:0.5},
+      {ruralAlienation:-5, businessClimate:1}],
+    tierBlocEffects:[
+      {},
+      {rural:2, timber:2, businessClass:1, poor:-2, socialist:-2, liberal:-1},
+      {rural:4, timber:3, businessClass:2, poor:-3, socialist:-3, liberal:-2}],
+    tierIdeology:[{},{economic:0.2,social:0.1},{economic:0.4,social:0.2}]},
   middleHousing:{name:"Middle Housing (HB 2001)", domain:"social", icon:"houses", enacted:true, mechanic:"law", repealCost:10, phaseIn:10,
     desc:"2019 — the first state to end single-family-only zoning: duplexes-to-quadplexes legal in larger cities. Oregon is ~111,000 homes short; the law is working but slowly — transformation depends on local markets and small builders who need financing and time to retool. The supply effects compound over years as more infill projects complete, gradually pulling down rents and expanding where working families can live.",
     enabled:true, costFull:0.02, capital:9,
@@ -3274,15 +3294,34 @@ const POLICIES={
     blocEffect:{wealthy:3, collegeEducated:2, businessClass:2, parents:1, poor:-3, liberal:-3, socialist:-5},
     real:{min:0,max:100,unit:"/100 sorting",decimals:0,label:"tracking intensity"},
     ideology:{social:0.3,govSize:0.1}},
-  sexEd:{name:"Comprehensive Sex Education", domain:"eduHealth", icon:"cap", enacted:true, mechanic:"toggle", noRepeal:true,
+  sexEd:{name:"Sex Education Standard", domain:"eduHealth", icon:"cap", enacted:true, mechanic:"tier", noRepeal:true,
     desc:"Oregon has required medically-accurate, comprehensive sex ed since 2009 — among the strongest such laws in the nation. This sets its enforcement and scope. Improves teen health outcomes and lowers unintended pregnancy, but inflames conservative and rural communities. (Already in force at game start.)",
-    enabled:true, costFull:0.03, capital:5,
-    effects:{health:3, behavioralHealth:1},
-    blocEffect:{liberal:3, urban:2, parents:1, rural:-2, suburban:-1, conservative:-4},
-    ideology:{social:-0.5,govSize:-0.2}},
-  lgbtRights:{name:"LGBTQ Anti-Discrimination Law", domain:"social", icon:"people", enacted:true, mechanic:"toggle", noRepeal:true,
+    tiers:["Abstinence-Only","Abstinence-Plus","Comprehensive","Comprehensive + Consent & Inclusive"],
+    tierIndex:2, costByTier:[0.01,0.02,0.03,0.04], capital:5,
+    // Oregon has required medically accurate comprehensive instruction since
+    // 2009 and added consent and healthy-relationships content in 2016, so the
+    // statutory floor sits at tier 2 and tier 3 is the direction of travel.
+    tierEffects:[
+      {health:-3, behavioralHealth:-1},
+      {health:0,  behavioralHealth:0},
+      {health:3,  behavioralHealth:1},
+      {health:5,  behavioralHealth:3}],
+    tierBlocEffects:[
+      {conservative:8, rural:5, parents:2, liberal:-6, urban:-4, students:-4},
+      {conservative:3, rural:2, liberal:-2, urban:-1},
+      {liberal:3, urban:2, parents:1, rural:-2, suburban:-1, conservative:-4},
+      {liberal:6, urban:4, students:4, parents:1, rural:-5, suburban:-2, conservative:-9}],
+    tierIdeology:[
+      {social:0.6, govSize:0.1},
+      {social:0.25},
+      {social:-0.5, govSize:-0.2},
+      {social:-0.8, govSize:-0.25}]},
+  // Civil-rights statute. Not a dial and not a switch on the governor's desk:
+  // it is in force until a bill strikes it, which is what repealing it now
+  // means — a floor vote, with the members who would have to cast it.
+  lgbtRights:{name:"LGBTQ Anti-Discrimination Law", domain:"social", icon:"people", enacted:true, mechanic:"law", repealCost:9,
     desc:"Oregon's Equality Act (2007) bars discrimination in housing, employment, and public accommodation. This keeps those protections in force (and their enforcement funded). Draws talent and signals an open economy, but hardens rural-cultural opposition. (Already in force at game start.)",
-    enabled:true, costFull:0.02, capital:7,
+    costFull:0.02, capital:7,
     effects:{inequality:-1},
     indicatorEffects:{inMigration:3, businessClimate:2},
     blocEffect:{liberal:5, urban:4, businessClass:2, rural:-2, suburban:-1, conservative:-3},
@@ -3323,11 +3362,11 @@ const POLICIES={
       {govSize:0.3, social:0.2},
       {govSize:0.5, social:0.4}
     ]},
-  craftBevPromotion:{name:"Beer/Wine Industry Promotion", domain:"economy", icon:"beer", enacted:true, mechanic:"toggle", noRepeal:true,
-    desc:"Oregon already promotes its craft beer, cider, and Willamette Valley wine through the Oregon Wine Board and Travel Oregon — a genuine agricultural and tourism engine. Toggle whether the state keeps actively funding it. Boosts rural ag economies and visitors, at a small public-health cost from normalized consumption.",
-    enabled:true, costFull:0.05, capital:4,
-    effects:{gdp:0.1, alcoholUse:2},
-    indicatorEffects:{tourism:4, businessClimate:1},
+  craftBevPromotion:{name:"Beer/Wine Industry Promotion", domain:"economy", icon:"beer", enacted:true, mechanic:"intensity", noRepeal:true,
+    desc:"Oregon already promotes its craft beer, cider, and Willamette Valley wine through the Oregon Wine Board and Travel Oregon — a genuine agricultural and tourism engine. The dial sets how hard the state pushes it. Boosts rural ag economies and visitors, at a small public-health cost from normalized consumption.",
+    enabled:true, intensity:0.6, costFull:0.08, capital:4,
+    effects:{gdp:0.17, alcoholUse:3.3},
+    indicatorEffects:{tourism:6.7, businessClimate:1.7},
     blocEffect:{businessClass:2, rural:2, suburban:1},
     ideology:{economic:0.2,environment:-0.1}},
   smallBizSupport:{name:"Small Business & Manufacturing Support", domain:"economy", icon:"factory", enacted:true, mechanic:"slider",
@@ -3419,16 +3458,23 @@ const CATALOG={
     blocEffect:{parents:4, moderate:2, suburban:2, publicUnions:-5, rural:-2},
     real:{min:0,max:100,unit:"/100 centralization",decimals:0,label:"curriculum centralization"},
     ideology:{social:-0.1,govSize:-0.2}},
-  phoneBanSchools:{name:"Phone Ban in Schools", domain:"eduHealth", icon:"ban", mechanic:"toggle", noRepeal:true,
+  phoneBanSchools:{name:"Phone Restrictions in Schools", domain:"eduHealth", icon:"ban", mechanic:"tier", noRepeal:true,
     desc:"Prohibit personal device use during school hours. Early evidence from UK and European implementations shows meaningful gains in student focus and reading scores — particularly for lower-income students who benefit most from distraction-free classrooms. Reduces social-media-driven anxiety among adolescents. Students and some civil-liberties advocates push back strongly; implementation falls to districts.",
-    enabled:true, costFull:0, capital:3, enactCapital:5,
-    effects:{eduOutcomes:{b:0,c:5,i:4}, education:2, behavioralHealth:3},
-    blocEffect:{parents:7, homeowners:4, suburban:4, conservative:6, moderate:3, students:-9, liberal:-3, urban:-2},
-    ideology:{social:0.15, govSize:0.1}},
-  affordableHousing:{name:"Affordable Housing Bonds", domain:"social", icon:"house", phaseIn:8, mechanic:"toggle", noRepeal:true,
-    desc:"Bond authority to build affordable units (~$880M).",
-    enabled:true, costFull:0.9, capital:7, enactCapital:12,
-    effects:{homelessness:-16,gdp:0.2}, ideology:{economic:-0.4,govSize:-0.5}},
+    tiers:["No restriction","Class-time only","Bell-to-bell ban"],
+    tierIndex:1, capital:3, enactCapital:5,
+    tierEffects:[
+      {},
+      {eduOutcomes:3, education:1, behavioralHealth:1.5},
+      {eduOutcomes:5, education:2, behavioralHealth:3}],
+    tierBlocEffects:[
+      {},
+      {parents:4, homeowners:2, suburban:2, conservative:3, moderate:2, students:-5, liberal:-2},
+      {parents:7, homeowners:4, suburban:4, conservative:6, moderate:3, students:-9, liberal:-3, urban:-2}],
+    tierIdeology:[{},{social:0.08, govSize:0.05},{social:0.15, govSize:0.1}]},
+  affordableHousing:{name:"Affordable Housing Bonds", domain:"social", icon:"house", phaseIn:8, mechanic:"intensity", noRepeal:true,
+    desc:"Bond authority to build affordable units. How much you authorise is the whole question — the programme is a dial, not a switch.",
+    enabled:true, intensity:0.6, costFull:1.5, capital:7, enactCapital:12,
+    effects:{homelessness:-27,gdp:0.33}, ideology:{economic:-0.4,govSize:-0.5}},
   behavioralHealth:{name:"Behavioral Health Buildout", domain:"eduHealth", icon:"brain", phaseIn:8, mechanic:"intensity", noRepeal:true,
     desc:"Treatment capacity + workforce (~$330M).",
     enabled:true, intensity:0.5, costFull:0.8, capital:5, enactCapital:10,
@@ -9840,6 +9886,12 @@ const BILL_WHIP=1.15;      // capital per point of resistance
 const BILL_CONVEX=0.16;    // each further vote costs more than the last
 const BILL_UNBUYABLE=13;   // past this a member would lose their seat: not for sale
 const BILL_FLOOR_COST=2;   // floor time, drafting, the clerk — every bill costs this
+const VOTE_SD=2.7;         // vote-day noise per member: absences, conscience, a deal you never heard about
+const VOTE_PROMISE=3.6;    // where a whipped member sits once they have taken the deal — committed, not certain
+const VOTE_DRAWS=600;
+const VOTE_MARGIN=1.2;     // aim this far past the line — landing exactly on it is a coin flip
+/* Probability one member votes yes, given their inclination and vote-day noise. */
+function votePr(incl){ return 1/(1+Math.exp(-incl*1.7/VOTE_SD)); }
 
 /* How the people of one district feel about one bill. blocEffect where the
    policy carries one; the ideology vector against the seat's own lean where it
@@ -9890,7 +9942,7 @@ function floorMembers(chamber, pol, dir, ctx){
     const owed=(GAME.legis&&GAME.legis.favors&&GAME.legis.favors[chamber+id])||0;
     const incl=verdict+loyal-owed*3.2;
     const marginal=1-clamp(Math.abs(support-50)/22,0,1);       // 1 = knife-edge
-    const resist=Math.max(0,-incl)*(0.55+0.95*marginal);
+    const resist=Math.max(0.4,VOTE_PROMISE-incl)*(0.55+0.95*marginal)*0.42;
     out.push({id, chamber, mine, incl, verdict, support, marginal, resist, owed,
               buyable:resist<=BILL_UNBUYABLE});
   }
@@ -9898,26 +9950,34 @@ function floorMembers(chamber, pol, dir, ctx){
 }
 /* The whip count for one chamber: who is with you, how short you are, what
    closing the gap would cost, and whether it can be closed at all. */
-function chamberWhip(chamber, pol, dir, ctx){
+function chamberWhip(chamber, pol, dir, ctx, cushion){
   const members=floorMembers(chamber,pol,dir,ctx);
   const total=chamber==="senate"?LEGIS.senate:LEGIS.house;
   const need=billNeedsSuper(pol)
     ? (chamber==="senate"?LEGIS.superS:LEGIS.superH)
     : (chamber==="senate"?LEGIS.majS:LEGIS.majH);
+  // A member at inclination +0.2 is a coin flip on the day, not a yes. Count
+  // the expected vote — the sum of each member's probability of voting for it —
+  // so the headline number means something and the odds follow from it.
+  let expect=0; for(const m of members)expect+=votePr(m.incl);
   const yes=members.filter(m=>m.incl>0);
-  const short=Math.max(0,need-yes.length);
+  // aim a little past the line: landing exactly on it is a coin flip
+  const short=Math.max(0,Math.ceil(need+VOTE_MARGIN-expect));
   // the cheapest holdouts, in order, and what each further vote adds
-  const pool=members.filter(m=>m.incl<=0&&m.buyable).sort((a,b)=>a.resist-b.resist);
-  const buy=pool.slice(0,short);
+  const pool=members.filter(m=>votePr(m.incl)<0.72&&m.buyable).sort((a,b)=>a.resist-b.resist);
+  // buying past the minimum is insurance: the vote is not certain, and a
+  // cushion is what a whip actually spends money on
+  const want=Math.min(pool.length, short+(cushion||0));
+  const buy=pool.slice(0,want);
   let cost=0;
   buy.forEach((m,i)=>{ cost+=m.resist*BILL_WHIP*(1+i*BILL_CONVEX); });
-  return {chamber, members, total, need, yes:yes.length, short,
+  return {chamber, members, total, need, yes:Math.round(expect), firm:yes.length, expect, short,
           buy, cost:Math.ceil(cost),
           possible: short===0 || buy.length>=short,
           unbuyable: members.filter(m=>m.incl<=0&&!m.buyable).length};
 }
 /* Both chambers. Returns everything the floor screen needs. */
-function whipCount(id, dir, narrowed){
+function whipCount(id, dir, narrowed, cushion){
   const pol=(dir==="repeal")?POLICIES[id]:CATALOG[id];
   if(!pol)return null;
   // a concession is a weaker bill: scale what it does to everyone at once
@@ -9931,12 +9991,63 @@ function whipCount(id, dir, narrowed){
   const ctx={ sf:_sf, align:coalitionAlignment(_sf),
     hHeld:new Set((GAME.legis&&GAME.legis.hHeld)||[...legisSeatMap(OR_HOUSE_DISTRICTS,(GAME.legis&&GAME.legis.house)||0).mine]),
     sHeld:new Set((GAME.legis&&GAME.legis.sHeld)||[...legisSeatMap(OR_SENATE_DISTRICTS,(GAME.legis&&GAME.legis.senate)||0).mine]) };
-  const H=chamberWhip("house",scaled,dir,ctx), S=chamberWhip("senate",scaled,dir,ctx);
+  const cu=cushion||0;
+  const H=chamberWhip("house",scaled,dir,ctx,cu), S=chamberWhip("senate",scaled,dir,ctx,cu);
   const base=Math.round(BILL_FLOOR_COST*oppositionCapitalMult());
-  return {house:H, senate:S, narrowed:nw, needsSuper:billNeedsSuper(pol),
+  const w={house:H, senate:S, narrowed:nw, cushion:cu, needsSuper:billNeedsSuper(pol),
           cost:H.cost+S.cost+base, base,
           possible:H.possible&&S.possible,
-          free:(H.short===0&&S.short===0)};
+          free:(H.short===0&&S.short===0&&cu===0)};
+  w.odds=votePassOdds(w);
+  return w;
+}
+/* The whip count is a projection, not a result. Members are absent, vote their
+   conscience, or cut a deal you never heard about; a member who took your deal
+   is committed but not owned. So the floor screen shows the ODDS, and a
+   cushion of extra votes is what a whip actually buys. Seeded off the bill and
+   the chamber so the number holds still until something really changes. */
+function _voteRng(seed){ let x=(seed>>>0)||1;
+  return ()=>{ x^=x<<13; x>>>=0; x^=x>>>17; x^=x<<5; x>>>=0; return x/4294967296; }; }
+function _voteGauss(r){ let u=0,v=0; while(!u)u=r(); while(!v)v=r();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+function votePassOdds(w){
+  let h=(w.narrowed*1000)|0;
+  for(const C of [w.house,w.senate]){ h=(h*31+C.need)|0; h=(h*31+C.yes)|0; h=(h*31+C.buy.length)|0;
+    for(const m of C.members)h=(h*31+Math.round(m.incl*10))|0; }
+  const rnd=_voteRng(h);
+  let pass=0;
+  for(let d=0;d<VOTE_DRAWS;d++){
+    let ok=true;
+    for(const C of [w.house,w.senate]){
+      const bought=new Set(C.buy.map(m=>m.id));
+      let yes=0;
+      for(const m of C.members){
+        const base=bought.has(m.id)?VOTE_PROMISE:m.incl;
+        if(base+_voteGauss(rnd)*VOTE_SD>0)yes++;
+      }
+      if(yes<C.need){ ok=false; break; }
+    }
+    if(ok)pass++;
+  }
+  return pass/VOTE_DRAWS;
+}
+/* Roll the actual vote, once. */
+function runFloorVote(w){
+  const out={};
+  let passed=true;
+  for(const key of ["house","senate"]){
+    const C=w[key];
+    const bought=new Set(C.buy.map(m=>m.id));
+    let yes=0;
+    for(const m of C.members){
+      const base=bought.has(m.id)?VOTE_PROMISE:m.incl;
+      if(base+gauss()*VOTE_SD>0)yes++;
+    }
+    out[key]={yes, need:C.need, ok:yes>=C.need};
+    if(yes<C.need)passed=false;
+  }
+  out.passed=passed;
+  return out;
 }
 /* Does this decision go to the floor at all? Sliders and agency budgets do
    not — the governor moves those administratively, and putting a whip count
@@ -9944,16 +10055,33 @@ function whipCount(id, dir, narrowed){
    constitutional referrals do. */
 function whipPreviewHTML(id, dir){
   const pol=(dir==="repeal")?POLICIES[id]:CATALOG[id];
-  if(!pol||!goesToFloor(pol))return "";
+  if(!pol||!goesToFloor(pol,dir))return "";
   const w=whipCount(id,dir); if(!w)return "";
   const cls=!w.possible?"dead":w.free?"have":(GAME.capital>=w.cost?"buy":"broke");
   const txt=!w.possible?"Cannot pass either chamber at any price"
-    :w.free?"You have the votes"
-    :"Short "+(w.house.short+w.senate.short)+" — whipping them costs ◈"+w.cost;
+    :(w.free?"You have the votes":"Short "+(w.house.short+w.senate.short)+" — whipping them costs ◈"+w.cost)
+      +" · <b>"+Math.round(w.odds*100)+"%</b> to pass as it stands";
   return `<div class="whip-prev ${cls}">${ico('columns')} House <b>${w.house.yes}</b>/${w.house.need} · Senate <b>${w.senate.yes}</b>/${w.senate.need}${w.needsSuper?' <span class="wpv-s">three-fifths, it raises revenue</span>':''} — ${txt}</div>`;
 }
-function goesToFloor(pol){
-  return !!(pol && !pol.reform && (pol.mechanic==="law"||pol.mechanic==="toggle"));
+function goesToFloor(pol, dir){
+  if(!pol||pol.reform)return false;          // amendments go to the voters instead
+  if(dir==="repeal")return pol.mechanic==="law";   // striking a law needs a bill
+  return true;                               // creating ANY new programme is a bill
+}
+/* A tax rise is a revenue bill: Article IV §25 puts it at three-fifths of both
+   chambers. Cuts are not — the supermajority rule is one-way. */
+function isRevenueRise(key, origSnap, curSnap){
+  if(!key||!key.startsWith("p_")||!origSnap||!curSnap)return null;
+  const id=key.slice(2), pol=POLICIES[id]; if(!pol)return null;
+  let ov,cv; try{ ov=JSON.parse(origSnap); cv=JSON.parse(curSnap); }catch(e){ return null; }
+  const o=(ov.v??ov.t??ov.i??0), c=(cv.v??cv.t??cv.i??0);
+  if(c<=o)return null;                                    // not a rise
+  const raises = pol.taxDir==="burden" || (pol.revenueFull||0)>0 || (pol.revenue||0)>0;
+  if(!raises)return null;
+  const step=(pol.mechanic==="tier"&&pol.tiers)?(c-o)/Math.max(1,pol.tiers.length-1):(c-o);
+  const yield_=((pol.revenueFull||0)+(pol.revenue||0))*step;
+  if(yield_<0.08)return null;                             // a trivial tweak is not a revenue bill
+  return {id, pol, step, yield:yield_};
 }
 /* Why one member is a holdout, in the language of who lives in their seat. */
 function holdoutReason(m, pol, dir){
@@ -9976,7 +10104,7 @@ function holdoutReason(m, pol, dir){
 /* One chamber's whip count as a row of seats plus the arithmetic. */
 function whipChamberHTML(w, pol, dir){
   const nm=w.chamber==="senate"?"Senate":"House";
-  const ok=w.short===0;
+  const ok=w.short===0&&w.expect>=w.need;
   const pips=w.members.map(m=>{
     const cls=m.incl>0?(m.mine?"y own":"y cross"):(w.buy.indexOf(m)>=0?"buy":(m.buyable?"n":"n hard"));
     const tag=w.chamber==="senate"?"SD":"HD";
@@ -9984,7 +10112,9 @@ function whipChamberHTML(w, pol, dir){
   }).join("");
   return `<div class="whip-ch">
     <div class="whip-top"><span class="whip-nm">${nm}</span>
-      <span class="whip-cnt ${ok?'ok':'short'}"><b>${w.yes}</b> yes · needs <b>${w.need}</b>${ok?" — you have it":" — <b>"+w.short+" short</b>"}</span></div>
+      <span class="whip-cnt ${ok?'ok':'short'}"><b>${w.yes}</b> expected · needs <b>${w.need}</b>${
+        w.expect>=w.need ? (w.short?" — on the line, <b>"+w.short+"</b> more to be safe":" — comfortable")
+                         : " — <b>"+Math.max(1,Math.ceil(w.need-w.expect))+" short</b>"}</span></div>
     <div class="whip-pips">${pips}</div>
     ${w.buy.length?`<div class="whip-buy">To close it: ${w.buy.map(m=>{
       const tag=w.chamber==="senate"?"SD":"HD";
@@ -9997,7 +10127,7 @@ function whipChamberHTML(w, pol, dir){
 function showFloor(id, dir){
   const pol=(dir==="repeal")?POLICIES[id]:CATALOG[id];
   if(!pol)return;
-  GAME.pendingFloor={id, dir, narrowed:1};
+  GAME.pendingFloor={id, dir, narrowed:1, cushion:0};
   drawFloor();
 }
 function drawFloor(){
@@ -10005,36 +10135,54 @@ function drawFloor(){
   const pol=(F.dir==="repeal")?POLICIES[F.id]:CATALOG[F.id];
   if(!pol)return;
   const card=document.getElementById("floorCard"), modal=document.getElementById("floorModal");
-  const w=whipCount(F.id,F.dir,F.narrowed);
+  const w=whipCount(F.id,F.dir,F.narrowed,F.cushion);
   const afford=GAME.capital>=w.cost;
   const verb=F.dir==="repeal"?"Repeal":"Enact";
   const opts=[1,0.8,0.6,0.45].map(nv=>{
-    const q=whipCount(F.id,F.dir,nv);
+    const q=whipCount(F.id,F.dir,nv,F.cushion);
     const on=Math.abs(nv-F.narrowed)<0.001;
     const lab=nv>=1?"Full bill":Math.round(nv*100)+"% strength";
     return `<button class="conc ${on?'on':''}${(GAME.capital>=q.cost&&q.possible)?'':' broke'}" data-conc="${nv}">
       <span class="conc-l">${lab}</span>
-      <span class="conc-c">${!q.possible?"dead":q.free?"free":"◈"+q.cost}</span></button>`;
+      <span class="conc-c">${!q.possible?"dead":q.cost<=w.base?"floor time only":"◈"+q.cost}${q.possible?" · "+Math.round(q.odds*100)+"%":""}</span></button>`;
   }).join("");
+  const cush=[0,2,4,6].map(cv=>{
+    const q=whipCount(F.id,F.dir,F.narrowed,cv);
+    const on=cv===(F.cushion||0);
+    return `<button class="conc ${on?'on':''}${(GAME.capital>=q.cost&&q.possible)?'':' broke'}" data-cush="${cv}">
+      <span class="conc-l">${cv===0?"No cushion":"+"+cv+" spare votes"}</span>
+      <span class="conc-c">◈${q.cost} · ${Math.round(q.odds*100)}%</span></button>`;
+  }).join("");
+  const oddsWord=w.odds>=0.95?"near-certain":w.odds>=0.8?"likely":w.odds>=0.55?"probable":w.odds>=0.4?"a coin flip":w.odds>=0.15?"an outside chance":"almost hopeless";
   card.innerHTML=`<div class="sectionhdr">${ico('columns')} ${verb} — ${pol.name}</div>
     <div class="sectionsub">This is a bill, not a purchase. It passes when a majority of each chamber votes for it${w.needsSuper?`, and because it raises revenue it needs <b>three-fifths</b> of both under Article IV §25`:``}. Members vote the way the people in their seat feel about <i>this bill</i> — so what you can pass depends on which seats your majority runs through.</div>
     ${whipChamberHTML(w.house,pol,F.dir)}
     ${whipChamberHTML(w.senate,pol,F.dir)}
     <div class="whip-legend"><span><i class="wp y own"></i>your members, yes</span><span><i class="wp y cross"></i>crossover yes</span><span><i class="wp buy"></i>whipped</span><span><i class="wp n"></i>no</span><span><i class="wp n hard"></i>not for sale</span></div>
-    <div class="conc-h">${ico('handshake')} Concessions — a weaker bill is a cheaper bill</div>
+    <div class="conc-h">${ico('handshake')} How strong a bill — a weaker one is a cheaper one</div>
     <div class="conc-row">${opts}</div>
+    <div class="conc-h">${ico('shield')} How big a margin — spare votes are insurance, not waste</div>
+    <div class="conc-row">${cush}</div>
+    <div class="odds-box ${w.odds>=0.8?'good':w.odds>=0.5?'mid':'bad'}">
+      <span class="odds-n">${Math.round(w.odds*100)}%</span>
+      <span class="odds-t">to pass both chambers — <b>${oddsWord}</b>. The whip count is what members <i>say</i>; on the day they are absent, vote their conscience, or take a deal you never heard about. A member who took yours is committed, not owned.</span>
+    </div>
     <div class="whip-cost">
-      <span>${w.free?"You already have the votes.":"Whipping "+(w.house.buy.length+w.senate.buy.length)+" vote"+((w.house.buy.length+w.senate.buy.length)===1?"":"s")+" plus floor time"}</span>
+      <span>${(w.house.buy.length+w.senate.buy.length)?"Whipping "+(w.house.buy.length+w.senate.buy.length)+" vote"+((w.house.buy.length+w.senate.buy.length)===1?"":"s")+" plus floor time":"Floor time only — you already have the votes"}</span>
       <span class="wc-num ${afford?'':'broke'}">◈ ${w.cost} <span class="wc-have">of ◈ ${GAME.capital}</span></span></div>
     ${(w.house.buy.length+w.senate.buy.length)?`<div class="whip-owed">Members you whip will owe you nothing afterwards — they have already paid. The next bill that hurts their seat, they are gone.</div>`:``}
     <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
       <button class="enactbtn" id="floorGo" ${(w.possible&&afford)?'':'disabled'}>${
-        !w.possible?"Cannot pass":afford?(w.free?"Call the vote":"Whip it and call the vote"):"Not enough capital"}</button>
+        !w.possible?"Cannot pass":!afford?"Not enough capital"
+        :"Call the vote — "+(F.narrowed>=1?"full bill":Math.round(F.narrowed*100)+"% strength")
+          +((w.house.buy.length+w.senate.buy.length)?", whipping "+(w.house.buy.length+w.senate.buy.length):"")}</button>
       <button class="enactbtn ghost" id="floorNo">Pull the bill</button>
     </div>`;
   modal.classList.remove("hidden");
   card.querySelectorAll('[data-conc]').forEach(el=>el.addEventListener('click',()=>{
     GAME.pendingFloor.narrowed=+el.dataset.conc; drawFloor(); }));
+  card.querySelectorAll('[data-cush]').forEach(el=>el.addEventListener('click',()=>{
+    GAME.pendingFloor.cushion=+el.dataset.cush; drawFloor(); }));
   const close=()=>{ modal.classList.add("hidden"); GAME.pendingFloor=null;
     document.removeEventListener("keydown",onKey,true); };
   const onKey=e=>{ if(modal.classList.contains("hidden"))return;
@@ -10042,9 +10190,9 @@ function drawFloor(){
   document.getElementById("floorNo").onclick=()=>{ close(); render(); };
   const go=document.getElementById("floorGo");
   if(go)go.onclick=()=>{
-    const {id,dir,narrowed}=GAME.pendingFloor;
+    const {id,dir,narrowed,cushion}=GAME.pendingFloor;
     close();
-    if(passBill(id,dir,narrowed)){ if(dir==="enact")openDetail("p_"+id); else render(); }
+    if(passBill(id,dir,narrowed,cushion)&&dir==="enact")openDetail("p_"+id);
     else render();
   };
   document.addEventListener("keydown",onKey,true);
@@ -12651,7 +12799,7 @@ function renderDetail(){
         h+=`<button class="ebtoggle" data-eb="${id}">▸ Projected effects if enacted</button>
           <div class="cat-eb" id="eb_${id}">${effectsBreakdownHTML("policy",c)}</div>`;
         h+=whipPreviewHTML(id,"enact");
-        h+=`<div class="repealrow"><button class="enactbtn" data-enact="${id}" ${((afford||goesToFloor(c))&&!pendingMeasure(id))?'':'disabled'}>${pendingMeasure(id)?`Already before the voters`:c.reform?(afford?`Refer to the voters (◈ ${ec})`:`Need ◈ ${ec} to refer it`):goesToFloor(c)?`Take it to the floor `+ico('columns'):(afford?`Enact this policy (◈ ${ec})`:`Need ◈ ${ec} to enact`)}</button></div>`;
+        h+=`<div class="repealrow"><button class="enactbtn" data-enact="${id}" ${((afford||goesToFloor(c,"enact"))&&!pendingMeasure(id))?'':'disabled'}>${pendingMeasure(id)?`Already before the voters`:c.reform?(afford?`Refer to the voters (◈ ${ec})`:`Need ◈ ${ec} to refer it`):goesToFloor(c,"enact")?`Take it to the floor `+ico('columns'):(afford?`Enact this policy (◈ ${ec})`:`Need ◈ ${ec} to enact`)}</button></div>`;
         main.innerHTML=h;
         main.querySelectorAll('[data-enact]').forEach(el=>el.addEventListener('click',()=>enactPolicy(el.dataset.enact)));
         main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
@@ -12703,7 +12851,7 @@ function renderDetail(){
     if(!p.noRepeal){
       const rc=p.repealCost!==undefined?p.repealCost:(p.capital||6);
       h+=whipPreviewHTML(id,"repeal");
-      h+=`<div class="repealrow">${undoBtnHTML}<button class="repealbtn" data-repeal="${id}" ${((GAME.capital>=rc||goesToFloor(p))&&!pendingMeasure(id))?'':'disabled'}>${pendingMeasure(id)?`Repeal is before the voters`:p.reform?(GAME.capital>=rc?`Refer repeal to the voters (◈ ${rc})`:`Need ◈ ${rc} to refer a repeal`):goesToFloor(p)?`✘ Take repeal to the floor`:(GAME.capital>=rc?`✘ Repeal this law (◈ ${rc})`:`✘ Repeal this law — need ◈ ${rc}`)}</button></div>`;
+      h+=`<div class="repealrow">${undoBtnHTML}<button class="repealbtn" data-repeal="${id}" ${((GAME.capital>=rc||goesToFloor(p,"repeal"))&&!pendingMeasure(id))?'':'disabled'}>${pendingMeasure(id)?`Repeal is before the voters`:p.reform?(GAME.capital>=rc?`Refer repeal to the voters (◈ ${rc})`:`Need ◈ ${rc} to refer a repeal`):goesToFloor(p,"repeal")?`✘ Take repeal to the floor`:(GAME.capital>=rc?`✘ Repeal this law (◈ ${rc})`:`✘ Repeal this law — need ◈ ${rc}`)}</button></div>`;
     } else {
       // toggle/intensity mechanics already have a real off switch built into
       // the card above — flipping it costs capital through the same pending-
@@ -13181,7 +13329,7 @@ function renderPolicies(){
         <span class="pill cap">◈ ${ecost} to enact${oppTax>0?` <span style="opacity:.7">(+${oppTax} opposition)</span>`:''}</span></div>
       <button class="ebtoggle" data-eb="${id}">▸ Projected effects if enacted</button>
       <div class="cat-eb hidden" id="eb_${id}">${effectsBreakdownHTML("policy",p)}</div>
-      <button class="enactbtn" data-enact="${id}" ${((afford||goesToFloor(p))&&!pendingMeasure(id))?'':'disabled'}>${pendingMeasure(id)?'On the ballot':(p.reform?(afford?'Refer to the voters':'Need '+ecost+' capital'):goesToFloor(p)?'To the floor':(afford?'Enact policy':'Need '+ecost+' capital'))}</button>
+      <button class="enactbtn" data-enact="${id}" ${((afford||goesToFloor(p,"enact"))&&!pendingMeasure(id))?'':'disabled'}>${pendingMeasure(id)?'On the ballot':(p.reform?(afford?'Refer to the voters':'Need '+ecost+' capital'):goesToFloor(p,"enact")?'To the floor':(afford?'Enact policy':'Need '+ecost+' capital'))}</button>
     </div>`;
   };
   // group available (non-reform) policies by type-section; reforms get their own section
@@ -13251,7 +13399,9 @@ function enactPolicy(id){
   if(!src)return;
   // a constitutional amendment is not yours to enact — refer it to the voters
   if(src.reform){ if(referMeasure(id,"enact"))render(); return; }
-  if(goesToFloor(src)){ showFloor(id,"enact"); return; }   // it needs votes, not just money
+  if(GAME.floorFail&&GAME.floorFail["enact"+id]>GAME.turn){
+    GAME.log.push("✗ "+src.name+" lost on the floor — it cannot be brought back yet"); render(); return; }
+  if(goesToFloor(src,"enact")){ showFloor(id,"enact"); return; }   // it needs votes, not just money
   const ecost=policyEnactCost(src);
   if(GAME.capital<ecost){GAME.log.push("✗ Not enough capital to enact "+src.name);render();return;}
   GAME.capital-=ecost;
@@ -13262,8 +13412,8 @@ function enactPolicy(id){
 /* A bill that cleared the floor. Charges what the votes cost, banks the
    favours owed to the members who were whipped, and applies the narrowing the
    concessions bought. */
-function passBill(id, dir, narrowed){
-  const w=whipCount(id,dir,narrowed);
+function passBill(id, dir, narrowed, cushion){
+  const w=whipCount(id,dir,narrowed,cushion);
   if(!w||!w.possible||GAME.capital<w.cost)return false;
   GAME.capital-=w.cost;
   GAME.legis.favors=GAME.legis.favors||{};
@@ -13271,6 +13421,19 @@ function passBill(id, dir, narrowed){
   for(const m of whipped)
     GAME.legis.favors[m.chamber+m.id]=(GAME.legis.favors[m.chamber+m.id]||0)+1;
   const nm=(dir==="repeal"?POLICIES[id]:CATALOG[id]).name;
+  // the vote itself. The capital is spent either way — you whipped, you just lost.
+  const res=runFloorVote(w);
+  if(!res.passed){
+    const lost=[];
+    if(!res.house.ok)lost.push("the House "+res.house.yes+"-"+(w.house.total-res.house.yes)+" (needed "+res.house.need+")");
+    if(!res.senate.ok)lost.push("the Senate "+res.senate.yes+"-"+(w.senate.total-res.senate.yes)+" (needed "+res.senate.need+")");
+    GAME.log.push(ico('ban')+" "+nm+" FAILED on the floor — lost "+lost.join(" and ")
+      +(w.cost>w.base?". The ◈"+w.cost+" is spent regardless.":"."));
+    GAME.floorFail=GAME.floorFail||{};
+    GAME.floorFail[dir+id]=GAME.turn+3;      // it cannot come straight back
+    createGrudge("capital",-1);
+    return false;
+  }
   if(dir==="repeal"){
     mootCitizenMeasure(id,"repealed");
     _applyRepeal(id,{});
@@ -13279,8 +13442,9 @@ function passBill(id, dir, narrowed){
     _applyEnact(id);
     if(narrowed!=null&&narrowed<1&&POLICIES[id])POLICIES[id].narrowed=narrowed;
   }
-  GAME.log.push(ico('columns')+" "+nm+" cleared the floor"
-    +(w.cost>w.base?" — "+whipped.length+" vote"+(whipped.length===1?"":"s")+" whipped, ◈"+w.cost:"")
+  GAME.log.push(ico('columns')+" "+nm+" cleared the floor "
+    +res.house.yes+"-"+(w.house.total-res.house.yes)+" and "+res.senate.yes+"-"+(w.senate.total-res.senate.yes)
+    +(whipped.length?" — "+whipped.length+" vote"+(whipped.length===1?"":"s")+" whipped, ◈"+w.cost:"")
     +((narrowed!=null&&narrowed<1)?" (narrowed to "+Math.round(narrowed*100)+"%)":""));
   return true;
 }
@@ -13294,7 +13458,9 @@ function repealPolicy(id){
   // an amendment already in the constitution can only be taken back out by
   // the same people who put it in — refer the repeal to the voters
   if(p.reform){ if(referMeasure(id,"repeal"))render(); return; }
-  if(goesToFloor(p)){ showFloor(id,"repeal"); return; }   // striking a law needs votes too
+  if(GAME.floorFail&&GAME.floorFail["repeal"+id]>GAME.turn){
+    GAME.log.push("✗ That repeal lost on the floor — it cannot be brought back yet"); render(); return; }
+  if(goesToFloor(p,"repeal")){ showFloor(id,"repeal"); return; }   // striking a law needs votes too
   const cost=p.repealCost!==undefined?p.repealCost:(p.capital||6);
   if(GAME.capital<cost){GAME.log.push("✗ Not enough capital to repeal "+p.name);render();return;}
   GAME.capital-=cost;
@@ -13430,15 +13596,65 @@ function nameFor(key){
   return key;
 }
 /* settle any pending change before leaving the current page */
+function revenueVote(key, origSnap, curSnap){
+  const rr=isRevenueRise(key,origSnap,curSnap);
+  if(!rr)return null;
+  const sf=stateFeel(), align=coalitionAlignment(sf);
+  const hHeld=new Set((GAME.legis&&GAME.legis.hHeld)||[...legisSeatMap(OR_HOUSE_DISTRICTS,(GAME.legis&&GAME.legis.house)||0).mine]);
+  const sHeld=new Set((GAME.legis&&GAME.legis.sHeld)||[...legisSeatMap(OR_SENATE_DISTRICTS,(GAME.legis&&GAME.legis.senate)||0).mine]);
+  const out={rise:rr, chambers:{}, passed:true};
+  for(const ch of ["house","senate"]){
+    const rows=legCompRows(ch), held=(ch==="senate")?sHeld:hHeld;
+    const need=(ch==="senate")?LEGIS.superS:LEGIS.superH;   // Article IV §25
+    let yes=0;
+    for(const row of rows){
+      // how much this seat hates paying: the tax-sensitive groups living in it
+      let pain=0;
+      for(let k=0;k<LEG_BLOCS.length;k++){
+        const b=LEG_BLOCS[k], S=SIMULANTS[b]; if(!S)continue;
+        const sens=(S.sensitivities&&S.sensitivities.taxes)||0; if(!sens)continue;
+        pain+=row[1][k]*(S.turnout||0.6)*sens;
+      }
+      const mine=held.has(row[0]);
+      const incl=(mine?BILL_LOYALTY:-BILL_LOYALTY)
+        // party discipline is at its hardest on a budget vote — this is the one
+        // thing a caucus whips as a bloc, which is how Oregon passes revenue on
+        // exactly three-fifths and not one vote more
+        +(mine?3.6:0)
+        +((INDICATORS.mandate.value-50)/50)*BILL_MANDATE*(mine?1:0.3)
+        // sub-linear in the size of the ask: the first billion costs you the
+        // votes, and doubling it does not double the resistance
+        -pain*Math.sqrt(clamp(rr.yield,0,4))*0.75
+        +(districtSupport(row,sf,align)-50)*0.10;
+      if(incl+gauss()*VOTE_SD>0)yes++;
+    }
+    out.chambers[ch]={yes, need, ok:yes>=need};
+    if(yes<need)out.passed=false;
+  }
+  return out;
+}
 function settlePending(){
   const pend=GAME.pending;
   GAME.pending=null;
   if(pend){
     const now=snapshotFor(pend.key);
     if(now!==null&&now!==pend.snap){
-      const cost=chargeFor(pend.key,pend.snap,now);
-      if(GAME.capital>=cost){GAME.capital-=cost;GAME.log.push("◈ "+cost+" capital — changed "+nameFor(pend.key));}
-      else{restoreFrom(pend.key,pend.snap);GAME.log.push("✗ Not enough capital — "+nameFor(pend.key)+" reverted");}
+      const rv=revenueVote(pend.key,pend.snap,now);
+      if(rv&&!rv.passed){
+        restoreFrom(pend.key,pend.snap);
+        const lost=[];
+        for(const ch of ["house","senate"])if(!rv.chambers[ch].ok)
+          lost.push("the "+(ch==="house"?"House":"Senate")+" "+rv.chambers[ch].yes+"/"+rv.chambers[ch].need);
+        GAME.log.push(ico('ban')+" "+nameFor(pend.key)+" — a revenue rise needs three-fifths of both chambers "
+          +"(Art. IV §25) and fell short in "+lost.join(" and ")+". Reverted.");
+      } else {
+        const cost=chargeFor(pend.key,pend.snap,now);
+        if(GAME.capital>=cost){GAME.capital-=cost;
+          GAME.log.push("◈ "+cost+" capital — changed "+nameFor(pend.key)
+            +(rv?" (revenue rise cleared three-fifths "+rv.chambers.house.yes+"/"+rv.chambers.house.need
+                +" and "+rv.chambers.senate.yes+"/"+rv.chambers.senate.need+")":""));}
+        else{restoreFrom(pend.key,pend.snap);GAME.log.push("✗ Not enough capital — "+nameFor(pend.key)+" reverted");}
+      }
     }
   }
   // settle harvest-level slider independently
