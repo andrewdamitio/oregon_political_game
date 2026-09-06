@@ -11264,7 +11264,7 @@ function resolveBallot(kind){
     const share=clamp(poll+noise,0.01,0.99);
     const passed=share>0.5;
     if(passed){
-      if(m.dir==="enact")_applyEnact(m.id);
+      if(m.dir==="enact")_applyEnact(m.id, clamp(0.15+(share-0.5)*1.4, 0.15, 0.55));
       else if(m.dir==="set")_applySetMeasure(m.id,m.target);
       else {
         // a citizen repeal you campaigned FOR is yours to answer for like any
@@ -13724,10 +13724,24 @@ function renderPolicies(){
 /* The mechanical half of enacting — moving the policy onto the board. Split
    out from enactPolicy so the ballot can call it when voters ratify an
    amendment, without charging capital a second time. */
-function _applyEnact(id){
+function _applyEnact(id, level){
   const src=CATALOG[id]; if(!src)return;
   const p=Object.assign({},src); delete p.enactCapital; p.enacted=true;
   p.eff=0;                       // effects phase in from zero
+  // A policy the voters just passed is a mandate to DO the thing, not to
+  // stand up an empty programme. When a starting level is supplied (the
+  // ballot path), a dialable policy comes in funded at that level rather
+  // than at zero. Callers that let the player pick the level (the floor
+  // dial) pass nothing and keep the catalog default.
+  if(level>0){
+    if(p.mechanic==="slider"||p.mechanic==="allocation")
+      p.value=Math.max(p.value||0, level);
+    else if(p.mechanic==="intensity"){ p.enabled=true; p.intensity=Math.max(p.intensity||0, level); }
+    else if(p.mechanic==="tier"&&Array.isArray(p.tiers)&&p.tiers.length>1){
+      const want=Math.round(level*(p.tiers.length-1));
+      p.tierIndex=Math.max(p.tierIndex||0, p.tierMin||0, Math.min(want, p.tiers.length-1));
+    }
+  }
   GAME.enactedAt[id]=GAME.turn;
   POLICIES[id]=p;
   delete CATALOG[id];
