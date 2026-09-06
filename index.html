@@ -1718,6 +1718,11 @@
   try{ localStorage.removeItem("sc_nextSeed"); localStorage.setItem("sc_curSeed",seed); }catch(e){}
   Math.random=mulberry32(xmur3(seed)());
   window.RUN_SEED=seed;
+  /* Re-point Math.random at a named stream derived from the same seed. The
+     world can be built more than once — switching coalitions on the opening
+     screen rebuilds it — and every build must draw the same numbers, so the
+     boot draws from "<seed>|boot" and play from "<seed>|play". */
+  window.reseedRNG=function(tag){ Math.random=mulberry32(xmur3(seed+"|"+tag)()); };
 })();
 /* Recent-content memory: how many of the last few runs each random event /
    dilemma appeared in. Fresh and rarely-seen content is weighted up so
@@ -15446,10 +15451,7 @@ function bootWorld(startId){
   // and gameplay from another, both keyed off the run seed, so booting the
   // world twice (which is what switching coalitions does) gives exactly the
   // world a single boot would have — and the seed still means what it says.
-  try{
-    const sd=window.RUN_SEED||"";
-    Math.random=mulberry32(xmur3(sd+"|boot")());
-  }catch(e){}
+  if(window.reseedRNG)window.reseedRNG("boot");
   // ---- run state that boot-time code reads, back to its turn-zero value
   GAME.agendaBaseline=0; GAME.compassStart={ec:0,so:0}; GAME.compassEvents={ec:0,so:0};
   GAME.mandateShock=0; GAME.changeAppetite=0; GAME.uturnCount=0; GAME.protestCrackdowns=0;
@@ -15469,6 +15471,9 @@ function bootWorld(startId){
   GAME.activeSituations={}; GAME.situationAge={}; GAME.grudges=[]; GAME.history={};
   GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.lawLock={};
   GAME.floorFreeze=0; GAME.walkoutSide=null; GAME.walkoutCooldownUntil=0; GAME.walkoutIgnoredUntil=0; GAME.protestIgnoredUntil=0;
+  // the band is set from the world this boot produces, so the pre-roll below
+  // must run unbanded — otherwise a second boot inherits the first one's anchor
+  GAME.sizeAnchor=null; GAME.makeupShift={};
   // the chronic Oregon conditions the governor inherits, re-seeded
   for(const sid in SITUATIONS)
     if(SITUATIONS[sid].startActive){GAME.activeSituations[sid]=true;GAME.situationAge[sid]=0;}
@@ -15520,10 +15525,7 @@ function bootWorld(startId){
   pushHistory(); // seed turn 0
   // hand gameplay its own stream, so the run plays the same however many times
   // the opening screen rebuilt the world
-  try{
-    const sd=window.RUN_SEED||"";
-    Math.random=mulberry32(xmur3(sd+"|play")());
-  }catch(e){}
+  if(window.reseedRNG)window.reseedRNG("play");
 }
 bootWorld(activeStartId());
 
