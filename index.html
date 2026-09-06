@@ -13599,6 +13599,16 @@ function nameFor(key){
 function revenueVote(key, origSnap, curSnap){
   const rr=isRevenueRise(key,origSnap,curSnap);
   if(!rr)return null;
+  // A shortfall is political cover. Oregon has to balance, so a member who
+  // would never vote a tax rise against a surplus will vote one to close a
+  // hole — but only up to the size of the hole. You cannot use a $200M deficit
+  // to justify a $2B tax rise; past that you are asking them to fund an
+  // ambition, not a shortfall, and they price it accordingly.
+  const bal=budgetBalance().balance, debt=GAME.structuralDebt||0;
+  const hole=Math.max(0,-bal)+debt*0.25;
+  const justified=clamp(hole/Math.max(0.15,rr.yield),0,1);
+  const cover=clamp(hole,0,4)*1.6*justified;
+  rr.hole=hole; rr.cover=cover;
   const sf=stateFeel(), align=coalitionAlignment(sf);
   const hHeld=new Set((GAME.legis&&GAME.legis.hHeld)||[...legisSeatMap(OR_HOUSE_DISTRICTS,(GAME.legis&&GAME.legis.house)||0).mine]);
   const sHeld=new Set((GAME.legis&&GAME.legis.sHeld)||[...legisSeatMap(OR_SENATE_DISTRICTS,(GAME.legis&&GAME.legis.senate)||0).mine]);
@@ -13625,6 +13635,7 @@ function revenueVote(key, origSnap, curSnap){
         // sub-linear in the size of the ask: the first billion costs you the
         // votes, and doubling it does not double the resistance
         -pain*Math.sqrt(clamp(rr.yield,0,4))*0.75
+        +cover
         +(districtSupport(row,sf,align)-50)*0.10;
       if(incl+gauss()*VOTE_SD>0)yes++;
     }
@@ -13646,13 +13657,15 @@ function settlePending(){
         for(const ch of ["house","senate"])if(!rv.chambers[ch].ok)
           lost.push("the "+(ch==="house"?"House":"Senate")+" "+rv.chambers[ch].yes+"/"+rv.chambers[ch].need);
         GAME.log.push(ico('ban')+" "+nameFor(pend.key)+" — a revenue rise needs three-fifths of both chambers "
-          +"(Art. IV §25) and fell short in "+lost.join(" and ")+". Reverted.");
+          +"(Art. IV §25) and fell short in "+lost.join(" and ")+". Reverted."
+          +(rv.rise.cover>0.4?" Even with the shortfall to point at.":""));
       } else {
         const cost=chargeFor(pend.key,pend.snap,now);
         if(GAME.capital>=cost){GAME.capital-=cost;
           GAME.log.push("◈ "+cost+" capital — changed "+nameFor(pend.key)
             +(rv?" (revenue rise cleared three-fifths "+rv.chambers.house.yes+"/"+rv.chambers.house.need
-                +" and "+rv.chambers.senate.yes+"/"+rv.chambers.senate.need+")":""));}
+                +" and "+rv.chambers.senate.yes+"/"+rv.chambers.senate.need
+                +(rv.rise.cover>0.4?" — the shortfall carried it":"")+")":""));}
         else{restoreFrom(pend.key,pend.snap);GAME.log.push("✗ Not enough capital — "+nameFor(pend.key)+" reverted");}
       }
     }
