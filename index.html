@@ -2398,7 +2398,7 @@ const INDICATORS={
     ],
     feedback:{}},
   justiceEffectiveness:{name:"Justice Pipeline Effectiveness", icon:"scales", value:50,
-    desc:"How well Oregon's justice system functions end-to-end. Crime reduction from incapacitation is limited by the weakest of three pillars: police (arrests), judiciary (prosecution), and corrections (jail capacity). All three must be adequately funded for the chain to work. Police retain a prevention benefit even when the pipeline is broken.",
+    desc:"How well Oregon's justice system functions end-to-end. Crime reduction from incapacitation is limited by the weakest of three pillars: police (arrests), judiciary (prosecution), and corrections (jail capacity). All three must be adequately funded for the chain to work. Police retain a prevention benefit even when the pipeline is broken. A working pipeline also leans on open drug use (enforcement, drug courts, diversion) and, through supervised release with services, on street homelessness.",
     derive:()=>{
       const police = POLICIES.policing?effLevelOf(POLICIES.policing):0.25;
       const prosecution = AGENCIES.judiciary?.funding??0.5;
@@ -2410,7 +2410,7 @@ const INDICATORS={
       {name:ico(AGENCIES.judiciary.icon)+" "+AGENCIES.judiciary.name,v:(AGENCIES.judiciary?.funding??0.5)*100,link:"a_judiciary"},
       {name:ico(AGENCIES.corrections.icon)+" "+AGENCIES.corrections.name,v:(AGENCIES.corrections?.funding??0.5)*100,link:"a_corrections"},
     ],
-    feedback:{violentCrime:-0.025, propertyCrime:-0.022}},
+    feedback:{violentCrime:-0.025, propertyCrime:-0.022, drugUse:-0.018, homelessness:-0.010}},
   housingAffordability:{name:"Housing Affordability", icon:"house", value:40,
     desc:"How accessible Oregon's housing market is to working residents — a composite of homelessness pressure, income inequality, housing production, and land-use supply. Oregon has one of the worst housing deficits in the nation, driven by decades of underbuilding behind urban growth boundaries and stagnant wages. High affordability attracts workers and families; low affordability accelerates homelessness, inequality, and out-migration.",
     derive:()=>{
@@ -2446,7 +2446,7 @@ const INDICATORS={
       {name:ico(LANDUSE.icon)+" Land Use (supply constraint)",v:(2-LANDUSE.index)*4,link:"landuse"},
       ...(GAME.activeSituations.housingShortage?[{name:ico('chart-down')+" Housing Shortage Crisis",v:-10}]:[]),
     ],
-    feedback:{homelessness:-0.012, inequality:-0.008, disposableIncome:0.12, gdp:0.002}}, // housing costs squeeze take-home budgets AND, when housing sits near jobs, let the labour market clear
+    feedback:{homelessness:-0.016, inequality:-0.008, disposableIncome:0.12, gdp:0.002}}, // housing costs squeeze take-home budgets AND, when housing sits near jobs, let the labour market clear
   mentalHealth:{name:"Mental Health", icon:"brain", value:30,
     desc:"Population-level mental health outcomes — how well Oregonians are faring psychologically. Distinct from system capacity: high drug use and inequality can overwhelm even a well-funded treatment network. Oregon ranks 47th nationally. Poor mental health drives crime, homelessness, and public health costs; high mental health moderately boosts public health.",
     derive:()=>{
@@ -3184,7 +3184,7 @@ const POLICIES={
       {},
       {conservative:6, moderate:2, suburban:3, retirees:2, liberal:-6, socialist:-7, libertarian:-5, poor:-5, urban:-4}],
     tierIdeology:[{social:-0.4,govSize:-0.3},{social:-0.2,govSize:-0.2},{social:0.1},{social:0.5,govSize:0.4}]},
-  bottleBill:{name:"Bottle Bill", domain:"envInfra", icon:"bottle", enacted:true, mechanic:"law",
+  bottleBill:{name:"Bottle Bill", domain:"envInfra", icon:"bottle", enacted:true, mechanic:"law", binary:true,
     desc:"Oregon's landmark 1971 Bottle Bill — the first in the nation. The 10¢ deposit drives ~86% redemption, the best rate in the country, run by the nonprofit OBRC. It also puts a cash value on every can in a bin: 'canning' is a real informal income for the very poor and the unhoused, and the flip side is more rummaging through trash downtown and more of that cash going to alcohol and drugs. Repealing it would be a notorious environmental retreat.",
     enabled:true, costFull:0.1, capital:4, repealCost:7,
     effects:{environment:3, propertyCrime:-1, drugUse:1.5, homelessness:1.2},
@@ -3504,7 +3504,7 @@ const CATALOG={
     blocEffect:{renters:4, blueCollar:2, businessClass:2, moderate:1},
     real:{min:0,max:100,unit:"/100 ambition",decimals:0,label:"production push"},
     ideology:{economic:-0.2,govSize:-0.2}},
-  singleStair:{name:"Single Staircase Building Reform", domain:"social", icon:"house", mechanic:"slider", niche:true,
+  singleStair:{name:"Single Staircase Building Reform", domain:"social", icon:"house", mechanic:"slider", niche:true, binary:true,
     desc:"Allow residential buildings up to 6 stories to be built with a single exit staircase instead of the required two. Oregon passed the core reform in 2023 (HB 2780), but implementation is uneven and the reform is limited to smaller buildings. Expanding it to more building types and heights unlocks much cheaper, deeper floorplates — the floor area previously lost to a second stairwell becomes a bedroom or studio. Developers estimate it cuts per-unit construction costs 12–18% in mid-rise projects, enabling more missing-middle infill in cities that can't support towers. Every major peer nation already allows this. It is a building-code change — it costs the treasury nothing; the fight is purely political.",
     value:0.5, capital:6, enactCapital:10, phaseIn:5,
     effects:{homelessness:{b:-1,c:-8,i:4}, inequality:-2, gdp:0.1},
@@ -5847,8 +5847,8 @@ const SITUATIONS={
     indicatorEffect:{digitization:-4},
     groupMood:{poor:-8,blueCollar:-5,liberal:-3}},
   doomLoop:{name:"Portland Doom Loop", kind:"bad", category:"condition",
-    desc:"Empty offices, closed storefronts, and a battered reputation feed on each other — businesses leave because downtown is dying, and downtown dies because businesses leave.",
-    trigger:()=>INDICATORS.downtown.value<40, clear:()=>INDICATORS.downtown.value>50, onClear:{capital:2},
+    desc:"Empty offices, closed storefronts, and a battered reputation feed on each other — businesses leave because downtown is dying, and downtown dies because businesses leave. Crime, the addiction crisis and visible homelessness are what tip it over: with any of those running, downtown does not have to fall as far before the loop takes hold.",
+    trigger:()=>INDICATORS.downtown.value<40 || (INDICATORS.downtown.value<46 && (GAME.activeSituations.crimeWave||GAME.activeSituations.addictionCrisis||GAME.activeSituations.homelessEmergency)), clear:()=>INDICATORS.downtown.value>50 && !GAME.activeSituations.crimeWave && !GAME.activeSituations.addictionCrisis, onClear:{capital:2},
     watch:{indicator:"downtown", startAt:40, clearAt:50, badHigh:false},
     metricEffect:{gdp:-0.15},
     indicatorEffect:{inMigration:-6,businessClimate:-5},
@@ -6418,6 +6418,13 @@ function metricTarget(k){
   // year or two as providers retool, then better as pay-for-results bites.
   // Only while the complex it targets is still running — after it clears, a
   // smaller residual benefit stands in for the reformed contracting system.
+  // A genuine housing shortage puts people on the street directly, on top of
+  // the slower affordability feedback — a slight, visible push once supply is
+  // really short.
+  if(k==="homelessness"){
+    const ha=INDICATORS.housingAffordability.value;
+    if(ha<44) t+=(44-ha)*0.035;
+  }
   if(POLICIES.outcomeContracting){
     const f=outcomeContractingFactor();
     const scale=GAME.activeSituations.nonprofitComplex?1:0.35;
