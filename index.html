@@ -2170,7 +2170,7 @@ const INDICATORS={
       ...(GAME.activeSituations.doomLoop?[{name:ico('warning')+" Portland Doom Loop",v:-5*sitSeverity("doomLoop"),link:"sit_doomLoop"}]:[]),
       ...(GAME.activeSituations.cascadiaQuake?[{name:ico('warning')+" Cascadia Earthquake",v:-8,link:"sit_cascadiaQuake"}]:[]),
     ],
-    feedback:{gdp:0.018, businessClimate:0.018}}, // at starting downtown~18: GDP drag reduced (was 0.030 — too strong)
+    feedback:{gdp:0.018}}, // at starting downtown~18: GDP drag reduced (was 0.030 — too strong). Downtown's lift to business climate lives in that indicator's own derive.
   inMigration:{name:"In-Migration Rate", icon:"truck", value:40,
     desc:"Net flow of people and talent into Oregon. Driven by jobs, affordability, environment, and downtown vitality. Feeds the labor force and growth.",
     derive:()=>{
@@ -2210,6 +2210,7 @@ const INDICATORS={
       if(GAME.activeSituations.techBoom)v+=10;
       if(GAME.activeSituations.recession)v-=10;
       if(GAME.activeSituations.taxRevolt)v-=6;
+      v+=(INDICATORS.downtown.value-45)*0.06;           // a vibrant core is a selling point; a hollow one repels
       v+=indPolicyBoost("businessClimate")+sitIndicatorPush("businessClimate");
       return clamp(v,0,100);
     },
@@ -2222,6 +2223,7 @@ const INDICATORS={
       {name:ico(INDICATORS.inMigration.icon)+" Talent (in-migration)",v:(INDICATORS.inMigration.value-50)*0.25,link:"i_inMigration"},
       {name:ico(METRICS.education.icon)+" Educational Attainment",v:(METRICS.education.value-60)*0.20,link:"m_education"},
       ...(METRICS.unemployment.value<3.8?[{name:ico('muscle')+" Labor shortage (tight hiring)",v:-Math.pow(3.8-METRICS.unemployment.value,2)*1.4,link:"m_unemployment"}]:[]),
+      {name:ico(INDICATORS.downtown.icon)+" Downtown Perception",v:(INDICATORS.downtown.value-45)*0.06,link:"i_downtown"},
     ],
     feedback:{gdp:0.015, unemployment:-0.012}},          // good climate grows GDP, cuts joblessness
   tourism:{name:"Tourism Appeal", icon:"mountain", value:58,
@@ -2398,7 +2400,7 @@ const INDICATORS={
     ],
     feedback:{}},
   infraStrain:{name:"Infrastructure Strain", icon:"road", value:38,
-    desc:"How far Oregon's roads, water, sewer and — above all — its electrical grid have fallen behind what the economy is asking of them. Growth is the cause, not decay: a bigger economy, arriving households, an electrifying vehicle fleet and a surge of data-centre and chip-fab load all want to connect faster than wire, pipe and lane get built.\n\nOregon's specific bind is transmission. The state has cheap power and excellent wind and solar resource east of the Cascades and almost no way to move it west, because a transmission corridor crosses dozens of counties, cities and landowners and any one of them can stop it. High strain shows up first on the power bill, then as a drag on growth, a business climate that cools, and housing that cannot be built because there is nothing to hook it up to.\n\nIt falls when you build capacity — the Infrastructure Capital Program, ODOT funding, transit share taking load off the roads — or when you make building legally possible at all, via a Transmission Siting Authority.",
+    desc:"How far Oregon's roads, water, sewer and — above all — its electrical grid have fallen behind what the economy is asking of them. Growth is the cause, not decay: a bigger economy, arriving households, an electrifying vehicle fleet and a surge of data-centre and chip-fab load all want to connect faster than wire, pipe and lane get built.\n\nOregon's specific bind is transmission. The state has cheap power and excellent wind and solar resource east of the Cascades and almost no way to move it west, because a transmission corridor crosses dozens of counties, cities and landowners and any one of them can stop it. High strain shows up first on the power bill, then as a drag on growth, a business climate that cools, and housing that cannot be built because there is nothing to hook it up to.\n\nIt falls when you build capacity — the Infrastructure Capital Program, ODOT funding, highway build-out, transit share taking load off the roads — or when you make building legally possible at all, via a Transmission Siting Authority.",
     derive:()=>{
       let v=38;
       // DEMAND — a bigger, faster-growing state loads everything at once
@@ -2414,6 +2416,9 @@ const INDICATORS={
       v-=(INDICATORS.transportFunding.value-62)*0.10;
       v-=clamp((METRICS.transitShare.value-8)/12,0,1)*7;
       if(AGENCIES.odot)v-=((AGENCIES.odot.funding??0.5)-0.5)*22;
+      // pouring ODOT's mix into asphalt relieves ROAD strain — a real piece of
+      // the whole, but smaller than the grid: new lanes and bridge work, not wire
+      if(POLICIES.modeSplit)v-=clamp(0.35-effLevelOf(POLICIES.modeSplit),0,0.35)*9;
       v+=indPolicyBoost("infraStrain")+sitIndicatorPush("infraStrain");
       return clamp(v,0,100);
     },
@@ -2429,6 +2434,7 @@ const INDICATORS={
       d.push({name:ico('road')+" Transportation revenue",v:-(INDICATORS.transportFunding.value-62)*0.10,link:"i_transportFunding"});
       d.push({name:ico('bike')+" Transit share (takes load off)",v:-clamp((METRICS.transitShare.value-8)/12,0,1)*7,link:"m_transitShare"});
       if(AGENCIES.odot)d.push({name:ico(AGENCIES.odot.icon)+" "+AGENCIES.odot.name,v:-((AGENCIES.odot.funding??0.5)-0.5)*22,link:"a_odot"});
+      if(POLICIES.modeSplit)d.push({name:ico('road')+" Highway build-out (ODOT mix)",v:-clamp(0.35-effLevelOf(POLICIES.modeSplit),0,0.35)*9,link:"p_modeSplit"});
       for(const pid in POLICIES){const p=POLICIES[pid];
         if(p.indicatorEffects&&p.indicatorEffects.infraStrain){const v=p.indicatorEffects.infraStrain*effLevelOf(p);
           if(Math.abs(v)>0.3)d.push({name:ico(p.icon)+" "+p.name,v,link:"p_"+pid});}
@@ -5896,6 +5902,16 @@ const SITUATIONS={
     indicatorEffect:{inMigration:-3, businessClimate:-2, ruralAlienation:2},
     moodMag:2, moodAxes:{economic:-0.15},
     groupMood:{collegeEducated:-8, students:-7, parents:-4, liberal:-3, urban:-2, blueCollar:1}},
+  keepOregonOregon:{name:"Keep Oregon, Oregon", kind:"bad", category:"condition",
+    desc:"Tom McCall told the country to visit Oregon but \u201cfor heaven's sake, don't come here to live\u201d \u2014 and the sentiment is roaring back. Years of heavy in-migration have made growth itself the wedge issue: newcomers with out-of-state money, out-of-state plates keyed in parking lots, town-hall crowds demanding the urban growth boundary stay put and the boom be capped. It is almost entirely a political wound \u2014 no metric is bleeding \u2014 but it plays statewide, it puts every pro-growth thing you do on the defensive, and the movement wins enough restrictive fights to visibly cool the inflow. Established residents, rural Oregon and older homeowners nod along; the newcomers, the universities and business hear a state that no longer wants them.\n\n\u2192 TO END IT: let in-migration settle to a level the state has digested (below ~52), or build enough housing that the pressure comes off (affordability back above 58).",
+    trigger:()=>GAME.turn>8 && INDICATORS.inMigration.value>=64 && GAME.econCycle>-0.1 && INDICATORS.housingAffordability.value<50,
+    clear:()=>INDICATORS.inMigration.value<52 || INDICATORS.housingAffordability.value>=58,
+    minTurns:4, onTrigger:{capital:-2},
+    metricEffect:{},
+    indicatorEffect:{inMigration:-4, businessClimate:-3, ruralAlienation:-2, mandate:-2},
+    moodMag:2, moodAxes:{social:0.1},
+    groupMood:{rural:5, retirees:4, homeowners:3, conservative:3, moderate:1,
+               collegeEducated:-5, renters:-4, urban:-4, businessClass:-4, students:-3, liberal:-2}},
   gentrificationBacklash:{name:"Priced Out of a Thriving City", kind:"bad", category:"condition",
     desc:"The paradox of success: growth is strong, downtown is clean and safe, incomes are up — and a chorus is rising that the city has been hollowed out. Rents and storefront leases have chased out the artists, the dive bars, the working families, and the small operators that gave the place its character. The people doing fine still feel priced out of a home; the people who built the neighbourhood have been pushed to the exurbs. It is entirely a political wound — no metric is bleeding — but it concentrates on the progressive base and the working class, and it dulls the 'authentic Oregon' draw that tourism runs on. It eases when housing gets meaningfully more affordable, or when the boom itself cools.",
     trigger:()=>GAME.turn>6 && effective("gdp")>=66 && GAME.econCycle>-0.05 && INDICATORS.downtown.value>=58
@@ -5918,6 +5934,20 @@ const SITUATIONS={
     moodMag:2,
     groupMood:{motorists:-8, suburban:-6, blueCollar:-4, businessClass:-3, parents:-3, rural:-2,
                transitCommuters:1}},
+  growthWaterWar:{name:"Water Runs Short of the Boom", kind:"bad", category:"condition",
+    desc:"Not a drought \u2014 a structural mismatch. A metro adding people every month, hyperscaler campuses that each drink like a small city, and irrigated agriculture east of the mountains are all drawing on rivers and aquifers that were fully spoken for decades ago. The basins that matter are in permanent curtailment fights, new water permits for fabs and subdivisions are stuck, and the farms \u2014 junior on paper \u2014 get shut off first and know exactly who to blame.\n\n\u2192 TO END IT: let growth ease the pressure, or pass Groundwater & Water Rights Reform (past 60%) into a healthy environment so the system has real slack.",
+    trigger:()=>GAME.turn>8 && effective("gdp")>=64 && INDICATORS.inMigration.value>=58 && GAME.econCycle>-0.1
+      && (POLICIES.dataCenterEnergy?policyLevel(POLICIES.dataCenterEnergy)<0.55:true)
+      && (!POLICIES.waterRights || policyLevel(POLICIES.waterRights)<0.5),
+    clear:()=>effective("gdp")<58 || INDICATORS.inMigration.value<48
+      || (POLICIES.waterRights && policyLevel(POLICIES.waterRights)>=0.6 && METRICS.environment.value>=58),
+    minTurns:4, capitalDrain:-1,
+    onTrigger:{capital:-2, countyMood:{spec:COUNTY_GROUPS.irrigatedEast, value:-6, decay:0.9, label:"Irrigated east \u2014 curtailed for cities and data centers"}},
+    metricEffect:{gdp:-0.12, environment:-0.4},
+    indicatorEffect:{businessClimate:-4, ruralAlienation:5, inMigration:-2},
+    costEffect:{natResources:0.08},
+    moodMag:2, moodAxes:{environment:-0.1},
+    groupMood:{rural:-8, timber:-4, businessClass:-4, conservative:-3, moderate:-2, liberal:-2, urban:-1}},
   droughtWater:{name:"Drought & Water Crisis", kind:"bad", category:"event", cooldown:5,
     desc:"A severe drought pits farms, fish, and cities against each other over water.",
     metricEffect:{environment:-2,gdp:-0.2,loggingRate:-5}, moodAxes:{environment:-0.2}, moodMag:1, minTurns:3,
@@ -6122,6 +6152,14 @@ const SITUATIONS={
     metricEffect:{eduOutcomes:-2}, moodMag:2, minTurns:1,
     onTrigger:{capital:-3, metrics:{eduOutcomes:-3}},
     groupMood:{publicUnions:4, parents:-7, suburban:-4, blueCollar:2, moderate:-3, students:-3}},
+  gridEmergency:{name:"Rolling Blackouts", kind:"bad", category:"event",
+    desc:"The grid ran out of room. A demand spike on a system already stretched by data-centre load, an electrifying vehicle fleet and years of transmission that never got built \u2014 and the utilities are shedding load in rotating outages across the Willamette Valley. Traffic signals dark, cold-storage warehouses scrambling for generators, hospitals on backup, and a business-press narrative that Oregon courted the server farms and then couldn't keep the lights on. It passes in a quarter, but it is the moment the abstract Infrastructure Strain number becomes something every voter felt.",
+    metricEffect:{gdp:-0.3, electricRate:1.2},
+    moodMag:3, minTurns:1, mandateShock:-5,
+    onTrigger:{capital:-5, metrics:{gdp:-0.6}},
+    indicatorEffect:{businessClimate:-6, inMigration:-3, downtown:-3},
+    groupMood:{businessClass:-9, suburban:-6, moderate:-5, motorists:-4, wealthy:-4, retirees:-4,
+               homeowners:-3, urban:-3, blueCollar:-3}},
   // national political mood is handled specially (see NATIONAL_MOOD), not here
 };
 
@@ -6158,6 +6196,9 @@ const EVENT_POOL=[
   {id:"cyberattack", prob:0.055, gate:()=>INDICATORS.digitization.value<55},
   {id:"unemploymentSystemFailure", prob:0.06, gate:()=>INDICATORS.digitization.value<48 && (GAME.activeSituations.recession||METRICS.unemployment.value>7)},
   {id:"benefitsBacklog", prob:0.045, gate:()=>INDICATORS.digitization.value<45},
+  {id:"gridEmergency", prob:0.05, seasonal:[2],
+   gate:()=>INDICATORS.infraStrain.value>=66 && (GAME.activeSituations.heatDome||GAME.activeSituations.techBoom||GAME.activeSituations.gdpBoom||METRICS.evAdoption.value>40),
+   probMult:()=>1+clamp((INDICATORS.infraStrain.value-66)/24,0,1)*1.1},
   {id:"teacherStrike", prob:0.055,
    gate:()=>strikeCapacity()>0 && ((SIMULANTS.publicUnions?.approval??50)<44 || boomWageGap()>0.5),
    probMult:()=>(1+boomWageGap()*1.2)*strikeCapacity()},
@@ -13801,8 +13842,10 @@ function renderDetail(){
     if(fb.length){
       h+=`<div class="ebgroup-label">What this indicator drives</div><div class="ebgroup">`;
       const scale=Math.max(0.02,...fb.map(k=>Math.abs(ind.feedback[k])));
-      for(const k of fb){const m=METRICS[k];const good=m&&m.invert?ind.feedback[k]<0:ind.feedback[k]>0;
-        h+=effectBar(m?m.name:k, ind.feedback[k]*100, scale*100, {color:good?'var(--good)':'var(--clay)', link:m?"m_"+k:null, fmt:v=>(v>=0?'+':'')+(v/100).toFixed(3)+'/pt'});}
+      for(const k of fb){const m=METRICS[k], i2=!m&&INDICATORS[k];
+        const good=m&&m.invert?ind.feedback[k]<0:ind.feedback[k]>0;
+        const nm=m?m.name:(i2?i2.name:k), lk=m?"m_"+k:(i2?"i_"+k:null);
+        h+=effectBar(nm, ind.feedback[k]*100, scale*100, {color:good?'var(--good)':'var(--clay)', link:lk, fmt:v=>(v>=0?'+':'')+(v/100).toFixed(3)+'/pt'});}
       h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Each point this indicator moves above its starting level nudges these metrics per quarter (and vice-versa below it).</div></div>`;
     }
     h+=`<div class="sectionsub" style="margin-top:12px">This indicator is computed from the state of your metrics and active situations — improve the underlying conditions and it follows, with some lag.</div>`;
@@ -15298,7 +15341,7 @@ function buildWebEdges(){
   }
   for(const iid in INDICATORS){
     const ind=INDICATORS[iid];
-    for(const k in (ind.feedback||{})){const v=(ind.value-(ind.base0!==undefined?ind.base0:50))*ind.feedback[k];E.push({a:"i_"+iid,b:"m_"+k,good:goodFor(k,v!==0?v:ind.feedback[k]),w:Math.max(0.3,Math.abs(v))});}
+    for(const k in (ind.feedback||{})){const v=(ind.value-(ind.base0!==undefined?ind.base0:50))*ind.feedback[k];const tgt=METRICS[k]?"m_"+k:INDICATORS[k]?"i_"+k:null;if(tgt)E.push({a:"i_"+iid,b:tgt,good:goodFor(k,v!==0?v:ind.feedback[k]),w:Math.max(0.3,Math.abs(v))});}
   }
   for(const k in LANDUSE.effects){const v=LANDUSE.effects[k][LANDUSE.index]; if(Math.abs(v)>0.3)E.push({a:"landuse",b:"m_"+k,good:goodFor(k,v),w:Math.abs(v)});}
   // indicator derive inputs (hand-mapped to the formulas)
