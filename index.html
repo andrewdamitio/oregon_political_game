@@ -13876,14 +13876,14 @@ function syncCannabisTab(){
 function snapshotFor(key){
   if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];return p?JSON.stringify({v:p.value,t:p.tierIndex,e:p.enabled,i:p.intensity,ch:p.channels?p.channels.map(c=>c.share):null}):null;}
   if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];return a?JSON.stringify({f:a.funding}):null;}
-  if(key==="landuse")return JSON.stringify({i:LANDUSE.index});
+  if(key==="landuse")return JSON.stringify({t:LANDUSE.index});
   return null;
 }
 function restoreFrom(key,snap){
   const d=JSON.parse(snap);
   if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];if(!p)return;p.value=d.v;p.tierIndex=Math.max(d.t||0,p.tierMin||0);p.enabled=d.e;p.intensity=d.i;if(d.ch&&p.channels)p.channels.forEach((c,i)=>c.share=d.ch[i]);}
   else if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];if(a)a.funding=d.f;}
-  else if(key==="landuse")LANDUSE.index=d.i;
+  else if(key==="landuse")LANDUSE.index=(d.t!=null?d.t:d.i)|0;
 }
 function magScale(mag){
   // 3-tier cost by magnitude of change. Re-opening a settled question in Salem
@@ -13942,10 +13942,39 @@ function nameFor(key){
   return key;
 }
 /* settle any pending change before leaving the current page */
+/* Land Use is not in POLICIES — it is a 5-stop preset on LANDUSE — but the
+   floor model is the game's one way to change law now, so it has to run
+   through the same machine. This adapter presents LANDUSE as a tier policy
+   with live getters/setters, so dialling it in the floor screen writes
+   straight back to LANDUSE.index. Tightening (higher stop) pits the property /
+   resource / development blocs against the preservation / urban ones — a
+   genuinely contested question, which is the point. */
+const LANDUSE_BILL={
+  mechanic:"tier", tierMin:0,
+  get name(){ return LANDUSE.name; },
+  get icon(){ return LANDUSE.icon; },
+  get tiers(){ return LANDUSE.presets; },
+  get tierIndex(){ return LANDUSE.index; },
+  set tierIndex(v){ LANDUSE.index = Math.max(0, Math.min(LANDUSE.presets.length-1, v|0)); },
+  get capital(){ return LANDUSE.capital; },
+  get tierIdeology(){ return LANDUSE.ideologyByStop; },
+  // per-stop bloc mood, symmetric around the "Balanced" middle
+  tierBlocEffects:[
+    {rural:7, timber:6, businessClass:8, libertarian:7, wealthy:2, renters:3, poor:2, homeowners:-4, urban:-5, collegeEducated:-4, liberal:-6, socialist:-3},
+    {rural:3, timber:3, businessClass:4, libertarian:3, renters:1, homeowners:-2, urban:-2, liberal:-3, socialist:-1},
+    {},
+    {rural:-5, timber:-4, businessClass:-5, libertarian:-5, renters:-2, poor:-2, homeowners:3, urban:4, collegeEducated:3, liberal:5, socialist:2},
+    {rural:-9, timber:-8, businessClass:-8, libertarian:-8, renters:-4, poor:-3, homeowners:5, urban:6, collegeEducated:5, liberal:8, socialist:3}
+  ]
+};
+function pendingPol(key){
+  if(key==="landuse")return LANDUSE_BILL;
+  return (key && key.indexOf("p_")===0) ? POLICIES[key.slice(2)] : null;
+}
 /* How big a move is this, as a share of the policy's whole range? */
 function pendingMagnitude(key, origSnap, curSnap){
-  if(!key||!key.startsWith("p_")||!origSnap||!curSnap)return 0;
-  const pol=POLICIES[key.slice(2)]; if(!pol)return 0;
+  if(!key||(!key.startsWith("p_")&&key!=="landuse")||!origSnap||!curSnap)return 0;
+  const pol=pendingPol(key); if(!pol)return 0;
   let ov,cv; try{ ov=JSON.parse(origSnap); cv=JSON.parse(curSnap); }catch(e){ return 0; }
   if(pol.mechanic==="tier"&&pol.tiers)
     return Math.abs((cv.t??0)-(ov.t??0))/Math.max(1,pol.tiers.length-1);
@@ -14014,8 +14043,8 @@ function contentionOf(be){
    counting votes.
    ============================================================ */
 function pendingBillSpec(key, origSnap, curSnap){
-  if(!key||!key.startsWith("p_")||!origSnap||!curSnap)return null;
-  const id=key.slice(2), pol=POLICIES[id]; if(!pol)return null;
+  if(!key||(!key.startsWith("p_")&&key!=="landuse")||!origSnap||!curSnap)return null;
+  const id=(key==="landuse")?"landuse":key.slice(2), pol=pendingPol(key); if(!pol)return null;
   let ov,cv; try{ ov=JSON.parse(origSnap); cv=JSON.parse(curSnap); }catch(e){ return null; }
   const o=(ov.v??ov.t??ov.i??0), c=(cv.v??cv.t??cv.i??0);
   if(c===o)return null;
@@ -14305,7 +14334,7 @@ function pendingDialSet(p,v){ if(p.mechanic==="intensity")p.intensity=v; else p.
 function drawPendingFloor(){
   const F=GAME.pendingFloorChange; if(!F)return;
   const card=document.getElementById("floorCard"), modal=document.getElementById("floorModal");
-  const pol=POLICIES[F.key.slice(2)];
+  const pol=pendingPol(F.key);
   if(!card||!modal||!pol){ GAME.pendingFloorChange=null; return; }
   const dial=["slider","allocation","intensity","tier"].indexOf(pol.mechanic)>=0;
   // the dial sits OUTSIDE the repainted region so that dragging it survives the
@@ -14348,7 +14377,7 @@ function paintPendingFloor(){
   const body=document.getElementById("pfBody"); if(!body)return;
   const card=document.getElementById("floorCard");
   const key=F.key, orig=F.origSnap, cur=snapshotFor(key);
-  const pol=POLICIES[key.slice(2)];
+  const pol=pendingPol(key);
   const same=(cur===orig);
   const w=same?null:pendingWhip(key,orig,cur,F.cushion||0);
   const changeCost=same?0:chargeFor(key,orig,cur);
@@ -14493,7 +14522,7 @@ function wirePolicyControls(){
   // land use preset
   main.querySelectorAll('[data-landuse]').forEach(el=>el.addEventListener('change',e=>{
     const i=parseInt(e.target.value); if(i===LANDUSE.index)return;
-    LANDUSE.index=i; render();}));
+    LANDUSE.index=i; render(); maybeOpenFloor();}));
   // allocation channels — rebalance others to keep shares summing to 1
   main.querySelectorAll('[data-alloc]').forEach(el=>el.addEventListener('change',e=>{
     const p=POLICIES[e.target.dataset.alloc], ci=+e.target.dataset.ch, nv=parseFloat(e.target.value);
