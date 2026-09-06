@@ -10012,7 +10012,6 @@ const LEG_ANCHOR=0.40;    // how much of the historical partisan baseline still 
 // an approval slump costs seats without annihilating the caucus.
 const LEG_REF=44;
 const LEG_TIDE_CAP=4.0;  // asymptotic ceiling (pts) on the FAVOURABLE uniform swing
-const LEG_SEAT_TRIM=-2.5; // flat calibration: the coalition read runs a touch rosy
 
 /* A turnout-weighted average of how you are doing statewide, so a district can be compared
    against it — the DIFFERENCE is what reshapes the coalition. */
@@ -10085,7 +10084,7 @@ function districtSupport(row, sf, align){
   const raw=s-LEG_REF;
   const tide = raw>=0 ? LEG_TIDE_CAP*Math.tanh((raw*LEG_UNIFORM)/LEG_TIDE_CAP)
                       : raw*LEG_UNIFORM;
-  return 50+(lean-50)*a*LEG_ANCHOR + coalitionPull(comp,s)*LEG_SPREAD + tide + LEG_SEAT_TRIM;
+  return 50+(lean-50)*a*LEG_ANCHOR + coalitionPull(comp,s)*LEG_SPREAD + tide + (GAME.legisCalib||0);
 }
 /* Composition rows carry the lean alongside, so support() has a baseline. */
 function legCompRows(chamber){
@@ -15891,6 +15890,18 @@ function bootWorld(startId){
   for(const sid in SIMULANTS){const s=SIMULANTS[sid];s.calib=s.approval-approvalTarget(sid,true);}
   for(let _a=0;_a<4;_a++)tickApproval();
   tickVoterApproval();   // blend the equilibrated bloc moods into the 2,000 voters
+  // LEGISLATIVE CALIBRATION: one additive constant on the district read so
+  // that, at the inherited standing, chamberSupport reproduces the chamber
+  // the coalition actually won (STARTS[id].legis). Pinned to the House; the
+  // Senate falls where it falls, near its own inherited number. Same anchor
+  // pattern as the metric and approval calib above — the tide and slope move
+  // seats away from here once the player starts governing.
+  GAME.legisCalib=0;
+  { const want=GAME.legis.house|0;
+    const sf=stateFeel(), a=coalitionAlignment(sf);
+    const sup=legCompRows("house").map(r=>districtSupport(r,sf,a)).sort((x,y)=>y-x);
+    if(want>0 && want<sup.length) GAME.legisCalib = 50 - (sup[want-1]+sup[want])/2;
+    else if(want>0 && want<=sup.length) GAME.legisCalib = 50 - sup[want-1] + 0.01; }
   // reset prevMetrics/prevIndicators so turn-0 shows no spurious trend arrows
   GAME.prevMetrics={};for(const k in METRICS)GAME.prevMetrics[k]=METRICS[k].value;
   GAME.prevIndicators={};for(const id in INDICATORS)GAME.prevIndicators[id]=INDICATORS[id].value;
