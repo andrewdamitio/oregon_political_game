@@ -10011,6 +10011,7 @@ const LEG_ANCHOR=0.40;    // how much of the historical partisan baseline still 
 // game, not against a notional 50 — a 44% governor holds a normal chamber, and
 // an approval slump costs seats without annihilating the caucus.
 const LEG_REF=44;
+const LEG_TIDE_CAP=4.0;  // asymptotic ceiling (pts) on the FAVOURABLE uniform swing
 
 /* A turnout-weighted average of how you are doing statewide, so a district can be compared
    against it — the DIFFERENCE is what reshapes the coalition. */
@@ -10078,7 +10079,12 @@ function districtSupport(row, sf, align){
   const lean=row[3]!=null?row[3]:50;
   const s=(sf==null?stateFeel():sf);
   const a=(align==null?coalitionAlignment(s):align);
-  return 50+(lean-50)*a*LEG_ANCHOR + coalitionPull(comp,s)*LEG_SPREAD + (s-LEG_REF)*LEG_UNIFORM;
+  // uniform swing: full bite on the downside, saturating on the upside so a
+  // wave tops out at a realistic majority rather than annexing the chamber
+  const raw=s-LEG_REF;
+  const tide = raw>=0 ? LEG_TIDE_CAP*Math.tanh((raw*LEG_UNIFORM)/LEG_TIDE_CAP)
+                      : raw*LEG_UNIFORM;
+  return 50+(lean-50)*a*LEG_ANCHOR + coalitionPull(comp,s)*LEG_SPREAD + tide;
 }
 /* Composition rows carry the lean alongside, so support() has a baseline. */
 function legCompRows(chamber){
