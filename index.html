@@ -403,6 +403,12 @@
   .welcome-title .eg-role{font-family:var(--font-display);font-size:15px;letter-spacing:1px;text-transform:uppercase;
     color:var(--muted-1);margin:2px 0 4px}
   .welcome-title .eg-role b{color:var(--ink)}
+  .welcome-grand .welcome-optin{display:flex;align-items:flex-start;gap:8px;justify-content:center;max-width:520px;
+    margin:14px auto 4px;font-size:12.5px;color:var(--muted-2);line-height:1.45;cursor:pointer;text-align:left}
+  .welcome-grand .welcome-optin input{margin-top:2px;flex:none}
+  .welcome-grand .welcome-choosehint{font-size:12px;color:var(--clay);margin-top:6px}
+  .welcome-grand .welcome-go[disabled]{opacity:.4;cursor:not-allowed;box-shadow:none}
+  .welcome-grand .welcome-body{margin-top:20px}
   .welcome-grand .welcome-body{max-width:600px;text-align:left;font-size:13.5px;line-height:1.7;color:var(--muted-1);margin-top:14px;border-top:1px solid var(--line);padding-top:18px}
   .welcome-grand .welcome-body p{margin:0 0 11px}
   .welcome-grand .welcome-go{margin-top:22px;padding:15px 28px;font-size:16px;letter-spacing:1.5px;min-width:280px}
@@ -8379,11 +8385,13 @@ function showWelcome(onDone){
   const modal=document.getElementById("welcomeModal"), card=document.getElementById("welcomeCard");
   if(!modal||!card){ if(onDone)onDone(); return; }
   const yr=GAME.startYear||2025;
-  // clear the "just reloaded to switch coalition" flag — the reload already
-  // applied it via sc_start; this screen only needs to reflect what loaded
-  try{ localStorage.removeItem("sc_startChosen"); }catch(e){}
+  // Arriving here fresh you must pick a coalition before Take office unlocks.
+  // Coming back from a switch-reload, sc_startChosen is set — the reload WAS
+  // the choice, so the pick is already made.
+  let chosen=false;
+  try{ if(localStorage.getItem("sc_startChosen")){ chosen=true; localStorage.removeItem("sc_startChosen"); } }catch(e){}
   const cur=STARTS[GAME.startId]?GAME.startId:activeStartId();
-  const cardFor=(S)=>`<button class="startcard${S.id===cur?' selected':''}" data-start="${S.id}">
+  const cardFor=(S)=>`<button class="startcard${(chosen&&S.id===cur)?' selected':''}" data-start="${S.id}">
       <div class="sc-name">${S.name}</div>
       <div class="sc-blurb">${S.blurb}</div>
       <div class="sc-seats">${ico('columns')} <b>${S.seats}</b> — the seats you take office with</div>
@@ -8398,23 +8406,26 @@ function showWelcome(onDone){
     <div class="eg-sub" style="font-size:17px;max-width:600px">You take the oath with <b>eight years</b> — two four-year terms — to leave the state better than you found it. Longer, if you can change the constitution.</div>
     <div class="eg-sub" style="font-size:13px;max-width:600px;margin-top:10px;color:var(--muted-2)">Same Oregon either way — the same laws on the books, the same budget hole. What changes is the coalition that elected you, and therefore which seats in Salem are yours and which half of the policy list the floor will carry.</div>
     <div class="startrow">${cardFor(STARTS.liberal)}${cardFor(STARTS.conservative)}</div>
+    <label class="welcome-optin">
+      <input type="checkbox" id="welcomeTermLimit" ${GAME.enforceTermLimit!==false?'checked':''}>
+      <span>Enforce Oregon's <b>two consecutive-term limit</b>. Leave it on for the real rule — your second term is your last unless you pass a constitutional amendment to repeal it. Turn it off to govern indefinitely, re-election after re-election.</span>
+    </label>
+    <button class="enactbtn welcome-go" id="welcomeGo"${chosen?'':' disabled'}>Take office ▸</button>
+    <div class="welcome-choosehint" id="welcomeChooseHint"${chosen?' hidden':''}>Choose the coalition that elected you to continue.</div>
     <div class="welcome-body">
       <p>Enact policy from <b>New Policies</b>. The <b>Governing Board</b> maps how every lever connects to every outcome — hover a tile to light up its web. Crime, jobs, housing, schools, health, the environment, the budget: pull one and the others move.</p>
       <p>Crises, dilemmas and a persistent opposition will test you along the way. Every choice ripples, and the voters — statewide and county by county — remember.</p>
       <p>Next, set the <b>platform</b> you're taking office on: the promises you'll be judged against at your first re-election.</p>
     </div>
-    <label class="welcome-optin" style="display:flex;align-items:flex-start;gap:8px;justify-content:center;max-width:520px;margin:2px auto 0;font-size:12.5px;color:var(--muted-2);line-height:1.45;cursor:pointer;text-align:left">
-      <input type="checkbox" id="welcomeTermLimit" ${GAME.enforceTermLimit!==false?'checked':''} style="margin-top:2px;flex:none">
-      <span>Enforce Oregon's <b>two consecutive-term limit</b>. Leave it on for the real rule — your second term is your last unless you pass a constitutional amendment to repeal it. Turn it off to govern indefinitely, re-election after re-election.</span>
-    </label>
-    <button class="enactbtn welcome-go" id="welcomeGo">Take office ▸</button>
     <div class="welcome-seed" style="font-size:12px;color:var(--muted-3);margin-top:12px;letter-spacing:.03em">
       This run's seed: <code style="font-family:var(--font-data);letter-spacing:1px;color:var(--muted-1)">${window.RUN_SEED||'—'}</code>
       · <button id="welcomeSeedBtn" style="background:none;border:none;color:var(--slate-blue);cursor:pointer;font-size:12px;text-decoration:underline;padding:0">play a specific seed</button>
       <div style="margin-top:3px;color:var(--muted-3)">The seed just fixes your starting conditions — same seed, same opening.</div>
     </div>
   </div>`;
+  const goBtn=document.getElementById("welcomeGo");
   const go=()=>{
+    if(!chosen)return;                                   // pick a coalition first
     const tl=document.getElementById("welcomeTermLimit");
     GAME.enforceTermLimit = tl ? !!tl.checked : true;
     if(!GAME.enforceTermLimit && CATALOG.termLimitRepeal) delete CATALOG.termLimitRepeal;   // no limit ⇒ nothing to repeal
@@ -8425,15 +8436,23 @@ function showWelcome(onDone){
   const onKey=(e)=>{ if(modal.classList.contains("hidden"))return;
     const ng=document.getElementById("newGameModal"); if(ng&&!ng.classList.contains("hidden"))return;   // seed dialog owns the keyboard
     if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); go(); } };
-  document.getElementById("welcomeGo").onclick=go;
+  goBtn.onclick=go;
   {const wsb=document.getElementById("welcomeSeedBtn");
    if(wsb)wsb.onclick=()=>newGame();}
-  // switching coalition means re-running the boot calibration, which only
-  // happens at load — so it reloads with the choice stored, exactly as picking
-  // a seed does. The card already loaded just proceeds.
+  // A coalition other than the one loaded means re-running the boot
+  // calibration, which only happens at load — so it reloads with the choice
+  // stored, exactly as picking a seed does. The coalition already loaded just
+  // needs the click to confirm and unlock Take office.
   card.querySelectorAll('[data-start]').forEach(b=>b.onclick=()=>{
     const id=b.dataset.start;
-    if(id===cur)return;
+    if(id===cur){
+      chosen=true;
+      card.querySelectorAll('.startcard').forEach(x=>x.classList.toggle('selected', x.dataset.start===id));
+      goBtn.disabled=false;
+      const hint=document.getElementById("welcomeChooseHint"); if(hint)hint.hidden=true;
+      setTimeout(()=>{try{goBtn.focus({preventScroll:true});}catch(e){}},10);
+      return;
+    }
     try{
       localStorage.setItem("sc_start", id);
       localStorage.setItem("sc_startChosen", "1");
@@ -8444,10 +8463,10 @@ function showWelcome(onDone){
   });
   modal.classList.remove("hidden");
   modal.classList.add("grand");
-  try{ if(window.confettiBurst)confettiBurst(modal); }catch(e){}
   document.addEventListener("keydown",onKey,true);
-  setTimeout(()=>{try{document.getElementById("welcomeGo").focus({preventScroll:true});}catch(e){}},30);
+  if(chosen)setTimeout(()=>{try{goBtn.focus({preventScroll:true});}catch(e){}},30);
 }
+
 /* Platform-setting modal — shown just AFTER an election win (and once, after the
    welcome, at the start of a fresh game). This is where you commit to the term
    ahead; the pledges lock in and are judged at the next election. */
@@ -10300,8 +10319,6 @@ function drawFloor(){
       ? "Where it starts — you are voting the dial, and a lower one is an easier vote"
       : "How strong a bill — a weaker one is a cheaper one"}</div>
     <div class="conc-row">${opts}</div>`}
-    <div class="conc-h">${ico('shield')} How big a margin — spare votes are insurance, not waste</div>
-    <div class="conc-row">${cush}</div>
     <div class="odds-box ${w.odds>=0.8?'good':w.odds>=0.5?'mid':'bad'}">
       <span class="odds-n">${Math.round(w.odds*100)}%</span>
       <span class="odds-t">to pass both chambers — <b>${oddsWord}</b>. The whip count is what members <i>say</i>; on the day they are absent, vote their conscience, or take a deal you never heard about. A member who took yours is committed, not owned.</span>
@@ -10320,7 +10337,9 @@ function drawFloor(){
     <div class="floor-roll">${ico('columns')} The count, seat by seat</div>
     ${whipChamberHTML(w.house,pol,F.dir)}
     ${whipChamberHTML(w.senate,pol,F.dir)}
-    <div class="whip-legend"><span><i class="wp y own"></i>your members, yes</span><span><i class="wp y cross"></i>crossover yes</span><span><i class="wp buy"></i>whipped</span><span><i class="wp n"></i>no</span><span><i class="wp n hard"></i>not for sale</span></div>`;
+    <div class="whip-legend"><span><i class="wp y own"></i>your members, yes</span><span><i class="wp y cross"></i>crossover yes</span><span><i class="wp buy"></i>whipped</span><span><i class="wp n"></i>no</span><span><i class="wp n hard"></i>not for sale</span></div>
+    <div class="conc-h" style="margin-top:14px">${ico('shield')} How big a margin — spare votes are insurance, not waste</div>
+    <div class="conc-row">${cush}</div>`;
   modal.classList.remove("hidden");
   card.querySelectorAll('[data-conc]').forEach(el=>el.addEventListener('click',()=>{
     GAME.pendingFloor.narrowed=+el.dataset.conc; drawFloor(); }));
@@ -12893,6 +12912,8 @@ function renderDetail(){
       const cls=pv.odds>=0.85?"have":pv.odds>=0.5?"buy":"broke";
       h+=`<div class="whip-prev ${cls}">${ico('columns')} ${pv.super
           ? `This is a <b>revenue rise</b> — Article IV §25 puts it at <b>three-fifths</b> of both chambers`
+          : pv.cut
+            ? `This is a <b>tax cut</b> — it still goes to the floor, at a <b>simple majority</b> of both chambers`
           : pv.cont>=0.35
             ? `This is a <b>contested</b> change — the floor will fight it, at a <b>simple majority</b> of both chambers`
             : `A change this size needs the legislature — a <b>simple majority</b> of both chambers`}.
@@ -13892,15 +13913,41 @@ function pendingBillSpec(key, origSnap, curSnap){
   const step=isTier?(c-o)/Math.max(1,pol.tiers.length-1):(c-o);
   const yld=((pol.revenueFull||0)+(pol.revenue||0))*step;
   const rev = raises && up && yld>0.004;          // a rounding error is not a bill
+  // A cut is a bill too. It does not need the three-fifths a rise does — the
+  // supermajority rule is one-way — but it still goes to the floor, and the
+  // members who have to balance the budget get a say.
+  const cutRev = raises && !up && (-yld)>0.004;
 
   // ---- does it need a vote at all? An administrative nudge does not, unless
-  // it is contentious, in which case even a small step is a fight.
-  if(!rev && mag < (cont>0.35?0.07:0.15))return null;
+  // it is contentious, in which case even a small step is a fight. A revenue
+  // change, up OR down, always goes to the floor.
+  if(!rev && !cutRev && mag < (cont>0.35?0.07:0.15))return null;
 
-  const spec={kind:rev?"revenue":"program", key, id, pol, name:pol.name,
-              mag, up, cont, yield:rev?yld:0, isTier};
+  const spec={kind:(rev||cutRev)?"revenue":"program", key, id, pol, name:pol.name,
+              mag, up, cont, cut:cutRev, yield:rev?yld:(cutRev?-yld:0), isTier};
 
-  if(rev){
+  if(cutRev){
+    const giveup=-yld;                                  // $B/yr of revenue forgone
+    const bal=budgetBalance().balance, debt=GAME.structuralDebt||0;
+    const hole=Math.max(0,-bal)+debt*0.25;
+    spec.hole=hole; spec.needsSuper=false;
+    // the seats whose voters pay it want it gone — a cut is a gift, so the
+    // tax-sensitive share of a seat pushes FOR it
+    const sbe={};
+    for(const b of LEG_BLOCS){
+      const S=SIMULANTS[b]; if(!S)continue;
+      const sens=(S.sensitivities&&S.sensitivities.taxes)||0; if(!sens)continue;
+      sbe[b]=sens*Math.sqrt(clamp(giveup,0,4))*0.7/BILL_SCALE;
+    }
+    spec.bill={name:pol.name, blocEffect:sbe, ideology:{}, _super:false};
+    // easy in the abstract, hard against a deficit: the fiscal hawks kill a
+    // giveaway you cannot pay for, and the bigger it is the more of them balk
+    const fiscalDrag=clamp(giveup,0,4)*0.9 + Math.max(0,-bal)*1.15 + debt*0.35;
+    const popular=clamp(giveup,0,3)*0.75;
+    spec.fiscalDrag=fiscalDrag;
+    spec.ease=(mine)=>(mine?3.0:0.7)+popular-fiscalDrag-lawLockDrag(id);
+    spec.supportW=0.08;
+  } else if(rev){
     // A shortfall is political cover. Oregon has to balance, so a member who
     // would never vote a rise against a surplus will vote one to close a hole —
     // but only up to the size of the hole. You cannot use a $200M deficit to
@@ -14011,7 +14058,7 @@ function pendingVote(key, origSnap, curSnap, cushion){
 /* The same thing without rolling dice, for the preview banner. */
 function pendingVoteOdds(key, origSnap, curSnap){
   const w=pendingWhip(key,origSnap,curSnap,0); if(!w)return null;
-  return {kind:w.kind, odds:w.odds, super:!!w.needsSuper, cont:w.spec.cont,
+  return {kind:w.kind, odds:w.odds, super:!!w.needsSuper, cut:!!(w.spec&&w.spec.cut), cont:w.spec.cont,
           yield:w.spec.yield||0, cost:w.cost, free:w.free, w,
           need:{house:{expect:w.house.expect, need:w.house.need},
                 senate:{expect:w.senate.expect, need:w.senate.need}}};
@@ -14038,7 +14085,8 @@ function resolvePendingVote(key, origSnap, curSnap, cushion, quiet){
   const whipped=[...w.house.buy,...w.senate.buy];
   for(const m of whipped)GAME.legis.favors[m.chamber+m.id]=(GAME.legis.favors[m.chamber+m.id]||0)+1;
   const res=runFloorVote(w);
-  const isRev=(w.kind!=="program");
+  const isCut=!!(w.spec&&w.spec.cut);
+  const isRev=(w.kind!=="program")&&!isCut;
   if(!res.passed){
     restoreFrom(key,origSnap);
     const lost=[];
@@ -14180,7 +14228,7 @@ function paintPendingFloor(){
   const w=same?null:pendingWhip(key,orig,cur,F.cushion||0);
   const changeCost=same?0:chargeFor(key,orig,cur);
   const title=document.getElementById("pfTitle");
-  if(title)title.textContent=(w?(w.kind!=="program"?"Revenue bill":"On the floor"):"No vote needed")+" — "+pol.name;
+  if(title)title.textContent=(w?((w.spec&&w.spec.cut)?"Tax cut":w.kind!=="program"?"Revenue bill":"On the floor"):"No vote needed")+" — "+pol.name;
 
   if(!w){
     // dialled back to where it started, or down to something administrative
@@ -14192,7 +14240,7 @@ function paintPendingFloor(){
         ${same?``:`<button class="enactbtn ghost" id="pfNo">Put it back</button>`}
       </div>`;
   } else {
-    const spec=w.spec, isRev=(w.kind!=="program");
+    const spec=w.spec, isCut=!!spec.cut, isRev=(w.kind!=="program")&&!isCut;
     const total=w.cost+changeCost;
     const afford=GAME.capital>=total;
     const cush=[0,2,4,6].map(cv=>{
@@ -14204,7 +14252,12 @@ function paintPendingFloor(){
         <span class="conc-c">◈${qt} · ${Math.round(q.odds*100)}%</span></button>`;
     }).join("");
     const oddsWord=w.odds>=0.95?"near-certain":w.odds>=0.8?"likely":w.odds>=0.55?"probable":w.odds>=0.4?"a coin flip":w.odds>=0.15?"an outside chance":"almost hopeless";
-    const lede = isRev
+    const lede = isCut
+      ? `You are <b>forgoing $${spec.yield.toFixed(2)}B/yr</b>. A cut does not need the three-fifths a rise does — a simple majority carries it — but the members who have to balance the budget will want to know how you are paying for it.${
+          spec.hole>0.05
+            ? ` With a <b>$${spec.hole.toFixed(2)}B</b> hole already open, that is a live question on the floor.`
+            : ` Against a balanced budget, that is an easier sell.`}`
+      : isRev
       ? `You are asking for <b>$${spec.yield.toFixed(2)}B/yr</b> more. Any bill that raises revenue needs <b>three-fifths</b> of both chambers under Article IV §25 — however small the rise.${
           spec.justified>0.35
             ? ` The <b>$${spec.hole.toFixed(2)}B</b> shortfall is doing a lot of the work here: members who would never vote a rise against a surplus will vote one to close a hole.`
@@ -14218,8 +14271,6 @@ function paintPendingFloor(){
     // buttons sit above the seat-by-seat count, so nothing you have to click
     // is below the fold.
     body.innerHTML=`<div class="sectionsub">${lede}</div>
-      <div class="conc-h">${ico('shield')} How big a margin — spare votes are insurance, not waste</div>
-      <div class="conc-row">${cush}</div>
       <div class="odds-box ${w.odds>=0.8?'good':w.odds>=0.5?'mid':'bad'}">
         <span class="odds-n">${Math.round(w.odds*100)}%</span>
         <span class="odds-t">to carry both chambers — <b>${oddsWord}</b>. The whip count is what members <i>say</i>; on the day they are absent, vote their conscience, or take a deal you never heard about.</span>
@@ -14236,7 +14287,9 @@ function paintPendingFloor(){
       <div class="floor-roll">${ico('columns')} The count, seat by seat</div>
       ${whipChamberHTML(w.house,spec.bill,"enact")}
       ${whipChamberHTML(w.senate,spec.bill,"enact")}
-      <div class="whip-legend"><span><i class="wp y own"></i>your members, yes</span><span><i class="wp y cross"></i>crossover yes</span><span><i class="wp buy"></i>whipped</span><span><i class="wp n"></i>no</span><span><i class="wp n hard"></i>not for sale</span></div>`;
+      <div class="whip-legend"><span><i class="wp y own"></i>your members, yes</span><span><i class="wp y cross"></i>crossover yes</span><span><i class="wp buy"></i>whipped</span><span><i class="wp n"></i>no</span><span><i class="wp n hard"></i>not for sale</span></div>
+      <div class="conc-h" style="margin-top:14px">${ico('shield')} How big a margin — spare votes are insurance, not waste</div>
+      <div class="conc-row">${cush}</div>`;
   }
   const done=F.onDone, close=F._close;
   body.querySelectorAll('[data-pcush]').forEach(el=>el.addEventListener('click',()=>{
