@@ -1122,6 +1122,7 @@
   .lg-bar i{display:block;height:100%;flex:0 0 auto;box-sizing:border-box}
   .lg-bar i.lg-yes{background:var(--moss)}
   .lg-bar i.lg-no{background:var(--clay)}
+  .lg-bar i.lg-spl{background:repeating-linear-gradient(135deg,#6b5b95,#6b5b95 5px,#5a4c80 5px,#5a4c80 10px)}
   .lg-bar i.lg-yes{animation:lgFill .9s ease both}
   @keyframes lgFill{from{opacity:.35}to{opacity:1}}
   .lg-bar .lg-super{position:absolute;top:0;bottom:0;border-left:3px dashed var(--gold);pointer-events:none}
@@ -1130,6 +1131,7 @@
     padding:9px 12px;margin:14px 0 10px;border-left:4px solid var(--line-em)}
   .lg-verdict.super,.lg-verdict.superOne{border-left-color:var(--moss)}
   .lg-verdict.majority{border-left-color:var(--gold)}
+  .lg-verdict.hung,.lg-verdict.minorityPlus{border-left-color:#6b5b95}
   .lg-verdict.split,.lg-verdict.minority{border-left-color:var(--clay)}
   /* ---- the real district maps, one per chamber ---- */
   .legmap-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin:14px 0 6px}
@@ -9004,8 +9006,9 @@ function showMidterm(m){
     <div class="eg-section">
       <div class="eg-h3">${ico('columns')} The legislature</div>
       <div class="eg-note">Oregon runs a 30-seat Senate and a 60-seat House. The whole House was on this ballot; the Senate runs staggered four-year terms, so only half of it — 15 seats — was. Three-fifths of each chamber — 18 and 36, the dashed line on both bars — is the threshold that matters: Article IV §25 requires it to raise revenue at all.</div>
-      ${legisBarHTML("Senate",LEGIS.senate,L.after.senate,LEGIS.superS,L.sSwing)}
-      ${legisBarHTML("House",LEGIS.house,L.after.house,LEGIS.superH,L.hSwing)}
+      ${legisBarHTML("Senate",LEGIS.senate,L.after.senate,LEGIS.superS,L.sSwing,GAME.splinter?GAME.splinter.senate.length:0)}
+      ${legisBarHTML("House",LEGIS.house,L.after.house,LEGIS.superH,L.hSwing,GAME.splinter?GAME.splinter.house.length:0)}
+      ${GAME.splinter?`<div class="eg-note" style="border-left:3px solid #6b5b95;padding-left:8px">Your own ${GAME.splinter.side==="left"?"left":"right"} flank broke away: a ${splinterName(GAME.splinter.side)} bloc took <b>${GAME.splinter.house.length+GAME.splinter.senate.length}</b> seats off the opposition. They are not yours to whip — they carry your flank's bills and kill the rest.</div>`:""}
       ${legMapsHTML(L)}
       <div class="lg-verdict ${st.tier}"><b>${st.label}.</b> ${st.note}${flipped?` <b style="color:${capCol(capDelta)}">That is a change from tonight — you went in with ${stBefore.label.charAt(0).toLowerCase()+stBefore.label.slice(1)}.</b>`:``}</div>
       <div class="rrow"><span class="rlabel">Chambers → political capital</span>
@@ -10195,14 +10198,16 @@ function legisSeatMap(rows, seats, opts){
    are dimmed. The seat that decided control is outlined. */
 function legMapSVG(rows, seatMap, contested){
   const sm=seatMap;
+  const spl=GAME.splinter ? new Set((rows===OR_SENATE_DISTRICTS?GAME.splinter.senate:GAME.splinter.house)||[]) : null;
   let base="",edge="";
   for(const [id,d,cx,cy,lean] of rows){
     const mine=sm.mine.has(id);
+    const isSpl=spl&&spl.has(id);
     const up=!contested||contested.has(id);
     const shade=sm.supportOf?clamp(sm.supportOf[id],0,100):(sm.left?lean:100-lean);   // how safe the seat is for YOU now
     const t=clamp((shade-28)/44,0,1);
-    const fill=mine?cmMix(0.35+0.65*t,"#8fa88a","#2f5130"):cmMix(0.35+0.65*(1-t),"#c9a3a3","#93242a");
-    base+=`<path d="${d}" fill="${fill}" fill-opacity="${up?1:0.32}" stroke="var(--paper)" stroke-width="0.35"><title>District ${id} — ${mine?"your party":"the opposition"}${up?"":" · not on this ballot (seat held over)"}</title></path>`;
+    const fill=isSpl?"#6b5b95":mine?cmMix(0.35+0.65*t,"#8fa88a","#2f5130"):cmMix(0.35+0.65*(1-t),"#c9a3a3","#93242a");
+    base+=`<path d="${d}" fill="${fill}" fill-opacity="${up?1:0.32}" stroke="var(--paper)" stroke-width="0.35"><title>District ${id} — ${isSpl?splinterName(GAME.splinter.side)+" (splinter)":mine?"your party":"the opposition"}${up?"":" · not on this ballot (seat held over)"}</title></path>`;
     if(id===sm.tipping)edge+=`<path d="${d}" fill="none" stroke="var(--gold)" stroke-width="1.4"/>`;
   }
   return `<svg class="leg-map-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Legislative district map">${base}${edge}</svg>`;
@@ -10219,8 +10224,9 @@ function legislatureSectionHTML(L){
   return `<div class="eg-section">
     <div class="eg-h3">${ico('columns')} The legislature</div>
     <div class="eg-note">Oregon elects its legislature every even year, so the whole House and half the Senate were on tonight's ballot with you. Three-fifths of each — 18 and 36, the dashed line on both bars — is the threshold that matters: Article IV §25 requires it to raise revenue at all.</div>
-    ${legisBarHTML("Senate",LEGIS.senate,L.after.senate,LEGIS.superS,L.sSwing)}
-    ${legisBarHTML("House",LEGIS.house,L.after.house,LEGIS.superH,L.hSwing)}
+    ${legisBarHTML("Senate",LEGIS.senate,L.after.senate,LEGIS.superS,L.sSwing,GAME.splinter?GAME.splinter.senate.length:0)}
+    ${legisBarHTML("House",LEGIS.house,L.after.house,LEGIS.superH,L.hSwing,GAME.splinter?GAME.splinter.house.length:0)}
+    ${GAME.splinter?`<div class="eg-note" style="border-left:3px solid #6b5b95;padding-left:8px">Your own ${GAME.splinter.side==="left"?"left":"right"} flank broke away: a ${splinterName(GAME.splinter.side)} bloc took <b>${GAME.splinter.house.length+GAME.splinter.senate.length}</b> seats off the opposition. They are not yours to whip — they carry your flank's bills and kill the rest.</div>`:""}
     ${legMapsHTML(L)}
     <div class="lg-verdict ${st.tier}"><b>${st.label}.</b> ${st.note}${flipped?` <b style="color:${capCol(capDelta)}">That is a change from tonight — you went in with ${stBefore.label.charAt(0).toLowerCase()+stBefore.label.slice(1)}.</b>`:``}</div>
     <div class="rrow"><span class="rlabel">Chambers → political capital</span>
@@ -10382,11 +10388,24 @@ function floorMembers(chamber, pol, dir, ctx){
   const rows=legCompRows(chamber);
   const held=chamber==="senate"?ctx.sHeld:ctx.hHeld;
   const out=[];
+  const spl=GAME.splinter ? new Set((chamber==="senate"?GAME.splinter.senate:GAME.splinter.house)||[]) : null;
   for(const row of rows){
     const id=row[0], comp=row[1], lean=row[3];
     const verdict=billVerdict(comp,lean,pol,dir);
-    const mine=held.has(id);
     const support=districtSupport(row,ctx.sf,ctx.align);
+    if(spl && spl.has(id)){
+      // a flank defector: owes nothing to you or to the mainstream opposition,
+      // votes the bill's ideological direction against their flank, unbuyable
+      const io=pol.ideology||{};
+      let push=(io.economic||0)+(io.social||0)+(io.environment||0)*0.6+(io.govSize||0)*0.7;
+      if(dir==="repeal")push=-push;
+      const flankBias=(GAME.splinter.side==="left" ? -push : push)*BILL_IDEO*0.9;
+      const incl=verdict*0.55+flankBias;
+      out.push({id, chamber, mine:false, incl, verdict, support, marginal:0, resist:99, owed:0,
+                buyable:false, splinter:true});
+      continue;
+    }
+    const mine=held.has(id);
     const loyal=(mine?BILL_LOYALTY:-BILL_LOYALTY)
               + (mine?1:0.3)*((INDICATORS.mandate.value-50)/50)*BILL_MANDATE;
     // a favour owed is a vote you already spent: they sit this one out on you
@@ -10949,6 +10968,24 @@ function legisStanding(L){
   if(majS||majH) return {tier:"split", cap:-2.0,
     label:`A divided legislature — you hold only the ${majS?"Senate":"House"}`,
     note:"Everything you want has to clear a chamber that does not want it. Expect to trade for each bill, and to lose some outright."};
+  { const sp=GAME.splinter;
+    if(sp){
+      const spH=sp.house.length, spS=sp.senate.length, spN=spH+spS;
+      const oppH=LEGIS.house-L.house-spH, oppS=LEGIS.senate-L.senate-spS;
+      const fname=splinterName(sp.side), fside=sp.side==="left"?"left":"right";
+      // the splinter denies the opposition an outright majority in a chamber:
+      // nobody can move a bill alone, and it will carry only what speaks to its flank
+      if(oppH<LEGIS.majH || oppS<LEGIS.majS)
+        return {tier:"hung", cap:-2.5,
+          label:`A hung legislature — the ${fname} bloc holds the balance`,
+          note:`Neither you nor the opposition can move a bill alone. The ${spN}-seat splinter off your own ${fside} flank will carry a vote that speaks to that flank and block anything that does not — you govern one bill at a time, and only in the one direction.`};
+      // opposition has a majority but the splinter denies them three-fifths:
+      // revenue and the heavy bills still need votes they have to go and find
+      if(oppH<LEGIS.superH || oppS<LEGIS.superS)
+        return {tier:"minorityPlus", cap:-3.2,
+          label:"You have lost both chambers — but not cleanly",
+          note:`The opposition runs the floor, yet the ${spN}-seat ${fname} splinter off your own ${fside} flank denies them three-fifths. Revenue and the heavy bills still need votes they do not have — from your flank, or from you.`};
+    } }
   return {tier:"minority", cap:-4.0,
     label:"You have lost both chambers",
     note:"You are a minority governor. The agenda belongs to them; the veto pen is most of what you have left."};
@@ -10964,6 +11001,38 @@ function firstElectionGrace(){
   const need=clamp((46-overallApproval())/20, 0, 1);
   return 3.0*need;   // very slight — was 9.0, and it used to apply to both sides
 }
+/* A governing coalition in deep, sustained collapse loses its own flank. Under
+   a progressive governor it is the Working Families / DSA wing; under a
+   conservative one it is the Greater Idaho populist wing. They run their own
+   candidates in the safest districts on that flank and take a handful of seats
+   \u2014 not from you (those are already gone) but from the mainstream
+   opposition, leaving a chamber where nobody can move a bill alone. It only
+   happens well past a normal bad night, and it comes back to the major parties
+   the moment you climb out of the hole. Returns {side, raw} or null. */
+function splinterPressure(){
+  const sf=stateFeel();
+  if(sf>=41) return null;                              // a rout, not just a bad night
+  const a=coalitionAlignment(sf);
+  if(Math.abs(a)<0.18) return null;                    // a cross-cutting coalition has no one flank to lose
+  const depth=clamp((44-sf)/14,0,1);                   // ~0.2 at sf41 -> 1 at sf30 and below
+  let flank;
+  if(a>0){                                             // governing left: the Working Families / DSA wing walks
+    flank=Math.max(
+      clamp((agendaRightwardShift()-3)/10,0,1),                                         // you dragged the agenda right
+      clamp((46-(SIMULANTS.socialist&&SIMULANTS.socialist.approval||50))/22,0,1));      // or the left gave up on you
+  } else {                                             // governing right: the Greater Idaho populist wing walks
+    flank=Math.max(
+      clamp((INDICATORS.ruralAlienation.value-56)/22,0,1),                              // eastern alienation up under a GOP governor
+      clamp((44-(SIMULANTS.conservative&&SIMULANTS.conservative.approval||50))/22,0,1));// or the base soured on a failure of nerve
+  }
+  if(flank<0.4) return null;
+  const raw=depth*(0.4+0.6*flank);
+  return raw<0.28 ? null : {side:a>0?"left":"right", raw};
+}
+function splinterSeats(raw){
+  return { house: clamp(Math.round(2+raw*6),2,8), senate: clamp(Math.round(raw*3),0,3) };
+}
+function splinterName(side){ return side==="left" ? "Working Families" : "Independence"; }
 function runLegislativeElection(approval){
   const L=GAME.legis||(GAME.legis={senate:LEGIS.superS,house:LEGIS.superH});
   const grace=firstElectionGrace();
@@ -10993,6 +11062,26 @@ function runLegislativeElection(approval){
   const wonUp=sRank.filter(r=>upSet.has(r.id) && r.support+grace+jitter()>50).map(r=>r.id);
   L.sHeld=notUpMine.concat(wonUp);
   L.senate=L.sHeld.length;
+
+  // ---- the splinter: a collapsed coalition's own flank breaks off and takes
+  //      a few seats from the mainstream opposition, in the safest districts on
+  //      that flank. Recomputed every election; null once you recover.
+  GAME.splinter=null;
+  const _sp=splinterPressure();
+  if(_sp && hWon.length < LEGIS.majH){
+    const k=splinterSeats(_sp.raw);
+    const leanH={}; OR_HOUSE_DISTRICTS.forEach(r=>leanH[r[0]]=r[4]);
+    const leanS={}; OR_SENATE_DISTRICTS.forEach(r=>leanS[r[0]]=r[4]);
+    const hMine=new Set(hWon);
+    const oppH=hRank.filter(r=>!hMine.has(r.id)).map(r=>r.id)
+      .sort((x,y)=> _sp.side==="left" ? leanH[y]-leanH[x] : leanH[x]-leanH[y]);
+    const sMine=new Set(L.sHeld);
+    const oppS=sRank.filter(r=>upSet.has(r.id)&&!sMine.has(r.id)).map(r=>r.id)
+      .sort((x,y)=> _sp.side==="left" ? leanS[y]-leanS[x] : leanS[x]-leanS[y]);
+    const spH=oppH.slice(0,Math.min(k.house,oppH.length));
+    const spS=oppS.slice(0,Math.min(k.senate,oppS.length));
+    if(spH.length>=2) GAME.splinter={side:_sp.side, house:spH, senate:spS, formedTurn:GAME.turn};
+  }
 
   return {before, after:{senate:L.senate,house:L.house}, senateUp:up, senateClass:cls, grace,
           sSwing:L.senate-before.senate, hSwing:L.house-before.house,
@@ -11240,16 +11329,18 @@ function measureResultMapsHTML(list){
   return h+`</div>`;
 }
 /* One chamber, as a seat bar with the three-fifths line marked on it. */
-function legisBarHTML(name,total,seats,superLine,change){
-  const pct=seats/total*100, sp=superLine/total*100;
+function legisBarHTML(name,total,seats,superLine,change,splinter){
+  const spl=splinter||0;
+  const pct=seats/total*100, splPct=spl/total*100, sp=superLine/total*100;
   const dir=change>0?"up":change<0?"down":"flat";
+  const splSeg=spl>0?`<i class="lg-spl" style="width:${splPct.toFixed(3)}%" title="${spl} splinter"></i>`:"";
   return `<div class="lg-row">
     <div class="lg-head">
       <span class="lg-name">${name} — ${total} seats</span>
       <span class="lg-num">${seats-change} → <b>${seats}</b> · <span class="lg-chg ${dir}">${change>0?"▲ +"+change+" seats":change<0?"▼ "+change+" seats":"no change"}</span></span>
     </div>
-    <div class="lg-bar"><i class="lg-yes" style="width:${pct.toFixed(3)}%"></i><i class="lg-no" style="width:${(100-pct).toFixed(3)}%"></i><span class="lg-super" style="left:${sp}%" title="Three-fifths — ${superLine} seats"></span></div>
-    <div class="lg-foot"><span>${seats} yours</span><span>three-fifths = ${superLine}</span><span>${total-seats} opposition</span></div>
+    <div class="lg-bar"><i class="lg-yes" style="width:${pct.toFixed(3)}%"></i>${splSeg}<i class="lg-no" style="width:${(100-pct-splPct).toFixed(3)}%"></i><span class="lg-super" style="left:${sp}%" title="Three-fifths — ${superLine} seats"></span></div>
+    <div class="lg-foot"><span>${seats} yours</span>${spl>0?`<span>${spl} splinter</span>`:`<span>three-fifths = ${superLine}</span>`}<span>${total-seats-spl} opposition</span></div>
   </div>`;
 }
 function measureFor(id){ return POLICIES[id]||CATALOG[id]||null; }
@@ -15846,7 +15937,7 @@ function bootWorld(startId){
   GAME.legis.hHeld=null; GAME.legis.sHeld=null; GAME.legis.favors={};
   GAME.activeSituations={}; GAME.situationAge={}; GAME.eventCooldown={}; GAME.grudges=[]; GAME.history={};
   GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.surplusStreak=0; GAME.lawLock={};
-  GAME.floorFreeze=0; GAME.walkoutSide=null; GAME.walkoutCooldownUntil=0; GAME.walkoutIgnoredUntil=0; GAME.protestIgnoredUntil=0;
+  GAME.floorFreeze=0; GAME.walkoutSide=null; GAME.walkoutCooldownUntil=0; GAME.walkoutIgnoredUntil=0; GAME.protestIgnoredUntil=0; GAME.splinter=null;
   // the band is set from the world this boot produces, so the pre-roll below
   // must run unbanded — otherwise a second boot inherits the first one's anchor
   GAME.sizeAnchor=null; GAME.makeupShift={};
