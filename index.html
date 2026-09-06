@@ -11688,6 +11688,18 @@ function showCampPopup(opts){
 function endTurn(){
   if(GAME.gameOver)return;
   if(GAME.pendingDilemma){GAME.log.push("❖ Resolve the dilemma before ending the quarter");render();return;}
+  // A change you dialled in but never voted gets its floor before the quarter
+  // ends. Ending the quarter used to settle it silently, which meant a tax
+  // rise could pass or die on a roll you were never shown — the one case where
+  // the whip count mattered most and you never saw the room.
+  {
+    const nf=pendingNeedsFloor();
+    if(nf){
+      GAME.pending=null;
+      showPendingFloor(nf.key, nf.origSnap, nf.curSnap, ()=>endTurn());
+      return;
+    }
+  }
   const _nextInto=(GAME.turn+1)-(GAME.term-1)*GAME.termLengthTurns;
   const _isElecQ=_nextInto>=GAME.termLengthTurns-1;
   if(GAME.skipCampaign&&!_isElecQ){doEndTurn();return;}
@@ -13951,9 +13963,18 @@ function resolvePendingVote(key, origSnap, curSnap, cushion, quiet){
    Where you put the slider is the ask — it is what the members are voting on,
    and moving it back is how you make the vote easier. Once it is placed, the
    only lever left is the one a whip actually has: buying the margin. */
-function showPendingFloor(key, origSnap, curSnap){
-  GAME.pendingFloorChange={key, origSnap, curSnap, cushion:0};
+function showPendingFloor(key, origSnap, curSnap, onDone){
+  GAME.pendingFloorChange={key, origSnap, curSnap, cushion:0, onDone:onDone||null};
   drawPendingFloor();
+}
+/* Is there a dialled-in change still waiting for a floor it has not had? */
+function pendingNeedsFloor(){
+  const pend=GAME.pending; if(!pend)return null;
+  const now=snapshotFor(pend.key);
+  if(now===null||now===pend.snap)return null;
+  const w=pendingWhip(pend.key,pend.snap,now,0);
+  if(!w||(w.free&&w.odds>=0.97))return null;      // the floor will wave it through
+  return {key:pend.key, origSnap:pend.snap, curSnap:now};
 }
 function drawPendingFloor(){
   const F=GAME.pendingFloorChange; if(!F)return;
@@ -14006,21 +14027,24 @@ function drawPendingFloor(){
   modal.classList.remove("hidden");
   const close=()=>{ modal.classList.add("hidden"); GAME.pendingFloorChange=null;
     document.removeEventListener("keydown",onKey,true); };
+  // whatever the player was on their way to doing when the floor interrupted
+  const done=F.onDone;
   const onKey=e=>{ if(modal.classList.contains("hidden"))return;
     if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation();
-      const k=F.key,o=F.origSnap; close(); restoreFrom(k,o); render(); } };
+      const k=F.key,o=F.origSnap; close(); restoreFrom(k,o); render();
+      if(done)done(); } };
   card.querySelectorAll('[data-pcush]').forEach(el=>el.addEventListener('click',()=>{
     GAME.pendingFloorChange.cushion=+el.dataset.pcush; drawPendingFloor(); }));
   document.getElementById("pfNo").onclick=()=>{
     const k=F.key,o=F.origSnap; close(); restoreFrom(k,o);
     GAME.log.push("You pulled the change to "+nameFor(k)+" before it reached the floor. No capital spent.");
-    render(); };
+    render(); if(done)done(); };
   const go=document.getElementById("pfGo");
   if(go)go.onclick=()=>{
     const key=F.key,origSnap=F.origSnap,curSnap=F.curSnap,cushion=F.cushion||0;
     close();
     resolvePendingVote(key,origSnap,curSnap,cushion,false);
-    render(); };
+    render(); if(done)done(); };
   document.addEventListener("keydown",onKey,true);
 }
 /* settle any pending change before leaving the current page. `auto` is the
