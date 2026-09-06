@@ -9589,14 +9589,44 @@ function coalitionPull(comp, sf){
   }
   return w>0.25 ? d/w : 0;                     // pts, on the same scale as approval
 }
-/* Where one district actually lands: its historical baseline (damped), the
-   coalition pull above, and a uniform swing from your overall standing. */
-function districtSupport(row, sf, left){
+/* Which way your coalition actually points, on a continuous scale.
+
+   This used to be a boolean off govIdeologyPoint(), and that was wrong in a
+   way that made governing from the right nearly impossible. Oregon's inherited
+   policy stack is deeply progressive, so the flag stayed "left" through many
+   quarters of right-wing governing — the model kept handing the player
+   progressive seats as their own while progressive voters were abandoning
+   them. Seats you were told you held, full of people who hated you, and an
+   agenda you could never pass through them.
+
+   Measured instead: regress each district's coalition pull on its lean. If the
+   seats warming to you are the progressive ones the answer is +1; if they are
+   the conservative ones it is -1; a genuinely cross-cutting coalition sits
+   near zero and simply leans on the group model instead of on inherited
+   geography. */
+function coalitionAlignment(sf){
+  const rows=legCompRows("house"), s=(sf==null?stateFeel():sf);
+  let sx=0,sy=0,sxx=0,sxy=0; const n=rows.length;
+  for(const r of rows){
+    const x=((r[3]!=null?r[3]:50)-50)/50, y=coalitionPull(r[1],s);
+    sx+=x; sy+=y; sxx+=x*x; sxy+=x*y;
+  }
+  const cov=sxy/n-(sx/n)*(sy/n), varx=sxx/n-(sx/n)*(sx/n);
+  const slope=varx>1e-6?cov/varx:0;
+  // a soft curve, not a clamp: the raw slope runs from about 1 to 11, so a
+  // linear cut pins almost everything at the rail and erases the gradient a
+  // coalition actually moves along
+  return clamp(Math.tanh(slope/4.0),-1,1);
+}
+/* Where one district actually lands: its historical baseline scaled by which
+   way your coalition points, the coalition pull itself, and a uniform swing
+   from your overall standing. */
+function districtSupport(row, sf, align){
   const comp=row[1];
   const lean=row[3]!=null?row[3]:50;
-  const base=left?lean:100-lean;
   const s=(sf==null?stateFeel():sf);
-  return 50+(base-50)*LEG_ANCHOR + coalitionPull(comp,s)*LEG_SPREAD + (s-LEG_REF)*LEG_UNIFORM;
+  const a=(align==null?coalitionAlignment(s):align);
+  return 50+(lean-50)*a*LEG_ANCHOR + coalitionPull(comp,s)*LEG_SPREAD + (s-LEG_REF)*LEG_UNIFORM;
 }
 /* Composition rows carry the lean alongside, so support() has a baseline. */
 function legCompRows(chamber){
@@ -9608,10 +9638,9 @@ function legCompRows(chamber){
 /* Every seat in a chamber, ranked by how it would vote for you right now. */
 function chamberSupport(chamber){
   const rows=legCompRows(chamber);
-  const g=govIdeologyPoint(), left=(g.economic+g.social)<0;
-  const sf=stateFeel();
-  return rows.map(r=>({id:r[0], comp:r[1], support:districtSupport(r,sf,left)}))
-             .sort((a,b)=>b.support-a.support);
+  const sf=stateFeel(), a=coalitionAlignment(sf);
+  return rows.map(r=>({id:r[0], comp:r[1], support:districtSupport(r,sf,a)}))
+             .sort((x,y)=>y.support-x.support);
 }
 /* Which groups moved a seat the furthest from the statewide average — the
    readout that explains a coalition rather than just asserting it. */
@@ -9647,7 +9676,7 @@ function legisSeatMap(rows, seats, opts){
   opts=opts||{};
   const chamber=(rows===OR_SENATE_DISTRICTS)?"senate":"house";
   const ranked=chamberSupport(chamber);       // best seat for you first
-  const g=govIdeologyPoint(), left=(g.economic+g.social)<0;
+  const left=coalitionAlignment()>=0;         // only used to shade the map
   const supportOf={}; ranked.forEach(r=>supportOf[r.id]=r.support);
   const compOf={};    ranked.forEach(r=>compOf[r.id]=r.comp);
   // explicit per-seat holders — the Senate after a staggered election, where
@@ -9853,7 +9882,7 @@ function floorMembers(chamber, pol, dir, ctx){
     const id=row[0], comp=row[1], lean=row[3];
     const verdict=billVerdict(comp,lean,pol,dir);
     const mine=held.has(id);
-    const support=districtSupport(row,ctx.sf,ctx.left);
+    const support=districtSupport(row,ctx.sf,ctx.align);
     const loyal=(mine?BILL_LOYALTY:-BILL_LOYALTY)
               + (mine?1:0.3)*((INDICATORS.mandate.value-50)/50)*BILL_MANDATE;
     // a favour owed is a vote you already spent: they sit this one out on you
@@ -9897,8 +9926,8 @@ function whipCount(id, dir, narrowed){
     if(pol.blocEffect){ q.blocEffect={}; for(const k in pol.blocEffect)q.blocEffect[k]=pol.blocEffect[k]*nw; }
     if(pol.ideology){ q.ideology={}; for(const k in pol.ideology)q.ideology[k]=pol.ideology[k]*nw; }
     return q; })();
-  const g=govIdeologyPoint(), left=(g.economic+g.social)<0;
-  const ctx={ sf:stateFeel(), left,
+  const _sf=stateFeel();
+  const ctx={ sf:_sf, align:coalitionAlignment(_sf),
     hHeld:new Set((GAME.legis&&GAME.legis.hHeld)||[...legisSeatMap(OR_HOUSE_DISTRICTS,(GAME.legis&&GAME.legis.house)||0).mine]),
     sHeld:new Set((GAME.legis&&GAME.legis.sHeld)||[...legisSeatMap(OR_SENATE_DISTRICTS,(GAME.legis&&GAME.legis.senate)||0).mine]) };
   const H=chamberWhip("house",scaled,dir,ctx), S=chamberWhip("senate",scaled,dir,ctx);
