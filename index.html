@@ -9947,6 +9947,7 @@ function billVerdict(comp, lean, pol, dir){
 /* Does a bill need three-fifths? Anything that moves revenue does, under
    Article IV §25. */
 function billNeedsSuper(pol){
+  if(pol._super!=null)return pol._super;                // a pending change says so itself
   if(pol.taxDir==="burden")return true;                 // an explicit tax rise
   const r=(pol.revenueFull||0)+(pol.revenue||0);
   return r>0.15;                                        // a material revenue bill, not a fee line
@@ -9969,7 +9970,14 @@ function floorMembers(chamber, pol, dir, ctx){
               + (mine?1:0.3)*((INDICATORS.mandate.value-50)/50)*BILL_MANDATE;
     // a favour owed is a vote you already spent: they sit this one out on you
     const owed=(GAME.legis&&GAME.legis.favors&&GAME.legis.favors[chamber+id])||0;
-    const incl=verdict+loyal-owed*3.2;
+    // ctx.ease is what makes a routine change routine: a chamber that would
+    // fight a new law will wave through more money for a programme it already
+    // funds. It is the difference between "should the state do this" and "how
+    // much of it should the state do", and it shrinks to nothing as the change
+    // gets more contentious.
+    const incl=verdict+loyal-owed*3.2
+      +(ctx.ease?ctx.ease(mine):0)
+      +(ctx.supportW||0)*(support-50);
     const marginal=1-clamp(Math.abs(support-50)/22,0,1);       // 1 = knife-edge
     const resist=Math.max(0.4,VOTE_PROMISE-incl)*(0.55+0.95*marginal)*0.42;
     out.push({id, chamber, mine, incl, verdict, support, marginal, resist, owed,
@@ -9990,8 +9998,11 @@ function chamberWhip(chamber, pol, dir, ctx, cushion){
   // so the headline number means something and the odds follow from it.
   let expect=0; for(const m of members)expect+=votePr(m.incl);
   const yes=members.filter(m=>m.incl>0);
-  // aim a little past the line: landing exactly on it is a coin flip
-  const short=Math.max(0,Math.ceil(need+VOTE_MARGIN-expect));
+  // aim a little past the line: landing exactly on it is a coin flip. A pending
+  // change buys only to the line and sells the safety margin separately, so the
+  // price you are quoted is for passing it, not for passing it comfortably.
+  const mgn=(ctx.margin==null?VOTE_MARGIN:ctx.margin);
+  const short=Math.max(0,Math.ceil(need+mgn-expect));
   // the cheapest holdouts, in order, and what each further vote adds
   const pool=members.filter(m=>votePr(m.incl)<0.72&&m.buyable).sort((a,b)=>a.resist-b.resist);
   // buying past the minimum is insurance: the vote is not certain, and a
@@ -10135,21 +10146,6 @@ function goesToFloor(pol, dir){
   if(dir==="repeal")return pol.mechanic==="law";   // striking a law needs a bill
   return true;                               // creating ANY new programme is a bill
 }
-/* A tax rise is a revenue bill: Article IV §25 puts it at three-fifths of both
-   chambers. Cuts are not — the supermajority rule is one-way. */
-function isRevenueRise(key, origSnap, curSnap){
-  if(!key||!key.startsWith("p_")||!origSnap||!curSnap)return null;
-  const id=key.slice(2), pol=POLICIES[id]; if(!pol)return null;
-  let ov,cv; try{ ov=JSON.parse(origSnap); cv=JSON.parse(curSnap); }catch(e){ return null; }
-  const o=(ov.v??ov.t??ov.i??0), c=(cv.v??cv.t??cv.i??0);
-  if(c<=o)return null;                                    // not a rise
-  const raises = pol.taxDir==="burden" || (pol.revenueFull||0)>0 || (pol.revenue||0)>0;
-  if(!raises)return null;
-  const step=(pol.mechanic==="tier"&&pol.tiers)?(c-o)/Math.max(1,pol.tiers.length-1):(c-o);
-  const yield_=((pol.revenueFull||0)+(pol.revenue||0))*step;
-  if(yield_<0.08)return null;                             // a trivial tweak is not a revenue bill
-  return {id, pol, step, yield:yield_};
-}
 /* Why one member is a holdout, in the language of who lives in their seat. */
 function holdoutReason(m, pol, dir){
   const rows=legCompRows(m.chamber);
@@ -10205,10 +10201,26 @@ function drawFloor(){
   const w=whipCount(F.id,F.dir,F.narrowed,F.cushion);
   const afford=GAME.capital>=w.cost;
   const verb=F.dir==="repeal"?"Repeal":"Enact";
-  const opts=[1,0.8,0.6,0.45].map(nv=>{
+  // A weaker bill used to be an abstract percentage that, on a policy with a
+  // dial, changed nothing at all once it passed — narrowing only ever reached
+  // policyLevel() for `law`. So on anything with a dial the options ARE the
+  // dial, named in the policy's own units, and passing sets it there.
+  const dialed=["slider","intensity","tier","allocation"].indexOf(pol.mechanic)>=0;
+  const dialLab=nv=>{
+    if(pol.mechanic==="tier"&&pol.tiers)
+      return pol.tiers[Math.max(pol.tierMin||0,Math.round(nv*(pol.tiers.length-1)))];
+    return nv>=1?"At full strength":"Starting at "+Math.round(nv*100)+"%";
+  };
+  // on a tier policy the options ARE the tiers — four fixed fractions mapped
+  // onto three named steps just prints the same name twice
+  const levels=(pol.mechanic==="tier"&&pol.tiers&&pol.tiers.length>1)
+    ? (()=>{ const n=pol.tiers.length-1, lo=Math.max(1,pol.tierMin||0), a=[];
+             for(let i=n;i>=lo;i--)a.push(i/n); return a.slice(0,4); })()
+    : [1,0.8,0.6,0.45];
+  const opts=levels.map(nv=>{
     const q=whipCount(F.id,F.dir,nv,F.cushion);
     const on=Math.abs(nv-F.narrowed)<0.001;
-    const lab=nv>=1?"Full bill":Math.round(nv*100)+"% strength";
+    const lab=dialed?dialLab(nv):(nv>=1?"Full bill":Math.round(nv*100)+"% strength");
     return `<button class="conc ${on?'on':''}${(GAME.capital>=q.cost&&q.possible)?'':' broke'}" data-conc="${nv}">
       <span class="conc-l">${lab}</span>
       <span class="conc-c">${!q.possible?"dead":q.cost<=w.base?"floor time only":"◈"+q.cost}${q.possible?" · "+Math.round(q.odds*100)+"%":""}</span></button>`;
@@ -10226,7 +10238,9 @@ function drawFloor(){
     ${whipChamberHTML(w.house,pol,F.dir)}
     ${whipChamberHTML(w.senate,pol,F.dir)}
     <div class="whip-legend"><span><i class="wp y own"></i>your members, yes</span><span><i class="wp y cross"></i>crossover yes</span><span><i class="wp buy"></i>whipped</span><span><i class="wp n"></i>no</span><span><i class="wp n hard"></i>not for sale</span></div>
-    <div class="conc-h">${ico('handshake')} How strong a bill — a weaker one is a cheaper one</div>
+    <div class="conc-h">${ico('handshake')} ${dialed
+      ? "Where it starts — you are voting the dial, and a lower one is an easier vote"
+      : "How strong a bill — a weaker one is a cheaper one"}</div>
     <div class="conc-row">${opts}</div>
     <div class="conc-h">${ico('shield')} How big a margin — spare votes are insurance, not waste</div>
     <div class="conc-row">${cush}</div>
@@ -10241,7 +10255,7 @@ function drawFloor(){
     <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
       <button class="enactbtn" id="floorGo" ${(w.possible&&afford)?'':'disabled'}>${
         !w.possible?"Cannot pass":!afford?"Not enough capital"
-        :"Call the vote — "+(F.narrowed>=1?"full bill":Math.round(F.narrowed*100)+"% strength")
+        :"Call the vote — "+(dialed?dialLab(F.narrowed):(F.narrowed>=1?"full bill":Math.round(F.narrowed*100)+"% strength"))
           +((w.house.buy.length+w.senate.buy.length)?", whipping "+(w.house.buy.length+w.senate.buy.length):"")}</button>
       <button class="enactbtn ghost" id="floorNo">Pull the bill</button>
     </div>`;
@@ -10548,7 +10562,7 @@ function _calcCapital(){
   if((GAME.lastBalance||0)>0.5)GAME.capital=clamp(GAME.capital+1,0,100);
 }
 function _runTicks(){
-  settlePending();
+  settlePending(true);
   currentView="board"; detailKey=null;
   tickEconomy(); tickPhase(); tickEffSm(); tickMembership();
   // EV adoption drifts upward each quarter: ZEV mandate, falling prices, charging expansion
@@ -12805,11 +12819,15 @@ function renderDetail(){
       const cls=pv.odds>=0.85?"have":pv.odds>=0.5?"buy":"broke";
       h+=`<div class="whip-prev ${cls}">${ico('columns')} ${pv.super
           ? `This is a <b>revenue rise</b> — Article IV §25 puts it at <b>three-fifths</b> of both chambers`
-          : `A change this size needs the legislature — a <b>simple majority</b> of both chambers`}.
+          : pv.cont>=0.35
+            ? `This is a <b>contested</b> change — the floor will fight it, at a <b>simple majority</b> of both chambers`
+            : `A change this size needs the legislature — a <b>simple majority</b> of both chambers`}.
         House <b>${Math.round(pv.need.house.expect)}</b>/${pv.need.house.need} ·
         Senate <b>${Math.round(pv.need.senate.expect)}</b>/${pv.need.senate.need} —
-        <b>${Math.round(pv.odds*100)}%</b> to carry. It is voted when you leave this page.${
-          pv.super?"":" Ordinary programme changes cost no capital beyond the change itself."}</div>`;
+        <b>${Math.round(pv.odds*100)}%</b> to carry as it stands.
+        ${pv.free
+          ? "You have the votes; it settles when you leave this page."
+          : "You get the floor when you leave this page — the whip count, and the chance to buy the margin."}</div>`;
     }
   }
   if(key.startsWith("m_")){
@@ -13533,7 +13551,16 @@ function passBill(id, dir, narrowed, cushion){
   }else{
     mootCitizenMeasure(id,"enacted");
     _applyEnact(id);
-    if(narrowed!=null&&narrowed<1&&POLICIES[id])POLICIES[id].narrowed=narrowed;
+    // A bill that passed at less than you asked for comes into force at less
+    // than you asked for — on a dial that means the dial, not a phantom
+    // multiplier the policy page could never show you.
+    if(narrowed!=null&&narrowed<1&&POLICIES[id]){
+      const q=POLICIES[id];
+      if(q.mechanic==="tier"&&q.tiers)q.tierIndex=Math.max(q.tierMin||0,Math.round(narrowed*(q.tiers.length-1)));
+      else if(q.mechanic==="intensity")q.intensity=narrowed;
+      else if(q.mechanic==="slider"||q.mechanic==="allocation")q.value=narrowed;
+      else q.narrowed=narrowed;
+    }
   }
   showVoteResult({ok:true, name:nm, res, w, narrowed});
   GAME.log.push(ico('columns')+" "+nm+" cleared the floor "
@@ -13699,146 +13726,320 @@ function pendingMagnitude(key, origSnap, curSnap){
     return Math.abs((cv.t??0)-(ov.t??0))/Math.max(1,pol.tiers.length-1);
   return Math.abs((cv.v??cv.i??0)-(ov.v??ov.i??0));
 }
-/* Moving a programme you already run is not the same as writing a new law. The
-   legislature signs off, but funding a thing it already funds a bit more is
-   uncontroversial and free — what it resists is a big swing on something its
-   members' voters care about. Simple majority, no whipping, no capital beyond
-   the ordinary cost of the change. */
-function programVote(key, origSnap, curSnap){
-  const mag=pendingMagnitude(key,origSnap,curSnap);
-  if(mag<0.15)return null;                       // an administrative nudge
-  const pol=POLICIES[key.slice(2)]; if(!pol)return null;
-  if(isRevenueRise(key,origSnap,curSnap))return null;   // that is a revenue bill, handled separately
-  const sf=stateFeel(), align=coalitionAlignment(sf);
-  const hHeld=new Set((GAME.legis&&GAME.legis.hHeld)||[...legisSeatMap(OR_HOUSE_DISTRICTS,(GAME.legis&&GAME.legis.house)||0).mine]);
-  const sHeld=new Set((GAME.legis&&GAME.legis.sHeld)||[...legisSeatMap(OR_SENATE_DISTRICTS,(GAME.legis&&GAME.legis.senate)||0).mine]);
-  // which way the change cuts, so the seats that lose from it are the ones that balk
-  let ov,cv; try{ ov=JSON.parse(origSnap); cv=JSON.parse(curSnap); }catch(e){ return null; }
-  const up=((cv.v??cv.t??cv.i??0)-(ov.v??ov.t??ov.i??0))>0;
-  const out={kind:"program", mag, chambers:{}, passed:true};
-  for(const ch of ["house","senate"]){
-    const rows=legCompRows(ch), held=(ch==="senate")?sHeld:hHeld;
-    const need=(ch==="senate")?LEGIS.majS:LEGIS.majH;
-    let yes=0, expect=0;
-    for(const row of rows){
-      let pain=0;
-      if(pol.blocEffect){
-        for(let k=0;k<LEG_BLOCS.length;k++){
-          const b=LEG_BLOCS[k], e=pol.blocEffect[b]; if(!e)continue;
-          const S=SIMULANTS[b]; if(!S)continue;
-          pain-=row[1][k]*(S.turnout||0.6)*e*(up?1:-1);
-        }
-      }
-      const mine=held.has(row[0]);
-      const incl=(mine?BILL_LOYALTY:-BILL_LOYALTY*0.45)   // the opposition is far softer on a dial than on a law
-        +(mine?2.0:0.8)
-        +((INDICATORS.mandate.value-50)/50)*BILL_MANDATE*(mine?1:0.3)
-        -pain*mag*BILL_SCALE*0.55
-        +(districtSupport(row,sf,align)-50)*0.06;
-      expect+=votePr(incl);
-      if(incl+gauss()*VOTE_SD>0)yes++;
-    }
-    out.chambers[ch]={yes, need, expect, ok:yes>=need};
-    if(yes<need)out.passed=false;
+/* How much this change moves each bloc, in the direction it is actually being
+   moved. A dial carries one set of effects across its whole range, so a partial
+   move is a partial dose; a tier is a discrete substantive change, and stepping
+   between two of them is the difference between the two — already full size. */
+function changeBlocEffect(pol, ov, cv){
+  if(pol.mechanic==="tier"&&pol.tierBlocEffects){
+    const a=pol.tierBlocEffects[ov.t??0]||{}, b=pol.tierBlocEffects[cv.t??0]||{};
+    const out={};
+    for(const k in a)out[k]=-(a[k]||0);
+    for(const k in b)out[k]=(out[k]||0)+(b[k]||0);
+    return out;
   }
+  const sign=((cv.v??cv.i??0)-(ov.v??ov.i??0))>0?1:-1;
+  const be=pol.blocEffect||{}, out={};
+  for(const k in be)out[k]=be[k]*sign;
   return out;
 }
-/* Whatever vote a pending change needs — a revenue bill at three-fifths, an
-   ordinary programme change at a simple majority, or nothing at all. */
-function pendingVote(key, origSnap, curSnap){
-  return revenueVote(key,origSnap,curSnap) || programVote(key,origSnap,curSnap);
+function changeIdeology(pol, ov, cv){
+  if(pol.mechanic==="tier"&&pol.tierIdeology){
+    const a=pol.tierIdeology[ov.t??0]||{}, b=pol.tierIdeology[cv.t??0]||{};
+    const out={};
+    for(const k in a)out[k]=-(a[k]||0);
+    for(const k in b)out[k]=(out[k]||0)+(b[k]||0);
+    return out;
+  }
+  const sign=((cv.v??cv.i??0)-(ov.v??ov.i??0))>0?1:-1;
+  const io=pol.ideology||{}, out={};
+  for(const k in io)out[k]=io[k]*sign;
+  return out;
+}
+/* CONTENTION — is this a question the state argues about, or just a number?
+
+   Spending more on a programme nearly everyone likes has winners and no real
+   losers: one-sided, uncontroversial, and the floor waves it through. Moving
+   the sex-education standard has a side that gains and a side that loses by
+   about as much, and those are the changes that cost you something. So this
+   measures the BALANCE of the reaction, not its size — weighted by how many
+   voters are on each side and how much they turn out — and scales it by
+   whether the stakes are real at all. 0 = a funding line. 1 = a culture war. */
+function contentionOf(be){
+  let win=0, lose=0;
+  for(const b in be){
+    const S=SIMULANTS[b]; if(!S)continue;
+    const e=be[b]*(S.size||0)*(S.turnout||0.6);
+    if(e>0)win+=e; else lose-=e;
+  }
+  const tot=win+lose; if(tot<=0.0001)return 0;
+  const balance=2*Math.min(win,lose)/tot;         // 0 = one-sided, 1 = evenly split
+  const stakes=clamp(tot/0.20,0,1);               // and it has to actually matter
+  return clamp(balance*stakes,0,1);
+}
+
+/* ============================================================
+   A PENDING CHANGE, AS A BILL
+
+   Everything the legislature votes on runs through one machine: a change to
+   something already on the books is described as a synthetic bill, handed to
+   the same whip count a fresh bill gets, and rolled with the same dice. What
+   differs between a routine funding bump and a tax rise is not the machinery,
+   it is the easing — how much goodwill the chamber extends before it starts
+   counting votes.
+   ============================================================ */
+function pendingBillSpec(key, origSnap, curSnap){
+  if(!key||!key.startsWith("p_")||!origSnap||!curSnap)return null;
+  const id=key.slice(2), pol=POLICIES[id]; if(!pol)return null;
+  let ov,cv; try{ ov=JSON.parse(origSnap); cv=JSON.parse(curSnap); }catch(e){ return null; }
+  const o=(ov.v??ov.t??ov.i??0), c=(cv.v??cv.t??cv.i??0);
+  if(c===o)return null;
+  const up=c>o, mag=pendingMagnitude(key,origSnap,curSnap);
+  const isTier=(pol.mechanic==="tier"&&pol.tiers);
+  const be=changeBlocEffect(pol,ov,cv), io=changeIdeology(pol,ov,cv);
+  const cont=contentionOf(be);
+
+  // ---- is this a revenue rise? Every one of them is, however small: Oregon's
+  // three-fifths rule is about the KIND of bill, not its size. A small one is
+  // easier because the votes are cheaper to find, not because the bar moves.
+  const raises = pol.taxDir==="burden" || (pol.revenueFull||0)>0 || (pol.revenue||0)>0;
+  const step=isTier?(c-o)/Math.max(1,pol.tiers.length-1):(c-o);
+  const yld=((pol.revenueFull||0)+(pol.revenue||0))*step;
+  const rev = raises && up && yld>0.004;          // a rounding error is not a bill
+
+  // ---- does it need a vote at all? An administrative nudge does not, unless
+  // it is contentious, in which case even a small step is a fight.
+  if(!rev && mag < (cont>0.35?0.07:0.15))return null;
+
+  const spec={kind:rev?"revenue":"program", key, id, pol, name:pol.name,
+              mag, up, cont, yield:rev?yld:0, isTier};
+
+  if(rev){
+    // A shortfall is political cover. Oregon has to balance, so a member who
+    // would never vote a rise against a surplus will vote one to close a hole —
+    // but only up to the size of the hole. You cannot use a $200M deficit to
+    // justify a $2B tax rise; past that you are asking them to fund an
+    // ambition, not a shortfall, and they price it accordingly.
+    const bal=budgetBalance().balance, debt=GAME.structuralDebt||0;
+    const hole=Math.max(0,-bal)+debt*0.25;
+    const justified=clamp(hole/Math.max(0.15,yld),0,1);
+    // Justification matters more than raw size: a small rise that genuinely
+    // closes a small hole is the easiest revenue vote there is, and used to be
+    // one of the hardest because the cover term scaled off the hole alone.
+    const cover=justified*(1.5+clamp(hole,0,4)*0.85);
+    // and a small ask is a small ask. The first billion costs you the votes.
+    const small=clamp(1-yld/0.7,0,1)*3.0;
+    spec.hole=hole; spec.cover=cover; spec.justified=justified; spec.small=small;
+    spec.needsSuper=true;
+    // resistance is the tax-sensitive share of each seat, sub-linear in the ask
+    const sbe={};
+    for(const b of LEG_BLOCS){
+      const S=SIMULANTS[b]; if(!S)continue;
+      const sens=(S.sensitivities&&S.sensitivities.taxes)||0; if(!sens)continue;
+      sbe[b]=-sens*Math.sqrt(clamp(yld,0,4))*0.75/BILL_SCALE;
+    }
+    spec.bill={name:pol.name, blocEffect:sbe, ideology:{}, _super:true};
+    // party discipline is at its hardest on a budget vote — this is the one
+    // thing a caucus whips as a bloc, which is how Oregon passes revenue on
+    // exactly three-fifths and not one vote more
+    spec.ease=(mine)=>(mine?3.6:0)+cover+small;
+    spec.supportW=0.10;
+  } else {
+    // A dose of the policy's own effects, scaled to how far you moved it.
+    const scale=(isTier?1:mag)*0.55;
+    const sbe={}; for(const k in be)sbe[k]=be[k]*scale;
+    const sio={}; for(const k in io)sio[k]=io[k]*scale;
+    spec.needsSuper=false;
+    spec.bill={name:pol.name, blocEffect:sbe, ideology:sio, _super:false};
+    // The easing: full goodwill on a question nobody is fighting over, none at
+    // all on one they are. The opposition softens on a dial the same way.
+    //
+    // And on a contested one, party discipline is the first thing to go. A
+    // member will carry a funding line for their governor without reading it;
+    // asked to vote on what schools teach about sex, they vote their district
+    // and let the caucus sort itself out. So contention eats loyalty and hands
+    // the difference to the seat — which is what makes these changes split the
+    // chamber geographically instead of passing on the governor's say-so.
+    const soft=1-cont;
+    spec.ease=(mine)=>(mine ? 2.0+4.0*soft - BILL_LOYALTY*cont*0.70
+                            : BILL_LOYALTY*0.55*soft + 3.4*soft);
+    spec.supportW=0.06+cont*0.14;
+  }
+  return spec;
+}
+/* The whip count for a pending change — same shape the floor screen already
+   knows how to draw, so a slider gets the same treatment a bill does. */
+function pendingWhip(key, origSnap, curSnap, cushion){
+  const spec=pendingBillSpec(key,origSnap,curSnap); if(!spec)return null;
+  const _sf=stateFeel();
+  const ctx={ sf:_sf, align:coalitionAlignment(_sf), ease:spec.ease, supportW:spec.supportW, margin:0,
+    hHeld:new Set((GAME.legis&&GAME.legis.hHeld)||[...legisSeatMap(OR_HOUSE_DISTRICTS,(GAME.legis&&GAME.legis.house)||0).mine]),
+    sHeld:new Set((GAME.legis&&GAME.legis.sHeld)||[...legisSeatMap(OR_SENATE_DISTRICTS,(GAME.legis&&GAME.legis.senate)||0).mine]) };
+  const cu=cushion||0;
+  const H=chamberWhip("house",spec.bill,"enact",ctx,cu), S=chamberWhip("senate",spec.bill,"enact",ctx,cu);
+  // an ordinary programme change costs no floor time — it rides an existing
+  // budget bill. A revenue bill is its own fight and is billed as one.
+  const base=(spec.kind==="program"&&spec.cont<0.35)?0:Math.round(BILL_FLOOR_COST*oppositionCapitalMult());
+  const w={house:H, senate:S, narrowed:1, cushion:cu, spec, kind:spec.kind,
+           needsSuper:spec.needsSuper, cost:H.cost+S.cost+base, base,
+           possible:H.possible&&S.possible,
+           free:(H.short===0&&S.short===0&&cu===0&&base===0)};
+  w.odds=votePassOdds(w);
+  return w;
+}
+/* Roll a pending change's vote on a whip count you have already paid for. */
+function pendingVote(key, origSnap, curSnap, cushion){
+  const w=pendingWhip(key,origSnap,curSnap,cushion); if(!w)return null;
+  const res=runFloorVote(w);
+  return {kind:w.kind, spec:w.spec, w, passed:res.passed,
+          chambers:{house:res.house, senate:res.senate}};
 }
 /* The same thing without rolling dice, for the preview banner. */
 function pendingVoteOdds(key, origSnap, curSnap){
-  const rr=isRevenueRise(key,origSnap,curSnap);
-  const mag=pendingMagnitude(key,origSnap,curSnap);
-  if(!rr && mag<0.15)return null;
-  let hit=0; const N=120;
-  for(let i=0;i<N;i++){ const v=pendingVote(key,origSnap,curSnap); if(v&&v.passed)hit++; }
-  const one=pendingVote(key,origSnap,curSnap); if(!one)return null;
-  return {kind:one.kind||"revenue", odds:hit/N, need:one.chambers,
-          super:!!rr, yield:rr?rr.yield:0};
+  const w=pendingWhip(key,origSnap,curSnap,0); if(!w)return null;
+  return {kind:w.kind, odds:w.odds, super:!!w.needsSuper, cont:w.spec.cont,
+          yield:w.spec.yield||0, cost:w.cost, free:w.free, w,
+          need:{house:{expect:w.house.expect, need:w.house.need},
+                senate:{expect:w.senate.expect, need:w.senate.need}}};
 }
-function revenueVote(key, origSnap, curSnap){
-  const rr=isRevenueRise(key,origSnap,curSnap);
-  if(!rr)return null;
-  // A shortfall is political cover. Oregon has to balance, so a member who
-  // would never vote a tax rise against a surplus will vote one to close a
-  // hole — but only up to the size of the hole. You cannot use a $200M deficit
-  // to justify a $2B tax rise; past that you are asking them to fund an
-  // ambition, not a shortfall, and they price it accordingly.
-  const bal=budgetBalance().balance, debt=GAME.structuralDebt||0;
-  const hole=Math.max(0,-bal)+debt*0.25;
-  const justified=clamp(hole/Math.max(0.15,rr.yield),0,1);
-  const cover=clamp(hole,0,4)*1.6*justified;
-  rr.hole=hole; rr.cover=cover;
-  const sf=stateFeel(), align=coalitionAlignment(sf);
-  const hHeld=new Set((GAME.legis&&GAME.legis.hHeld)||[...legisSeatMap(OR_HOUSE_DISTRICTS,(GAME.legis&&GAME.legis.house)||0).mine]);
-  const sHeld=new Set((GAME.legis&&GAME.legis.sHeld)||[...legisSeatMap(OR_SENATE_DISTRICTS,(GAME.legis&&GAME.legis.senate)||0).mine]);
-  const out={rise:rr, chambers:{}, passed:true};
-  for(const ch of ["house","senate"]){
-    const rows=legCompRows(ch), held=(ch==="senate")?sHeld:hHeld;
-    const need=(ch==="senate")?LEGIS.superS:LEGIS.superH;   // Article IV §25
-    let yes=0;
-    for(const row of rows){
-      // how much this seat hates paying: the tax-sensitive groups living in it
-      let pain=0;
-      for(let k=0;k<LEG_BLOCS.length;k++){
-        const b=LEG_BLOCS[k], S=SIMULANTS[b]; if(!S)continue;
-        const sens=(S.sensitivities&&S.sensitivities.taxes)||0; if(!sens)continue;
-        pain+=row[1][k]*(S.turnout||0.6)*sens;
-      }
-      const mine=held.has(row[0]);
-      const incl=(mine?BILL_LOYALTY:-BILL_LOYALTY)
-        // party discipline is at its hardest on a budget vote — this is the one
-        // thing a caucus whips as a bloc, which is how Oregon passes revenue on
-        // exactly three-fifths and not one vote more
-        +(mine?3.6:0)
-        +((INDICATORS.mandate.value-50)/50)*BILL_MANDATE*(mine?1:0.3)
-        // sub-linear in the size of the ask: the first billion costs you the
-        // votes, and doubling it does not double the resistance
-        -pain*Math.sqrt(clamp(rr.yield,0,4))*0.75
-        +cover
-        +(districtSupport(row,sf,align)-50)*0.10;
-      if(incl+gauss()*VOTE_SD>0)yes++;
-    }
-    out.chambers[ch]={yes, need, ok:yes>=need};
-    if(yes<need)out.passed=false;
+/* Spend the whip count you accepted, roll the vote, and either keep the change
+   or put it back where it was. `quiet` is the formality path: a change the
+   floor was never going to argue about does not need a modal to say so. */
+function resolvePendingVote(key, origSnap, curSnap, cushion, quiet){
+  const w=pendingWhip(key,origSnap,curSnap,cushion);
+  const changeCost=chargeFor(key,origSnap,curSnap);
+  const total=(w?w.cost:0)+changeCost;
+  const nm=nameFor(key);
+  if(GAME.capital<total||(w&&!w.possible)){
+    restoreFrom(key,origSnap);
+    GAME.log.push("✗ "+(w&&!w.possible?"No majority exists for it at any price — ":"Not enough capital — ")+nm+" reverted");
+    return false;
   }
-  return out;
+  GAME.capital-=total;
+  if(!w){ GAME.log.push("◈ "+total+" capital — changed "+nm); return true; }
+  // a whipped member has spent their favour: the next hard vote, they are gone
+  GAME.legis.favors=GAME.legis.favors||{};
+  const whipped=[...w.house.buy,...w.senate.buy];
+  for(const m of whipped)GAME.legis.favors[m.chamber+m.id]=(GAME.legis.favors[m.chamber+m.id]||0)+1;
+  const res=runFloorVote(w);
+  const isRev=(w.kind!=="program");
+  if(!res.passed){
+    restoreFrom(key,origSnap);
+    const lost=[];
+    for(const ch of ["house","senate"])if(!res[ch].ok)
+      lost.push("the "+(ch==="house"?"House":"Senate")+" "+res[ch].yes+"/"+res[ch].need);
+    GAME.log.push(ico('ban')+" "+nm+" — "+(isRev
+        ? "a revenue rise needs three-fifths of both chambers (Art. IV §25) and fell short in "
+        : "the floor would not carry it; short in ")
+      +lost.join(" and ")+". Reverted."
+      +(total>0?" The ◈"+total+" is spent regardless.":"")
+      +(isRev&&w.spec.cover>0.4?" Even with the shortfall to point at.":""));
+    createGrudge("capital",-1);
+    showVoteResult({ok:false, name:nm, pending:true, res, w});
+    return false;
+  }
+  GAME.log.push("◈ "+total+" capital — changed "+nm
+    +" ("+(isRev?"revenue rise cleared three-fifths ":"carried the floor ")
+    +res.house.yes+"/"+res.house.need+" and "+res.senate.yes+"/"+res.senate.need
+    +(whipped.length?", "+whipped.length+" vote"+(whipped.length===1?"":"s")+" whipped":"")
+    +(isRev&&w.spec.cover>0.4?" — the shortfall carried it":"")+")");
+  if(!quiet)showVoteResult({ok:true, name:nm, pending:true, res, w});
+  return true;
 }
-function settlePending(){
+/* THE FLOOR, FOR A CHANGE YOU HAVE ALREADY DIALLED IN.
+
+   Where you put the slider is the ask — it is what the members are voting on,
+   and moving it back is how you make the vote easier. Once it is placed, the
+   only lever left is the one a whip actually has: buying the margin. */
+function showPendingFloor(key, origSnap, curSnap){
+  GAME.pendingFloorChange={key, origSnap, curSnap, cushion:0};
+  drawPendingFloor();
+}
+function drawPendingFloor(){
+  const F=GAME.pendingFloorChange; if(!F)return;
+  const w=pendingWhip(F.key,F.origSnap,F.curSnap,F.cushion||0);
+  const card=document.getElementById("floorCard"), modal=document.getElementById("floorModal");
+  if(!w||!card||!modal){ GAME.pendingFloorChange=null; return; }
+  const spec=w.spec, pol=spec.pol, isRev=(w.kind!=="program");
+  const changeCost=chargeFor(F.key,F.origSnap,F.curSnap);
+  const total=w.cost+changeCost;
+  const afford=GAME.capital>=total;
+  const cush=[0,2,4,6].map(cv=>{
+    const q=pendingWhip(F.key,F.origSnap,F.curSnap,cv);
+    if(!q)return '';
+    const qt=q.cost+changeCost, on=cv===(F.cushion||0);
+    return `<button class="conc ${on?'on':''}${(GAME.capital>=qt&&q.possible)?'':' broke'}" data-pcush="${cv}">
+      <span class="conc-l">${cv===0?"No cushion":"+"+cv+" spare votes"}</span>
+      <span class="conc-c">◈${qt} · ${Math.round(q.odds*100)}%</span></button>`;
+  }).join("");
+  const oddsWord=w.odds>=0.95?"near-certain":w.odds>=0.8?"likely":w.odds>=0.55?"probable":w.odds>=0.4?"a coin flip":w.odds>=0.15?"an outside chance":"almost hopeless";
+  const lede = isRev
+    ? `You are asking for <b>$${spec.yield.toFixed(2)}B/yr</b> more. Any bill that raises revenue needs <b>three-fifths</b> of both chambers under Article IV §25 — however small the rise.${
+        spec.justified>0.35
+          ? ` The <b>$${spec.hole.toFixed(2)}B</b> shortfall is doing a lot of the work here: members who would never vote a rise against a surplus will vote one to close a hole.`
+          : spec.hole>0.05
+            ? ` The <b>$${spec.hole.toFixed(2)}B</b> shortfall only covers part of this. Past the size of the hole you are asking them to fund an ambition, and they price it that way.`
+            : ` There is no shortfall to point at, so you are asking them to fund an ambition rather than fill a hole.`}`
+    : `A change this size goes to the floor. ${spec.cont>=0.35
+        ? `This one is <b>contested</b> — it has a side that gains and a side that loses by about as much, and those are the changes that cost you something.`
+        : `Nobody is fighting over this one, so the chamber extends the usual goodwill to a programme it already funds.`}`;
+  card.innerHTML=`<div class="sectionhdr">${ico('columns')} ${isRev?"Revenue bill":"On the floor"} — ${pol.name}</div>
+    <div class="sectionsub">${lede} <b>Where you set it is what they are voting on</b> — go back and move it less for an easier vote, or buy the margin here.</div>
+    ${whipChamberHTML(w.house,spec.bill,"enact")}
+    ${whipChamberHTML(w.senate,spec.bill,"enact")}
+    <div class="whip-legend"><span><i class="wp y own"></i>your members, yes</span><span><i class="wp y cross"></i>crossover yes</span><span><i class="wp buy"></i>whipped</span><span><i class="wp n"></i>no</span><span><i class="wp n hard"></i>not for sale</span></div>
+    <div class="conc-h">${ico('shield')} How big a margin — spare votes are insurance, not waste</div>
+    <div class="conc-row">${cush}</div>
+    <div class="odds-box ${w.odds>=0.8?'good':w.odds>=0.5?'mid':'bad'}">
+      <span class="odds-n">${Math.round(w.odds*100)}%</span>
+      <span class="odds-t">to carry both chambers — <b>${oddsWord}</b>. The whip count is what members <i>say</i>; on the day they are absent, vote their conscience, or take a deal you never heard about.</span>
+    </div>
+    <div class="whip-cost">
+      <span>${w.cost?"Whipping "+(w.house.buy.length+w.senate.buy.length)+" vote"+((w.house.buy.length+w.senate.buy.length)===1?"":"s")+", plus ◈"+changeCost+" for the change itself":"◈"+changeCost+" for the change — you already have the votes"}</span>
+      <span class="wc-num ${afford?'':'broke'}">◈ ${total} <span class="wc-have">of ◈ ${Math.floor(GAME.capital)}</span></span></div>
+    <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
+      <button class="enactbtn" id="pfGo" ${(w.possible&&afford)?'':'disabled'}>${
+        !w.possible?"No majority exists":!afford?"Not enough capital"
+        :"Call the vote"+(w.cost?" — whipping "+(w.house.buy.length+w.senate.buy.length):"")}</button>
+      <button class="enactbtn ghost" id="pfNo">Withdraw the change</button>
+    </div>`;
+  modal.classList.remove("hidden");
+  const close=()=>{ modal.classList.add("hidden"); GAME.pendingFloorChange=null;
+    document.removeEventListener("keydown",onKey,true); };
+  const onKey=e=>{ if(modal.classList.contains("hidden"))return;
+    if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation();
+      const k=F.key,o=F.origSnap; close(); restoreFrom(k,o); render(); } };
+  card.querySelectorAll('[data-pcush]').forEach(el=>el.addEventListener('click',()=>{
+    GAME.pendingFloorChange.cushion=+el.dataset.pcush; drawPendingFloor(); }));
+  document.getElementById("pfNo").onclick=()=>{
+    const k=F.key,o=F.origSnap; close(); restoreFrom(k,o);
+    GAME.log.push("You pulled the change to "+nameFor(k)+" before it reached the floor. No capital spent.");
+    render(); };
+  const go=document.getElementById("pfGo");
+  if(go)go.onclick=()=>{
+    const key=F.key,origSnap=F.origSnap,curSnap=F.curSnap,cushion=F.cushion||0;
+    close();
+    resolvePendingVote(key,origSnap,curSnap,cushion,false);
+    render(); };
+  document.addEventListener("keydown",onKey,true);
+}
+/* settle any pending change before leaving the current page. `auto` is the
+   end-of-quarter path, which must never stop to ask a question. */
+function settlePending(auto){
   const pend=GAME.pending;
   GAME.pending=null;
   if(pend){
     const now=snapshotFor(pend.key);
     if(now!==null&&now!==pend.snap){
-      const rv=pendingVote(pend.key,pend.snap,now);
-      if(rv&&!rv.passed){
-        restoreFrom(pend.key,pend.snap);
-        const lost=[];
-        for(const ch of ["house","senate"])if(!rv.chambers[ch].ok)
-          lost.push("the "+(ch==="house"?"House":"Senate")+" "+rv.chambers[ch].yes+"/"+rv.chambers[ch].need);
-        const isRev=(rv.kind!=="program");
-        GAME.log.push(ico('ban')+" "+nameFor(pend.key)+" — "+(isRev
-            ? "a revenue rise needs three-fifths of both chambers (Art. IV §25) and fell short in "
-            : "the legislature would not carry a change that size; short in ")
-          +lost.join(" and ")+". Reverted."
-          +(isRev&&rv.rise&&rv.rise.cover>0.4?" Even with the shortfall to point at.":""));
-        showVoteResult({ok:false, name:nameFor(pend.key), pending:true,
-          res:{house:{yes:rv.chambers.house.yes,need:rv.chambers.house.need,ok:rv.chambers.house.ok},
-               senate:{yes:rv.chambers.senate.yes,need:rv.chambers.senate.need,ok:rv.chambers.senate.ok},passed:false},
-          w:{cost:0, base:0, house:{total:LEGIS.house}, senate:{total:LEGIS.senate}}});
-      } else {
-        const cost=chargeFor(pend.key,pend.snap,now);
-        if(GAME.capital>=cost){GAME.capital-=cost;
-          GAME.log.push("◈ "+cost+" capital — changed "+nameFor(pend.key)
-            +(rv?" ("+(rv.kind==="program"?"carried the floor ":"revenue rise cleared three-fifths ")
-                +rv.chambers.house.yes+"/"+rv.chambers.house.need
-                +" and "+rv.chambers.senate.yes+"/"+rv.chambers.senate.need
-                +(rv.kind!=="program"&&rv.rise&&rv.rise.cover>0.4?" — the shortfall carried it":"")+")":""));}
-        else{restoreFrom(pend.key,pend.snap);GAME.log.push("✗ Not enough capital — "+nameFor(pend.key)+" reverted");}
+      const w=pendingWhip(pend.key,pend.snap,now,0);
+      // a change the floor will wave through settles itself; anything else is
+      // a room you get to work first
+      if(w&&!(w.free&&w.odds>=0.97)&&!auto){
+        showPendingFloor(pend.key,pend.snap,now);
+        syncCannabisTab();
+        return;
       }
+      resolvePendingVote(pend.key,pend.snap,now,0,true);
     }
   }
   // settle harvest-level slider independently
