@@ -757,6 +757,10 @@
   /* catalog */
   .catgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
   .catcard{background:var(--paper-2);border:1px solid var(--line);border-left:4px solid var(--qaccent);border-radius:var(--radius);padding:14px 16px;display:flex;flex-direction:column}
+  .catcard.beaten{opacity:.5;filter:grayscale(.75);border-left-color:var(--clay)}
+  .catcard.beaten:hover{opacity:.72;filter:grayscale(.35)}
+  .cat-beaten{font-size:11px;color:var(--clay);border:1px solid var(--line);background:var(--paper);
+    padding:5px 8px;margin:6px 0 2px;line-height:1.45}
   .cat-top{display:flex;gap:10px;align-items:center;margin-bottom:8px}
   .cat-icon{font-size:28px}
   .cat-name{font-weight:600;font-size:14px}
@@ -1626,6 +1630,7 @@
 <div id="termLimitModal" class="modal hidden" style="z-index:65"><div class="card" id="termLimitCard" style="max-width:460px"></div></div>
 <div id="ballotNoticeModal" class="modal hidden" style="z-index:65"><div class="card" id="ballotNoticeCard" style="max-width:540px"></div></div>
 <div id="floorModal" class="modal hidden" style="z-index:66"><div class="card" id="floorCard" style="max-width:680px"></div></div>
+<div id="voteResultModal" class="modal hidden" style="z-index:67"><div class="card" id="voteResultCard" style="max-width:520px"></div></div>
 <div id="welcomeModal" class="modal hidden"><div class="card" id="welcomeCard"></div></div>
 <div id="platformModal" class="modal hidden"><div class="camp-popup-card" id="platformCard"></div></div>
 <div id="resumeModal" class="modal hidden"><div class="card" style="max-width:380px;text-align:center">
@@ -10049,6 +10054,40 @@ function runFloorVote(w){
   out.passed=passed;
   return out;
 }
+/* The clerk reads the result. A bill that dies deserves to be told to your
+   face, with the count, rather than quietly greying out a button. */
+function showVoteResult(o){
+  const card=document.getElementById("voteResultCard"), modal=document.getElementById("voteResultModal");
+  if(!card||!modal)return;
+  const row=(lab,r,total)=>`<div class="rrow"><span class="rlabel">${lab}</span>
+    <span class="rval" style="color:${r.ok?'var(--good)':'var(--clay)'}"><b>${r.yes}</b>–${total-r.yes} · needed ${r.need}${r.ok?"":" ✗"}</span></div>`;
+  const shortBy=[];
+  if(!o.res.house.ok)shortBy.push((o.res.house.need-o.res.house.yes)+" in the House");
+  if(!o.res.senate.ok)shortBy.push((o.res.senate.need-o.res.senate.yes)+" in the Senate");
+  card.innerHTML=`<div class="sectionhdr">${ico(o.ok?'columns':'ban')} ${o.ok?"Passed":"Failed on the floor"} — ${o.name}</div>
+    <div class="sectionsub">${o.ok
+      ? "The clerk reads the roll and it carries."+((o.narrowed!=null&&o.narrowed<1)?" It goes on the books at "+Math.round(o.narrowed*100)+"% of what you asked for.":"")
+      : "You were short "+shortBy.join(" and ")+". The whip count was a projection; on the day it did not hold."}</div>
+    <div class="rsection" style="margin-top:10px">
+      ${row("House", o.res.house, o.w.house.total)}
+      ${row("Senate", o.res.senate, o.w.senate.total)}
+      ${o.ok?"":`<div class="rrow"><span class="rlabel">Capital spent anyway</span><span class="rval" style="color:var(--clay)">◈ ${o.w.cost}</span></div>
+      <div class="rrow"><span class="rlabel">Can be brought back</span><span class="rval">in 3 quarters</span></div>`}
+    </div>
+    ${o.ok?"":`<div class="sectionsub" style="margin-top:9px;font-size:11.5px">You whipped and you lost — the money is gone either way. Build the margin, weaken the bill, or win the seats.</div>`}
+    <button class="enactbtn" id="voteResOk">${o.ok?"Good":"Understood ▸"}</button>`;
+  modal.classList.remove("hidden");
+  const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
+  const onKey=e=>{ if(modal.classList.contains("hidden"))return;
+    if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); } };
+  document.getElementById("voteResOk").onclick=close;
+  document.addEventListener("keydown",onKey,true);
+  setTimeout(()=>{try{document.getElementById("voteResOk").focus();}catch(e){}},30);
+}
+/* Is this bill sitting out a defeat right now? */
+function floorBlocked(id, dir){
+  return !!(GAME.floorFail && GAME.floorFail[(dir||"enact")+id] > GAME.turn);
+}
 /* Does this decision go to the floor at all? Sliders and agency budgets do
    not — the governor moves those administratively, and putting a whip count
    on every dial would turn the game into paperwork. Laws, repeals and
@@ -10450,7 +10489,11 @@ function _calcCapital(){
   const mand=INDICATORS.mandate.value;
   GAME.mandateShock=(GAME.mandateShock||0)*0.82;
   if(Math.abs(GAME.mandateShock)<0.3)GAME.mandateShock=0;
-  const starvationFactor = mand < 25 ? Math.max(0.20, mand/25) : 1;
+  // A collapsing mandate should hurt, not end the game. Measured over an idle
+  // term the old curve took income from 12/qtr to 0.7 while situations and
+  // dilemmas drained ~137 — the state ran a permanent deficit you could not
+  // govern out of. The floor keeps a weak governor weak without freezing them.
+  const starvationFactor = mand < 25 ? Math.max(0.45, mand/25) : 1;
   const uSize = SIMULANTS.publicUnions?.size ?? 0.07;
   const uApproval = SIMULANTS.publicUnions?.approval ?? 49;
   const unionBlock = (uSize > 0.05 && uApproval < 35)
@@ -10461,11 +10504,11 @@ function _calcCapital(){
   const legBonus = POLICIES.fullTimeLegislature ? 3 : 0;
   // and what your seat count in the two chambers is worth, every quarter
   const legSeats = legisStanding().cap;
-  // Baseline income per quarter. Raised from 5 to 8 over successive passes so a
-  // term is enough capital to actually govern with — the pace was tight enough
-  // that most of a term went on a handful of bills, and dialling existing law
-  // now costs real money too.
-  let cpt=(8+mand/100*10+legBonus+legSeats)*starvationFactor*unionBlock;
+  // Baseline income per quarter, 5 -> 8 -> 10 over successive passes. Bills now
+  // cost capital on top of everything dials and dilemmas already took, and an
+  // idle term measured 88 in against 137 out, so the state could not fund its
+  // own politics.
+  let cpt=(10+mand/100*10+legBonus+legSeats)*starvationFactor*unionBlock;
   // a walkout you chose to ignore: the chamber won't function for you for a while
   if((GAME.walkoutFreeze||0)>0){ cpt*=0.18; GAME.walkoutFreeze--; }
   GAME.capitalPerTurn=+cpt.toFixed(1);
@@ -12798,8 +12841,10 @@ function renderDetail(){
           <span class="pill cap">◈ ${ec} to enact</span></div>`;
         h+=`<button class="ebtoggle" data-eb="${id}">▸ Projected effects if enacted</button>
           <div class="cat-eb" id="eb_${id}">${effectsBreakdownHTML("policy",c)}</div>`;
-        h+=whipPreviewHTML(id,"enact");
-        h+=`<div class="repealrow"><button class="enactbtn" data-enact="${id}" ${((afford||goesToFloor(c,"enact"))&&!pendingMeasure(id))?'':'disabled'}>${pendingMeasure(id)?`Already before the voters`:c.reform?(afford?`Refer to the voters (◈ ${ec})`:`Need ◈ ${ec} to refer it`):goesToFloor(c,"enact")?`Take it to the floor `+ico('columns'):(afford?`Enact this policy (◈ ${ec})`:`Need ◈ ${ec} to enact`)}</button></div>`;
+        if(floorBlocked(id,"enact"))
+          h+=`<div class="whip-prev dead">${ico('ban')} Defeated on the floor. It cannot be brought back for ${GAME.floorFail["enact"+id]-GAME.turn} more quarter${(GAME.floorFail["enact"+id]-GAME.turn)===1?'':'s'} — the chamber has voted and will not be asked again this soon.</div>`;
+        else h+=whipPreviewHTML(id,"enact");
+        h+=`<div class="repealrow"><button class="enactbtn" data-enact="${id}" ${(!floorBlocked(id,"enact")&&(afford||goesToFloor(c,"enact"))&&!pendingMeasure(id))?'':'disabled'}>${pendingMeasure(id)?`Already before the voters`:c.reform?(afford?`Refer to the voters (◈ ${ec})`:`Need ◈ ${ec} to refer it`):goesToFloor(c,"enact")?`Take it to the floor `+ico('columns'):(afford?`Enact this policy (◈ ${ec})`:`Need ◈ ${ec} to enact`)}</button></div>`;
         main.innerHTML=h;
         main.querySelectorAll('[data-enact]').forEach(el=>el.addEventListener('click',()=>enactPolicy(el.dataset.enact)));
         main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
@@ -12850,7 +12895,9 @@ function renderDetail(){
     const undoBtnHTML = pendActive ? `<button class="undobtn" id="undoBtn">↩ Undo change (no capital)</button>` : '';
     if(!p.noRepeal){
       const rc=p.repealCost!==undefined?p.repealCost:(p.capital||6);
-      h+=whipPreviewHTML(id,"repeal");
+      if(floorBlocked(id,"repeal"))
+        h+=`<div class="whip-prev dead">${ico('ban')} That repeal was defeated on the floor — it cannot return for ${GAME.floorFail["repeal"+id]-GAME.turn} more quarter${(GAME.floorFail["repeal"+id]-GAME.turn)===1?'':'s'}.</div>`;
+      else h+=whipPreviewHTML(id,"repeal");
       h+=`<div class="repealrow">${undoBtnHTML}<button class="repealbtn" data-repeal="${id}" ${((GAME.capital>=rc||goesToFloor(p,"repeal"))&&!pendingMeasure(id))?'':'disabled'}>${pendingMeasure(id)?`Repeal is before the voters`:p.reform?(GAME.capital>=rc?`Refer repeal to the voters (◈ ${rc})`:`Need ◈ ${rc} to refer a repeal`):goesToFloor(p,"repeal")?`✘ Take repeal to the floor`:(GAME.capital>=rc?`✘ Repeal this law (◈ ${rc})`:`✘ Repeal this law — need ◈ ${rc}`)}</button></div>`;
     } else {
       // toggle/intensity mechanics already have a real off switch built into
@@ -13321,15 +13368,18 @@ function renderPolicies(){
     const costLabel=isRevPol?`+$${Math.max(0,-net).toFixed(1)}B/yr`:`$${net.toFixed(1)}B/yr`;
     const ecost=policyEnactCost(p), oppTax=ecost-p.enactCapital;
     const afford=GAME.capital>=ecost;
-    return `<div class="catcard" style="--qaccent:${DOMAINS[p.domain].accent}">
+    const beaten=floorBlocked(id,"enact");
+    const back=beaten?(GAME.floorFail["enact"+id]-GAME.turn):0;
+    return `<div class="catcard${beaten?' beaten':''}" style="--qaccent:${DOMAINS[p.domain].accent}">
       <div class="cat-top"><span class="cat-icon">${ico(p.icon)}</span>
         <div><div class="cat-name">${p.name}</div><div class="cat-dom">${DOMAINS[p.domain].name}</div></div></div>
+      ${beaten?`<div class="cat-beaten">${ico('ban')} Defeated on the floor — it cannot be brought back for ${back} more quarter${back===1?'':'s'}.</div>`:''}
       <div class="cat-desc">${descHTML(p.desc)}</div>
       <div class="cat-meta"><span class="pill ${isRevPol?'rev':'spend'}">${costLabel}</span>
         <span class="pill cap">◈ ${ecost} to enact${oppTax>0?` <span style="opacity:.7">(+${oppTax} opposition)</span>`:''}</span></div>
       <button class="ebtoggle" data-eb="${id}">▸ Projected effects if enacted</button>
       <div class="cat-eb hidden" id="eb_${id}">${effectsBreakdownHTML("policy",p)}</div>
-      <button class="enactbtn" data-enact="${id}" ${((afford||goesToFloor(p,"enact"))&&!pendingMeasure(id))?'':'disabled'}>${pendingMeasure(id)?'On the ballot':(p.reform?(afford?'Refer to the voters':'Need '+ecost+' capital'):goesToFloor(p,"enact")?'To the floor':(afford?'Enact policy':'Need '+ecost+' capital'))}</button>
+      <button class="enactbtn" data-enact="${id}" ${(!beaten&&(afford||goesToFloor(p,"enact"))&&!pendingMeasure(id))?'':'disabled'}>${beaten?'Defeated — back in '+back+'q':pendingMeasure(id)?'On the ballot':(p.reform?(afford?'Refer to the voters':'Need '+ecost+' capital'):goesToFloor(p,"enact")?'To the floor':(afford?'Enact policy':'Need '+ecost+' capital'))}</button>
     </div>`;
   };
   // group available (non-reform) policies by type-section; reforms get their own section
@@ -13432,6 +13482,7 @@ function passBill(id, dir, narrowed, cushion){
     GAME.floorFail=GAME.floorFail||{};
     GAME.floorFail[dir+id]=GAME.turn+3;      // it cannot come straight back
     createGrudge("capital",-1);
+    showVoteResult({ok:false, name:nm, res, w, back:GAME.turn+3});
     return false;
   }
   if(dir==="repeal"){
@@ -13442,6 +13493,7 @@ function passBill(id, dir, narrowed, cushion){
     _applyEnact(id);
     if(narrowed!=null&&narrowed<1&&POLICIES[id])POLICIES[id].narrowed=narrowed;
   }
+  showVoteResult({ok:true, name:nm, res, w, narrowed});
   GAME.log.push(ico('columns')+" "+nm+" cleared the floor "
     +res.house.yes+"-"+(w.house.total-res.house.yes)+" and "+res.senate.yes+"-"+(w.senate.total-res.senate.yes)
     +(whipped.length?" — "+whipped.length+" vote"+(whipped.length===1?"":"s")+" whipped, ◈"+w.cost:"")
