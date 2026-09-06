@@ -5660,7 +5660,7 @@ const SITUATIONS={
   // ============================================================
   // RANDOM EVENTS — episodic, roll in and out (see EVENT_POOL).
   // ============================================================
-  wildfireSeason:{name:"Severe Wildfire Season", kind:"bad", category:"event",
+  wildfireSeason:{name:"Severe Wildfire Season", kind:"bad", category:"event", cooldown:6,
     desc:"Catastrophic wildfires choke the Willamette Valley with smoke and force evacuations across eastern and southern Oregon. Hundreds of thousands of acres of forest and watershed burn — environmental quality falls hard, then heals slowly over the years it takes the land to come back.",
     costEffect:{natResources:0.45},
     metricEffect:{environment:-8,health:-4,gdp:-0.4,loggingRate:-6}, moodAxes:{environment:-0.2}, moodMag:2, minTurns:2,
@@ -5776,7 +5776,7 @@ const SITUATIONS={
     moodMag:2,
     groupMood:{motorists:-8, suburban:-6, blueCollar:-4, businessClass:-3, parents:-3, rural:-2,
                transitCommuters:1}},
-  droughtWater:{name:"Drought & Water Crisis", kind:"bad", category:"event",
+  droughtWater:{name:"Drought & Water Crisis", kind:"bad", category:"event", cooldown:5,
     desc:"A severe drought pits farms, fish, and cities against each other over water.",
     metricEffect:{environment:-2,gdp:-0.2,loggingRate:-5}, moodAxes:{environment:-0.2}, moodMag:1, minTurns:3,
     onTrigger:{countyMood:{spec:COUNTY_GROUPS.irrigatedEast, value:-5, decay:0.9, label:"Irrigated east — water shutoffs"}},
@@ -5792,7 +5792,7 @@ const SITUATIONS={
     onTrigger:{capital:-8, metrics:{gdp:-3.5,environment:-8,health:-3}, countyMood:{spec:COUNTY_GROUPS.cascadiaZone, value:-6, decay:0.88, label:"Coast & Willamette Valley — quake damage & recovery"}}, mandateShock:-8,
     indicatorEffect:{tourism:-16,businessClimate:-12,inMigration:-12,downtown:-8},
     groupMood:{}},
-  klamathCrisis:{name:"Klamath Water Crisis", kind:"bad", category:"event",
+  klamathCrisis:{name:"Klamath Water Crisis", kind:"bad", category:"event", cooldown:5,
     desc:"Drought collides with prior-appropriation rights — irrigation shutoffs, dead salmon, armed standoffs at the headgates. The 2001 shutoff cost farms $27–46M; the 2002 fish kill left 34,000–70,000 Chinook rotting on the banks.",
     metricEffect:{gdp:-0.12,environment:-2}, moodMag:1, minTurns:2,
     indicatorEffect:{tourism:-5},
@@ -6026,7 +6026,7 @@ const GAME={
   // the real 2025 numbers, which sit exactly on that line in both chambers.
   legis:{senate:18, house:36, favors:{}},   // sHeld / senateClass are filled in at the first legislative election
   senateClass:0, pendingFloor:null,
-  activeSituations:{}, situationAge:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, lawLock:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null, dilemmaCtx:{}, compassEvents:{ec:0,so:0}, floorFreeze:0, walkoutSide:null, walkoutCooldownUntil:0, walkoutIgnoredUntil:0, agendaBaseline:0, protestCrackdowns:0, protestIgnoredUntil:0, compassStart:{ec:0,so:0}, serviceDisrupt:0, elliottResolved:false,
+  activeSituations:{}, situationAge:{}, eventCooldown:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, lawLock:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null, dilemmaCtx:{}, compassEvents:{ec:0,so:0}, floorFreeze:0, walkoutSide:null, walkoutCooldownUntil:0, walkoutIgnoredUntil:0, agendaBaseline:0, protestCrackdowns:0, protestIgnoredUntil:0, compassStart:{ec:0,so:0}, serviceDisrupt:0, elliottResolved:false,
   // ---- FISCAL MODEL (research: income-tax dependence + kicker + reserves) ----
   rainyDay:1.87,        // Rainy Day Fund ($B) — real 2023-25 end balance
   eduStability:1.0,     // Education Stability Fund ($B)
@@ -6625,6 +6625,7 @@ function startSituation(sid){
 }
 function endSituation(sid,solved){
   const s=SITUATIONS[sid];
+  if(s&&s.cooldown)(GAME.eventCooldown=GAME.eventCooldown||{})[sid]=GAME.turn+s.cooldown;
   { const _s=SITUATIONS[sid]; if(_s&&typeof _s.onEnd==="function")try{ _s.onEnd(); }catch(e){} }
   delete GAME.activeSituations[sid]; delete GAME.situationAge[sid];
   if(solved&&s.category==="chronic"){
@@ -6647,6 +6648,7 @@ function rollEvents(){
   const eligible=[];
   for(const e of EVENT_POOL){
     if(GAME.activeSituations[e.id])continue;       // already active
+    if(GAME.turn < ((GAME.eventCooldown||{})[e.id]||0))continue;   // still cooling down from the last one
     if(e.gate&&!e.gate())continue;                 // condition not met
     let p=e.prob;
     if(e.probMult)p*=clamp(e.probMult(),0.4,1.6);  // policy preparedness nudges odds up/down
@@ -15610,7 +15612,7 @@ function bootWorld(startId){
   LANDUSE.index=WORLD_SEED.lu;
   GAME.legis.house=WORLD_SEED.legis.house; GAME.legis.senate=WORLD_SEED.legis.senate;
   GAME.legis.hHeld=null; GAME.legis.sHeld=null; GAME.legis.favors={};
-  GAME.activeSituations={}; GAME.situationAge={}; GAME.grudges=[]; GAME.history={};
+  GAME.activeSituations={}; GAME.situationAge={}; GAME.eventCooldown={}; GAME.grudges=[]; GAME.history={};
   GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.lawLock={};
   GAME.floorFreeze=0; GAME.walkoutSide=null; GAME.walkoutCooldownUntil=0; GAME.walkoutIgnoredUntil=0; GAME.protestIgnoredUntil=0;
   // the band is set from the world this boot produces, so the pre-roll below
