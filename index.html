@@ -5813,8 +5813,15 @@ const SITUATIONS={
     groupMood:{wealthy:5,rural:4,suburban:3,publicUnions:-3,libertarian:2,conservative:2}},
   corporateExodus:{name:"Corporate Exodus", kind:"bad", category:"condition",
     desc:"Oregon's business tax stack — the Corporate Activity Tax on gross receipts, rising compliance costs, and a regulatory environment perceived as hostile — is prompting major employers to shift operations out of state. Unlike the personal-income tax revolt, this targets corporate location decisions: Intel, Nike, and Adidas have all flagged Oregon's cost structure.",
-    trigger:()=>INDICATORS.businessClimate.value<38&&METRICS.taxBurden.value>50,
-    clear:()=>INDICATORS.businessClimate.value>48||METRICS.taxBurden.value<44, onClear:{capital:3},
+    // Either route in: a broadly hostile climate, OR a deliberate hike in the
+    // gross-receipts tax specifically. The CAT is the lever Intel, Nike and
+    // Adidas all named, so pushing it hard should summon this by itself rather
+    // than only as a second-order effect of the burden composite.
+    trigger:()=>(INDICATORS.businessClimate.value<38&&METRICS.taxBurden.value>50)
+      ||(POLICIES.corpTax&&policyLevel(POLICIES.corpTax)>0.72
+         &&INDICATORS.businessClimate.value<46),
+    clear:()=>(INDICATORS.businessClimate.value>48||METRICS.taxBurden.value<44)
+      &&!(POLICIES.corpTax&&policyLevel(POLICIES.corpTax)>0.72&&INDICATORS.businessClimate.value<50), onClear:{capital:3},
     watch:{indicator:"businessClimate", startAt:38, clearAt:48, badHigh:false},
     metricEffect:{gdp:-0.22,unemployment:0.40},
     indicatorEffect:{businessClimate:-3,inMigration:-5},
@@ -6262,6 +6269,13 @@ function metricTarget(k){
     if(a.loggingEffects&&a.loggingEffects[k]!==undefined)t+=effExpr(a.loggingEffects[k],(a.logging??0.5),"a:"+id+":log:"+k);
   }
   if(LANDUSE.effects[k]!==undefined)t+=LANDUSE.effects[k][LANDUSE.index];
+  // Local control cuts both ways on measured outcomes. Statewide standards lift
+  // the floor — a common reading curriculum is why centralisation raises tested
+  // proficiency — while local latitude lets districts fit their own students and
+  // is what rural Oregon and the teachers' union actually want. The political
+  // half of that trade is in metricMood.
+  if(k==="eduOutcomes")t+=(60-INDICATORS.localAutonomy.value)*0.085;
+  if(k==="education")  t+=(60-INDICATORS.localAutonomy.value)*0.035;
   // inter-metric links: other metrics' deviation shifts this one's equilibrium
   for(const L of METRIC_LINKS)if(L.to===k)
     t+=(METRICS[L.from].value-L.ref)*L.coef*0.25/m.inertia;
@@ -6712,6 +6726,16 @@ function metricMood(sim, sid){
   if(s.taxes!==undefined){
     mood+=(38-METRICS.taxBurden.value)*0.32*s.taxes; // ALL taxes feed the burden composite
   }
+  // Who a school district answers to. Rural Oregon and the union want the
+  // decisions made locally; the credentialed and the reform-minded want a
+  // statewide floor. Curriculum mandates from Salem are a culture fight, not
+  // just an education one.
+  { const la=INDICATORS.localAutonomy.value-60;
+    if(sid==="rural"||sid==="conservative")      mood+=la*0.10;
+    else if(sid==="timber"||sid==="libertarian") mood+=la*0.08;
+    else if(sid==="publicUnions")                mood+=la*0.07;
+    else if(sid==="parents")                     mood+=la*0.04;
+    else if(sid==="collegeEducated"||sid==="liberal") mood-=la*0.05; }
   // gas prices: pain scaled by how car-dependent the state still is —
   // a high bike/transit commute share blunts it for everyone; rising EV
   // adoption blunts it for everyone; strongest for motorists (more drive EVs themselves)
@@ -10071,10 +10095,14 @@ function showVoteResult(o){
     <div class="rsection" style="margin-top:10px">
       ${row("House", o.res.house, o.w.house.total)}
       ${row("Senate", o.res.senate, o.w.senate.total)}
-      ${o.ok?"":`<div class="rrow"><span class="rlabel">Capital spent anyway</span><span class="rval" style="color:var(--clay)">◈ ${o.w.cost}</span></div>
-      <div class="rrow"><span class="rlabel">Can be brought back</span><span class="rval">in 3 quarters</span></div>`}
+      ${o.ok?"":(o.pending
+        ? `<div class="rrow"><span class="rlabel">The change</span><span class="rval">reverted — no capital spent</span></div>`
+        : `<div class="rrow"><span class="rlabel">Capital spent anyway</span><span class="rval" style="color:var(--clay)">◈ ${o.w.cost}</span></div>
+      <div class="rrow"><span class="rlabel">Can be brought back</span><span class="rval">in 3 quarters</span></div>`)}
     </div>
-    ${o.ok?"":`<div class="sectionsub" style="margin-top:9px;font-size:11.5px">You whipped and you lost — the money is gone either way. Build the margin, weaken the bill, or win the seats.</div>`}
+    ${o.ok?"":`<div class="sectionsub" style="margin-top:9px;font-size:11.5px">${o.pending
+      ? "The dial snapped back to where it was. Try a smaller move, or win the votes first."
+      : "You whipped and you lost — the political capital is gone either way. Build the margin, weaken the bill, or win the seats."}</div>`}
     <button class="enactbtn" id="voteResOk">${o.ok?"Good":"Understood ▸"}</button>`;
   modal.classList.remove("hidden");
   const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
@@ -12770,6 +12798,20 @@ function renderDetail(){
   if(pendActive)h+=(GAME.capital<pendCost
     ? `<div class="pendbanner cantafford">${ico('warning')} <b>You cannot afford this change.</b> Moving this costs <b>◈ ${pendCost}</b> and you have <b>◈ ${Math.floor(GAME.capital)}</b>. It will snap back to where it was the moment you leave this page or end the quarter — the numbers below are a preview you have not paid for.</div>`
     : `<div class="pendbanner">Unsaved change — returning to the board spends <b>◈ ${pendCost}</b> to make it official. Use <b>Undo</b> below to discard it for free.</div>`);
+  // a change large enough to need the legislature says so, before you commit it
+  if(pendActive&&GAME.pending&&GAME.pending.key===key){
+    const pv=pendingVoteOdds(key,GAME.pending.snap,snapshotFor(key));
+    if(pv){
+      const cls=pv.odds>=0.85?"have":pv.odds>=0.5?"buy":"broke";
+      h+=`<div class="whip-prev ${cls}">${ico('columns')} ${pv.super
+          ? `This is a <b>revenue rise</b> — Article IV §25 puts it at <b>three-fifths</b> of both chambers`
+          : `A change this size needs the legislature — a <b>simple majority</b> of both chambers`}.
+        House <b>${Math.round(pv.need.house.expect)}</b>/${pv.need.house.need} ·
+        Senate <b>${Math.round(pv.need.senate.expect)}</b>/${pv.need.senate.need} —
+        <b>${Math.round(pv.odds*100)}%</b> to carry. It is voted when you leave this page.${
+          pv.super?"":" Ordinary programme changes cost no capital beyond the change itself."}</div>`;
+    }
+  }
   if(key.startsWith("m_")){
     const k=key.slice(2), m=METRICS[k];
     h+=`<div class="sectionhdr">${m.name}</div><div class="sectionsub">${m.realNote||''}</div>`;
@@ -13648,6 +13690,75 @@ function nameFor(key){
   return key;
 }
 /* settle any pending change before leaving the current page */
+/* How big a move is this, as a share of the policy's whole range? */
+function pendingMagnitude(key, origSnap, curSnap){
+  if(!key||!key.startsWith("p_")||!origSnap||!curSnap)return 0;
+  const pol=POLICIES[key.slice(2)]; if(!pol)return 0;
+  let ov,cv; try{ ov=JSON.parse(origSnap); cv=JSON.parse(curSnap); }catch(e){ return 0; }
+  if(pol.mechanic==="tier"&&pol.tiers)
+    return Math.abs((cv.t??0)-(ov.t??0))/Math.max(1,pol.tiers.length-1);
+  return Math.abs((cv.v??cv.i??0)-(ov.v??ov.i??0));
+}
+/* Moving a programme you already run is not the same as writing a new law. The
+   legislature signs off, but funding a thing it already funds a bit more is
+   uncontroversial and free — what it resists is a big swing on something its
+   members' voters care about. Simple majority, no whipping, no capital beyond
+   the ordinary cost of the change. */
+function programVote(key, origSnap, curSnap){
+  const mag=pendingMagnitude(key,origSnap,curSnap);
+  if(mag<0.15)return null;                       // an administrative nudge
+  const pol=POLICIES[key.slice(2)]; if(!pol)return null;
+  if(isRevenueRise(key,origSnap,curSnap))return null;   // that is a revenue bill, handled separately
+  const sf=stateFeel(), align=coalitionAlignment(sf);
+  const hHeld=new Set((GAME.legis&&GAME.legis.hHeld)||[...legisSeatMap(OR_HOUSE_DISTRICTS,(GAME.legis&&GAME.legis.house)||0).mine]);
+  const sHeld=new Set((GAME.legis&&GAME.legis.sHeld)||[...legisSeatMap(OR_SENATE_DISTRICTS,(GAME.legis&&GAME.legis.senate)||0).mine]);
+  // which way the change cuts, so the seats that lose from it are the ones that balk
+  let ov,cv; try{ ov=JSON.parse(origSnap); cv=JSON.parse(curSnap); }catch(e){ return null; }
+  const up=((cv.v??cv.t??cv.i??0)-(ov.v??ov.t??ov.i??0))>0;
+  const out={kind:"program", mag, chambers:{}, passed:true};
+  for(const ch of ["house","senate"]){
+    const rows=legCompRows(ch), held=(ch==="senate")?sHeld:hHeld;
+    const need=(ch==="senate")?LEGIS.majS:LEGIS.majH;
+    let yes=0, expect=0;
+    for(const row of rows){
+      let pain=0;
+      if(pol.blocEffect){
+        for(let k=0;k<LEG_BLOCS.length;k++){
+          const b=LEG_BLOCS[k], e=pol.blocEffect[b]; if(!e)continue;
+          const S=SIMULANTS[b]; if(!S)continue;
+          pain-=row[1][k]*(S.turnout||0.6)*e*(up?1:-1);
+        }
+      }
+      const mine=held.has(row[0]);
+      const incl=(mine?BILL_LOYALTY:-BILL_LOYALTY*0.45)   // the opposition is far softer on a dial than on a law
+        +(mine?2.0:0.8)
+        +((INDICATORS.mandate.value-50)/50)*BILL_MANDATE*(mine?1:0.3)
+        -pain*mag*BILL_SCALE*0.55
+        +(districtSupport(row,sf,align)-50)*0.06;
+      expect+=votePr(incl);
+      if(incl+gauss()*VOTE_SD>0)yes++;
+    }
+    out.chambers[ch]={yes, need, expect, ok:yes>=need};
+    if(yes<need)out.passed=false;
+  }
+  return out;
+}
+/* Whatever vote a pending change needs — a revenue bill at three-fifths, an
+   ordinary programme change at a simple majority, or nothing at all. */
+function pendingVote(key, origSnap, curSnap){
+  return revenueVote(key,origSnap,curSnap) || programVote(key,origSnap,curSnap);
+}
+/* The same thing without rolling dice, for the preview banner. */
+function pendingVoteOdds(key, origSnap, curSnap){
+  const rr=isRevenueRise(key,origSnap,curSnap);
+  const mag=pendingMagnitude(key,origSnap,curSnap);
+  if(!rr && mag<0.15)return null;
+  let hit=0; const N=120;
+  for(let i=0;i<N;i++){ const v=pendingVote(key,origSnap,curSnap); if(v&&v.passed)hit++; }
+  const one=pendingVote(key,origSnap,curSnap); if(!one)return null;
+  return {kind:one.kind||"revenue", odds:hit/N, need:one.chambers,
+          super:!!rr, yield:rr?rr.yield:0};
+}
 function revenueVote(key, origSnap, curSnap){
   const rr=isRevenueRise(key,origSnap,curSnap);
   if(!rr)return null;
@@ -13702,22 +13813,30 @@ function settlePending(){
   if(pend){
     const now=snapshotFor(pend.key);
     if(now!==null&&now!==pend.snap){
-      const rv=revenueVote(pend.key,pend.snap,now);
+      const rv=pendingVote(pend.key,pend.snap,now);
       if(rv&&!rv.passed){
         restoreFrom(pend.key,pend.snap);
         const lost=[];
         for(const ch of ["house","senate"])if(!rv.chambers[ch].ok)
           lost.push("the "+(ch==="house"?"House":"Senate")+" "+rv.chambers[ch].yes+"/"+rv.chambers[ch].need);
-        GAME.log.push(ico('ban')+" "+nameFor(pend.key)+" — a revenue rise needs three-fifths of both chambers "
-          +"(Art. IV §25) and fell short in "+lost.join(" and ")+". Reverted."
-          +(rv.rise.cover>0.4?" Even with the shortfall to point at.":""));
+        const isRev=(rv.kind!=="program");
+        GAME.log.push(ico('ban')+" "+nameFor(pend.key)+" — "+(isRev
+            ? "a revenue rise needs three-fifths of both chambers (Art. IV §25) and fell short in "
+            : "the legislature would not carry a change that size; short in ")
+          +lost.join(" and ")+". Reverted."
+          +(isRev&&rv.rise&&rv.rise.cover>0.4?" Even with the shortfall to point at.":""));
+        showVoteResult({ok:false, name:nameFor(pend.key), pending:true,
+          res:{house:{yes:rv.chambers.house.yes,need:rv.chambers.house.need,ok:rv.chambers.house.ok},
+               senate:{yes:rv.chambers.senate.yes,need:rv.chambers.senate.need,ok:rv.chambers.senate.ok},passed:false},
+          w:{cost:0, base:0, house:{total:LEGIS.house}, senate:{total:LEGIS.senate}}});
       } else {
         const cost=chargeFor(pend.key,pend.snap,now);
         if(GAME.capital>=cost){GAME.capital-=cost;
           GAME.log.push("◈ "+cost+" capital — changed "+nameFor(pend.key)
-            +(rv?" (revenue rise cleared three-fifths "+rv.chambers.house.yes+"/"+rv.chambers.house.need
+            +(rv?" ("+(rv.kind==="program"?"carried the floor ":"revenue rise cleared three-fifths ")
+                +rv.chambers.house.yes+"/"+rv.chambers.house.need
                 +" and "+rv.chambers.senate.yes+"/"+rv.chambers.senate.need
-                +(rv.rise.cover>0.4?" — the shortfall carried it":"")+")":""));}
+                +(rv.kind!=="program"&&rv.rise&&rv.rise.cover>0.4?" — the shortfall carried it":"")+")":""));}
         else{restoreFrom(pend.key,pend.snap);GAME.log.push("✗ Not enough capital — "+nameFor(pend.key)+" reverted");}
       }
     }
