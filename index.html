@@ -2397,6 +2397,47 @@ const INDICATORS={
       ...(POLICIES.evFee&&policyLevel(POLICIES.evFee)>0.01?[{name:ico('plug')+" EV Road Charge",v:policyLevel(POLICIES.evFee)*17,link:"p_evFee"}]:[]),
     ],
     feedback:{}},
+  infraStrain:{name:"Infrastructure Strain", icon:"road", value:38,
+    desc:"How far Oregon's roads, water, sewer and — above all — its electrical grid have fallen behind what the economy is asking of them. Growth is the cause, not decay: a bigger economy, arriving households, an electrifying vehicle fleet and a surge of data-centre and chip-fab load all want to connect faster than wire, pipe and lane get built.\n\nOregon's specific bind is transmission. The state has cheap power and excellent wind and solar resource east of the Cascades and almost no way to move it west, because a transmission corridor crosses dozens of counties, cities and landowners and any one of them can stop it. High strain shows up first on the power bill, then as a drag on growth, a business climate that cools, and housing that cannot be built because there is nothing to hook it up to.\n\nIt falls when you build capacity — the Infrastructure Capital Program, ODOT funding, transit share taking load off the roads — or when you make building legally possible at all, via a Transmission Siting Authority.",
+    derive:()=>{
+      let v=38;
+      // DEMAND — a bigger, faster-growing state loads everything at once
+      if(METRICS.gspLevel)v+=clamp((METRICS.gspLevel.value/METRICS.gspLevel.baseline-1)*100,0,40)*0.85;
+      v+=clamp((INDICATORS.inMigration.value-50)/25,0,1)*14;
+      v+=clamp((METRICS.evAdoption.value-15)/60,0,1)*9;      // electrification lands on the grid
+      if(GAME.activeSituations.techBoom)v+=8;                // fabs and server farms
+      if(GAME.activeSituations.gdpBoom)v+=5;
+      if(GAME.activeSituations.brainGain)v+=3;
+      // loose data-centre rules let load connect faster than wire gets built
+      if(POLICIES.dataCenterEnergy)v+=(0.5-policyLevel(POLICIES.dataCenterEnergy))*16;
+      // CAPACITY — what you have actually built
+      v-=(INDICATORS.transportFunding.value-62)*0.10;
+      v-=clamp((METRICS.transitShare.value-8)/12,0,1)*7;
+      if(AGENCIES.odot)v-=((AGENCIES.odot.funding??0.5)-0.5)*22;
+      v+=indPolicyBoost("infraStrain")+sitIndicatorPush("infraStrain");
+      return clamp(v,0,100);
+    },
+    drivers:()=>{
+      const d=[{name:"⊕ baseline slack",v:38,base:true}];
+      if(METRICS.gspLevel)d.push({name:ico('chart-up')+" Size of the economy",v:clamp((METRICS.gspLevel.value/METRICS.gspLevel.baseline-1)*100,0,40)*0.85,link:"m_gspLevel"});
+      d.push({name:ico(INDICATORS.inMigration.icon)+" People arriving",v:clamp((INDICATORS.inMigration.value-50)/25,0,1)*14,link:"i_inMigration"});
+      d.push({name:ico('plug')+" EV load on the grid",v:clamp((METRICS.evAdoption.value-15)/60,0,1)*9,link:"m_evAdoption"});
+      if(GAME.activeSituations.techBoom)d.push({name:ico('monitor')+" Fabs & data centres",v:8,link:"sit_techBoom"});
+      if(GAME.activeSituations.gdpBoom)d.push({name:ico('chart-up')+" Overheating economy",v:5,link:"sit_gdpBoom"});
+      if(GAME.activeSituations.brainGain)d.push({name:ico('chart-up')+" In-migrating talent",v:3,link:"sit_brainGain"});
+      if(POLICIES.dataCenterEnergy)d.push({name:ico('monitor')+" Data-centre rules (looser = more load)",v:(0.5-policyLevel(POLICIES.dataCenterEnergy))*16,link:"p_dataCenterEnergy"});
+      d.push({name:ico('road')+" Transportation revenue",v:-(INDICATORS.transportFunding.value-62)*0.10,link:"i_transportFunding"});
+      d.push({name:ico('bike')+" Transit share (takes load off)",v:-clamp((METRICS.transitShare.value-8)/12,0,1)*7,link:"m_transitShare"});
+      if(AGENCIES.odot)d.push({name:ico(AGENCIES.odot.icon)+" "+AGENCIES.odot.name,v:-((AGENCIES.odot.funding??0.5)-0.5)*22,link:"a_odot"});
+      for(const pid in POLICIES){const p=POLICIES[pid];
+        if(p.indicatorEffects&&p.indicatorEffects.infraStrain){const v=p.indicatorEffects.infraStrain*effLevelOf(p);
+          if(Math.abs(v)>0.3)d.push({name:ico(p.icon)+" "+p.name,v,link:"p_"+pid});}
+        if(p.tierIndicatorEffects){const t=p.tierIndicatorEffects[p.tierIndex]||{};
+          if(t.infraStrain){const v=t.infraStrain*effLevelOf(p); if(Math.abs(v)>0.3)d.push({name:ico(p.icon)+" "+p.name,v,link:"p_"+pid});}}}
+      return d;
+    },
+    // a strained system prices scarcity into the power bill first, then bites growth
+    feedback:{electricRate:0.006, gdp:-0.0022}},
   justiceEffectiveness:{name:"Justice Pipeline Effectiveness", icon:"scales", value:50,
     desc:"How well Oregon's justice system functions end-to-end. Crime reduction from incapacitation is limited by the weakest of three pillars: police (arrests), judiciary (prosecution), and corrections (jail capacity). All three must be adequately funded for the chain to work. Police retain a prevention benefit even when the pipeline is broken. A working pipeline also leans on open drug use (enforcement, drug courts, diversion) and, through supervised release with services, on street homelessness.",
     derive:()=>{
@@ -2536,7 +2577,7 @@ const INDICATORS={
 /* Indicators that are GRIEVANCE/BURDEN gauges — a higher reading is worse, so a
    positive push on them hurts and should render red, not green. Everything else
    is "higher is better". */
-const BAD_HIGH_INDICATORS=new Set(["taxGrievance","ruralAlienation","pensionBurden","adminOverhead"]);
+const BAD_HIGH_INDICATORS=new Set(["taxGrievance","ruralAlienation","pensionBurden","adminOverhead","infraStrain"]);
 function indHigherIsBad(k){return BAD_HIGH_INDICATORS.has(k);}
 /* is a change of `v` on indicator k a good thing for the state? */
 function indDeltaGood(k,v){return indHigherIsBad(k)?v<0:v>0;}
@@ -2858,7 +2899,7 @@ const SECTION_OF={
   // new economy/education/health policies
   evIncentives:"environment", charterSchools:"pubservices", readingCurriculum:"pubservices", academicTracking:"pubservices",
   alcoholTax:"health", liquorControl:"economy", craftBevPromotion:"economy", smallBizSupport:"economy", agMinWageExempt:"economy",
-  deflectionProgram:"welfare", housingPackage:"welfare", dataCenterEnergy:"economy",
+  deflectionProgram:"welfare", housingPackage:"welfare", dataCenterEnergy:"economy", transmissionSiting:"environment", infraBank:"economy",
   drugPossession:"laworder", sanctuaryRepeal:"laworder", parentalRights:"pubservices", policeShield:"laworder", spendingCap:"taxes",
   occupationalLicensing:"economy", civilServiceReform:"pubservices", certificateOfNeedRepeal:"health", prevailingWageRepeal:"economy",
   localPreemption:"economy", truthInSentencing:"laworder", electionAdmin:"pubservices", assetForfeiture:"laworder",
@@ -3521,6 +3562,30 @@ const CATALOG={
     blocEffect:{liberal:2, renters:1, businessClass:-4, conservative:-2},
     real:{min:0,max:100,unit:"/100 strictness",decimals:0,label:"ratepayer protection"},
     ideology:{economic:-0.3,environment:-0.4,govSize:-0.2}},
+  transmissionSiting:{name:"Transmission Siting Authority", domain:"envInfra", icon:"plug", mechanic:"tier", phaseIn:6,
+    desc:"Who decides where a high-voltage line gets to go. Today a transmission corridor needs assent from every county, city and landowner it crosses, and any one of them can stop it — which is why Oregon has cheap wind and solar east of the Cascades and no way to move it to the people who need it. The tiers escalate what the state can do about that: consolidate a dozen local permits into one state process, or let the Energy Facility Siting Council override a local refusal outright.\n\nIt is the single strongest lever on Infrastructure Strain and it is genuinely expensive politically. Eastern Oregon has watched Portland's power lines cross its ranches for a century, and preemption is exactly the Salem-knows-best move that feeds the Greater Idaho argument. Utilities, business and the build-it wing of the climate coalition want it; the counties, property-rights conservatives and timber landowners fight it.",
+    tiers:["Local veto stands","Consolidated state permitting","State siting preemption"],
+    tierIndex:0, costByTier:[0,0.04,0.09], capital:8, enactCapital:12,
+    effects:{},
+    tierEffects:[{},
+      {electricRate:-0.5, environment:1, gdp:0.05},
+      {electricRate:-1.3, environment:2.2, gdp:0.10}],
+    tierIndicatorEffects:[{},
+      {infraStrain:-13, ruralAlienation:4, businessClimate:2},
+      {infraStrain:-26, ruralAlienation:11, businessClimate:5, localAutonomy:-9}],
+    tierBlocEffects:[{},
+      {businessClass:3, urban:2, collegeEducated:1, rural:-4, timber:-2, libertarian:-3},
+      {businessClass:6, urban:4, liberal:2, collegeEducated:2, rural:-9, timber:-5, libertarian:-7, conservative:-3, homeowners:-2}],
+    tierIdeology:[{},
+      {govSize:-0.15, environment:-0.2},
+      {govSize:-0.35, environment:-0.35, economic:0.1}]},
+  infraBank:{name:"Infrastructure Capital Program", domain:"envInfra", icon:"road", mechanic:"slider", phaseIn:8,
+    desc:"A standing capital budget for the unglamorous physical plant a growing state runs on — arterial and bridge work, water and sewer trunk lines, substation and grid hardening, and the connection costs that decide whether a housing development can actually get built. It is the direct answer to Infrastructure Strain and the most obvious thing to do with a surplus: capital is the one category where a one-time windfall buys a permanent asset instead of a recurring obligation you have to fund again next biennium.\n\nIt costs real money and it employs a lot of people, which is most of its politics. The building trades and business back it; the left would rather the money went to services.",
+    value:0.3, costFull:1.4, capital:6, enactCapital:10,
+    effects:{gdp:0.16, unemployment:-0.28, electricRate:-0.35},
+    indicatorEffects:{infraStrain:-28, businessClimate:4, housingAffordability:3},
+    blocEffect:{blueCollar:6, businessClass:4, motorists:4, rural:3, moderate:2, homeowners:2, socialist:-2},
+    ideology:{economic:-0.2, govSize:-0.35}},
   readingCurriculum:{name:"Science of Reading Mandate", domain:"eduHealth", icon:"book", mechanic:"slider",
     desc:"Centralize K-3 literacy on evidence-based phonics (Oregon's Early Literacy Success initiative), standardizing curriculum statewide. Raises proficiency, but stripping curricular choice from districts angers unions and local-control advocates — a real autonomy-vs-quality tradeoff.",
     value:0.5, costFull:0.12, capital:6, enactCapital:10,
@@ -3610,9 +3675,11 @@ const CATALOG={
     enabled:true, costFull:0.05, capital:9, enactCapital:13,
     effects:{violentCrime:{b:-1,c:-5,i:4},health:{b:1,c:4,i:4}}, indicatorEffects:{ruralAlienation:7}, ideology:{social:-0.7,govSize:-0.5}},
   forestCarbon:{name:"Forest Carbon Offsets", domain:"envInfra", icon:"leaf", mechanic:"slider",
-    desc:"Sell carbon credits for keeping state forests standing — competes with logging revenue but boosts environment and tourism.",
+    desc:"Sell carbon credits for keeping state forests standing, rather than cutting them. It pays, and it competes directly with logging revenue.\n\nThe environmental return is thin and that is not an accident: offset protocols credit against a counterfactual, and a large share of the acreage enrolled was steep, remote or economically marginal ground nobody was going to harvest anyway. You get paid for the trees you were already keeping. Real additionality exists at the margin, so the environment needle does move — barely.\n\nThe local cost is not thin at all. Timber counties fund their sheriffs and roads out of harvest receipts, and mills need a predictable log supply; signing the harvest base away for thirty years to a credit stream booked in someone else's ledger is read east of the Cascades as Salem monetising their economy for Portland's climate accounting. It is one of the sharpest rural grievances in the game.",
     value:0.5, revenue:0.2, capital:6, enactCapital:9,
-    effects:{environment:{b:2,c:7,i:6},loggingRate:-8}, indicatorEffects:{tourism:2,ruralAlienation:3}, ideology:{environment:-0.7,economic:-0.2}},
+    effects:{environment:{b:0.4,c:1.8,i:6},loggingRate:-8}, indicatorEffects:{tourism:1,ruralAlienation:9},
+    blocEffect:{timber:-11, rural:-7, blueCollar:-3, conservative:-3, libertarian:-2, liberal:3, socialist:2, urban:1},
+    ideology:{environment:-0.7,economic:-0.2}},
   digitalGov:{name:"Digital Government Modernization", domain:"economy", icon:"monitor", phaseIn:8, mechanic:"slider",
     desc:"Overhaul Oregon’s aging state IT — the failed Cover Oregon exchange is the cautionary tale. Modern eligibility, case-management and contract-monitoring systems raise state capacity so every other policy lands more effectively, slash Administrative Overhead, and compress redundant process into a measurable drop in effective tax burden over time. The state's clerical and caseworker unions read the same automation as their jobs, and fight it.\n\nIt is also one of the three routes out of the NONPROFIT INDUSTRIAL COMPLEX, supplying 28% of State Control: a real coordinated-entry and contract-monitoring system is how you find out what the money actually bought. You cannot manage a contract layer you cannot see.",
     value:0.5, costFull:0.6, capital:6, enactCapital:11,
@@ -4368,6 +4435,81 @@ const DILEMMAS={
          GAME.deficitStreak=0;
          shiftCompass(-0.7,0);
          GAME.log.push(ico('cash-fly')+" Austerity: income & corporate taxes raised — $1.6B off the deficit");
+       }}
+    ]},
+  surplusSpend:{title:"What the Surplus Is For", icon:"dollar", cooldown:16,
+    text:"The forecast came in above the last one again and the balance is real money now. Every caucus has arrived with a plan for it and a deadline: the revenue committee wants a rate cut written before the short session, the co-chairs want it in the capital budget where it buys something permanent, the advocates want the waitlists cleared, and your budget office keeps repeating that the last three Oregon surpluses were all gone within two years. You cannot do all of it and the choice is going to define what people think this administration is for.",
+    influence:()=>((GAME.surplusStreak||0)>=3&&GAME.lastBalance>0.5)?0.9:-1,
+    options:[
+      {label:"Cut the income tax rate", text:"Take the top rate down and let people keep it. The cleanest possible answer to \u201cgive it back\u201d, it defuses the tax grievance for years — and it is permanent in a way the surplus is not, so the next downturn arrives with a smaller base to fall from.",
+       apply:()=>{
+         if(POLICIES.incomeTax)POLICIES.incomeTax.value=clamp((POLICIES.incomeTax.value||0)-0.07,0,1);
+         createGrudge("i_taxGrievance",-12,0.92,"Surplus returned as a rate cut");
+         createGrudge("i_businessClimate",5,0.9,"Rate cut out of the surplus");
+         createGrudge("v_wealthy",7,0.9,"Rate cut");
+         createGrudge("v_businessClass",6,0.9,"Rate cut");
+         createGrudge("v_moderate",4,0.9,"Gave the surplus back");
+         createGrudge("v_conservative",5,0.9,"Gave the surplus back");
+         createGrudge("v_libertarian",4,0.9,"Gave the surplus back");
+         createGrudge("v_middleIncome",3,0.9,"Rate cut");
+         createGrudge("v_publicUnions",-7,0.9,"Surplus refunded, not spent");
+         createGrudge("v_socialist",-6,0.9,"Surplus refunded, not spent");
+         createGrudge("v_liberal",-4,0.9,"Surplus refunded, not spent");
+         shiftCompass(0.6,0.4);
+         GAME.log.push(ico('dollar')+" Surplus: top income-tax rate cut");
+       }},
+      {label:"Put it in the ground", text:"Into the capital budget — substations, trunk lines, bridges and the connection costs holding up housing. It is the one use of a one-time surplus that leaves something behind, and it lands hardest in the places the boom has strained. Nobody gets a cheque.",
+       apply:()=>{
+         if(!POLICIES.infraBank && CATALOG.infraBank) _applyEnact("infraBank", 0.5);
+         if(POLICIES.infraBank)POLICIES.infraBank.value=clamp((POLICIES.infraBank.value||0)+0.22,0,1);
+         createGrudge("i_infraStrain",-12,0.92,"Surplus into capital");
+         createGrudge("i_businessClimate",4,0.9,"Surplus into capital");
+         createGrudge("i_housingAffordability",3,0.9,"Connection costs funded");
+         createGrudge("m_unemployment",-0.35,0.9,"Capital programme hiring");
+         createGrudge("v_blueCollar",7,0.9,"Capital programme jobs");
+         createGrudge("v_businessClass",4,0.9,"Surplus into capital");
+         createGrudge("v_motorists",4,0.9,"Roads and bridges funded");
+         createGrudge("v_rural",3,0.9,"Capital spending outside Portland");
+         createGrudge("v_wealthy",-3,0.9,"Surplus spent, not refunded");
+         createGrudge("v_conservative",-3,0.9,"Surplus spent, not refunded");
+         createGrudge("capital",2,undefined,"Something to cut a ribbon on");
+         shiftCompass(-0.2,-0.3);
+         GAME.log.push(ico('road')+" Surplus: swept into the capital budget");
+       }},
+      {label:"Clear the service backlog", text:"Waitlists, provider rates, caseworker vacancies, the deferred asks that have been rolled forward for three biennia. It is the most people helped per dollar and the least durable thing you can do with it: these are recurring costs funded from a one-time surge, and the cliff arrives on schedule.",
+       apply:()=>{
+         createGrudge("m_health",2.5,0.9,"Backlog cleared");
+         createGrudge("m_behavioralHealth",2.5,0.9,"Backlog cleared");
+         createGrudge("m_homelessness",-1.1,0.9,"Backlog cleared");
+         createGrudge("m_povertyRate",-0.5,0.9,"Backlog cleared");
+         createGrudge("v_publicUnions",8,0.9,"Surplus into services");
+         createGrudge("v_poor",7,0.9,"Waitlists cleared");
+         createGrudge("v_socialist",6,0.9,"Surplus into services");
+         createGrudge("v_liberal",5,0.9,"Surplus into services");
+         createGrudge("v_parents",3,0.9,"Waitlists cleared");
+         createGrudge("v_wealthy",-6,0.9,"Surplus spent, not refunded");
+         createGrudge("v_conservative",-6,0.9,"Surplus spent, not refunded");
+         createGrudge("v_libertarian",-5,0.9,"Surplus spent, not refunded");
+         createGrudge("i_taxGrievance",5,0.9,"Surplus spent, not refunded");
+         // a recurring obligation stood up on one-time money
+         GAME.structuralDebt=(GAME.structuralDebt||0)+0.35;
+         shiftCompass(-0.7,-0.6);
+         GAME.log.push(ico('heart')+" Surplus: service backlog cleared");
+       }},
+      {label:"Bank it and say nothing", text:"Into the Rainy Day Fund, on the theory that the next recession is the only certainty in the forecast. Defensible, unanswerable, and completely unsatisfying to everyone who came to Salem with a plan — including the ones who wanted it refunded.",
+       apply:()=>{
+         GAME.rainyDay=(GAME.rainyDay||0)+1.2;
+         createGrudge("i_taxGrievance",4,0.9,"Surplus banked, not returned");
+         createGrudge("v_moderate",2,0.9,"Prudent");
+         createGrudge("v_retirees",3,0.9,"Prudent");
+         createGrudge("v_wealthy",-4,0.9,"Not returned");
+         createGrudge("v_conservative",-4,0.9,"Not returned");
+         createGrudge("v_libertarian",-4,0.9,"Not returned");
+         createGrudge("v_publicUnions",-4,0.9,"Not spent");
+         createGrudge("v_socialist",-4,0.9,"Not spent");
+         createGrudge("v_poor",-3,0.9,"Not spent");
+         createGrudge("capital",-2,undefined,"Satisfied nobody");
+         GAME.log.push(ico('dollar')+" Surplus: $1.2B banked in reserves");
        }}
     ]},
   boomDividend:{title:"The Boom Dividend", icon:"dollar", cooldown:900,
@@ -5890,6 +6032,30 @@ const SITUATIONS={
     indicatorEffect:{businessClimate:-5, inMigration:-3},
     moodAxes:{economic:0.3,govSize:-0.2}, moodMag:2,
     groupMood:{businessClass:-8, wealthy:-5, moderate:-5, homeowners:-3, blueCollar:-2}},
+  infraCrunch:{name:"Infrastructure Can't Keep Up", kind:"bad", category:"condition",
+    desc:"The growth is real and the physical plant underneath it is not. Interconnection queues run years, substations are at capacity, the water and sewer trunk lines were sized for a smaller state, and a housing development that pencils on paper cannot get hooked up. Power bills climb because scarcity gets priced in, employers who were choosing Oregon start choosing elsewhere, and the people already here pay for growth they never asked for.\n\n→ TO FIX IT: get Infrastructure Strain back under 56 — fund the Infrastructure Capital Program, give ODOT its budget, raise transit share, tighten the data-centre framework so load connects at the pace the wire does, and above all make transmission legally possible to build.",
+    trigger:()=>GAME.turn>6 && INDICATORS.infraStrain.value>=68 && effective("gdp")>=56,
+    clear:()=>INDICATORS.infraStrain.value<56 || effective("gdp")<48,
+    watch:{indicator:"infraStrain", startAt:68, clearAt:56, badHigh:true},
+    minTurns:3, onTrigger:{capital:-2}, capitalDrain:-1, onClear:{capital:3},
+    metricEffect:{gdp:-0.10, electricRate:0.30, environment:-0.15},
+    indicatorEffect:{businessClimate:-5, inMigration:-2, housingAffordability:-2},
+    costEffect:{economy:0.10},
+    moodMag:2, moodAxes:{economic:0.1},
+    groupMood:{businessClass:-8, motorists:-5, rural:-4, suburban:-3, moderate:-3, homeowners:-2, blueCollar:-2}},
+  surplusFight:{name:"The Fight Over the Surplus", kind:"bad", category:"condition",
+    desc:"Three quarters closed in the black and the money is still sitting there, which means it now belongs to whoever wins the argument about it. The caucus that wants it returned has the simplest case and makes it loudest — it is their money, the state took too much, give it back. The advocates have a decade of deferred maintenance, waitlists and cost-of-living asks and cannot believe you would refund a surplus while any of it stands. Your own budget office wants it banked before the next downturn erases it.\n\nNothing about this is a crisis, and that is exactly what makes it dangerous: a surplus you refuse to spend, refund or bank is read by everyone as a surplus you are hoarding, and the tax-grievance case writes itself while you deliberate. Tax cuts get materially easier to pass on the floor while it runs.\n\n→ TO END IT: put the money somewhere. Cut a tax, fund the capital and service backlog, or take the surplus dilemma when it comes.",
+    trigger:()=>GAME.turn>5 && (GAME.surplusStreak||0)>=3 && GAME.lastBalance>0.5,
+    clear:()=>GAME.lastBalance<0.2 || (GAME.surplusStreak||0)<2,
+    watch:{metric:"balance", startAt:0.5, clearAt:0.2, badHigh:true},
+    minTurns:2, capitalDrain:-1,
+    metricEffect:{},
+    indicatorEffect:{taxGrievance:7, mandate:-2},
+    moodMag:2, moodAxes:{economic:0.2, govSize:0.2},
+    // nobody is happy while it sits: one half wants it back, the other half
+    // wants it spent, and both of them are looking at you
+    groupMood:{wealthy:-6, conservative:-5, libertarian:-5, rural:-4, businessClass:-4,
+               publicUnions:-5, socialist:-4, liberal:-3, poor:-3, moderate:-2}},
   kickerPayout:{name:"Kicker Payout", kind:"good", category:"condition",
     desc:"Revenue beat the forecast by enough to trigger Oregon's constitutional kicker — taxpayers get automatic refund checks, and the surplus you were counting on walks out the door. The upside: the refund is the state's pressure-release valve, and it cools the tax-burden grievance for a while.",
     trigger:()=>GAME.lastBalance>2.2 && !POLICIES.kickerReform,
@@ -5992,7 +6158,9 @@ const EVENT_POOL=[
   {id:"cyberattack", prob:0.055, gate:()=>INDICATORS.digitization.value<55},
   {id:"unemploymentSystemFailure", prob:0.06, gate:()=>INDICATORS.digitization.value<48 && (GAME.activeSituations.recession||METRICS.unemployment.value>7)},
   {id:"benefitsBacklog", prob:0.045, gate:()=>INDICATORS.digitization.value<45},
-  {id:"teacherStrike", prob:0.055, gate:()=>(SIMULANTS.publicUnions?.approval??50)<44 || boomWageGap()>0.5, probMult:()=>1+boomWageGap()*1.2},
+  {id:"teacherStrike", prob:0.055,
+   gate:()=>strikeCapacity()>0 && ((SIMULANTS.publicUnions?.approval??50)<44 || boomWageGap()>0.5),
+   probMult:()=>(1+boomWageGap()*1.2)*strikeCapacity()},
 ];
 
 /* NATIONAL_MOOD — a persistent background variable doing a random walk.
@@ -6051,6 +6219,9 @@ const GAME={
   fedIndex:1.0,         // federal-funds multiplier; shocked by federal events
   pendingKicker:0,      // kicker owed, paid out next cycle
   pendingSurplus:null,  // {surplus} — a kicker-eligible surplus awaiting the player's end-of-quarter choice
+  // Consecutive quarters closed in the black. One good quarter is luck; three
+  // is a surplus, and a surplus is a thing everyone in Salem has plans for.
+  surplusStreak:0,
   history:{}, // { metricKey: [{turn,value}], policyId: [{turn,level,cost}], approval:[...] }
   // ---- the loyal opposition: a persistent rival whose MOMENTUM tracks how
   // vulnerable you look. Low = a formality on election night; high = a
@@ -6943,6 +7114,19 @@ function blocMoodContributors(sid){
 }
 /* 0..1 — economy running hot AND public pay (State School Fund proxy) lagging.
    Drives public-union mood and teacher-strike odds. */
+/* Can the teachers actually strike? A walkout is a union action and it needs a
+   union in a position to take one. Banning public-sector bargaining removes the
+   legal machinery a strike runs on outright, and Right-to-Work starves the dues
+   base, the strike fund and the organising capacity that lets one hold past the
+   first payless payday — neither is a technicality the locals route around.
+   Limited bargaining rights leave them able to walk, but not easily. */
+function strikeCapacity(){
+  const cb=POLICIES.collectiveBargaining;
+  if(cb && cb.tierIndex===0)return 0;                       // no lawful strike to call
+  const rtw=POLICIES.rightToWork;
+  if(rtw && rtw.enacted!==false && rtw.enabled!==false)return 0;  // no war chest to call one with
+  return (cb && cb.tierIndex===1) ? 0.45 : 1;               // limited rights: possible, harder
+}
 function boomWageGap(){
   const hot=clamp((METRICS.gdp.value-2.2)/1.8,0,1);
   const pay=POLICIES.stateSchoolFund?policyLevel(POLICIES.stateSchoolFund):0.5;
@@ -10818,6 +11002,8 @@ function _runTicks(){
   METRICS.evAdoption.eq = Math.min(75, 13 + GAME.turn * 0.5);
   tickMetrics();
   GAME.lastBalance=budgetBalance().balance;
+  GAME.surplusStreak=(GAME.lastBalance>0.5)?Math.min(9,(GAME.surplusStreak||0)+1)
+                                            :Math.max(0,(GAME.surplusStreak||0)-2);
   settleFiscal(); tickNationalMood(); tickSituations(); tickOpposition(); maybeFireDilemma();
   tickIndicators(); tickGrudges(); tickCynComp(); tickExpectations(); tickGroundGame(); tickCountyCamp();
   tickBallotCampaign();
@@ -14210,8 +14396,11 @@ function pendingBillSpec(key, origSnap, curSnap){
     // easy in the abstract, hard against a deficit: the fiscal hawks kill a
     // giveaway you cannot pay for, and the bigger it is the more of them balk
     const fiscalDrag=clamp(giveup,0,4)*0.9 + Math.max(0,-bal)*1.15 + debt*0.35;
-    const popular=clamp(giveup,0,3)*0.75;
-    spec.fiscalDrag=fiscalDrag;
+    // ...and the mirror of that drag: a visible surplus is the best argument a
+    // tax cut ever gets, and an active fight over it is better still.
+    const surplusPush=clamp(bal,0,3)*0.55+(GAME.activeSituations.surplusFight?1.2:0);
+    const popular=clamp(giveup,0,3)*0.75+surplusPush;
+    spec.fiscalDrag=fiscalDrag; spec.surplusPush=surplusPush;
     spec.ease=(mine)=>(mine?3.0:0.7)+popular-fiscalDrag-lawLockDrag(id);
     spec.supportW=0.08;
   } else if(rev){
@@ -15617,7 +15806,7 @@ function bootWorld(startId){
   GAME.legis.house=WORLD_SEED.legis.house; GAME.legis.senate=WORLD_SEED.legis.senate;
   GAME.legis.hHeld=null; GAME.legis.sHeld=null; GAME.legis.favors={};
   GAME.activeSituations={}; GAME.situationAge={}; GAME.eventCooldown={}; GAME.grudges=[]; GAME.history={};
-  GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.lawLock={};
+  GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.surplusStreak=0; GAME.lawLock={};
   GAME.floorFreeze=0; GAME.walkoutSide=null; GAME.walkoutCooldownUntil=0; GAME.walkoutIgnoredUntil=0; GAME.protestIgnoredUntil=0;
   // the band is set from the world this boot produces, so the pre-roll below
   // must run unbanded — otherwise a second boot inherits the first one's anchor
