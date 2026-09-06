@@ -2911,6 +2911,7 @@ const POLICIES={
     desc:"Per-pupil K-12 funding. OR baseline ~$11.4B/biennium.",
     value:0.55, costFull:10.4, capital:6, effects:{education:{b:2,c:12,i:6}, eduOutcomes:{b:1,c:4,i:6}},
     sizeEffect:{publicUnions:0.02}, sizeRefLevel:0.5,
+    blocEffect:{publicUnions:8, parents:4, poor:2, students:2, liberal:2, moderate:1, wealthy:-2, libertarian:-3, conservative:-3},
     ideology:{economic:-0.4,govSize:-0.5}},
   higherEd:{name:"Opportunity Grant (Aid)", domain:"eduHealth", icon:"cash", enacted:true, mechanic:"slider",
     desc:"Need-based financial aid (HECC Opportunity Grant). Helps low-income students access any institution; reduces inequality.",
@@ -14167,10 +14168,21 @@ function pendingBillSpec(key, origSnap, curSnap){
   // members who have to balance the budget get a say.
   const cutRev = raises && !up && (-yld)>0.004;
 
+  // A big-budget line is never "administrative". Moving the single largest
+  // program by even a few percent is a billion dollars, and the legislature
+  // votes on a billion dollars — so the gate looks at the DOLLAR size of the
+  // change, not only its fraction of the slider.
+  let dollarDelta=0;
+  if(pol.mechanic==="slider"||pol.mechanic==="allocation"||pol.mechanic==="intensity")
+    dollarDelta=(pol.costFull||0)*mag;
+  else if(isTier && pol.costByTier)
+    dollarDelta=Math.abs((pol.costByTier[cv.t]||0)-(pol.costByTier[ov.t]||0));
+  const bigMoney = dollarDelta >= 0.30;
+
   // ---- does it need a vote at all? An administrative nudge does not, unless
-  // it is contentious, in which case even a small step is a fight. A revenue
-  // change, up OR down, always goes to the floor.
-  if(!rev && !cutRev && mag < (cont>0.35?0.07:0.15))return null;
+  // it is contentious or it moves real money, in which case even a small step
+  // is a fight. A revenue change, up OR down, always goes to the floor.
+  if(!rev && !cutRev && !bigMoney && mag < (cont>0.35?0.07:0.15))return null;
 
   const spec={kind:(rev||cutRev)?"revenue":"program", key, id, pol, name:pol.name,
               mag, up, cont, cut:cutRev, yield:rev?yld:(cutRev?-yld:0), isTier};
