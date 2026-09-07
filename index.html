@@ -2791,9 +2791,10 @@ const EXEC_ORDERS={
     legalBase:0.11},
   eoOregonFirst:{name:"Oregon-First Procurement", icon:"handshake", capital:2,
     reach:"Procurement rules are yours to set — though preferring in-state bidders is exactly what the dormant Commerce Clause exists to stop.",
-    desc:"Direct every agency to weight in-state bidders in contract scoring. Popular in every town with a contractor in it, mildly more expensive for everything the state buys, and legally a good deal shakier than it sounds.",
+    desc:"Direct every agency to weight in-state bidders in contract scoring. Popular in every town with a contractor in it, and it does keep the money circulating in Oregon — but a preference is a price. You are declining the low bid on purpose, so everything the state builds and buys costs a little more, on every contract, for as long as the order stands.",
     effects:{gdp:0.05, unemployment:-0.1},
     indicatorEffects:{adminOverhead:4, businessClimate:1},
+    savings:-0.10,                     // negative: this ADDS to what the state pays
     blocEffect:{blueCollar:4, businessClass:3, rural:2, moderate:1, libertarian:-2},
     legalBase:0.06},
   eoHoldback:{name:"Across-the-Board Allotment Holdback", icon:"chart-down", capital:6,
@@ -2809,7 +2810,7 @@ const EXEC_ORDERS={
    challenge does NOT suspend it — the effects run until a court actually
    rules, which is the whole reason signing one is worth doing. */
 function eoState(id){ return (GAME.execOrders||{})[id]||null; }
-function eoLive(id){ const o=eoState(id); return !!(o && o.term===GAME.term && (o.state==="active"||o.state==="challenged"||o.state==="upheld")); }
+function eoLive(id){ const o=eoState(id); return !!(o && (o.state==="active"||o.state==="challenged"||o.state==="upheld")); }
 function eoLiveList(){ return Object.keys(EXEC_ORDERS).filter(eoLive); }
 /* metric push from every live order */
 function eoMetricPush(k){
@@ -2881,7 +2882,10 @@ function tickExecOrders(){
   for(const id in GAME.execOrders){
     const o=GAME.execOrders[id], E=EXEC_ORDERS[id];
     if(!E){ delete GAME.execOrders[id]; continue; }
-    if(o.term!==GAME.term){ delete GAME.execOrders[id]; continue; }   // dies with the term
+    // An order stands until it is rescinded or struck down. It does NOT expire
+    // with the term: you are the only governor this game ever has, so a sunset
+    // at the term boundary would delete your own work for no reason anyone in
+    // the fiction would recognise.
     if(o.state==="enjoined"||o.state==="upheld")continue;             // settled either way
     if(o.state==="active"){
       if(Math.random()<eoLegalRisk(id)){
@@ -8018,8 +8022,9 @@ function spendingByArea(){
     // biggest share: it crowds out what a district can spend, without being a
     // statement about how well it teaches.
     if(PERS_PAYROLL[id])amt+=(GAME.persRate-(GAME.persRate0||5.26))*0.35*PERS_PAYROLL[id];
-    // an allotment holdback or a hiring freeze is money the state simply does
-    // not spend — spread across the payroll-bearing lines it is held back from
+    // an allotment holdback or a hiring freeze is money the state simply does not
+    // spend; an in-state purchasing preference is money it spends extra. Both run
+    // through the same line, spread across the budgets they land on.
     if(PERS_PAYROLL[id])amt-=eoSavings()*PERS_PAYROLL[id];
     // structural debt interest service: each $1B of accumulated debt costs ~$40M/yr
     if(id==="debtAdmin")amt+=(GAME.structuralDebt||0)*0.04;
@@ -9479,7 +9484,7 @@ function showExecOrderEvent(ev, next){
   } else if(ev.upheld){
     h=`<div class="sectionhdr">${ico('scales')} Upheld</div>
       <div class="sectionsub">The court has upheld <b>${E.name}</b>.</div>
-      <div class="lg-verdict super" style="margin:12px 0">It stands for the rest of your term and cannot be challenged again. Your authority to have done it is now settled law, and the opposition has lost the argument it was making about you.</div>
+      <div class="lg-verdict super" style="margin:12px 0">It stands until you rescind it and cannot be challenged again. Your authority to have done it is now settled law, and the opposition has lost the argument it was making about you.</div>
       <div class="rrow"><span class="rlabel">Political mandate</span><span class="rval" style="color:var(--good)">+3</span></div>
       <div class="rrow"><span class="rlabel">Opposition momentum</span><span class="rval" style="color:var(--good)">−4</span></div>`;
   } else {
@@ -15715,10 +15720,26 @@ function persRiskControlHTML(){
    ============================================================ */
 function eoRiskWord(r){ return r>=0.20?"very high":r>=0.12?"high":r>=0.06?"moderate":r>=0.03?"low":"minimal"; }
 function eoRiskColor(r){ return r>=0.12?'var(--clay)':r>=0.06?'var(--gold)':'var(--muted-2)'; }
+function eoEffectList(E){
+  const eff=[];
+  for(const k in (E.effects||{})){
+    const m=METRICS[k]; if(!m)continue;
+    const v=E.effects[k], good=m.invert?v<0:v>0;
+    eff.push('<span style="color:'+(good?'var(--good)':'var(--clay)')+'">'+m.name+' '+(v>0?'+':'')+v+'</span>');
+  }
+  for(const k in (E.indicatorEffects||{})){
+    const ind=INDICATORS[k]; if(!ind)continue;
+    const v=E.indicatorEffects[k];
+    eff.push('<span style="color:'+(indDeltaGood(k,v)?'var(--good)':'var(--clay)')+'">'+ind.name+' '+(v>0?'+':'')+v+'</span>');
+  }
+  if(E.savings>0)eff.push('<span style="color:var(--good)">holds back $'+E.savings.toFixed(2)+'B/yr</span>');
+  else if(E.savings<0)eff.push('<span style="color:var(--clay)">adds $'+Math.abs(E.savings).toFixed(2)+'B/yr to what the state buys</span>');
+  return eff.join(" · ");
+}
 function renderExecOrders(){
   const main=document.getElementById("main");
   let h=`<div class="sectionhdr">${ico('doc')} Executive Orders</div>`;
-  h+=`<div class="sectionsub">Things you can do without asking anyone. An executive order needs no floor vote and no whip count — only political capital, and not much of it. In exchange it does about a quarter of what the equivalent bill would do, it dies with your term, and one that reaches past your own agencies can be taken away from you in court.\n\nA lawsuit does not suspend an order. It keeps working while the case runs, which is exactly why signing one is worth doing even when the exposure is high — and exactly why losing one hurts, because by then you have built around it.</div>`;
+  h+=`<div class="sectionsub">Things you can do without asking anyone. An executive order needs no floor vote and no whip count — only political capital, and not much of it. In exchange it does about a quarter of what the equivalent bill would do, it stands only until you rescind it or a court strikes it down, and one that reaches past your own agencies can be taken away from you.\n\nA lawsuit does not suspend an order. It keeps working while the case runs, which is exactly why signing one is worth doing even when the exposure is high — and exactly why losing one hurts, because by then you have built around it.</div>`;
   const live=eoLiveList();
   if(live.length){
     h+=`<div class="ebgroup-label" style="margin-top:14px">In force</div>`;
@@ -15732,7 +15753,8 @@ function renderExecOrders(){
       const r=eoLegalRisk(id);
       h+=`<div class="ebgroup" style="margin-bottom:10px"><div class="rrow"><span class="rlabel"><b>${ico(E.icon)} ${E.name}</b> ${chip}
         <div class="fnote" style="margin-top:3px">${E.desc}</div>
-        <div class="fnote" style="margin-top:3px;opacity:.8">${o.state==="upheld"?"Settled law for the rest of your term — it cannot be challenged again.":o.state==="challenged"?"Odds it survives: <b>"+Math.round(eoUpholdOdds(id)*100)+"%</b>":("Exposure: <b style='color:"+eoRiskColor(r)+"'>"+eoRiskWord(r)+"</b> — "+E.reach)}</div></span>
+        <div class="fnote" style="margin-top:4px">${eoEffectList(E)}</div>
+        <div class="fnote" style="margin-top:3px;opacity:.8">${o.state==="upheld"?"Settled — it cannot be challenged again.":o.state==="challenged"?"Odds it survives: <b>"+Math.round(eoUpholdOdds(id)*100)+"%</b>":("Exposure: <b style='color:"+eoRiskColor(r)+"'>"+eoRiskWord(r)+"</b> — "+E.reach)}</div></span>
         <span class="rval"><button class="fcard-btn" data-eorescind="${id}">Rescind</button></span></div></div>`;
     }
   }
@@ -15741,21 +15763,13 @@ function renderExecOrders(){
   if(!avail.length)h+=`<div class="ebnote">Every order is already in force.</div>`;
   for(const id of avail){
     const E=EXEC_ORDERS[id], st=eoState(id);
-    const struck = st && st.state==="enjoined" && st.term===GAME.term;
+    const struck = st && st.state==="enjoined";
     const cost=Math.round((E.capital||3)*(st&&st.resigns?1.5:1));
     const r=eoLegalRisk(id), afford=GAME.capital>=cost;
-    const eff=[];
-    for(const k in (E.effects||{})){const m=METRICS[k];if(!m)continue;
-      const v=E.effects[k], good=m.invert?v<0:v>0;
-      eff.push(`<span style="color:${good?'var(--good)':'var(--clay)'}">${m.name} ${v>0?'+':''}${v}</span>`);}
-    for(const k in (E.indicatorEffects||{})){const ind=INDICATORS[k];if(!ind)continue;
-      const v=E.indicatorEffects[k];
-      eff.push(`<span style="color:${indDeltaGood(k,v)?'var(--good)':'var(--clay)'}">${ind.name} ${v>0?'+':''}${v}</span>`);}
-    if(E.savings)eff.push(`<span style="color:var(--good)">holds back ${E.savings.toFixed(2)}B/yr</span>`);
     h+=`<div class="ebgroup" style="margin-bottom:10px"><div class="rrow"><span class="rlabel">
       <b>${ico(E.icon)} ${E.name}</b>${struck?' <span class="pill" style="background:var(--clay);color:var(--paper)">Struck down once</span>':''}
       <div class="fnote" style="margin-top:3px">${E.desc}</div>
-      <div class="fnote" style="margin-top:4px">${eff.join(" · ")}</div>
+      <div class="fnote" style="margin-top:4px">${eoEffectList(E)}</div>
       <div class="fnote" style="margin-top:4px">Legal exposure: <b style="color:${eoRiskColor(r)}">${eoRiskWord(r)}</b> — ${E.reach}${struck?" You have already been enjoined once on this; a revised order costs half again as much and fares worse.":""}</div></span>
       <span class="rval"><button class="fcard-btn" data-eosign="${id}" ${afford?'':'disabled'}>◈${cost} Sign</button></span></div></div>`;
   }
