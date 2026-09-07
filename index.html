@@ -3018,12 +3018,19 @@ const POLICIES={
   homelessServices:{name:"Homeless Services", domain:"social", icon:"houses", enacted:true, mechanic:"slider", phaseIn:7, noRepeal:true,
     desc:"Shelter system + Housing First. Oregon's homelessness spending has ballooned past $1B/biennium, disbursed across a sprawl of contracted providers — the governor inherits it running near full tilt.",
     value:0.72, costFull:1.6, capital:5,
-    effects:{homelessness:{b:-8,c:-26,i:3},health:3,propertyCrime:-3}, indicatorEffects:{downtown:8,inMigration:1}, ideology:{economic:-0.6,social:-0.4,govSize:-0.6}},
+    effects:{homelessness:{b:-8,c:-26,i:3},health:3,propertyCrime:-3}, indicatorEffects:{downtown:8,inMigration:1},
+    blocEffect:{socialist:4, liberal:3, poor:4, urban:2, renters:2, homeowners:-2, businessClass:-2, conservative:-3, libertarian:-2, moderate:-1},
+    ideology:{economic:-0.6,social:-0.4,govSize:-0.6}},
   abortion:{name:"Reproductive Care", domain:"social", icon:"heart", enacted:true, mechanic:"tier", noRepeal:true,
     desc:"Oregon has provided the nation's broadest access since 1969 — no gestational limits, no parental consent, and full Medicaid coverage since 1994. HB 2002 (2023) added explicit state constitutional protections. Restricting access would trigger fierce backlash and signal a sharp break from Oregon's identity as a reproductive-rights sanctuary state.",
     tiers:["Banned","Restricted","Legal","Protected & Funded"],
     tierIndex:3, costByTier:[0,0,0.05,0.3], capital:14,
     tierIdeology:[{social:0.9,govSize:0.3},{social:0.5},{social:-0.5},{social:-0.9,economic:-0.3}],
+    tierBlocEffects:[
+      {conservative:9, rural:6, retirees:3, parents:2, moderate:-2, liberal:-10, socialist:-9, urban:-8, students:-7, collegeEducated:-6, renters:-4, suburban:-4, wealthy:-2},
+      {conservative:5, rural:3, retirees:2, liberal:-6, socialist:-5, urban:-5, students:-4, collegeEducated:-3, suburban:-3},
+      {},
+      {liberal:4, socialist:3, urban:3, students:3, collegeEducated:3, renters:2, suburban:1, conservative:-6, rural:-4, retirees:-2}],
     effects:{}},
   drugPossession:{name:"Drug Possession Law", domain:"social", icon:"pill", enacted:true, mechanic:"tier", noRepeal:true, phaseIn:3,
     desc:"Where Oregon sits on the possession-of-hard-drugs spectrum. Measure 110 (2020) made possession a $100 citation with no criminal penalty; the fentanyl era and a downtown-disorder backlash drove HB 4002 (2024) to restore a misdemeanor with a deflection-to-treatment track — the status quo you inherit. From here you can push back toward full decriminalization, or forward to routine criminal enforcement or an aggressive prohibition regime with mandatory minimums and coerced treatment. Tighter tiers suppress open use and disorder but pack the jails, fall hardest on the poor, and enrage reform and civil-liberties groups; looser tiers do the reverse.",
@@ -3303,7 +3310,12 @@ const POLICIES={
     tierIndex:2, costByTier:[0,0.15,0.35,0.55], capital:16, repealCost:18,
     effects:{},
     tierEffects:[{violentCrime:2,incarcerationRate:-28,inequality:-2},{violentCrime:1,incarcerationRate:-18,inequality:-1},{violentCrime:0,incarcerationRate:10,inequality:0},{violentCrime:-1.5,incarcerationRate:20,inequality:1.5}],
-    tierIdeology:[{social:-0.7,govSize:-0.2},{social:-0.4},{social:0.2},{social:0.7,govSize:0.2}]},
+    tierIdeology:[{social:-0.7,govSize:-0.2},{social:-0.4},{social:0.2},{social:0.7,govSize:0.2}],
+    tierBlocEffects:[
+      {socialist:6, liberal:5, urban:3, students:3, poor:3, collegeEducated:2, libertarian:2, conservative:-7, moderate:-5, suburban:-5, retirees:-4, rural:-3, blueCollar:-2},
+      {socialist:3, liberal:3, urban:2, poor:2, conservative:-4, moderate:-3, suburban:-3, retirees:-2},
+      {},
+      {conservative:5, moderate:3, suburban:3, retirees:3, rural:2, blueCollar:2, socialist:-6, liberal:-5, urban:-3, students:-3, poor:-3, collegeEducated:-2, libertarian:-3}]},
   paidLeave:{name:"Paid Leave Oregon", domain:"social", icon:"teddy", enacted:true, mechanic:"slider", phaseIn:6, repealCost:11,
     desc:"HB 2005 (2019): paid family/medical leave funded by a payroll tax (workers 60% / employers 40%), benefits since Sept 2023. The slider sets the generosity — weeks of leave and wage-replacement. More is popular with families and lifts health and equity, but raises the payroll tax and irks small employers.",
     value:0.5, costFull:0.08, capital:8,
@@ -3370,6 +3382,7 @@ const POLICIES={
     value:0.35, costFull:0.08, capital:5,
     real:{min:0,max:100,unit:"% active/transit",decimals:0,label:"bike–transit share"},
     effects:{environment:5,health:3,gdp:-0.1,transitShare:14,obesity:-1.5}, indicatorEffects:{downtown:4},
+    blocEffect:{transitCommuters:7, urban:5, liberal:4, collegeEducated:3, students:3, socialist:2, motorists:-6, rural:-4, blueCollar:-3, suburban:-2, conservative:-2},
     sizeEffect:{motorists:-0.065}, sizeRefLevel:0.35,
     ideology:{environment:-0.5,economic:-0.2}},
   wildlifeManagement:{name:"Hunting & Fishing Management (ODFW)", domain:"envInfra", icon:"paw", enacted:true, mechanic:"tier", noRepeal:true, phaseIn:5,
@@ -14488,7 +14501,7 @@ function pendingBillSpec(key, origSnap, curSnap){
   const up=c>o, mag=pendingMagnitude(key,origSnap,curSnap);
   const isTier=(pol.mechanic==="tier"&&pol.tiers);
   const be=changeBlocEffect(pol,ov,cv), io=changeIdeology(pol,ov,cv);
-  const cont=contentionOf(be);
+  let cont=contentionOf(be);
 
   // ---- is this a revenue rise? Every one of them is, however small: Oregon's
   // three-fifths rule is about the KIND of bill, not its size. A small one is
@@ -14582,6 +14595,10 @@ function pendingBillSpec(key, origSnap, curSnap){
     const sio={}; for(const k in io)sio[k]=io[k]*scale;
     spec.needsSuper=false;
     spec.bill={name:pol.name, blocEffect:sbe, ideology:sio, _super:false};
+    // A dial is only as contentious as the distance you moved it: nudging a
+    // divisive slider a few points is not the war that swinging it across its
+    // range is. Tier moves are discrete, so each step reads at full contention.
+    if(!isTier) spec.cont = cont = cont*clamp(mag/0.22,0.42,1);
     // The easing: full goodwill on a question nobody is fighting over, none at
     // all on one they are. The opposition softens on a dial the same way.
     //
