@@ -2720,6 +2720,15 @@ const PERS_PAYROLL={k12:0.34, humanServices:0.14, debtAdmin:0.14, publicSafety:0
 /* The Land Board distributes this share of the Common School Fund's market
    value to K-12 each year — the real board has run 3.5-4%. */
 const CSF_PAYOUT_RATE=0.038;
+/* Article XV §4(4)(d): this share of net lottery proceeds is constitutionally
+   dedicated to the Education Stability Fund. REVENUE.lottery models the
+   General-Fund-bound share, so this rides on top of it rather than out of it. */
+const LOTTERY_ESF_SHARE=0.18;
+function lotteryEsfDeposit(){
+  const p=POLICIES.stateLottery; if(!p)return 0;
+  const gross=(REVENUE.lottery?REVENUE.lottery.base:0.9)*(policyLevel(p)/0.62);
+  return +(gross*LOTTERY_ESF_SHARE).toFixed(4);          // $B/yr
+}
 function csfLandsSold(){ return !!(POLICIES.csfLandSale && POLICIES.csfLandSale.enacted); }
 const NONPROFIT_DRAG_POLICIES=new Set(["homelessServices","childcareSubsidy","preschoolForAll",
   "affordableHousing","behavioralHealth","downtownRevitalization","officeConversion",
@@ -2992,7 +3001,7 @@ const LANDUSE={
    tab; enacting one copies it into POLICIES and onto the board. */
 const POLICIES={
   stateSchoolFund:{name:"State School Fund", domain:"eduHealth", icon:"cap", phaseIn:6, enacted:true, mechanic:"slider",
-    desc:"Per-pupil K-12 funding. OR baseline ~$11.4B/biennium.",
+    desc:"Per-pupil K-12 funding — Oregon's single largest appropriation, about $11.4B a biennium.\n\nIt is not all General Fund money, and the order matters. The Common School Fund distribution is applied FIRST: the State Land Board's annual payout from the statehood endowment lands on the school budget before a dollar of General Fund does, and the appropriation you set here covers what is left. That is why growing the endowment — or selling its lands — shows up as a smaller call on the General Fund rather than as a bigger school budget. The Education Stability Fund sits behind both, and is spent only to cushion this line when a forced deficit cuts it.",
     value:0.55, costFull:10.4, capital:6, effects:{education:{b:2,c:12,i:6}, eduOutcomes:{b:1,c:4,i:6}},
     sizeEffect:{publicUnions:0.02}, sizeRefLevel:0.5,
     blocEffect:{publicUnions:8, parents:4, poor:2, students:2, liberal:2, moderate:1, wealthy:-2, libertarian:-3, conservative:-3},
@@ -3998,13 +4007,13 @@ const CATALOG={
     // who is not already on the public payroll — voters kept it for a reason
     ballotLean:{publicUnions:4, socialist:3, liberal:2, conservative:-4, libertarian:-4, businessClass:-3, wealthy:-3, rural:-3, moderate:-2},
     ideology:{economic:-0.5, govSize:-0.6}},
-  csfLandSale:{name:"Sell the Common School Trust Lands", domain:"economy", icon:"bank", binary:true, mechanic:"law", noRepeal:true,
-    desc:"Liquidate the roughly 1.5 million acres Oregon received at statehood and move the whole Common School Fund into a diversified financial portfolio. The trust is perpetual, but nothing says it has to be held as dirt: the Land Board's own consultants have said for years that timberland and rangeland underperform a market portfolio at far higher management cost, and the fund exists to pay for schools, not to own forests.\n\nThe money is real and immediate — roughly $1.3B of proceeds into the corpus, and a return that goes from about 5% on working land to nearly 7% on financial assets, which compounds into a permanently larger distribution to K-12. It is also the one decision in this game you can never take back. The land is gone, the harvest deposits stop because there is nothing left to cut, and every acre of it passes to owners who will log it harder than the state ever did.\n\nThe business and timber coalition wants this badly. Everyone who has ever fought for a public forest will treat it as the day Oregon sold the commons.",
+  csfLandSale:{name:"Sell the Common School Trust Lands", domain:"economy", icon:"mountain", binary:true, mechanic:"law", noRepeal:true,
+    desc:"Liquidate the trust lands and move the whole Common School Fund into a diversified financial portfolio.\n\nUnderstand what these lands actually are. After a century of sales the fund holds roughly 600,000 scattered acres, and the great majority of it is sagebrush steppe in Malheur, Harney and Lake counties — rangeland leased for grazing at a few dollars an acre, checkerboarded with federal and private ground, expensive to administer and returning almost nothing. It is not the Elliott. The Elliott is a separate 82,500-acre Coast Range forest with its own settlement, and whatever you decided there does not touch this and is not touched by it.\n\nThe Land Board's own consultants have said for years that scattered rangeland underperforms a market portfolio at far higher management cost, and the trust exists to pay for schools, not to own dirt. Selling it books roughly $1.3B of proceeds and lifts the return from about 5% on working land to nearly 7% on financial assets — a permanently larger distribution to K-12, compounding from the day it clears.\n\nIt is also the one decision here you can never take back. The grazing leases end, the deposits stop, and the sagebrush passes to buyers who will fence it, drill it, run more cattle on it or cover it in panels. Sage-grouse habitat is the fight: this is the last large block of connected steppe in state hands, and fragmenting it is what a listing decision turns on.\n\nBusiness and the libertarian right want it. The ranchers holding the leases are split — some want to buy, most cannot. Every conservation group in Oregon reads it as the day the state sold the commons.",
     enabled:true, costFull:0, capital:16, enactCapital:20,
-    effects:{environment:-5, loggingRate:8},
-    indicatorEffects:{businessClimate:3, ruralAlienation:-3},
-    blocEffect:{businessClass:8, libertarian:6, timber:5, conservative:3, rural:3, wealthy:2,
-                socialist:-9, liberal:-8, collegeEducated:-6, urban:-5, students:-3, parents:-2},
+    effects:{environment:-6, gdp:0.06},
+    indicatorEffects:{businessClimate:3, ruralAlienation:-2},
+    blocEffect:{businessClass:8, libertarian:7, wealthy:4, conservative:3, rural:2, timber:1,
+                socialist:-9, liberal:-8, collegeEducated:-6, urban:-4, students:-3, parents:-2},
     ideology:{economic:0.6, environment:0.7, govSize:0.4}},
   spendingCap:{name:"Constitutional Spending Limit", domain:"economy", icon:"chart-down", mechanic:"law", reform:true,
     desc:"A TABOR-style amendment capping General Fund growth to population plus inflation, with anything over the line refunded or reserved. Fiscal hawks love the discipline; it forces a standing haircut on every program budget and locks in cuts through downturns — public-sector Oregon treats it as a straitjacket.",
@@ -6432,6 +6441,7 @@ const GAME={
   csfPayout:0.08,       // annualized distribution to K-12 ($B/yr), set by the corpus each tick
   csfElliottMult:1,     // how the Elliott settlement left the fund's timber deposits
   csfSaleBooked:false,  // one-shot latch for the trust-land sale proceeds
+  esfLottoIn:0,         // annualized lottery money flowing into the Education Stability Fund
   reserveInfusion:0,    // pending one-time cash from a deliberate Rainy Day draw — consumed at the next settlement
   lastReserveDraw:-99,  // turn of the last deliberate reserve draw (cooldown)
   pendingShortfall:null,// {debt,rd} — a shortfall nearing crisis; end-quarter popup offers a Rainy Day paydown
@@ -7694,8 +7704,8 @@ function tickEconomy(){
   // Forest Lands and grazing leases deposit into it, the market moves it, and
   // the Land Board distributes a fixed share of its value to K-12 every year.
   // Selling the trust lands converts it to a diversified financial portfolio:
-  // it earns more and swings harder, and the deposits stop because there is
-  // nothing left to harvest.
+  // it earns more and swings harder, and the deposits stop because the leases
+  // end with the land.
   {
     const sold = csfLandsSold();
     if(sold && !GAME.csfSaleBooked){                       // the one-time proceeds, booked once
@@ -7704,8 +7714,9 @@ function tickEconomy(){
       GAME.log.push(ico('bank')+" Trust lands sold — $1.30B into the Common School Fund");
     }
     const retQ = (sold?0.068:0.052)/4 + GAME.marketLevel*(sold?0.0115:0.006);
-    // deposits scale with the cut on school-fund forest land; the Elliott
-    // settlement set how much of that base is left
+    // deposits are grazing leases and what harvest there is on school-fund land,
+    // so the cut scales them; the Elliott settlement set how much of that base
+    // survived. Selling the trust lands ends them outright.
     const dep  = sold ? 0.0010
                : 0.0100*(METRICS.loggingRate.value/40)*(GAME.csfElliottMult??1);   // ~$40M/yr at the baseline cut
     const payQ = GAME.csfCorpus*CSF_PAYOUT_RATE/4;
@@ -7778,9 +7789,13 @@ function spendingByArea(){
       const c=policyNetCost(p);
       if(c>0)amt+=c*(pid==="govOps"?1:govOpsEffMult()); // govOps exempt from its own multiplier
     }
-    // The Common School Fund distribution is dedicated money: it offsets what
-    // K-12 needs from the General Fund and can pay for nothing else.
-    if(id==="k12")amt-=(GAME.csfPayout||0);
+    // THE ORDER OF OPERATIONS FOR SCHOOLS. The Common School Fund distribution
+    // is applied to the school budget FIRST — it is dedicated money that can pay
+    // for nothing else — and the General Fund appropriation covers the remainder.
+    // So a larger endowment reads as a smaller call on the General Fund, not as a
+    // larger school budget. (The Education Stability Fund sits behind both and is
+    // drawn only in settleFiscal, to cushion a forced cut to this line.)
+    if(id==="k12")amt=Math.max(0, amt-(GAME.csfPayout||0));
     // prison population drives corrections costs (the Measure 11 chain:
     // mandatory minimums → incarceration growth → corrections crowd-out)
     if(id==="publicSafety")amt+=Math.max(0,(METRICS.incarcerationRate.value-50))*0.012;
@@ -7883,6 +7898,17 @@ function fiscalCrisisThreshold(){
 function settleFiscal(){
   const {revenue,spend,balance:annualBal}=budgetBalance();
   GAME.pendingKicker=0;        // consumed this cycle
+  // CONSTITUTIONAL EARMARK, settled before anything else: a fixed share of net
+  // lottery proceeds goes to the Education Stability Fund whether the budget is
+  // in surplus or not. It stops at the cap; past that the dedication has nowhere
+  // to go and the money stays in the lottery's General Fund transfer.
+  {
+    const esfCapNow=+(spend*0.055).toFixed(2);
+    const dep=lotteryEsfDeposit()/4;                     // this quarter's share
+    const add=Math.min(dep, Math.max(0, esfCapNow-GAME.eduStability));
+    GAME.esfLottoIn=+(add*4).toFixed(3);                 // annualized, for the panel
+    if(add>0)GAME.eduStability=+(GAME.eduStability+add).toFixed(3);
+  }
   const surplusPct=annualBal/Math.max(1,spend);
   let balance=annualBal/4;   // the ledger is $B/YR — one quarter of cash settles per turn
   // a deliberate Rainy Day draw the player called this quarter lands here as one-time cash
@@ -15321,7 +15347,7 @@ function renderBudget(){
     const rdCol=GAME.rainyDay>1?'var(--good)':GAME.rainyDay>0.3?'var(--warn)':'var(--bad)';
     const persPct=(GAME.persRate-5.26)/(9.35-5.26)*100;
     h+=`<div class="fiscal-panel"><div class="fiscal-title">Fiscal Machinery</div>
-      <div class="fnote" style="margin:-2px 0 12px">How the budget balances between quarters: <b>reserves</b> absorb a shortfall, then it becomes <b>structural debt</b>; <b>revenue</b> swings with the economy and the kicker; <b>costs</b> grind upward on their own.</div>
+      <div class="fnote" style="margin:-2px 0 12px">How the budget balances between quarters: <b>reserves</b> absorb a shortfall, then it becomes <b>structural debt</b>; <b>revenue</b> swings with the economy and the kicker; <b>costs</b> grind upward on their own. Two pots are <b>dedicated to schools and cannot be spent on anything else</b> — the Common School Fund pays into the school budget every year before the General Fund does, and the Education Stability Fund is held back to cushion a forced cut to it.</div>
       <div class="fiscal-grid">`;
     // --- reserves cluster ---
     {
@@ -15350,11 +15376,12 @@ function renderBudget(){
     }
     { const sold=csfLandsSold(), pay=(GAME.csfPayout||0);
       h+=`<div class="fcard"><div class="fname">${ico('bank')} Common School Fund</div><div class="fval">${(GAME.csfCorpus||0).toFixed(2)}B</div>
-        <div class="fnote">The statehood land-grant endowment, held by the State Land Board. It distributes <b>${(CSF_PAYOUT_RATE*100).toFixed(1)}%</b> of its value to K-12 every year — <b>${(pay*1000).toFixed(0)}M</b> right now — and that money can pay for nothing else and cannot be raided for the general deficit. ${sold
-          ? 'The trust lands are sold; the corpus is a financial portfolio now, earning more and swinging harder, and the harvest deposits are gone for good.'
-          : 'Harvest on the school-fund forest lands deposits into the corpus, so the logging rate feeds it. The Elliott settlement set how much of that base is left.'}</div></div>`; }
+        <div class="fnote"><b>How it works.</b> The corpus is the statehood land grant, held by the State Land Board. Money goes IN from ${sold?'investment returns alone':'grazing leases and harvest on the trust lands, plus investment returns'}; money comes OUT as a fixed <b>${(CSF_PAYOUT_RATE*100).toFixed(1)}%</b> of the corpus every year — <b>$${(pay*1000).toFixed(0)}M</b> right now — paid straight to the school budget <b>before</b> any General Fund appropriation. Spending it on anything else is not an option the state has, and it cannot be raided to close a deficit. Grow the corpus and the General Fund's share of schools shrinks. ${sold
+          ? 'The trust lands are sold: the corpus is a diversified portfolio now, earning more and swinging harder with the market, and the lease deposits are gone for good.'
+          : 'Because the deposits ride on the cut and the leases, the logging rate feeds this number — and the Elliott settlement set how much of the base survived.'}</div></div>`; }
     h+=`<div class="fcard"><div class="fname">${ico('cap')} Education Stability Fund</div><div class="fval">${GAME.eduStability.toFixed(2)}B</div>
-      <div class="fnote">Dedicated constitutional K-12 reserve (lottery-funded). <b>Not</b> available for the general deficit — it's spent only to cushion the school-fund cut when a forced deficit lands.</div></div>`;
+      <div class="fnote"><b>How it works.</b> IN: ${(LOTTERY_ESF_SHARE*100).toFixed(0)}% of net lottery proceeds are constitutionally dedicated to this fund — <b>$${((GAME.esfLottoIn||0)*1000).toFixed(0)}M/yr</b> at your current lottery setting${GAME.eduStability>=+(budgetBalance().spend*0.055).toFixed(2)?' (at the cap, so the dedication is idle)':''} — plus 40% of any surplus that escapes the kicker. Capped at ~5.5% of the budget.
+      OUT: one purpose only. When a deficit exhausts the Rainy Day Fund and forces a cut, this fund is spent to absorb up to <b>85%</b> of the hit to the school budget, and nothing else. It cannot close the general gap, and you cannot draw on it deliberately.</div></div>`;
     // --- shortfall / crisis ---
     {
       const debt=GAME.structuralDebt||0, ds=GAME.deficitStreak||0;
@@ -16203,7 +16230,7 @@ function bootWorld(startId){
   GAME.legis.hHeld=null; GAME.legis.sHeld=null; GAME.legis.favors={};
   GAME.activeSituations={}; GAME.situationAge={}; GAME.eventCooldown={}; GAME.grudges=[]; GAME.history={};
   GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.surplusStreak=0; GAME.lawLock={};
-  GAME.csfCorpus=2.10; GAME.csfPayout=0.08; GAME.csfElliottMult=1; GAME.csfSaleBooked=false;
+  GAME.csfCorpus=2.10; GAME.csfPayout=0.08; GAME.csfElliottMult=1; GAME.csfSaleBooked=false; GAME.esfLottoIn=0;
   GAME.floorFreeze=0; GAME.walkoutSide=null; GAME.walkoutCooldownUntil=0; GAME.walkoutIgnoredUntil=0; GAME.protestIgnoredUntil=0; GAME.splinter=null;
   // the band is set from the world this boot produces, so the pre-roll below
   // must run unbanded — otherwise a second boot inherits the first one's anchor
