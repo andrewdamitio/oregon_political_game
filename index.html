@@ -2720,6 +2720,19 @@ const PERS_PAYROLL={k12:0.34, humanServices:0.14, debtAdmin:0.14, publicSafety:0
 /* The Land Board distributes this share of the Common School Fund's market
    value to K-12 each year — the real board has run 3.5-4%. */
 const CSF_PAYOUT_RATE=0.038;
+/* How the Oregon Investment Council is told to run the PERS fund. Costs no
+   political capital — it is a board posture, not a bill — but it decides how
+   hard the unfunded liability swings with the market. alpha is the long-run
+   edge over the 6.9% assumption; beta is how much of the cycle lands on it. */
+const PERS_RISK={
+  conservative:{label:"Conservative", alpha:-0.011, beta:0.005,
+    note:"Heavy in bonds and cash. You will not beat the assumed rate, so the liability grinds upward in a normal decade — but a crash barely touches it, and you always know roughly what next biennium's employer rate will be."},
+  balanced:{label:"Balanced", alpha:0, beta:0.012,
+    note:"The inherited posture: roughly the assumed return over a full cycle, with the fund taking real damage in a crash and real gains in a boom."},
+  aggressive:{label:"Aggressive", alpha:0.013, beta:0.027,
+    note:"Weighted to equities, private markets and real assets. Over a good decade this is the single largest lever on the liability — and a serious downturn blows the hole open faster than any benefit reform can close it."}
+};
+function persRisk(){ return PERS_RISK[GAME.persRisk] || PERS_RISK.balanced; }
 /* Article XV §4(4)(d): this share of net lottery proceeds is constitutionally
    dedicated to the Education Stability Fund. REVENUE.lottery models the
    General-Fund-bound share, so this rides on top of it rather than out of it. */
@@ -6442,6 +6455,7 @@ const GAME={
   csfElliottMult:1,     // how the Elliott settlement left the fund's timber deposits
   csfSaleBooked:false,  // one-shot latch for the trust-land sale proceeds
   esfLottoIn:0,         // annualized lottery money flowing into the Education Stability Fund
+  persRisk:"balanced",  // OIC portfolio posture: "conservative" | "balanced" | "aggressive"
   reserveInfusion:0,    // pending one-time cash from a deliberate Rainy Day draw — consumed at the next settlement
   lastReserveDraw:-99,  // turn of the last deliberate reserve draw (cooldown)
   pendingShortfall:null,// {debt,rd} — a shortfall nearing crisis; end-quarter popup offers a Rainy Day paydown
@@ -6506,6 +6520,11 @@ function pushHistory(){
   rec("nationalMood",{turn:GAME.turn,value:NATIONAL_MOOD.value});
   if(GAME.opposition)rec("oppMomentum",{turn:GAME.turn,value:GAME.opposition.momentum});
   rec("balance",{turn:GAME.turn,value:budgetBalance().balance});
+  rec("fund_csf",{turn:GAME.turn,value:GAME.csfCorpus||0});
+  rec("fund_esf",{turn:GAME.turn,value:GAME.eduStability||0});
+  rec("fund_rainyDay",{turn:GAME.turn,value:GAME.rainyDay||0});
+  rec("fund_pers",{turn:GAME.turn,value:GAME.persUAL||0});
+  rec("fund_debt",{turn:GAME.turn,value:GAME.structuralDebt||0});
   {const v=agendaVector(); rec("compass",{turn:GAME.turn,ec:v.ec,so:v.so});}
 }
 
@@ -7732,7 +7751,8 @@ function tickEconomy(){
     const persReformed = !!(POLICIES.persReform && POLICIES.persReform.enacted);
     const assets   = Math.max(30, 130 - GAME.persUAL);
     const assumedQ = 0.069/4;
-    const actualQ  = assumedQ + GAME.marketLevel*0.012 + GAME.econCycle*0.006;
+    const _pr      = persRisk();
+    const actualQ  = assumedQ + _pr.alpha/4 + GAME.marketLevel*_pr.beta + GAME.econCycle*_pr.beta*0.5;
     const invEffect = assets*(actualQ - assumedQ);          // >0 shrinks the UAL
     // The expensive part of PERS is a demographic wave, not a permanent state:
     // Tier 1 and Tier 2 (pre-1996 hires) carry the guaranteed-return benefit that
@@ -13655,6 +13675,18 @@ function openDetail(key){
 }
 function renderDetail(){
   const key=detailKey;
+  if(key&&key.startsWith("fund_")){
+    const main=document.getElementById("main");
+    main.innerHTML=renderFundDetail(key.slice(5));
+    const bb=document.getElementById("fundBack");
+    if(bb)bb.addEventListener('click',()=>{currentView="budget";detailKey=null;render();});
+    main.querySelectorAll('[data-persrisk]').forEach(el=>el.addEventListener('click',e=>{
+      GAME.persRisk=e.currentTarget.dataset.persrisk;
+      GAME.log.push(ico('coffin')+" PERS portfolio set to "+persRisk().label.toLowerCase());
+      render();
+    }));
+    return;
+  }
   // is there an unsaved, changed proposal on this page?
   const fundPendActive = GAME.pending && GAME.pending.key===key && snapshotFor(key)!==GAME.pending.snap;
   const logPendActive = GAME.pendingLog && key.startsWith("a_") && GAME.pendingLog.id===key.slice(2) && AGENCIES[key.slice(2)]?.logging!==GAME.pendingLog.snap;
@@ -15322,6 +15354,115 @@ function renderVoters(){
   wireBackBtn();
   main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
 }
+/* ============================================================
+   THE FUNDS, AS PAGES.
+
+   Every pot the state holds has the same three questions behind it: what
+   puts money in, what takes money out, and what is it doing over time.
+   The budget view shows the headline; these pages show the plumbing.
+   ============================================================ */
+const FUNDS={
+  csf:{ name:"Common School Fund", icon:"bank", series:"fund_csf", invert:false,
+    val:()=>GAME.csfCorpus||0,
+    blurb:"The endowment Oregon received at statehood — roughly 600,000 remaining acres of mostly eastern-Oregon rangeland, held in trust by the State Land Board and pledged to K-12 in perpetuity. The corpus is never spent. Only its earnings are.",
+    inflows:()=>{
+      const sold=csfLandsSold(), pr=(GAME.csfCorpus||0);
+      const ret=pr*((sold?0.068:0.052)+GAME.marketLevel*(sold?0.046:0.024));
+      const dep=sold?0.004:0.040*(METRICS.loggingRate.value/40)*(GAME.csfElliottMult??1);
+      return [
+        {name:"Investment return on the corpus", v:ret,
+         note:sold?"A diversified financial portfolio since the trust lands were sold — higher expected return, and it swings with the market.":"Working land and a conservative portfolio: about 5.2% over a cycle."},
+        {name:sold?"Residual receipts":"Grazing leases & harvest on trust land", v:dep,
+         note:sold?"The leases ended with the land. What is left is unclaimed property and odds and ends.":"Scales with the logging rate ("+Math.round(METRICS.loggingRate.value)+") and with how much of the base the Elliott settlement left ("+Math.round((GAME.csfElliottMult??1)*100)+"%)."}];
+    },
+    outflows:()=>[{name:"Distribution to the school budget", v:(GAME.csfPayout||0),
+      note:"A fixed "+(CSF_PAYOUT_RATE*100).toFixed(1)+"% of the corpus every year, paid to K-12 BEFORE any General Fund appropriation. It can pay for nothing else and cannot be raided to close a deficit."}],
+    note:"Grow the corpus and the General Fund's share of schools shrinks — the school budget does not get bigger, the call on the General Fund gets smaller."},
+
+  esf:{ name:"Education Stability Fund", icon:"cap", series:"fund_esf", invert:false,
+    val:()=>GAME.eduStability||0,
+    blurb:"A dedicated constitutional reserve for schools. It is not a general rainy-day fund and you cannot spend it on your own initiative — it exists to stand between a forced budget cut and the classroom.",
+    inflows:()=>[
+      {name:"Lottery dedication (Art. XV §4)", v:(GAME.esfLottoIn||0),
+       note:(LOTTERY_ESF_SHARE*100).toFixed(0)+"% of net lottery proceeds, before anything reaches the General Fund. Scales with how hard the State Lottery is pushed. Stops at the cap."},
+      {name:"Share of any surplus past the kicker", v:0,
+       note:"40% of a surplus that survives the 2% kicker line, up to the cap; the rest goes to the Rainy Day Fund."}],
+    outflows:()=>[{name:"Cushioning a forced school cut", v:0,
+      note:"One purpose only. When a deficit exhausts the Rainy Day Fund and forces a cut, this absorbs up to 85% of the hit to the school budget. It cannot close the general gap."}],
+    note:()=>"Capped at about 5.5% of the budget — "+"$"+(budgetBalance().spend*0.055).toFixed(2)+"B right now. At the cap the lottery dedication has nowhere to go and simply stays in the General Fund transfer."},
+
+  rainyDay:{ name:"Rainy Day Fund", icon:"bank", series:"fund_rainyDay", invert:false,
+    val:()=>GAME.rainyDay||0,
+    blurb:"The general reserve. This is the one pot that can absorb a deficit anywhere in the budget, and it is drawn automatically before a shortfall is allowed to become structural debt.",
+    inflows:()=>[{name:"Budget surpluses under the kicker line", v:0,
+      note:POLICIES.kickerReform?"With the kicker repealed, every above-forecast surplus accumulates here (60%) and in the Education Stability Fund (40%).":"60% of any surplus that does not trip the 2% kicker."}],
+    outflows:()=>[
+      {name:"Automatic deficit cover", v:0, note:"Drawn first, every quarter the budget closes short. Costs nothing and needs no decision from you."},
+      {name:"Deliberate draw", v:0, note:"The one thing the automatic draw cannot do: retire structural debt already on the books. Costs capital and has a cooldown."}],
+    note:"Empty this and the next shortfall becomes structural debt, which compounds and is far harder to clear than it was to avoid."},
+
+  pers:{ name:"PERS Unfunded Liability", icon:"coffin", series:"fund_pers", invert:true,
+    val:()=>GAME.persUAL||0,
+    blurb:"Not a fund you hold — a hole you owe. The gap between what PERS has promised and what it has set aside. It is the only line here where a smaller number is better, and it drives the employer contribution rate that every public payroll in Oregon pays.",
+    inflows:()=>{
+      const pr=persRisk(), reformed=!!(POLICIES.persReform&&POLICIES.persReform.enacted);
+      const wave=(GAME.persWave!=null?GAME.persWave:1);
+      return [{name:"New benefits earned this year", v:(reformed?0.16:0.28)*wave*4,
+        note:"Service cost accruing at "+Math.round(wave*100)+"% of its starting pace — Tier 1 and Tier 2 members are retiring out and everyone hired since 1996 is on the cheaper OPSRP tier."+(reformed?" PERS Reform has bent the curve further.":"")}];
+    },
+    outflows:()=>{
+      const pr=persRisk(), assets=Math.max(30,130-(GAME.persUAL||28));
+      const excess=(pr.alpha+GAME.marketLevel*pr.beta*4)*assets;
+      return [{name:"Investment return above the 6.9% assumption", v:excess,
+        note:"On about "+"$"+Math.round(assets)+"B of assets under a "+pr.label.toLowerCase()+" posture. Above the assumption the hole shrinks; below it, the hole grows."}];
+    },
+    note:"The employer rate is derived from this number, so paying the hole down cuts what every service pays — and letting it grow raises the bill on all of them at once."},
+
+  debt:{ name:"Structural Debt", icon:"warning", series:"fund_debt", invert:true,
+    val:()=>GAME.structuralDebt||0,
+    blurb:"What is left when a deficit outruns the reserves. Oregon has to balance, so an unclosed gap does not simply vanish — it accrues here, carries interest, and forces cuts until it is retired.",
+    inflows:()=>[{name:"Deficits the reserves could not cover", v:0,
+      note:"Every quarter that closes short with the Rainy Day Fund already empty."}],
+    outflows:()=>[
+      {name:"Paid down from surplus", v:0, note:"Any surplus retires debt before it fills reserves or triggers the kicker."},
+      {name:"Deliberate reserve draw", v:0, note:"The only way to clear debt without waiting for a surplus."}],
+    note:"Interest runs at about 4% a year on the balance, charged to Debt Service. It is the one line that makes every future budget harder."}
+};
+function renderFundDetail(id){
+  const F=FUNDS[id]; if(!F)return '<div class="sectionsub">No such fund.</div>';
+  const v=F.val(), inn=F.inflows()||[], out=F.outflows()||[];
+  const money=x=>(x<0?"−":"")+"$"+Math.abs(x).toFixed(x>=1||x<=-1?2:3)+"B";
+  const row=(o,sign)=>`<div class="rrow"><span class="rlabel">${o.name}${o.note?`<div class="fnote" style="margin-top:2px">${o.note}</div>`:""}</span>`+
+    `<span class="rval" style="color:${o.v?(sign>0?'var(--good)':'var(--clay)'):'var(--muted-2)'}">${o.v?((sign>0?"+":"−")+"$"+Math.abs(o.v).toFixed(3)+"B/yr"):"—"}</span></div>`;
+  let h=`<div class="detailtop"><button class="backbtn" id="fundBack">‹ Back to budget</button></div>`;
+  h+=`<div class="sectionhdr">${ico(F.icon)} ${F.name}</div>`;
+  h+=`<div class="sectionsub">${F.blurb}</div>`;
+  h+=`<div class="bigstat" style="font-size:34px;font-family:var(--font-data);font-weight:700;margin:10px 0 2px;color:${F.invert?(v>0.01?'var(--clay)':'var(--good)'):'inherit'}">${money(v)}</div>`;
+  h+=`<div class="ebgroup-label">Balance over time</div>`;
+  h+=sparkline(GAME.history[F.series],{axis:true,color:F.invert?'var(--clay)':'var(--moss)',fmt:x=>"$"+x.toFixed(2)+"B"});
+  h+=`<div class="ebgroup-label" style="margin-top:14px">Money in</div><div class="ebgroup">${inn.map(o=>row(o,1)).join("")}</div>`;
+  h+=`<div class="ebgroup-label" style="margin-top:12px">Money out</div><div class="ebgroup">${out.map(o=>row(o,-1)).join("")}</div>`;
+  if(id==="pers")h+=persRiskControlHTML();
+  const nt=(typeof F.note==="function")?F.note():F.note;
+  h+=`<div class="lg-verdict" style="margin-top:14px">${nt}</div>`;
+  return h;
+}
+/* The one control on a fund page: how the Oregon Investment Council is told to
+   run the PERS portfolio. No capital — the board answers to you already. */
+function persRiskControlHTML(){
+  const cur=GAME.persRisk||"balanced";
+  let h=`<div class="ebgroup-label" style="margin-top:16px">Investment posture</div>
+    <div class="fnote" style="margin-bottom:8px">You appoint the Oregon Investment Council. Telling it how much risk to run costs no political capital and takes effect next quarter — but it decides how hard the hole swings with the economic cycle, and over a full term that is the largest single lever on the liability.</div>`;
+  for(const k in PERS_RISK){
+    const r=PERS_RISK[k], on=(k===cur);
+    h+=`<div class="rrow" style="${on?'border-left:3px solid var(--slate-blue);padding-left:8px':''}">
+      <span class="rlabel"><b>${r.label}</b>${on?' <span style="color:var(--slate-blue)">— current</span>':''}
+        <div class="fnote" style="margin-top:2px">${r.note}</div>
+        <div class="fnote" style="margin-top:2px;opacity:.75">Long-run edge over the 6.9% assumption: <b>${(r.alpha*100>=0?"+":"")+(r.alpha*100).toFixed(1)}%/yr</b> · cycle sensitivity <b>${(r.beta*400).toFixed(0)}%</b></div></span>
+      <span class="rval">${on?"":`<button class="fcard-btn" data-persrisk="${k}">Adopt</button>`}</span></div>`;
+  }
+  return h;
+}
 function renderBudget(){
   const b=budgetBalance(), rev=revenueBySource(), spd=spendingByArea();
   const revRows=Object.keys(REVENUE).sort((a,c)=>rev[c]-rev[a]);
@@ -15372,16 +15513,16 @@ function renderBudget(){
           : cd<RESERVE_DRAW_COOLDOWN ? `Draw available again in ${RESERVE_DRAW_COOLDOWN-cd}q.` : ``;
         if(why)rdCtl+=`<div class="fnote" style="opacity:.7;font-style:italic">${why}</div>`;
       }
-      h+=`<div class="fcard"><div class="fname">${ico('bank')} Rainy Day Fund</div><div class="fval" style="color:${rdCol}">$${GAME.rainyDay.toFixed(2)}B</div>${rdCtl}</div>`;
+      h+=`<div class="fcard"><div class="fname">${ico('bank')} Rainy Day Fund</div><div class="fval" style="color:${rdCol}">$${GAME.rainyDay.toFixed(2)}B</div>${rdCtl}<button class="fcard-btn" data-fund="rainyDay">${ico('search')} Inputs &amp; outputs →</button></div>`;
     }
     { const sold=csfLandsSold(), pay=(GAME.csfPayout||0);
       h+=`<div class="fcard"><div class="fname">${ico('bank')} Common School Fund</div><div class="fval">${(GAME.csfCorpus||0).toFixed(2)}B</div>
         <div class="fnote"><b>How it works.</b> The corpus is the statehood land grant, held by the State Land Board. Money goes IN from ${sold?'investment returns alone':'grazing leases and harvest on the trust lands, plus investment returns'}; money comes OUT as a fixed <b>${(CSF_PAYOUT_RATE*100).toFixed(1)}%</b> of the corpus every year — <b>$${(pay*1000).toFixed(0)}M</b> right now — paid straight to the school budget <b>before</b> any General Fund appropriation. Spending it on anything else is not an option the state has, and it cannot be raided to close a deficit. Grow the corpus and the General Fund's share of schools shrinks. ${sold
           ? 'The trust lands are sold: the corpus is a diversified portfolio now, earning more and swinging harder with the market, and the lease deposits are gone for good.'
-          : 'Because the deposits ride on the cut and the leases, the logging rate feeds this number — and the Elliott settlement set how much of the base survived.'}</div></div>`; }
+          : 'Because the deposits ride on the cut and the leases, the logging rate feeds this number — and the Elliott settlement set how much of the base survived.'}</div><button class="fcard-btn" data-fund="csf">${ico('search')} Inputs &amp; outputs →</button></div>`; }
     h+=`<div class="fcard"><div class="fname">${ico('cap')} Education Stability Fund</div><div class="fval">${GAME.eduStability.toFixed(2)}B</div>
       <div class="fnote"><b>How it works.</b> IN: ${(LOTTERY_ESF_SHARE*100).toFixed(0)}% of net lottery proceeds are constitutionally dedicated to this fund — <b>$${((GAME.esfLottoIn||0)*1000).toFixed(0)}M/yr</b> at your current lottery setting${GAME.eduStability>=+(budgetBalance().spend*0.055).toFixed(2)?' (at the cap, so the dedication is idle)':''} — plus 40% of any surplus that escapes the kicker. Capped at ~5.5% of the budget.
-      OUT: one purpose only. When a deficit exhausts the Rainy Day Fund and forces a cut, this fund is spent to absorb up to <b>85%</b> of the hit to the school budget, and nothing else. It cannot close the general gap, and you cannot draw on it deliberately.</div></div>`;
+      OUT: one purpose only. When a deficit exhausts the Rainy Day Fund and forces a cut, this fund is spent to absorb up to <b>85%</b> of the hit to the school budget, and nothing else. It cannot close the general gap, and you cannot draw on it deliberately.</div><button class="fcard-btn" data-fund="esf">${ico('search')} Inputs &amp; outputs →</button></div>`;
     // --- shortfall / crisis ---
     {
       const debt=GAME.structuralDebt||0, ds=GAME.deficitStreak||0;
@@ -15393,7 +15534,7 @@ function renderBudget(){
         <div class="fnote">${near
           ? `Deficits carried past an exhausted Rainy Day Fund${ds?` — <b>${ds}</b> consecutive deficit ${ds===1?'quarter':'quarters'}`:''}. Every surplus pays this down first.`
           : `Nothing carried — every quarter's gap has been met by revenue or the Rainy Day Fund.`}
-          A <b>Structural Deficit Crisis</b> triggers past <b>−$${thr.toFixed(2)}B</b> (≈0.26% of the state's $${Math.round((METRICS.gspLevel?METRICS.gspLevel.value:305))}B GDP — the bar rises as the economy grows) or four straight deficit quarters. ${(near&&GAME.rainyDay>0.3)?'Draw on the Rainy Day Fund above to pay it down.':''}</div></div>`;
+          A <b>Structural Deficit Crisis</b> triggers past <b>−$${thr.toFixed(2)}B</b> (≈0.26% of the state's $${Math.round((METRICS.gspLevel?METRICS.gspLevel.value:305))}B GDP — the bar rises as the economy grows) or four straight deficit quarters. ${(near&&GAME.rainyDay>0.3)?'Draw on the Rainy Day Fund above to pay it down.':''}</div><button class="fcard-btn" data-fund="debt">${ico('search')} Inputs &amp; outputs →</button></div>`;
     }
     // --- revenue dynamics ---
     if(POLICIES.kickerReform){
@@ -15423,7 +15564,7 @@ function renderBudget(){
       h+=`<div class="fcard"><div class="fname">PERS — Unfunded Liability</div>
         <div class="fval" style="color:${funded>=0.8?'var(--warn)':'var(--clay)'}">$${Math.round(ual)}B <span style="font-size:12px;color:var(--muted-3)">· ${Math.round(funded*100)}% funded</span></div>
         <div class="fbar2"><i style="width:${clamp((1-funded)/0.5*100,0,100)}%;background:var(--clay)"></i></div>
-        <div class="fnote">The hole between what PERS owes and what it holds. It moves with investment returns — ${swTxt} — and new benefits accrue every quarter. Sets the employer contribution rate (<b>$${GAME.persRate.toFixed(2)}B</b>), of which <b>$${growth>=0?'+':''}${growth.toFixed(2)}B</b> above the starting rate is fresh pressure on the General Fund. ${POLICIES.persReform?'PERS Reform is bending the accrual curve.':'PERS Reform can bend the accrual curve.'} New service cost is accruing at <b>${Math.round((GAME.persWave!=null?GAME.persWave:1)*100)}%</b> of its starting pace as the pre-1996 tiers retire out.</div></div>`;
+        <div class="fnote">The hole between what PERS owes and what it holds. It moves with investment returns — ${swTxt} — and new benefits accrue every quarter. Sets the employer contribution rate (<b>$${GAME.persRate.toFixed(2)}B</b>), of which <b>$${growth>=0?'+':''}${growth.toFixed(2)}B</b> above the starting rate is fresh pressure on the General Fund. ${POLICIES.persReform?'PERS Reform is bending the accrual curve.':'PERS Reform can bend the accrual curve.'} New service cost is accruing at <b>${Math.round((GAME.persWave!=null?GAME.persWave:1)*100)}%</b> of its starting pace as the pre-1996 tiers retire out.</div><button class="fcard-btn" data-fund="pers">${ico('search')} Inputs &amp; outputs →</button></div>`;
     }
     {
       const o=ohpFiscal();
@@ -15469,6 +15610,10 @@ function renderBudget(){
   main.innerHTML=h;
   main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
   const rdBtn=main.querySelector('[data-reservedraw]'); if(rdBtn)rdBtn.addEventListener('click',showReserveDraw);
+  main.querySelectorAll('[data-fund]').forEach(el=>el.addEventListener('click',e=>{
+    e.stopPropagation();
+    detailKey='fund_'+e.currentTarget.dataset.fund; currentView='detail'; render();
+  }));
   wireBackBtn();
 }
 /* Term progress + National Political Mood + Economic Climate readouts.
@@ -16230,7 +16375,7 @@ function bootWorld(startId){
   GAME.legis.hHeld=null; GAME.legis.sHeld=null; GAME.legis.favors={};
   GAME.activeSituations={}; GAME.situationAge={}; GAME.eventCooldown={}; GAME.grudges=[]; GAME.history={};
   GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.surplusStreak=0; GAME.lawLock={};
-  GAME.csfCorpus=2.10; GAME.csfPayout=0.08; GAME.csfElliottMult=1; GAME.csfSaleBooked=false; GAME.esfLottoIn=0;
+  GAME.csfCorpus=2.10; GAME.csfPayout=0.08; GAME.csfElliottMult=1; GAME.csfSaleBooked=false; GAME.esfLottoIn=0; GAME.persRisk="balanced";
   GAME.floorFreeze=0; GAME.walkoutSide=null; GAME.walkoutCooldownUntil=0; GAME.walkoutIgnoredUntil=0; GAME.protestIgnoredUntil=0; GAME.splinter=null;
   // the band is set from the world this boot produces, so the pre-roll below
   // must run unbanded — otherwise a second boot inherits the first one's anchor
