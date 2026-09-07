@@ -2336,7 +2336,7 @@ const INDICATORS={
     ],
     feedback:{}},
   pensionBurden:{name:"Pension Burden (PERS)", icon:"coffin", value:55,
-    desc:"How heavily PERS pension costs weigh on the state. The ~$28B unfunded liability (about 78% funded) drives the employer contribution rate, crowding schools, cities and the General Fund. Investment returns move the liability both ways — a strong market pays it down, a crash blows it open — and new benefits accrue every quarter. PERS Reform bends the accrual curve modestly, at a steep price with the public unions.",
+    desc:"How heavily PERS pension costs weigh on the state. The ~$28B unfunded liability (about 78% funded) drives the employer contribution rate, and that rate is a payroll cost on every service Oregon delivers — school districts most of all, since they are the largest PERS employer group, then human services, corrections, the universities and the agencies. It crowds out what those budgets can buy; it is not a statement about how well any of them do their job.\n\nInvestment returns move the liability both ways — a strong market pays it down, a crash blows it open — and new benefits accrue every quarter. But the expensive part of PERS is a demographic wave, not a permanent condition: Tier 1 and Tier 2 members, hired before 1996 with the guaranteed-return benefit that built the hole, are retiring out, and everyone hired since is on the far cheaper OPSRP tier. Left alone through a normal market, the burden crests and then declines on its own. PERS Reform bends the accrual curve further, at a steep price with the public unions.",
     derive:()=>{
       const funded=clamp((130-(GAME.persUAL||28))/130, 0.4, 1.0);   // ~0.78 at UAL 28
       let v=20+(1-funded)*165;                                      // funded 1.0→20, 0.78→~56
@@ -2350,7 +2350,7 @@ const INDICATORS={
         {name:ico("coffin")+" Unfunded liability ($"+Math.round(GAME.persUAL||28)+"B · "+Math.round(funded*100)+"% funded · rate $"+GAME.persRate.toFixed(2)+"B)",v:(1-funded)*165},
       ];
     },
-    feedback:{eduOutcomes:-0.010}},                        // PERS eats district budgets — K-12 delivery slips as the rate climbs
+    feedback:{}},   // PERS is a COST driver, not an outcomes one — it lands on every payroll below, not on classroom quality
   mandate:{name:"Political Mandate", icon:"medal", value:50,
     desc:"How much authority you command in Salem — the wind at your back when spending political capital. It rises with broad approval, a decisive election win, and crises resolved; it falls with unpopularity, U-turns, and scandals. A strong mandate means more political capital flows to you each quarter; a collapsing one starves you of the capital to act.",
     derive:()=>{
@@ -2477,7 +2477,7 @@ const INDICATORS={
       //  below — feeding it back in as an input made a disposable-income self-loop)
       if(METRICS.gdp)v+=Math.min(15,Math.max(0,(1.3-METRICS.gdp.value))*6); // a cooling / contracting economy softens rents & prices
       if(POLICIES.affordableHousing)v+=effLevelOf(POLICIES.affordableHousing)*10;
-      if(POLICIES.rentStabilization)v+=effLevelOf(POLICIES.rentStabilization)*6;
+      v+=rentCapAfford();
       if(POLICIES.officeConversion)v+=effLevelOf(POLICIES.officeConversion)*5;
       if(POLICIES.middleHousing)v+=effLevelOf(POLICIES.middleHousing)*8;
       if(POLICIES.singleStair)v+=effLevelOf(POLICIES.singleStair)*6;
@@ -2493,7 +2493,7 @@ const INDICATORS={
       {name:ico(METRICS.inequality.icon)+" Inequality",v:-(METRICS.inequality.value-50)*0.30,link:"m_inequality"},
       ...(METRICS.gdp&&(1.3-METRICS.gdp.value)>0.05?[{name:ico('chart-down')+" Economic downturn (price softening)",v:Math.min(15,(1.3-METRICS.gdp.value)*6),link:"m_gdp"}]:[]),
       ...(POLICIES.affordableHousing&&effLevelOf(POLICIES.affordableHousing)>0?[{name:ico('house')+" Affordable Housing Bonds",v:effLevelOf(POLICIES.affordableHousing)*10,link:"p_affordableHousing"}]:[]),
-      ...(POLICIES.rentStabilization&&effLevelOf(POLICIES.rentStabilization)>0?[{name:ico('houses')+" Rent Stabilization",v:effLevelOf(POLICIES.rentStabilization)*6,link:"p_rentStabilization"}]:[]),
+      ...(rentCapAfford()!==0?[{name:ico('houses')+" Rent Stabilization",v:rentCapAfford(),link:"p_rentStabilization"}]:[]),
       ...(POLICIES.officeConversion&&effLevelOf(POLICIES.officeConversion)>0?[{name:ico('factory')+" Office Conversion",v:effLevelOf(POLICIES.officeConversion)*5,link:"p_officeConversion"}]:[]),
       ...(POLICIES.middleHousing&&effLevelOf(POLICIES.middleHousing)>0?[{name:ico('house')+" Middle Housing",v:effLevelOf(POLICIES.middleHousing)*8,link:"p_middleHousing"}]:[]),
       ...(POLICIES.singleStair&&effLevelOf(POLICIES.singleStair)>0?[{name:ico('house')+" Single Stair Reform",v:effLevelOf(POLICIES.singleStair)*6,link:"p_singleStair"}]:[]),
@@ -2702,9 +2702,24 @@ function govOpsEffMult(){
    Government Operations build-out claws most of it back (state capacity to
    run the contracts directly). Applied on top of every other multiplier in
    policyEffect(). */
+/* What the rent cap does to affordability, by tier. Deliberately NOT monotone:
+   repeal (-5) lets rents run, the inherited SB 611 formula is the zero, a hard
+   5% cap is genuine relief (+3), and strict control with the new-construction
+   exemption stripped goes NEGATIVE (-2) because the supply it freezes costs
+   more than the cap returns. */
+const RENT_CAP_AFFORD=[-5, 0, 3, -2];
+function rentCapAfford(){
+  const p=POLICIES.rentStabilization;
+  if(!p||p.mechanic!=="tier")return 0;
+  return RENT_CAP_AFFORD[p.tierIndex??1]||0;
+}
+/* Share of the PERS employer bill each spending line carries — roughly the
+   public payroll behind it. Sums to 1. */
+const PERS_PAYROLL={k12:0.34, humanServices:0.14, debtAdmin:0.14, publicSafety:0.13,
+                    higherEd:0.12, natResources:0.07, economy:0.06};
 const NONPROFIT_DRAG_POLICIES=new Set(["homelessServices","childcareSubsidy","preschoolForAll",
   "affordableHousing","behavioralHealth","downtownRevitalization","officeConversion",
-  "deflectionProgram","universalMeals","rentStabilization","safeConsumption"]);
+  "deflectionProgram","universalMeals","safeConsumption"]);
 /* $B/yr currently routed through the contracted-nonprofit service ecosystem */
 function nonprofitSpend(){
   let t=0;
@@ -3196,6 +3211,27 @@ const POLICIES={
     blocEffect:{liberal:-3, wealthy:-2, suburban:-1, rural:2, motorists:-1},
     real:{min:0,max:3.0,unit:"¢/mi",decimals:1,label:"per-mile charge"},
     ideology:{economic:0.1,govSize:-0.1}},
+  rentStabilization:{name:"Rent Stabilization", domain:"social", icon:"house", enacted:true, mechanic:"tier", noRepeal:true, phaseIn:6,
+    desc:"Where Oregon sits on the rent-cap ladder. SB 608 (2019) made this the first state in the country to cap annual rent increases statewide, and SB 611 (2023) tightened the formula to the lesser of 10% or 7% plus CPI — the status quo you inherit. Buildings under 15 years old are exempt, which is the whole compromise: the cap protects sitting tenants without freezing the new construction Oregon desperately needs.\n\nTightening it works in the short run and turns on you in the long run. A hard 5% cap is real money back in renters' pockets and measurably less displacement. Push past that to strict control with the new-construction exemption stripped, and the relief is swamped by what stops getting built — the classic result, and the reason the exemption exists. Repealing the cap entirely hands the market back to landlords and shows up in the displacement numbers within a year.\n\nIt is a regulation, not a programme: it is enforced through the courts and costs the state almost nothing.",
+    tiers:["No Cap","SB 611: lesser of 10% or CPI+7%","Hard 5% Annual Cap","Strict Control (3%, no exemption)"],
+    tierIndex:1, costByTier:[0, 0, 0.01, 0.02], capital:9,
+    effects:{},
+    tierEffects:[
+      {homelessness:4, gdp:0.15, disposableIncome:-1.5},
+      {},
+      {homelessness:-4, gdp:-0.20, disposableIncome:1.6},
+      {homelessness:-6, gdp:-0.50, disposableIncome:2.8}],
+    tierIndicatorEffects:[
+      {inMigration:1},
+      {},
+      {},
+      {businessClimate:-3}],
+    tierBlocEffects:[
+      {businessClass:7, libertarian:5, wealthy:5, conservative:3, homeowners:1, renters:-8, socialist:-6, poor:-5, liberal:-4, urban:-3, students:-2},
+      {},
+      {renters:6, socialist:4, poor:4, liberal:3, urban:2, students:2, businessClass:-6, libertarian:-4, wealthy:-4, conservative:-2},
+      {renters:9, socialist:6, poor:5, liberal:4, urban:3, students:2, blueCollar:2, businessClass:-9, libertarian:-6, wealthy:-6, conservative:-3, homeowners:-1}],
+    tierIdeology:[{economic:0.6,govSize:0.6},{},{economic:-0.4,govSize:-0.4},{economic:-0.7,govSize:-0.7}]},
   campingPolicy:{name:"Camping Time/Place/Manner", domain:"social", icon:"tent", enacted:true, mechanic:"tier", noRepeal:true, phaseIn:4,
     desc:"Oregon cities must allow 'objectively reasonable' time, place, and manner of public camping (Martin v. Boise, HB 3115). Every city sits somewhere on this spectrum; the question is only where. <b>Sanctioned camping</b> tolerates encampments and points services at them — the most humane posture on paper, but a permissive state visibly draws and holds more people on the street, and downtown pays for it. <b>Reasonable limits</b> is the statutory middle: hours, locations, no blocking sidewalks. <b>Strict enforcement</b> and <b>Sweeps</b> clear the visible camps and lift downtown perception sharply — but scattering people from the services that were reaching them worsens behavioral health, deepens inequality, and makes the underlying crisis harder to end, not easier. There is no setting here without a cost.",
     tiers:["Sanctioned Camping","Reasonable Limits","Strict Enforcement","Sweeps & Removal"],
@@ -3737,14 +3773,6 @@ const CATALOG={
     effects:{behavioralHealth:{b:1,c:5,i:4},health:{b:1,c:3,i:4}}, indicatorEffects:{tourism:3,businessClimate:1},
     blocEffect:{liberal:3, socialist:2, libertarian:2, conservative:-3, rural:-2, retirees:-2},
     ideology:{social:-0.6,govSize:-0.2}},
-  rentStabilization:{name:"Rent Stabilization", domain:"social", icon:"house", mechanic:"slider",
-    desc:"Tighten Oregon's first-in-nation statewide rent cap (SB 608). Eases displacement short-term but can chill new construction, worsening the shortage.",
-    value:0.5, costFull:0.05, capital:8, enactCapital:12,
-    // the opposition is landlords and the real-estate lobby, not owner-occupiers:
-    // a rent cap does nothing to the house you live in, so businessClass and wealthy
-    // carry the weight and homeowners only lean
-    blocEffect:{renters:9, socialist:6, poor:5, liberal:4, urban:3, students:2, blueCollar:2, businessClass:-9, libertarian:-6, wealthy:-6, conservative:-3, homeowners:-1},
-    effects:{homelessness:-6,gdp:-0.4,disposableIncome:2}, ideology:{economic:-0.6,govSize:-0.6}},
   rightToRepair:{name:"Right to Repair", domain:"economy", icon:"wrench", mechanic:"law",
     desc:"Require manufacturers to provide parts and manuals (Oregon's 2024 law bans parts-pairing). Consumer win; mild business friction.",
     enabled:true, costFull:0.05, capital:5, enactCapital:7,
@@ -3831,9 +3859,9 @@ const CATALOG={
     blocEffect:{conservative:5, businessClass:3, rural:3, libertarian:2, poor:-8, blueCollar:-4, liberal:-5, publicUnions:-3, students:-2},
     ideology:{economic:0.4,social:0.3,govSize:0.3}},
   deregulation:{name:"Business Deregulation Package", domain:"economy", icon:"scissors", mechanic:"slider",
-    desc:"Sweeping rollback of permitting, environmental, and licensing rules to cut red tape. Lifts growth and business climate; environmental quality and worker protections suffer.",
+    desc:"A standing programme of regulatory rollback across four specific areas, dialled by how far you take it.\n\nPERMITTING: statutory shot-clocks on land-use and building review, deemed-approved defaults when an agency misses the deadline, and consolidated review for projects touching more than one agency. This is where the growth comes from — projects that pencil get built years sooner.\n\nENVIRONMENTAL REVIEW: narrower DEQ permit conditions, fewer categories requiring full review, self-certification for mid-sized emitters. Cheap and fast, and it is most of the environmental cost: the monitoring you stop doing is monitoring that was catching something.\n\nOCCUPATIONAL LICENSING: fewer licensed trades, lower hour requirements, reciprocity with other states. Opens closed occupations to people without the time or money to clear an artificial bar — which is why it cuts unemployment — and thins the wage premium those licences protected, which is why inequality rises.\n\nWORKPLACE AND CONSUMER ENFORCEMENT: fewer Oregon OSHA inspectors, longer intervals between visits, more complaint-driven rather than scheduled enforcement. Shows up as injuries and as air and water quality near the operations nobody is visiting any more, and it is the reason the health line moves.\n\nThe collection-rate cost is the same story on the revenue side: an agency that is not looking is not finding underpayment either.",
     value:0.5, costFull:0, capital:8, enactCapital:11,
-    effects:{gdp:0.4,environment:-6,unemployment:-0.3,inequality:2,collectionRate:-3}, indicatorEffects:{businessClimate:8, adminOverhead:-18, digitization:4},
+    effects:{gdp:0.4,environment:-6,unemployment:-0.3,inequality:2,collectionRate:-3,health:-2}, indicatorEffects:{businessClimate:8, adminOverhead:-18, digitization:4},
     blocEffect:{businessClass:8, libertarian:7, conservative:5, rural:3, wealthy:3, moderate:1, socialist:-7, liberal:-5, publicUnions:-5, collegeEducated:-3, urban:-2},
     sizeEffect:{businessClass:0.03, blueCollar:-0.02},
     ideology:{economic:0.7,environment:0.5,govSize:0.6}},
@@ -7649,7 +7677,15 @@ function tickEconomy(){
     const assumedQ = 0.069/4;
     const actualQ  = assumedQ + GAME.marketLevel*0.012 + GAME.econCycle*0.006;
     const invEffect = assets*(actualQ - assumedQ);          // >0 shrinks the UAL
-    const accrual   = persReformed ? 0.16 : 0.28;           // new service cost added each quarter
+    // The expensive part of PERS is a demographic wave, not a permanent state:
+    // Tier 1 and Tier 2 (pre-1996 hires) carry the guaranteed-return benefit that
+    // built the hole, and they are retiring out. Everyone hired since is on OPSRP,
+    // which costs a fraction. So new service cost accrues fastest now and tapers
+    // as the wave passes — the burden crests and then falls on its own, provided
+    // the market does not blow it open again first.
+    const wave      = 0.28 + 0.72*Math.exp(-(GAME.turn||0)/46);   // 1.00 now → ~0.40 in 20 years
+    GAME.persWave   = +wave.toFixed(3);
+    const accrual   = (persReformed ? 0.16 : 0.28)*wave;    // new service cost added each quarter
     GAME.persUAL = +clamp(GAME.persUAL - invEffect + accrual, 3, 70).toFixed(3);
     GAME.persMarketSwing = +(-invEffect*4).toFixed(2);       // annualized, − = fund gaining
     GAME.persRate = +clamp(5.26 + GAME.persUAL*0.075, 5.26, 11.5).toFixed(3);
@@ -7702,10 +7738,14 @@ function spendingByArea(){
     // weak state capacity inflates administration; a rotting downtown costs policing
     if(id==="debtAdmin"&&INDICATORS.digitization.value<50)amt+=(50-INDICATORS.digitization.value)*0.012;
     if(id==="publicSafety"&&INDICATORS.downtown.value<45)amt+=(45-INDICATORS.downtown.value)*0.008;
-    // PERS pension costs crowd debt/admin. The employer rate is derived from the
-    // unfunded liability; the budget feels only the GROWTH above the starting
-    // rate — which a strong market can push negative.
-    if(id==="debtAdmin")amt+=(GAME.persRate-(GAME.persRate0||5.26))*0.25;
+    // PERS is a payroll cost, and almost every dollar the state spends on a
+    // service is somebody's payroll. The employer rate is derived from the
+    // unfunded liability and the budget feels only the GROWTH above the starting
+    // rate — which a strong market can push negative. School districts are the
+    // largest PERS employer group in the state, which is why K-12 carries the
+    // biggest share: it crowds out what a district can spend, without being a
+    // statement about how well it teaches.
+    if(PERS_PAYROLL[id])amt+=(GAME.persRate-(GAME.persRate0||5.26))*0.35*PERS_PAYROLL[id];
     // structural debt interest service: each $1B of accumulated debt costs ~$40M/yr
     if(id==="debtAdmin")amt+=(GAME.structuralDebt||0)*0.04;
     // more biking & transit means fewer lane-miles to build and maintain —
@@ -15302,7 +15342,7 @@ function renderBudget(){
       h+=`<div class="fcard"><div class="fname">PERS — Unfunded Liability</div>
         <div class="fval" style="color:${funded>=0.8?'var(--warn)':'var(--clay)'}">$${Math.round(ual)}B <span style="font-size:12px;color:var(--muted-3)">· ${Math.round(funded*100)}% funded</span></div>
         <div class="fbar2"><i style="width:${clamp((1-funded)/0.5*100,0,100)}%;background:var(--clay)"></i></div>
-        <div class="fnote">The hole between what PERS owes and what it holds. It moves with investment returns — ${swTxt} — and new benefits accrue every quarter. Sets the employer contribution rate (<b>$${GAME.persRate.toFixed(2)}B</b>), of which <b>$${growth>=0?'+':''}${growth.toFixed(2)}B</b> above the starting rate is fresh pressure on the General Fund. ${POLICIES.persReform?'PERS Reform is bending the accrual curve.':'PERS Reform can bend the accrual curve.'}</div></div>`;
+        <div class="fnote">The hole between what PERS owes and what it holds. It moves with investment returns — ${swTxt} — and new benefits accrue every quarter. Sets the employer contribution rate (<b>$${GAME.persRate.toFixed(2)}B</b>), of which <b>$${growth>=0?'+':''}${growth.toFixed(2)}B</b> above the starting rate is fresh pressure on the General Fund. ${POLICIES.persReform?'PERS Reform is bending the accrual curve.':'PERS Reform can bend the accrual curve.'} New service cost is accruing at <b>${Math.round((GAME.persWave!=null?GAME.persWave:1)*100)}%</b> of its starting pace as the pre-1996 tiers retire out.</div></div>`;
     }
     {
       const o=ohpFiscal();
