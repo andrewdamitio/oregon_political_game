@@ -2001,8 +2001,12 @@ const REVENUE={
     note:"The 6.6%/7.6% corporate excise tax plus the 0.57% Corporate Activity Tax on gross receipts over $1M (dedicated to schools). Scales with the CAT lever."},
   federalFunds:{name:"Federal Funds (Medicaid match etc.)", base:6.5, linkedPolicy:null,
     note:"~$43.7B all-funds; Medicaid match dominates. Auto-conformity means federal tax/Medicaid changes hit fast."},
-  lottery:{name:"Lottery Funds", base:0.9, linkedPolicy:null,
-    note:"~$1.8B/biennium, incl. video lottery"},
+  lottery:{name:"Lottery Funds", base:0.9, linkedPolicy:"stateLottery", refLevel:0.62,
+    note:"~$1.8B/biennium, ~75% of it video lottery. Scales with how hard the State Lottery is pushed."},
+  casinoRev:{name:"Casino Gaming Taxes", base:0.30, linkedPolicy:"casinos", refLevel:1,
+    note:"Zero under tribal-only compacts — sovereign ground pays the state almost nothing. Real money only arrives if private operators are licensed."},
+  sportsBookRev:{name:"Sports Betting", base:0,
+    note:"Set by how you let sports wagering run: a Lottery monopoly keeps the whole margin, licensed commercial books hand back a tax on a much bigger handle, tribal-only keeps it small."},
   carbonRevenue:{name:"Climate Program Proceeds", base:0.6, linkedPolicy:"carbonProgram", refLevel:1,
     note:"Allowance proceeds, reinvested"},
   otherGF:{name:"Other GF (fees, interest, misc.)", base:0.45, linkedPolicy:null,
@@ -2110,6 +2114,8 @@ const METRICS={
     inertia:0.09, invert:true, fmt:"pctRaw", realNote:"~30% adult obesity; slow-moving, diet & activity driven"},
   alcoholUse:{name:"Alcohol Consumption", icon:"beer", value:55, baseline:55, eq:56, min:0,max:100,
     inertia:0.12, invert:true, realNote:"OR drinks above the national average; excessive use a leading risk factor"},
+  gamblingRate:{name:"Gambling Rate", icon:"coins", value:58, baseline:58, eq:57, min:0,max:100,
+    inertia:0.12, invert:true, realNote:"Oregon runs one of the most aggressive lotteries in the country — video lottery terminals in taverns and delis put per-capita losses among the nation's highest, and the money is constitutionally dedicated, which is why nobody in Salem wants to look at it too closely"},
   drugUse:{name:"Drug Use Rate", icon:"pill", value:60, baseline:60, eq:62, min:0,max:100,
     inertia:0.14, invert:true, realNote:"Fentanyl/meth prevalence — among the worst nationally after the M110 era"},
   evAdoption:{name:"EV Adoption", icon:"plug", value:15, baseline:15, eq:13, min:0,max:100,
@@ -2455,7 +2461,7 @@ const INDICATORS={
       return clamp(Math.min(police, prosecution, jail)*100, 0, 100);
     },
     drivers:()=>[
-      {name:ico('shield')+" Public Safety Funding",v:(POLICIES.policing?effLevelOf(POLICIES.policing):0.25)*100,link:"p_policing"},
+      {name:ico('shield')+" Police Funding",v:(POLICIES.policing?effLevelOf(POLICIES.policing):0.25)*100,link:"p_policing"},
       {name:ico(AGENCIES.judiciary.icon)+" "+AGENCIES.judiciary.name,v:(AGENCIES.judiciary?.funding??0.5)*100,link:"a_judiciary"},
       {name:ico(AGENCIES.corrections.icon)+" "+AGENCIES.corrections.name,v:(AGENCIES.corrections?.funding??0.5)*100,link:"a_corrections"},
     ],
@@ -2829,6 +2835,16 @@ const METRIC_LINKS=[
   {from:"education",      to:"eduOutcomes",    coef:0.02, ref:82},   // attainment culture lifts proficiency above a well-funded baseline
   {from:"obesity",        to:"gdp",            coef:-0.004, ref:30}, // chronic disease drags productivity
   {from:"alcoholUse",     to:"propertyCrime",  coef:0.015, ref:50},
+  // Gambling harm runs through household finances first and everything else after:
+  // the losses are concentrated in the people least able to absorb them, which is
+  // what makes a lottery a tax and a problem gambler a bankruptcy, a stolen till,
+  // and sometimes an eviction.
+  {from:"gamblingRate",   to:"povertyRate",    coef:0.055, ref:58},
+  {from:"gamblingRate",   to:"behavioralHealth",coef:-0.045,ref:58},
+  {from:"gamblingRate",   to:"propertyCrime",  coef:0.022, ref:58},
+  {from:"gamblingRate",   to:"homelessness",   coef:0.018, ref:58},
+  {from:"gamblingRate",   to:"inequality",     coef:0.020, ref:58},
+  {from:"povertyRate",    to:"gamblingRate",   coef:0.30,  ref:12.4},  // desperation plays harder
   // ---- psychiatric bed capacity: a real lever on disorder ----
   {from:"psychBeds",      to:"violentCrime",   coef:-0.05, ref:32},  // treatment instead of crisis/jail
   {from:"psychBeds",      to:"propertyCrime",  coef:-0.05, ref:32},
@@ -2893,7 +2909,7 @@ const SECTION_OF={
   paidLeave:"welfare", minWageTiers:"welfare", universalMeals:"welfare", middleHousing:"welfare", rentStabilization:"welfare",
   officeConversion:"welfare", dhs:"welfare", downtownRevitalization:"welfare", singleStair:"welfare", housingPackage:"welfare", outcomeContracting:"pubservices",
   // economy & jobs
-  rndTaxCredit:"economy", deregulation:"economy", adminSimplification:"economy", rightToWork:"economy", collectiveBargaining:"economy", rightToRepair:"economy", schoolChoice:"pubservices",
+  rndTaxCredit:"economy", deregulation:"economy", adminSimplification:"economy", revenueMajority:"taxes", stateLottery:"economy", casinos:"economy", rightToWork:"economy", collectiveBargaining:"economy", rightToRepair:"economy", schoolChoice:"pubservices",
   nuclearRepeal:"economy", tortReform:"economy", jordanCoveLNG:"environment",
   safeConsumption:"health", ohpBlockGrant:"health", cascadiaPrep:"environment",
   // environment & transport
@@ -2902,7 +2918,7 @@ const SECTION_OF={
   outdoorRec:"environment", waterRights:"environment", forestry:"environment", deq:"environment", oprd:"environment",
   wildlifeManagement:"environment", wolfRecovery:"environment",
   // health & liberties
-  abortion:"health", abortionRestrict:"health", medicaidWork:"health", psilocybin:"health", deathWithDignity:"health", vaccineMandate:"health",
+  abortion:"health", medicaidWork:"health", psilocybin:"health", deathWithDignity:"health", vaccineMandate:"health",
   oha:"health", universalMealsHealth:"health", sexEd:"pubservices", lgbtRights:"health",
   // new economy/education/health policies
   evIncentives:"environment", charterSchools:"pubservices", readingCurriculum:"pubservices", academicTracking:"pubservices",
@@ -2992,8 +3008,8 @@ const POLICIES={
     // more than any other group, so it lands hardest with them
     blocEffect:{blueCollar:5, rural:3.5, conservative:3, moderate:2.5, poor:2.5, businessClass:1.5, students:1.5, liberal:1, socialist:1},
     ideology:{economic:-0.15}},
-  policing:{name:"Public Safety Funding", domain:"social", icon:"shield", enacted:true, mechanic:"slider", noRepeal:true,
-    desc:"State police, local grants, and DA offices. Police provide a direct prevention benefit regardless of the rest of the system — deterrence, patrol, rapid response. But incapacitation (locking people up) requires the full pipeline: arrests must be prosecuted (Judicial Dept.) and sentences must be servable (Corrections). Crime reduction from incapacitation is capped by the WEAKEST of the three pillars — investing in police without funding courts and prisons produces arrests that don't stick. Watch the Justice Pipeline Effectiveness indicator.",
+  policing:{name:"Police Funding", domain:"social", icon:"shield", enacted:true, mechanic:"slider", noRepeal:true,
+    desc:"State police and local law-enforcement grants — patrol, investigation and response. Prosecution is funded separately, through the Judicial Department. Police provide a direct prevention benefit regardless of the rest of the system — deterrence, patrol, rapid response. But incapacitation (locking people up) requires the full pipeline: arrests must be prosecuted (Judicial Dept.) and sentences must be servable (Corrections). Crime reduction from incapacitation is capped by the WEAKEST of the three pillars — investing in police without funding courts and prisons produces arrests that don't stick. Watch the Justice Pipeline Effectiveness indicator.",
     value:0.5, costFull:1.0, capital:5, effects:{violentCrime:{b:0,c:-3,i:2},propertyCrime:{b:0,c:-3,i:2},homelessness:{b:0,c:-3,i:3},drugUse:{b:0,c:-3,i:3}},
     blocEffect:{moderate:2, conservative:3, suburban:2, retirees:2, homeowners:1, socialist:-3, liberal:-2},
     ideology:{economic:0.3,social:0.5,govSize:0.4}},
@@ -3021,7 +3037,7 @@ const POLICIES={
     effects:{homelessness:{b:-8,c:-26,i:3},health:3,propertyCrime:-3}, indicatorEffects:{downtown:8,inMigration:1},
     blocEffect:{socialist:4, liberal:3, poor:4, urban:2, renters:2, homeowners:-2, businessClass:-2, conservative:-3, libertarian:-2, moderate:-1},
     ideology:{economic:-0.6,social:-0.4,govSize:-0.6}},
-  abortion:{name:"Reproductive Care", domain:"social", icon:"heart", enacted:true, mechanic:"tier", noRepeal:true,
+  abortion:{name:"Abortion Legality", domain:"social", icon:"heart", enacted:true, mechanic:"tier", noRepeal:true,
     desc:"Oregon has provided the nation's broadest access since 1969 — no gestational limits, no parental consent, and full Medicaid coverage since 1994. HB 2002 (2023) added explicit state constitutional protections. Restricting access would trigger fierce backlash and signal a sharp break from Oregon's identity as a reproductive-rights sanctuary state.",
     tiers:["Banned","Restricted","Legal","Protected & Funded"],
     tierIndex:3, costByTier:[0,0,0.05,0.3], capital:14,
@@ -3475,6 +3491,36 @@ const POLICIES={
     blocEffect:{businessClass:-2, blueCollar:-3, rural:-2, retirees:1},
     real:{min:0,max:100,unit:"/100 rate",decimals:0,label:"alcohol tax level"},
     ideology:{economic:-0.2,govSize:-0.3}},
+  stateLottery:{name:"State Lottery", domain:"economy", icon:"ticket", enacted:true, mechanic:"slider", noRepeal:true, phaseIn:4,
+    desc:"Oregon voters created the lottery in 1984 and it has grown into the state's third-largest revenue source — but the scratch-offs and Megabucks are a rounding error next to VIDEO LOTTERY, the line games sitting in taverns, delis and bowling alleys in every town in the state. Retailers keep a commission and many small operators would not survive without it, which is why the machines are politically untouchable in rural Oregon.\n\nThe slider is how hard the state pushes: terminal counts, new game launches, marketing spend, how close to the line the advertising sits. Pushing it raises real money with no tax vote and no revenue supermajority — and it is the most regressive dollar the state collects, drawn hardest from the people who can least afford it. You cannot abolish it; Article XV §4 put it in the constitution.",
+    value:0.62, capital:6,
+    effects:{gamblingRate:{b:0,c:16,i:4}},
+    indicatorEffects:{},
+    blocEffect:{businessClass:5, rural:4, moderate:3, conservative:3, blueCollar:2,
+                socialist:-6, poor:-5, liberal:-4, collegeEducated:-3, parents:-2},
+    real:{min:0,max:100,unit:"% push",decimals:0,label:"promotion & terminal build-out"},
+    ideology:{economic:0.2, social:0.3, govSize:-0.1}},
+  casinos:{name:"Casino Gaming", domain:"economy", icon:"cash", enacted:true, mechanic:"tier", noRepeal:true, phaseIn:6,
+    desc:"Who is allowed to run a casino in Oregon. The status quo is nine tribal casinos operating under IGRA compacts — sovereign ground, so the state collects almost nothing from them directly, and for several tribes the casino IS the local economy and the funding source for their health clinics and schools. Private commercial casinos have been put to Oregon voters repeatedly and voted down every time; the tribes fund the opposition campaigns, and they are very good at it.\n\nLicensing private operators would put real money on the state's books for the first time. It would also break the compacts' exclusivity, gut the revenue several rural tribal communities depend on, and expand the machines well beyond where they sit now.",
+    tiers:["Tribal Compacts Only","Expanded Tribal Gaming","Private Casinos Licensed","Full Commercial Gaming"],
+    tierIndex:0, costByTier:[0,0.02,0.05,0.08], capital:11,
+    effects:{},
+    tierEffects:[
+      {},
+      {gamblingRate:4, gdp:0.04},
+      {gamblingRate:11, gdp:0.10, unemployment:-0.12},
+      {gamblingRate:18, gdp:0.16, unemployment:-0.20}],
+    tierIndicatorEffects:[
+      {},
+      {tourism:2, ruralAlienation:-2},
+      {tourism:4, ruralAlienation:6, businessClimate:2},
+      {tourism:6, ruralAlienation:9, businessClimate:3, downtown:2}],
+    tierBlocEffects:[
+      {},
+      {rural:4, blueCollar:2, moderate:1, socialist:-2, liberal:-2, parents:-1},
+      {businessClass:6, libertarian:5, moderate:2, wealthy:2, rural:-7, socialist:-6, liberal:-5, conservative:-4, parents:-3, poor:-3},
+      {businessClass:9, libertarian:7, wealthy:4, moderate:2, rural:-10, socialist:-9, liberal:-7, conservative:-7, parents:-5, poor:-5}],
+    tierIdeology:[{},{economic:-0.1},{economic:0.4, social:0.3},{economic:0.6, social:0.5, govSize:0.3}]},
   liquorControl:{name:"Alcohol Control Level", domain:"economy", icon:"beer", enacted:true, mechanic:"tier", noRepeal:true,
     desc:"Oregon has run a spirits monopoly through the OLCC since 1933 — the state markup flows to the General Fund. You can privatize spirits sales entirely, maintain the current spirits-only system, extend oversight to wine, or institute full beverage control. Higher tiers reduce consumption and preserve markup revenue but restrict commerce; extending restrictions to wine and beer directly damages Oregon's wine-country brand and in-migration.",
     tiers:["No State Control","Spirits Monopoly","Spirits & Wine Oversight","Full Beverage Control"],
@@ -3765,10 +3811,6 @@ const CATALOG={
     desc:"Require employers to verify work eligibility and expand state cooperation with federal immigration enforcement — reversing Oregon's sanctuary-state posture. Fierce backlash from progressive and Latino communities; labor shortages in agriculture.",
     enabled:true, costFull:0.1, capital:11, enactCapital:15,
     effects:{gdp:-0.3,unemployment:0.3}, ideology:{social:0.8,economic:0.3,govSize:0.3}},
-  abortionRestrict:{name:"Abortion Restrictions", domain:"social", icon:"crossing", mechanic:"law",
-    desc:"Roll back Oregon's expansive reproductive-rights framework with gestational limits and funding bans. Energizes social conservatives; intense opposition from most of the urban electorate.",
-    enabled:true, costFull:0, capital:13, enactCapital:17,
-    effects:{health:-3}, indicatorEffects:{inMigration:-4,businessClimate:-2}, ideology:{social:0.9,govSize:0.3}},
   medicaidWork:{name:"Medicaid Work Requirements", domain:"eduHealth", icon:"muscle", mechanic:"law",
     desc:"Require able-bodied adult Medicaid recipients to complete work, job training, or community service hours to maintain eligibility. Saves ~$350M/year in state health spending and aligns with federal waiver programs; but coverage losses hit the working poor hardest and modestly worsen public health outcomes over time. Federal courts have repeatedly struck down similar requirements — implementation risk is high.",
     enabled:true, costFull:-0.35, capital:8, enactCapital:11, repealCost:12,
@@ -3899,6 +3941,16 @@ const CATALOG={
     indicatorEffects:{justiceEffectiveness:5, downtown:3},
     blocEffect:{conservative:7, suburban:5, moderate:3, rural:3, retirees:3, businessClass:2, liberal:-6, socialist:-7, urban:-4, collegeEducated:-4, students:-3},
     ideology:{social:0.5, govSize:0.3}},
+  revenueMajority:{name:"Simple-Majority Revenue", domain:"economy", icon:"columns", binary:true, mechanic:"law", reform:true,
+    desc:"A constitutional amendment striking Article IV §25's three-fifths requirement for bills that raise revenue, putting taxes back on the same simple majority as every other law. Oregon adopted the supermajority by initiative in 1996 and it has shaped every budget since: it is the reason a minority caucus that cannot pass anything can still block a tax, and the reason revenue passes on exactly three-fifths and not one vote more.\n\nStrike it and the arithmetic of your term changes completely — a bare majority is enough to raise a tax, and the walkout stops being the opposition's last real lever over the budget. That is precisely why they will fight it as a naked power grab, and why rural and business Oregon read it as the valley removing the one brake it could never outvote.",
+    enabled:true, costFull:0, capital:20, enactCapital:24, repealCost:16,
+    effects:{}, indicatorEffects:{ruralAlienation:6, taxGrievance:4, businessClimate:-3},
+    blocEffect:{publicUnions:9, socialist:7, liberal:6, urban:3, students:2, collegeEducated:2,
+                conservative:-9, libertarian:-9, businessClass:-8, wealthy:-6, rural:-6, moderate:-3, homeowners:-2},
+    // at the ballot box a tax-supermajority repeal is a hard sell to anyone
+    // who is not already on the public payroll — voters kept it for a reason
+    ballotLean:{publicUnions:4, socialist:3, liberal:2, conservative:-4, libertarian:-4, businessClass:-3, wealthy:-3, rural:-3, moderate:-2},
+    ideology:{economic:-0.5, govSize:-0.6}},
   spendingCap:{name:"Constitutional Spending Limit", domain:"economy", icon:"chart-down", mechanic:"law", reform:true,
     desc:"A TABOR-style amendment capping General Fund growth to population plus inflation, with anything over the line refunded or reserved. Fiscal hawks love the discipline; it forces a standing haircut on every program budget and locks in cuts through downturns — public-sector Oregon treats it as a straitjacket.",
     enabled:true, costFull:0, capital:16, enactCapital:22, repealCost:16,
@@ -4787,6 +4839,49 @@ const DILEMMAS={
        apply:()=>{createGrudge("i_downtown",5,0.85,"Camps cleared");createGrudge("v_businessClass",4,0.9,"Downtown cleaned up");createGrudge("v_suburban",3,0.9,"Visible action");createGrudge("v_poor",-5,0.9,"Swept the camps");createGrudge("v_liberal",-4,0.9,"Swept the camps");createGrudge("m_health",-0.4,0.9,"Care disrupted");createCountyMood(COUNTY_GROUPS.portlandCore,-4,0.86,"Portland — sweep backlash");createCountyMood(COUNTY_GROUPS.portlandSuburbs,3,0.86,"Metro suburbs — visible action");shiftCompass(0,0.7);}},
       {label:"Services-first", text:"Services are offered before any sweep.",
        apply:()=>{createGrudge("v_liberal",3,0.9,"Services-first");createGrudge("v_poor",3,0.9,"Services-first");createGrudge("v_businessClass",-4,0.9,"Downtown left to rot");createGrudge("i_downtown",-2,0.9,"Camps persist");createCountyMood(COUNTY_GROUPS.portlandCore,3,0.86,"Portland — services-first approach");createCountyMood(COUNTY_GROUPS.portlandSuburbs,-2.5,0.86,"Metro suburbs — downtown frustration");shiftCompass(-0.2,-0.4);}}]},
+  sportsBetting:{title:"The Sports Book", icon:"ticket", cooldown:900,
+    text:"Every state around you has legal sports wagering and Oregonians are already betting — on offshore sites, on the tribal books at Chinook Winds, on an app that has not bothered to geofence properly. The Lottery Commission says it can stand up a state-run book inside a year and keep the entire margin. The commercial operators say they will pay a tax on a handle several times larger, and have retained most of the lobbyists in Salem to say so. The tribes, who negotiated exclusivity in good faith and fund their clinics with it, would prefer you did neither.\n\nThis is a one-time settlement. Whatever you choose is how sports wagering runs in Oregon.",
+    influence:()=>GAME.sportsBook?-1:(0.45+(budgetBalance().balance<-0.5?0.25:0)),
+    options:[
+      {label:"Run it through the Lottery", text:"The state takes the book itself and keeps the whole margin — a clean ~$90M a year with no operator taking a cut. It also means the State of Oregon is now the house, advertising to its own citizens, and every problem-gambling story for the next decade has your agency's name in the second paragraph.",
+       apply:()=>{
+         GAME.sportsBook="lottery";
+         createGrudge("v_moderate",2,0.9,"Revenue without a tax vote");
+         createGrudge("v_businessClass",-2,0.9,"State took the book");
+         createGrudge("v_libertarian",-3,0.9,"State monopoly");
+         createGrudge("v_socialist",-4,0.9,"The state is the house now");
+         createGrudge("v_parents",-3,0.9,"State-run betting ads");
+         createGrudge("capital",2,undefined,"Money with no tax vote");
+         GAME.log.push(ico('ticket')+" Sports betting: the Lottery runs the book");
+       }},
+      {label:"License commercial operators", text:"DraftKings and FanDuel get Oregon licences and the handle explodes — more tax revenue than the state could generate alone, and saturation advertising on every broadcast, in every feed, aimed at everyone. The operators are delighted. So is the budget. The behavioural-health people are not.",
+       apply:()=>{
+         GAME.sportsBook="commercial";
+         createGrudge("v_businessClass",5,0.9,"Licences granted");
+         createGrudge("v_libertarian",4,0.9,"Let people bet");
+         createGrudge("v_moderate",2,0.9,"Revenue without a tax vote");
+         createGrudge("v_socialist",-6,0.9,"Sold the state to the sportsbooks");
+         createGrudge("v_parents",-6,0.9,"Betting ads in everything");
+         createGrudge("v_liberal",-4,0.9,"Predatory by design");
+         createGrudge("v_poor",-3,0.9,"Aimed at us");
+         createGrudge("i_businessClimate",2,0.9,"Open for business");
+         shiftCompass(0.3,0.3);
+         GAME.log.push(ico('ticket')+" Sports betting: commercial operators licensed");
+       }},
+      {label:"Leave it with the tribal books", text:"No state book, no commercial licences — wagering stays where the compacts already allow it. You collect almost nothing and the offshore apps keep the rest. The tribes will remember this, and so will the co-chairs who had already written the revenue into their forecast.",
+       apply:()=>{
+         GAME.sportsBook="tribal";
+         createGrudge("v_rural",5,0.9,"Compacts honoured");
+         createGrudge("v_socialist",3,0.9,"Refused to expand it");
+         createGrudge("v_liberal",2,0.9,"Refused to expand it");
+         createGrudge("v_parents",3,0.9,"No betting ads");
+         createGrudge("v_businessClass",-4,0.9,"Market left closed");
+         createGrudge("v_moderate",-3,0.9,"Money left on the table");
+         createGrudge("capital",-2,undefined,"Forecast revenue never arrived");
+         shiftCompass(-0.2,-0.2);
+         GAME.log.push(ico('ticket')+" Sports betting: left to the tribal books");
+       }}
+    ]},
   bridgeTolls:{title:"Tolling the Bridges", icon:"bridge",
     text:"The Interstate Bridge replacement needs money, and ODOT's books are a $354M hole. Tolling I-5 and I-205 pays for it — and every Clark County commuter and Oregon motorist will see the charge daily.",
     influence:()=>(budgetBalance().balance<-0.8?0.4:0.1)+(POLICIES.gasTax&&policyLevel(POLICIES.gasTax)>0.6?0.15:0),
@@ -5349,7 +5444,6 @@ const POLICY_IDEO_SHIFT={
   localPreemption:    {conservative:0.06, socialist:-0.05, liberal:-0.03, urban:-0.07, suburban:0.04},
   occupationalLicensing:{libertarian:0.07, conservative:0.03, socialist:-0.03},
   // people vote with their feet: these push young, urban and progressive Oregonians out
-  abortionRestrict:   {conservative:0.10, liberal:-0.12, socialist:-0.06, urban:-0.11, rural:0.06},
   sanctuaryRepeal:    {conservative:0.10, liberal:-0.08, socialist:-0.06, urban:-0.09, rural:0.05},
   eVerify:            {conservative:0.08, liberal:-0.06, urban:-0.08, rural:0.04},
   medicaidWork:       {conservative:0.05, socialist:-0.05, poor:-0.10, middleIncome:0.04},
@@ -5406,6 +5500,13 @@ function ELECTORATE_SHIFT(){
     const t=policyIdeoTilt(pid); if(!t)continue;
     for(const k in t)add(k,t[k]);
   }
+  // Abortion legality is a migration signal in its own right: a ban pushes young,
+  // urban and progressive Oregonians out of the state and pulls social conservatives
+  // in; strong protection does the reverse. Centred on "Legal", so the status quo
+  // exerts no pull either way.
+  { const _at=POLICIES.abortion?(POLICIES.abortion.tierIndex??2):2, r=(2-_at)*0.5;
+    if(r!==0){ add("conservative",0.10*r); add("rural",0.06*r);
+               add("liberal",-0.12*r); add("socialist",-0.06*r); add("urban",-0.11*r); } }
   // a safe, orderly state reassures the centre and centre-right — the counterpart
   // to the disorder backlash above, so law-and-order governing BUILDS a coalition
   // rather than only avoiding a penalty
@@ -6283,7 +6384,8 @@ const GAME={
   persMarketSwing:0,    // annualized $B change in the UAL from investment returns this quarter (− = fund gaining)
   ohpEnrollIdx:1.0,     // Oregon Health Plan enrollment vs. baseline (~1.4M). Countercyclical: a recession swells it.
   fedIndex:1.0,         // federal-funds multiplier; shocked by federal events
-  pendingKicker:0,      // kicker owed, paid out next cycle
+  pendingKicker:0,
+  sportsBook:null,       // null | "lottery" | "commercial" | "tribal" — how sports wagering runs      // kicker owed, paid out next cycle
   pendingSurplus:null,  // {surplus} — a kicker-eligible surplus awaiting the player's end-of-quarter choice
   // Consecutive quarters closed in the black. One good quarter is luck; three
   // is a surplus, and a surplus is a thing everyone in Salem has plans for.
@@ -6673,6 +6775,12 @@ function metricTarget(k){
     const ha=INDICATORS.housingAffordability.value;
     if(ha<44) t+=(44-ha)*0.035;
   }
+  // legal sports wagering, and how wide you opened it. A phone in every pocket is
+  // a different thing from a window at a casino, and the advertising is the point.
+  if(k==="gamblingRate"){
+    const bk=GAME.sportsBook;
+    if(bk==="lottery")t+=6; else if(bk==="commercial")t+=13; else if(bk==="tribal")t+=2;
+  }
   if(POLICIES.outcomeContracting){
     const f=outcomeContractingFactor();
     const scale=GAME.activeSituations.nonprofitComplex?1:0.35;
@@ -6693,6 +6801,11 @@ function metricTarget(k){
 function metricContributors(k){
   const m=METRICS[k], out=[];
   out.push({name:"⊕ Natural equilibrium", v:0, base:true, eq:m.eq});
+  if(k==="gamblingRate"&&GAME.sportsBook){
+    const bk=GAME.sportsBook;
+    out.push({name:ico('ticket')+" Sports betting ("+(bk==="lottery"?"Lottery monopoly":bk==="commercial"?"licensed commercial books":"tribal books only")+")",
+              v:(bk==="lottery"?6:bk==="commercial"?13:2)});
+  }
   for(const id in POLICIES){
     const e=policyEffect(POLICIES[id],k);
     if(Math.abs(e)>0.03)out.push({name:ico(POLICIES[id].icon)+' '+POLICIES[id].name, v:e, link:"p_"+id});
@@ -7439,7 +7552,13 @@ function revenueBySource(){
     }
     else if(id==="salesTaxRev")amt*=salesCycle*gspMult;               // stable through downturns
     else if(id==="cannabisRev"||id==="liquorRev")amt*=sinCycle;       // sin taxes hold up
+    if(id==="sportsBookRev"){
+      // set by the sports-wagering choice; nothing until you make one
+      const bk=GAME.sportsBook;
+      amt = bk==="lottery" ? 0.09 : bk==="commercial" ? 0.15 : bk==="tribal" ? 0.02 : 0;
+    }
     else if(id==="lottery")amt*=sinCycle;
+    else if(id==="casinoRev"||id==="sportsBookRev")amt*=sinCycle;
     if(id==="estateRev"){
       // estate wealth is equity-heavy — market swings move asset values more than income does
       amt*=(1+clamp(GAME.marketLevel*0.20,-0.22,0.22));
@@ -8047,10 +8166,10 @@ const PROMISES={
     check:()=>!!(POLICIES.universalMeals&&POLICIES.universalMeals.enacted) && policyLevel(POLICIES.universalMeals||{})>=0.5},
   defendReproRights:{label:"Defend reproductive freedom", defensive:true, bloc:["liberal","urban","students","socialist","collegeEducated"],
     criteria:[
-      {label:"Reproductive care kept legal or protected", check:()=>(POLICIES.abortion?POLICIES.abortion.tierIndex:3)>=2},
-      {label:"No new abortion restrictions enacted", check:()=>!(POLICIES.abortionRestrict&&POLICIES.abortionRestrict.enacted)}
+      {label:"Abortion kept legal or protected", check:()=>(POLICIES.abortion?POLICIES.abortion.tierIndex:3)>=2},
+      {label:"Access not narrowed from where you found it", check:()=>(POLICIES.abortion?POLICIES.abortion.tierIndex:3)>=3}
     ],
-    check:()=>(POLICIES.abortion?POLICIES.abortion.tierIndex:3)>=2 && !(POLICIES.abortionRestrict&&POLICIES.abortionRestrict.enacted)},
+    check:()=>(POLICIES.abortion?POLICIES.abortion.tierIndex:3)>=2},
   modernizeGov:{label:"Modernize state government", bloc:["collegeEducated","moderate","businessClass","urban"],
     criteria:[
       {label:"Digital government index ≥ 48", check:()=>INDICATORS.digitization.value>=48},
@@ -10398,6 +10517,8 @@ function billVerdict(comp, lean, pol, dir){
 /* Does a bill need three-fifths? Anything that moves revenue does, under
    Article IV §25. */
 function billNeedsSuper(pol){
+  // the Simple-Majority Revenue amendment strikes Article IV §25 outright
+  if(POLICIES.revenueMajority && POLICIES.revenueMajority.enacted) return false;
   if(pol._super!=null)return pol._super;                // a pending change says so itself
   if(pol.taxDir==="burden")return true;                 // an explicit tax rise
   const r=(pol.revenueFull||0)+(pol.revenue||0);
@@ -10989,7 +11110,9 @@ function legisStanding(L){
        note:`Revenue still has to clear the ${supS?"House":"Senate"} on votes you do not have — they can make you pay for every one of them.`}
     : {tier:"majority", cap:0,
        label:"A simple majority in both chambers",
-       note:"Enough to govern, not enough to tax. Every revenue bill needs opposition votes you have to go and find."};
+       note:(POLICIES.revenueMajority&&POLICIES.revenueMajority.enacted)
+         ? "With Article IV §25 struck, a bare majority is enough to raise revenue too — the three-fifths brake the minority used to hold is gone."
+         : "Enough to govern, not enough to tax. Every revenue bill needs opposition votes you have to go and find."};
   if(majS||majH) return {tier:"split", cap:-2.0,
     label:`A divided legislature — you hold only the ${majS?"Senate":"House"}`,
     note:"Everything you want has to clear a chamber that does not want it. Expect to trade for each bill, and to lose some outright."};
@@ -15957,7 +16080,7 @@ function bootWorld(startId){
   GAME.agendaBaseline=0; GAME.compassStart={ec:0,so:0}; GAME.compassEvents={ec:0,so:0};
   GAME.mandateShock=0; GAME.changeAppetite=0; GAME.uturnCount=0; GAME.protestCrackdowns=0;
   GAME.floorFail={}; GAME.enactedAt={}; GAME.senateClass=0; GAME.serviceDisrupt=0;
-  GAME.pendingKicker=0; GAME.pendingSurplus=null; GAME.elliottResolved=false;
+  GAME.pendingKicker=0; GAME.pendingSurplus=null; GAME.elliottResolved=false; GAME.sportsBook=null;
   GAME.legisElections=0;
   // ---- back to the authored data
   for(const k in METRICS){ METRICS[k].value=WORLD_SEED.m[k]; METRICS[k].calib=0; }
