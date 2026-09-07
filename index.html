@@ -2717,6 +2717,10 @@ function rentCapAfford(){
    public payroll behind it. Sums to 1. */
 const PERS_PAYROLL={k12:0.34, humanServices:0.14, debtAdmin:0.14, publicSafety:0.13,
                     higherEd:0.12, natResources:0.07, economy:0.06};
+/* The Land Board distributes this share of the Common School Fund's market
+   value to K-12 each year — the real board has run 3.5-4%. */
+const CSF_PAYOUT_RATE=0.038;
+function csfLandsSold(){ return !!(POLICIES.csfLandSale && POLICIES.csfLandSale.enacted); }
 const NONPROFIT_DRAG_POLICIES=new Set(["homelessServices","childcareSubsidy","preschoolForAll",
   "affordableHousing","behavioralHealth","downtownRevitalization","officeConversion",
   "deflectionProgram","universalMeals","safeConsumption"]);
@@ -2924,7 +2928,7 @@ const SECTION_OF={
   paidLeave:"welfare", minWageTiers:"welfare", universalMeals:"welfare", middleHousing:"welfare", rentStabilization:"welfare",
   officeConversion:"welfare", dhs:"welfare", downtownRevitalization:"welfare", singleStair:"welfare", housingPackage:"welfare", outcomeContracting:"pubservices",
   // economy & jobs
-  rndTaxCredit:"economy", deregulation:"economy", adminSimplification:"economy", revenueMajority:"taxes", stateLottery:"economy", casinos:"economy", rightToWork:"economy", collectiveBargaining:"economy", rightToRepair:"economy", schoolChoice:"pubservices",
+  rndTaxCredit:"economy", deregulation:"economy", adminSimplification:"economy", revenueMajority:"taxes", stateLottery:"economy", casinos:"economy", csfLandSale:"economy", rightToWork:"economy", collectiveBargaining:"economy", rightToRepair:"economy", schoolChoice:"pubservices",
   nuclearRepeal:"economy", tortReform:"economy", jordanCoveLNG:"environment",
   safeConsumption:"health", ohpBlockGrant:"health", cascadiaPrep:"environment",
   // environment & transport
@@ -3994,6 +3998,14 @@ const CATALOG={
     // who is not already on the public payroll — voters kept it for a reason
     ballotLean:{publicUnions:4, socialist:3, liberal:2, conservative:-4, libertarian:-4, businessClass:-3, wealthy:-3, rural:-3, moderate:-2},
     ideology:{economic:-0.5, govSize:-0.6}},
+  csfLandSale:{name:"Sell the Common School Trust Lands", domain:"economy", icon:"bank", binary:true, mechanic:"law", noRepeal:true,
+    desc:"Liquidate the roughly 1.5 million acres Oregon received at statehood and move the whole Common School Fund into a diversified financial portfolio. The trust is perpetual, but nothing says it has to be held as dirt: the Land Board's own consultants have said for years that timberland and rangeland underperform a market portfolio at far higher management cost, and the fund exists to pay for schools, not to own forests.\n\nThe money is real and immediate — roughly $1.3B of proceeds into the corpus, and a return that goes from about 5% on working land to nearly 7% on financial assets, which compounds into a permanently larger distribution to K-12. It is also the one decision in this game you can never take back. The land is gone, the harvest deposits stop because there is nothing left to cut, and every acre of it passes to owners who will log it harder than the state ever did.\n\nThe business and timber coalition wants this badly. Everyone who has ever fought for a public forest will treat it as the day Oregon sold the commons.",
+    enabled:true, costFull:0, capital:16, enactCapital:20,
+    effects:{environment:-5, loggingRate:8},
+    indicatorEffects:{businessClimate:3, ruralAlienation:-3},
+    blocEffect:{businessClass:8, libertarian:6, timber:5, conservative:3, rural:3, wealthy:2,
+                socialist:-9, liberal:-8, collegeEducated:-6, urban:-5, students:-3, parents:-2},
+    ideology:{economic:0.6, environment:0.7, govSize:0.4}},
   spendingCap:{name:"Constitutional Spending Limit", domain:"economy", icon:"chart-down", mechanic:"law", reform:true,
     desc:"A TABOR-style amendment capping General Fund growth to population plus inflation, with anything over the line refunded or reserved. Fiscal hawks love the discipline; it forces a standing haircut on every program budget and locks in cuts through downturns — public-sector Oregon treats it as a straitjacket.",
     enabled:true, costFull:0, capital:16, enactCapital:22, repealCost:16,
@@ -4699,6 +4711,8 @@ const DILEMMAS={
       {label:"Keep it in the school fund", text:"Do nothing. The Elliott stays in the Common School Fund and stays a drag on it — every year it loses money the schools could have spent. Cheapest today, worst over time.",
        apply:()=>{
          if(typeof REVENUE!=="undefined"&&REVENUE.timber) REVENUE.timber.base=+(Math.max(0.05,(REVENUE.timber.base||0.25)-0.07)).toFixed(3);
+         GAME.csfElliottMult=0.82;                       // a holding that costs the fund more than it returns
+         GAME.csfCorpus=+Math.max(0.3,GAME.csfCorpus-0.05).toFixed(3);
          createGrudge("m_education",-1.2,0.97,"Elliott bleeds the school fund");
          createGrudge("v_parents",-3,0.92,"School fund kept subsidising the Elliott");
          createGrudge("v_conservative",-3,0.9,"State keeps a money-losing forest");
@@ -4712,6 +4726,8 @@ const DILEMMAS={
        apply:()=>{
          GAME.structuralDebt=+(Math.max(0,(GAME.structuralDebt||0)-0.35)).toFixed(2);
          GAME.rainyDay=(GAME.rainyDay||0)+0.5;
+         GAME.csfCorpus=+(GAME.csfCorpus+0.20).toFixed(3);   // ~$200M of sale proceeds into the corpus
+         GAME.csfElliottMult=1.0;
          if(typeof REVENUE!=="undefined"&&REVENUE.timber) REVENUE.timber.base=+(Math.max(0.05,(REVENUE.timber.base||0.25)-0.10)).toFixed(3);
          createGrudge("m_education",1.0,0.95,"Elliott sale — one-time school fund windfall");
          createGrudge("m_loggingRate",6,0.85,"Elliott sold to private timber");
@@ -4734,6 +4750,8 @@ const DILEMMAS={
       {label:"Buy it out — make it a state research forest", text:"Bond ~$120M to pay the school fund for its interest, then hand the Elliott to a state research-forest authority under a habitat conservation plan. Keeps it public and mostly standing; costs real money now and for years.",
        apply:()=>{
          GAME.structuralDebt=+((GAME.structuralDebt||0)+0.4).toFixed(2);
+         GAME.csfCorpus=+(GAME.csfCorpus+0.12).toFixed(3);   // the state buys the fund out of its interest
+         GAME.csfElliottMult=0.90;
          createGrudge("capital",-6);
          createGrudge("m_education",0.6,0.9,"School fund bought out of the Elliott — no longer bleeding");
          createGrudge("m_environment",4,0.94,"Elliott protected as a research forest");
@@ -4754,6 +4772,8 @@ const DILEMMAS={
       {label:"Tribal co-stewardship + carbon", text:"Cede management to a co-stewardship compact with the Coquille and Cow Creek tribes, with a carbon-credit program buying the school fund out over time. Lower upfront cost, novel, uncertain — praised and doubted in equal measure.",
        apply:()=>{
          GAME.structuralDebt=+((GAME.structuralDebt||0)+0.12).toFixed(2);
+         GAME.csfCorpus=+(GAME.csfCorpus+0.06).toFixed(3);   // carbon revenue buys the fund out over time
+         GAME.csfElliottMult=0.94;
          createGrudge("capital",-4);
          createGrudge("m_education",0.4,0.92,"Elliott carbon revenue buys out the school fund");
          createGrudge("m_environment",3,0.93,"Elliott — tribal co-stewardship, carbon project");
@@ -6408,6 +6428,10 @@ const GAME={
   // ---- FISCAL MODEL (research: income-tax dependence + kicker + reserves) ----
   rainyDay:1.87,        // Rainy Day Fund ($B) — real 2023-25 end balance
   eduStability:1.0,     // Education Stability Fund ($B)
+  csfCorpus:2.10,       // Common School Fund corpus ($B) — the statehood land-grant endowment
+  csfPayout:0.08,       // annualized distribution to K-12 ($B/yr), set by the corpus each tick
+  csfElliottMult:1,     // how the Elliott settlement left the fund's timber deposits
+  csfSaleBooked:false,  // one-shot latch for the trust-land sale proceeds
   reserveInfusion:0,    // pending one-time cash from a deliberate Rainy Day draw — consumed at the next settlement
   lastReserveDraw:-99,  // turn of the last deliberate reserve draw (cooldown)
   pendingShortfall:null,// {debt,rd} — a shortfall nearing crisis; end-quarter popup offers a Rainy Day paydown
@@ -7666,6 +7690,28 @@ function tickEconomy(){
   if(METRICS.gdp){
     METRICS.gdp.eq = 1.3 + GAME.econCycle*0.55;
   }
+  // COMMON SCHOOL FUND — a corpus, not a flow. Harvest on the Common School
+  // Forest Lands and grazing leases deposit into it, the market moves it, and
+  // the Land Board distributes a fixed share of its value to K-12 every year.
+  // Selling the trust lands converts it to a diversified financial portfolio:
+  // it earns more and swings harder, and the deposits stop because there is
+  // nothing left to harvest.
+  {
+    const sold = csfLandsSold();
+    if(sold && !GAME.csfSaleBooked){                       // the one-time proceeds, booked once
+      GAME.csfCorpus=+(GAME.csfCorpus+1.30).toFixed(3);
+      GAME.csfSaleBooked=true;
+      GAME.log.push(ico('bank')+" Trust lands sold — $1.30B into the Common School Fund");
+    }
+    const retQ = (sold?0.068:0.052)/4 + GAME.marketLevel*(sold?0.0115:0.006);
+    // deposits scale with the cut on school-fund forest land; the Elliott
+    // settlement set how much of that base is left
+    const dep  = sold ? 0.0010
+               : 0.0100*(METRICS.loggingRate.value/40)*(GAME.csfElliottMult??1);   // ~$40M/yr at the baseline cut
+    const payQ = GAME.csfCorpus*CSF_PAYOUT_RATE/4;
+    GAME.csfCorpus = +clamp(GAME.csfCorpus*(1+retQ) + dep - payQ, 0.30, 14).toFixed(3);
+    GAME.csfPayout = +(GAME.csfCorpus*CSF_PAYOUT_RATE).toFixed(4);
+  }
   // PERS — an unfunded-liability STOCK that investment returns move. The fund
   // assumes ~6.9%/yr; the actual return tracks the equity cycle. Earn above
   // assumption and the hole shrinks; a crash blows it wide open (plus a one-off
@@ -7732,6 +7778,9 @@ function spendingByArea(){
       const c=policyNetCost(p);
       if(c>0)amt+=c*(pid==="govOps"?1:govOpsEffMult()); // govOps exempt from its own multiplier
     }
+    // The Common School Fund distribution is dedicated money: it offsets what
+    // K-12 needs from the General Fund and can pay for nothing else.
+    if(id==="k12")amt-=(GAME.csfPayout||0);
     // prison population drives corrections costs (the Measure 11 chain:
     // mandatory minimums → incarceration growth → corrections crowd-out)
     if(id==="publicSafety")amt+=Math.max(0,(METRICS.incarcerationRate.value-50))*0.012;
@@ -15299,7 +15348,12 @@ function renderBudget(){
       }
       h+=`<div class="fcard"><div class="fname">${ico('bank')} Rainy Day Fund</div><div class="fval" style="color:${rdCol}">$${GAME.rainyDay.toFixed(2)}B</div>${rdCtl}</div>`;
     }
-    h+=`<div class="fcard"><div class="fname">${ico('cap')} Education Stability Fund</div><div class="fval">$${GAME.eduStability.toFixed(2)}B</div>
+    { const sold=csfLandsSold(), pay=(GAME.csfPayout||0);
+      h+=`<div class="fcard"><div class="fname">${ico('bank')} Common School Fund</div><div class="fval">${(GAME.csfCorpus||0).toFixed(2)}B</div>
+        <div class="fnote">The statehood land-grant endowment, held by the State Land Board. It distributes <b>${(CSF_PAYOUT_RATE*100).toFixed(1)}%</b> of its value to K-12 every year — <b>${(pay*1000).toFixed(0)}M</b> right now — and that money can pay for nothing else and cannot be raided for the general deficit. ${sold
+          ? 'The trust lands are sold; the corpus is a financial portfolio now, earning more and swinging harder, and the harvest deposits are gone for good.'
+          : 'Harvest on the school-fund forest lands deposits into the corpus, so the logging rate feeds it. The Elliott settlement set how much of that base is left.'}</div></div>`; }
+    h+=`<div class="fcard"><div class="fname">${ico('cap')} Education Stability Fund</div><div class="fval">${GAME.eduStability.toFixed(2)}B</div>
       <div class="fnote">Dedicated constitutional K-12 reserve (lottery-funded). <b>Not</b> available for the general deficit — it's spent only to cushion the school-fund cut when a forced deficit lands.</div></div>`;
     // --- shortfall / crisis ---
     {
@@ -16149,6 +16203,7 @@ function bootWorld(startId){
   GAME.legis.hHeld=null; GAME.legis.sHeld=null; GAME.legis.favors={};
   GAME.activeSituations={}; GAME.situationAge={}; GAME.eventCooldown={}; GAME.grudges=[]; GAME.history={};
   GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.surplusStreak=0; GAME.lawLock={};
+  GAME.csfCorpus=2.10; GAME.csfPayout=0.08; GAME.csfElliottMult=1; GAME.csfSaleBooked=false;
   GAME.floorFreeze=0; GAME.walkoutSide=null; GAME.walkoutCooldownUntil=0; GAME.walkoutIgnoredUntil=0; GAME.protestIgnoredUntil=0; GAME.splinter=null;
   // the band is set from the world this boot produces, so the pre-roll below
   // must run unbanded — otherwise a second boot inherits the first one's anchor
