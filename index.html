@@ -3149,6 +3149,7 @@ const SECTIONS={
 /* id → section. Covers metrics, indicators (now full statistics),
    policies, agencies, landuse. Anything unmapped falls back by domain. */
 const SECTION_OF={
+  countyPayments:"taxes",   // it is a transfer programme, and it is argued about as one
   // statistics
   taxBurden:"taxes", collectionRate:"taxes", disposableIncome:"taxes",
   gdp:"economy", unemployment:"economy", inequality:"economy", businessClimate:"economy", inMigration:"economy",
@@ -4059,6 +4060,14 @@ const CATALOG={
     blocEffect:{liberal:3, collegeEducated:3, rural:2, urban:2, retirees:2, moderate:1, libertarian:-2, socialist:-1},
     directBlocMood:{conservative:1, rural:2, timber:1},
     ideology:{environment:-0.1}},
+  countyPayments:{name:"County Payments in Lieu of Timber Receipts", domain:"economy", icon:"handshake", mechanic:"slider", phaseIn:4,
+    desc:"Backfill the timber receipts that used to run rural county government, out of the General Fund, and stop pretending the harvest is going back to where it was.\n\nOregon's timber counties never funded themselves out of property tax — they funded themselves out of a share of the cut. When the federal harvest collapsed after the Northwest Forest Plan, the O&C counties lost the revenue that paid for sheriffs, jails, roads and schools, and the federal Secure Rural Schools payments that replaced it have lapsed and been revived on Congress's schedule ever since. Josephine County has failed public-safety levy after public-safety levy; Curry County came close enough to insolvency that the legislature wrote a state intervention process for counties that cannot keep a jail open.\n\nThis is the other answer. Distribution is weighted to the counties that lost the most cut, it pays for patrol deputies, jail beds, county roads and school districts, and it costs exactly what it says — this is money diverted from everything else the General Fund does, every quarter, forever. It buys no trees and no mill jobs, so it does not satisfy everyone it helps; what it does is keep rural government standing without asking the forest to pay for it.",
+    enabled:true, value:0.5, costFull:0.42, enactCapital:9, repealCost:7,
+    effects:{propertyCrime:{b:-1,c:-4,i:4}, violentCrime:{b:-1,c:-2,i:4}, eduOutcomes:1.6, education:2.2},
+    indicatorEffects:{ruralAlienation:-14, localAutonomy:5},
+    blocEffect:{rural:12, timber:9, blueCollar:4, conservative:3, moderate:2,
+                wealthy:-3, urban:-3, socialist:-2, libertarian:-3},
+    ideology:{economic:-0.2, govSize:0.4}},
   wolfRecovery:{name:"Wolf Recovery Program", domain:"envInfra", icon:"paw", mechanic:"law",
     desc:"Oregon's wolf population rebounded naturally from Idaho after 2009 and now numbers ~175 animals statewide. The contested question is the state's active posture: fund ODFW monitoring and livestock coexistence programs, restrict lethal removal to a last resort, and protect dispersal corridors into the Coast Range and Cascades — or defer to counties and ranchers on lethal control. Ranchers in Wallowa, Union, and Grant counties bear the direct cost in livestock predation; urban environmentalists and ecotourists reap the benefit. The politics are almost perfectly reversed from the Willamette Valley.",
     enabled:true, costFull:0.05, enactCapital:11, repealCost:9,
@@ -6535,9 +6544,14 @@ const SITUATIONS={
     moodMag:1,
     groupMood:{wealthy:-8,businessClass:-8,suburban:-4,rural:-3,conservative:-5,libertarian:-5}},
   timberCounties:{name:"Timber Counties Fiscal Crisis", kind:"bad", category:"condition",
-    desc:"As harvest revenues have collapsed, Oregon's timber-dependent counties can't fund sheriffs, schools, or roads — a slow-motion rural government failure.",
-    trigger:()=>METRICS.loggingRate.value<25, clear:()=>METRICS.loggingRate.value>35, onClear:{capital:2},
-    watch:{metric:"loggingRate", startAt:25, clearAt:35, badHigh:false},
+    desc:"As harvest revenues have collapsed, Oregon's timber-dependent counties can't fund sheriffs, schools, or roads — a slow-motion rural government failure.\n\nThe shortfall is fiscal, not physical: these counties fund themselves out of a share of the cut, so when the cut goes the county government goes with it. That means there are two ways out, and only one of them involves a saw.\n\n→ TO FIX IT: get the Logging Rate back above 35 — or enact <b>County Payments in Lieu of Timber Receipts</b> and fund it past 70%, which backfills what the harvest used to pay for out of the General Fund and lifts the crisis with the harvest left exactly where it is. A partial backfill will not clear it, but it does keep it from starting.",
+    // The counties need revenue. Historically that came out of the cut; it can
+    // just as well come out of the General Fund, and a governor who took the
+    // harvest down on purpose should not be told the only fix is to put it back.
+    trigger:()=>METRICS.loggingRate.value<25 && countyBackfill()<0.55,
+    clear:()=>METRICS.loggingRate.value>35 || countyBackfill()>=0.70, onClear:{capital:2},
+    watch:{metric:"loggingRate", startAt:25, clearAt:35, badHigh:false,
+           alsoNote:"— or by funding County Payments in Lieu of Timber Receipts past 70%, which lifts it with the harvest left exactly where it is"},
     metricEffect:{propertyCrime:0.7},
     moodAxes:{economic:0.2,environment:0.3}, moodMag:1,
     groupMood:{timber:-9,rural:-8,blueCollar:-2}},
@@ -7036,6 +7050,15 @@ function agendaConservatism(){
   const ce=GAME.compassEvents||{};
   s += (ce.ec||0) + (ce.so||0);   // decisions in dilemmas count toward the record too
   return s;
+}
+/* How much of the county backfill is actually reaching the counties, 0..1.
+   Enacted-and-funded is what counts, so a programme dialled to nothing is
+   worth nothing — and it phases in, because a county cannot rehire a
+   sheriff's department in a quarter. */
+function countyBackfill(){
+  const p=POLICIES.countyPayments;
+  if(!p||!p.enacted)return 0;
+  return clamp(policyLevel(p)*(p.eff==null?1:p.eff), 0, 1);
 }
 function agendaRightwardShift(){ return agendaConservatism()-(GAME.agendaBaseline||0); }
 /* The same number read from where the player is standing: how far the agenda
@@ -9731,17 +9754,33 @@ function oppOverrideOdds(){
 function maybeSendOppBill(){
   if(GAME.pendingOppBill)return;
   if(GAME.turn<5)return;
-  if(GAME.turn-(GAME.lastOppBill??-99)<5)return;
   if(floorFrozen())return;                      // nobody is in the building
   const tier=legisStanding().tier;
-  if(["divided","hung","minorityPlus","minority"].indexOf(tier)<0)return;
-  // the further they are from your desk, the more they send
-  const rate={divided:0.30, hung:0.28, minorityPlus:0.45, minority:0.55}[tier]||0;
-  if(Math.random()>rate)return;
+  // What reaches the desk is set by who can stop a bill before it gets
+  // there. Hold a chamber and that chamber kills the other side's agenda
+  // for you — the veto is barely a factor, and the rare bill that does
+  // arrive is one your own members let through. Hold neither and there is
+  // no filter between their majority and your signature.
+  //   gap  = quarters that must pass before another can arrive
+  //   rate = chance per quarter after that
+  // Mean interval is gap + 1/rate, so: divided ~17 quarters (about one a
+  // term), minorityPlus ~6, minority ~5 — three to four times the pace.
+  const PACE={
+    split:        {gap:8, rate:0.11},   // the chamber you hold stops nearly all of it
+    hung:         {gap:8, rate:0.10},   // and a splinter holding the balance stops the rest
+    minorityPlus: {gap:4, rate:0.45},   // they run both floors
+    minority:     {gap:3, rate:0.60}    // nothing stands between them and your desk
+  };
+  const pace=PACE[tier];
+  if(!pace)return;
+  if(GAME.turn-(GAME.lastOppBill??-99)<pace.gap)return;
+  if(Math.random()>pace.rate)return;
   const pool=OPP_BILLS[oppPushSign()>0?"right":"left"]||[];
   const live=pool.filter(id=>CATALOG[id] && !floorBlocked(id,"enact") && !pendingMeasure(id));
   if(!live.length)return;
-  GAME.pendingOppBill={id: live[Math.floor(Math.random()*live.length)], approp:false};
+  GAME.pendingOppBill={id: live[Math.floor(Math.random()*live.length)], approp:false,
+    // a bill that got past a chamber you control got past your own members
+    throughMine:(tier==="split"||tier==="hung")};
   GAME.pendingOppBill.approp=oppBillIsApprop(GAME.pendingOppBill.id);
   GAME.lastOppBill=GAME.turn;
 }
@@ -9789,22 +9828,25 @@ function showOppBill(next){
   if(!B||!CATALOG[B.id]||!card||!modal){ GAME.pendingOppBill=null; if(next)next(); return; }
   const p=CATALOG[B.id];
   const odds=oppOverrideOdds();
-  const vetoCost=Math.max(3, Math.round(6*oppositionCapitalMult()));
-  const itemCost=Math.max(2, Math.round(3*oppositionCapitalMult()));
+  // A veto costs nothing to cast. The price is entirely on the other side of
+  // it: who it angers, and whether they can override you.
+  const signGain=3;
   const theirs=GAME.startId==="conservative"?"Democratic":"Republican";
-  const canAfford=GAME.capital>=vetoCost, canItem=B.approp&&GAME.capital>=itemCost;
+  const canItem=B.approp;
   const oddsWord=odds>=0.7?"they almost certainly have the votes":odds>=0.45?"it would be close":odds>=0.2?"they would probably fall short":"they do not have the votes";
   card.innerHTML=`<div class="sectionhdr">${ico('columns')} On your desk</div>
-    <div class="sectionsub">The ${theirs} majority has passed <b>${p.name}</b> and sent it to you. Oregon gives you no pocket veto — if you do nothing it becomes law, so the only question is whether you put your name on it or your veto.</div>
+    <div class="sectionsub">${B.throughMine
+      ? `<b>${p.name}</b> cleared the chamber you control. The ${theirs} side wrote it, but it did not get here without your own members — enough of them voted for it to put it on your desk.`
+      : `The ${theirs} majority has passed <b>${p.name}</b> and sent it to you.`} Oregon gives you no pocket veto — if you do nothing it becomes law, so the only question is whether you put your name on it or your veto. The veto itself costs you nothing to cast — what it costs is everything on the other side of it.</div>
     <div class="lg-verdict" style="margin:10px 0">${descHTML(p.desc)}</div>
     <div class="rrow"><span class="rlabel">If it becomes law</span><span class="rval">${p.costFull?("costs $"+(p.costFull).toFixed(2)+"B/yr at full funding"):"no direct cost to the treasury"}</span></div>
     <div class="rrow"><span class="rlabel">Override needs</span><span class="rval">two-thirds of both chambers — 40 and 20</span></div>
     <div class="rrow"><span class="rlabel">If you veto</span><span class="rval" style="color:${odds>=0.5?'var(--clay)':'var(--good)'}">${Math.round(odds*100)}% chance they override — ${oddsWord}</span></div>
     ${B.approp?`<div class="fnote" style="margin-top:8px">This is an appropriation, so Article V §15a lets you strike single items from it rather than killing the whole bill.</div>`:`<div class="fnote" style="margin-top:8px">This is a policy bill, not an appropriation — the line-item veto does not reach it. It is all of it or none of it.</div>`}
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
-      <button class="enactbtn" id="oppSign">Sign it into law</button>
-      ${B.approp?`<button class="enactbtn ghost" id="oppItem" ${canItem?'':'disabled'}>${canItem?`Line-item veto — strike the money, ◈ ${itemCost}`:`Need ◈ ${itemCost} to line-item it`}</button>`:''}
-      <button class="enactbtn ghost" id="oppVeto" ${canAfford?'':'disabled'}>${canAfford?`Veto it — ◈ ${vetoCost}`:`Need ◈ ${vetoCost} to veto`}</button>
+      <button class="enactbtn" id="oppSign">Sign it into law — +${signGain} capital</button>
+      ${B.approp?`<button class="enactbtn ghost" id="oppItem">Line-item veto — strike the money</button>`:``}
+      <button class="enactbtn ghost" id="oppVeto">Veto it</button>
     </div>`;
   modal.classList.remove("hidden");
   const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true);
@@ -9814,38 +9856,44 @@ function showOppBill(next){
   document.addEventListener("keydown",onKey,true);
   const sign=()=>{
     GAME.oppBillsSigned=(GAME.oppBillsSigned||0)+1;
+    // Letting the other side have a win buys you something back in Salem — and
+    // the bill is now partly yours to answer for, which is most of the price.
+    GAME.capital=clamp(GAME.capital+signGain,0,100);
     _oppEnact(B.id, 1);
     _oppMood(-1, 6);
-    GAME.log.push(ico('doc')+" Signed "+p.name+" — the other side's bill, now yours to own");
+    GAME.log.push(ico('doc')+" Signed "+p.name+" — the other side's bill, now yours to own, ◈+"+signGain);
     close();
   };
   const item=()=>{
-    GAME.capital=clamp(GAME.capital-itemCost,0,100);
     GAME.oppBillsSigned=(GAME.oppBillsSigned||0)+1;
     // you struck the appropriation: the programme stands up, at a fraction
     _oppEnact(B.id, 0.45);
     _oppMood(-1, 2.5);
     createGrudge("v_moderate", 2, 0.9, "Trimmed the bill rather than killing it");
-    GAME.log.push(ico('scissors')+" Line-item vetoed "+p.name+" — it stands up at a fraction of the money, ◈"+itemCost);
+    GAME.log.push(ico('scissors')+" Line-item vetoed "+p.name+" — it stands up at a fraction of the money");
     close();
   };
   const veto=()=>{
-    GAME.capital=clamp(GAME.capital-vetoCost,0,100);
     GAME.oppBillsVetoed=(GAME.oppBillsVetoed||0)+1;
     const overridden=Math.random()<odds;
-    _oppMood(+1, 7);
+    // Vetoing something your own chamber passed is not the same act as
+    // vetoing something the other side rammed through: half your coalition
+    // is already on record for it, so the veto buys you much less with them
+    // and reads to everyone else as picking a fight with your own side.
+    _oppMood(+1, B.throughMine?3:7);
+    if(B.throughMine)createGrudge("v_moderate",-3,0.9,"Vetoed a bill their own caucus passed");
     if(overridden){
       GAME.oppBillsOverridden=(GAME.oppBillsOverridden||0)+1;
       GAME.mandateShock=(GAME.mandateShock||0)-6;      // a veto that fails is worse than no veto
       _oppEnact(B.id, 1);
       createGrudge("v_moderate",-4,0.9,"Vetoed and was overridden");
-      GAME.log.push(ico('warning')+" Vetoed "+p.name+" — and the legislature overrode you. It is law anyway, and the ◈"+vetoCost+" is gone.");
+      GAME.log.push(ico('warning')+" Vetoed "+p.name+" — and the legislature overrode you. It is law anyway, and you are weaker for having tried.");
       showOppVerdict(false, p, next, modal, onKey);
     } else {
       GAME.floorFail=GAME.floorFail||{};
       GAME.floorFail["enact"+B.id]=GAME.turn+6;        // it cannot come straight back
       GAME.mandateShock=(GAME.mandateShock||0)+3;
-      GAME.log.push(ico('scales')+" Vetoed "+p.name+" — the override failed and the bill is dead, ◈"+vetoCost);
+      GAME.log.push(ico('scales')+" Vetoed "+p.name+" — the override failed and the bill is dead");
       showOppVerdict(true, p, next, modal, onKey);
     }
     GAME.pendingOppBill=null;
@@ -13587,6 +13635,7 @@ function situationProgressHTML(sid){
       also+= `<span style="color:${ok?'var(--good)':'var(--bad)'}">${ok?'met':'not met'}</span>.</div>`;
     }
   }
+  if(w.alsoNote)also+=`<div class="threshline" style="margin-top:6px">There is a second way out: ${w.alsoNote.replace(/^\u2014 or (by )?/,"")}.</div>`;
   return `<div class="ebgroup-label">${sGood?"Are you keeping it?":"Are you ending it?"}</div>
     <div class="sitprog ${vcls}">
       <div class="sitprog-v">${verdict}</div>
@@ -14995,6 +15044,7 @@ function renderDetail(){
           if(om)thr+=` (or ${om.name} ${s.watch.alsoOrAbove?"above":"below"} ${s.watch.alsoOrClearAt})`;
         }
       }
+      if(s.watch.alsoNote)thr+=" "+s.watch.alsoNote;
       thr+=`. Currently ${nm}: ${curTxt}.`;
       h+=`<div class="ebgroup-label">Trigger thresholds</div><div class="ebgroup"><div class="threshline">${thr}</div></div>`;
       // ...and whether you are actually getting there
