@@ -1359,6 +1359,18 @@
   /* political compass */
   .compass-wrap{max-width:620px;margin:0 auto}
   .compass-svg{width:100%;height:auto;display:block;background:var(--paper-2);border:var(--rule) solid var(--ink);border-radius:var(--radius)}
+  .ec-wrap{margin:18px 0 6px;text-align:left}
+  .ec-head{font-family:var(--font-display);font-size:13px;letter-spacing:1.4px;color:var(--muted-1);margin-bottom:4px;text-transform:uppercase}
+  .ec-note{font-size:12px;line-height:1.55;color:var(--muted-2);margin-bottom:10px}
+  .ec-grid{display:grid;grid-template-columns:minmax(0,1fr) 190px;gap:14px;align-items:start}
+  @media(max-width:720px){.ec-grid{grid-template-columns:1fr}}
+  .ec-scrub{display:flex;align-items:center;gap:10px;margin-top:10px}
+  .ec-scrub input[type=range]{flex:1;min-width:0}
+  .ec-qlab{font-family:var(--font-data);font-size:12px;color:var(--ink);white-space:nowrap;min-width:118px}
+  .ec-legend{font-size:11px;line-height:1.7;color:var(--muted-2)}
+  .ec-legend b{color:var(--ink)}
+  .ec-legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:baseline}
+  .ec-read{font-family:var(--font-data);font-size:12px;color:var(--muted-2);margin-top:8px;line-height:1.6}
   .compass-legend{display:flex;flex-wrap:wrap;gap:16px;justify-content:center;margin:12px 0 4px;font-size:11px;color:var(--muted-2)}
   .compass-legend span{display:flex;align-items:center;gap:6px}
   .compass-legend i{width:12px;height:12px;border-radius:50%;display:inline-block}
@@ -1684,6 +1696,7 @@
 <div id="midtermModal" class="modal hidden"><div class="card" id="midtermCard"></div></div>
 <div id="surplusModal" class="modal hidden"><div class="card" id="surplusCard"></div></div>
 <div id="eoEventModal" class="modal hidden"><div class="card" id="eoEventCard" style="max-width:520px"></div></div>
+<div id="oppBillModal" class="modal hidden"><div class="card" id="oppBillCard" style="max-width:560px"></div></div>
 <div id="reserveModal" class="modal hidden"><div class="card" id="reserveCard" style="max-width:470px"></div></div>
 <div id="newGameModal" class="modal hidden" style="z-index:70"><div class="card" id="newGameCard" style="max-width:420px"></div></div>
 <div id="termLimitModal" class="modal hidden" style="z-index:65"><div class="card" id="termLimitCard" style="max-width:460px"></div></div>
@@ -6723,6 +6736,9 @@ const GAME={
   persRisk:"balanced",  // OIC portfolio posture: "conservative" | "balanced" | "aggressive"
   execOrders:{},        // id -> {state,term,signed,filed,ruling,resigns}
   pendingEoEvents:[],   // filings and rulings waiting for their popups, rulings first
+  pendingOppBill:null,  // {id, approp} — a bill the legislature passed, waiting on your desk
+  lastOppBill:-99,      // turn the last one arrived (they do not send one every quarter)
+  oppBillsSigned:0, oppBillsVetoed:0, oppBillsOverridden:0,
   reserveInfusion:0,    // pending one-time cash from a deliberate Rainy Day draw — consumed at the next settlement
   lastReserveDraw:-99,  // turn of the last deliberate reserve draw (cooldown)
   pendingShortfall:null,// {debt,rd} — a shortfall nearing crisis; end-quarter popup offers a Rainy Day paydown
@@ -9661,11 +9677,197 @@ function showQuarterReport(){
 /* A suit has been filed, or a court has ruled. Both get the same treatment as
    a floor vote: it is a real thing happening to something you did. */
 /* Show every queued filing and ruling in turn, then continue the chain. */
+/* ============================================================
+   BILLS FROM THE OTHER SIDE
+   ============================================================ */
+/* Which way the opposition pushes. You are one of two coalitions, and the
+   people across the aisle want the opposite of what you want. */
+function oppPushSign(){ return GAME.startId==="conservative" ? -1 : 1; }
+
+/* The bills a hostile chamber actually sends a governor of the other party.
+   Curated rather than drawn at random from the catalog, because the
+   interesting ones are the ones where signing is genuinely tempting and
+   vetoing genuinely costs you something — not whatever happens to be most
+   ideologically distant. Ordered roughly by how often it would come up. */
+const OPP_BILLS={
+  // sent to a Democratic governor by a Republican legislature
+  right:["truthInSentencing","taxCut","policeShield","schoolChoice","sanctuaryRepeal",
+         "medicaidWork","prevailingWageRepeal","tortReform","deregulation","rndTaxCredit",
+         "occupationalLicensing","civilServiceReform","parentalRights","adminSimplification"],
+  // sent to a Republican governor by a Democratic legislature
+  left:["childcareSubsidy","transitInvestment","gunStorage","carbonTax","preschoolForAll",
+        "behavioralHealth","universalMeals","safeConsumption","affordableHousing","waterRights",
+        "dataCenterEnergy","vaccineMandate","psilocybin"]
+};
+
+/* Article V §15a: the line-item veto reaches items in APPROPRIATION bills
+   and nothing else. In game terms that is a bill with a funding dial — you
+   can strike money, you cannot strike a policy. */
+function oppBillIsApprop(id){
+  const p=CATALOG[id]; if(!p)return false;
+  if(p.binary===true)return false;
+  const dialed=["slider","intensity","allocation"].indexOf(p.mechanic)>=0;
+  return dialed && (p.costFull||0)>0.04;
+}
+
+/* Article V §15b: two-thirds of BOTH chambers overrides a veto. Not the
+   three-fifths that governs revenue — a bigger number, and the reason a
+   governor who has merely lost the floor is still worth negotiating with.
+   A governor the public has given up on is easier to roll, because the
+   defectors they need come out of your own caucus. */
+function oppOverrideOdds(){
+  const sp=GAME.splinter;
+  const spH=sp?sp.house.length:0, spS=sp?sp.senate.length:0;
+  const oH=LEGIS.house-((GAME.legis&&GAME.legis.house)|0)-spH;
+  const oS=LEGIS.senate-((GAME.legis&&GAME.legis.senate)|0)-spS;
+  const p=gap=>gap<=0?0.90:clamp(0.90-gap*0.15,0.02,0.90);
+  const base=Math.min(p(LEGIS.quorumH-oH), p(LEGIS.quorumS-oS));
+  const weak=1+clamp((45-overallApproval())/55,-0.18,0.40);
+  return clamp(base*weak,0.01,0.95);
+}
+
+/* Does anything land on the desk this quarter? Only when you do not run the
+   building, and never more than one at a time. */
+function maybeSendOppBill(){
+  if(GAME.pendingOppBill)return;
+  if(GAME.turn<5)return;
+  if(GAME.turn-(GAME.lastOppBill??-99)<5)return;
+  if(floorFrozen())return;                      // nobody is in the building
+  const tier=legisStanding().tier;
+  if(["divided","hung","minorityPlus","minority"].indexOf(tier)<0)return;
+  // the further they are from your desk, the more they send
+  const rate={divided:0.30, hung:0.28, minorityPlus:0.45, minority:0.55}[tier]||0;
+  if(Math.random()>rate)return;
+  const pool=OPP_BILLS[oppPushSign()>0?"right":"left"]||[];
+  const live=pool.filter(id=>CATALOG[id] && !floorBlocked(id,"enact") && !pendingMeasure(id));
+  if(!live.length)return;
+  GAME.pendingOppBill={id: live[Math.floor(Math.random()*live.length)], approp:false};
+  GAME.pendingOppBill.approp=oppBillIsApprop(GAME.pendingOppBill.id);
+  GAME.lastOppBill=GAME.turn;
+}
+
+/* Signing it. The policy becomes real, at whatever level survived. */
+function _oppEnact(id, level){
+  if(!CATALOG[id])return;
+  mootCitizenMeasure(id,"enacted");
+  _applyEnact(id, 1);                     // the legislature passed it whole
+  if(level!=null && level<1){             // ...and then you struck the money out
+    const p=POLICIES[id]; if(!p)return;
+    if(p.mechanic==="slider"||p.mechanic==="allocation")p.value=level;
+    else if(p.mechanic==="intensity")p.intensity=level;
+  }
+}
+/* Who is pleased and who is not. Signing the other side's bill reads as
+   cooperation to the middle and as surrender to your own people; vetoing it
+   reads the other way round. */
+function _oppMood(dir, mag){
+  const mine = GAME.startId==="conservative"
+    ? ["conservative","libertarian","rural","timber","businessClass"]
+    : ["liberal","socialist","urban","publicUnions","students"];
+  const theirs = GAME.startId==="conservative"
+    ? ["liberal","socialist","urban","publicUnions"]
+    : ["conservative","libertarian","rural","businessClass"];
+  const why = dir>0 ? "Vetoed the other side's bill" : "Signed the other side's bill";
+  mine.forEach((b,i)=>createGrudge("v_"+b, dir*mag*(i<2?1:0.6), 0.9, why));
+  theirs.forEach(b=>createGrudge("v_"+b, -dir*mag*0.5, 0.9, why));
+  // the middle rewards a governor who signs and punishes one who fights
+  createGrudge("v_moderate", -dir*mag*0.45, 0.9, dir>0?"Another veto fight in Salem":"Worked across the aisle");
+  createGrudge("v_suburban", -dir*mag*0.30, 0.9, dir>0?"Salem gridlocked again":"Salem got something done");
+}
+
 function drainEoEvents(next){
   const q=GAME.pendingEoEvents||[];
   if(!q.length){ if(next)next(); return; }
   const ev=q.shift();
   showExecOrderEvent(ev, ()=>drainEoEvents(next));
+}
+/* The bill on your desk. Sign it, veto it and risk the override, or — only
+   on an appropriation — strike the money and let the rest through. */
+function showOppBill(next){
+  const B=GAME.pendingOppBill;
+  const card=document.getElementById("oppBillCard"), modal=document.getElementById("oppBillModal");
+  if(!B||!CATALOG[B.id]||!card||!modal){ GAME.pendingOppBill=null; if(next)next(); return; }
+  const p=CATALOG[B.id];
+  const odds=oppOverrideOdds();
+  const vetoCost=Math.max(3, Math.round(6*oppositionCapitalMult()));
+  const itemCost=Math.max(2, Math.round(3*oppositionCapitalMult()));
+  const theirs=GAME.startId==="conservative"?"Democratic":"Republican";
+  const canAfford=GAME.capital>=vetoCost, canItem=B.approp&&GAME.capital>=itemCost;
+  const oddsWord=odds>=0.7?"they almost certainly have the votes":odds>=0.45?"it would be close":odds>=0.2?"they would probably fall short":"they do not have the votes";
+  card.innerHTML=`<div class="sectionhdr">${ico('columns')} On your desk</div>
+    <div class="sectionsub">The ${theirs} majority has passed <b>${p.name}</b> and sent it to you. Oregon gives you no pocket veto — if you do nothing it becomes law, so the only question is whether you put your name on it or your veto.</div>
+    <div class="lg-verdict" style="margin:10px 0">${descHTML(p.desc)}</div>
+    <div class="rrow"><span class="rlabel">If it becomes law</span><span class="rval">${p.costFull?("costs $"+(p.costFull).toFixed(2)+"B/yr at full funding"):"no direct cost to the treasury"}</span></div>
+    <div class="rrow"><span class="rlabel">Override needs</span><span class="rval">two-thirds of both chambers — 40 and 20</span></div>
+    <div class="rrow"><span class="rlabel">If you veto</span><span class="rval" style="color:${odds>=0.5?'var(--clay)':'var(--good)'}">${Math.round(odds*100)}% chance they override — ${oddsWord}</span></div>
+    ${B.approp?`<div class="fnote" style="margin-top:8px">This is an appropriation, so Article V §15a lets you strike single items from it rather than killing the whole bill.</div>`:`<div class="fnote" style="margin-top:8px">This is a policy bill, not an appropriation — the line-item veto does not reach it. It is all of it or none of it.</div>`}
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
+      <button class="enactbtn" id="oppSign">Sign it into law</button>
+      ${B.approp?`<button class="enactbtn ghost" id="oppItem" ${canItem?'':'disabled'}>${canItem?`Line-item veto — strike the money, ◈ ${itemCost}`:`Need ◈ ${itemCost} to line-item it`}</button>`:''}
+      <button class="enactbtn ghost" id="oppVeto" ${canAfford?'':'disabled'}>${canAfford?`Veto it — ◈ ${vetoCost}`:`Need ◈ ${vetoCost} to veto`}</button>
+    </div>`;
+  modal.classList.remove("hidden");
+  const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true);
+    GAME.pendingOppBill=null; try{render();}catch(e){} if(next)next(); };
+  const onKey=e=>{ if(modal.classList.contains("hidden"))return;
+    if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); } };
+  document.addEventListener("keydown",onKey,true);
+  const sign=()=>{
+    GAME.oppBillsSigned=(GAME.oppBillsSigned||0)+1;
+    _oppEnact(B.id, 1);
+    _oppMood(-1, 6);
+    GAME.log.push(ico('doc')+" Signed "+p.name+" — the other side's bill, now yours to own");
+    close();
+  };
+  const item=()=>{
+    GAME.capital=clamp(GAME.capital-itemCost,0,100);
+    GAME.oppBillsSigned=(GAME.oppBillsSigned||0)+1;
+    // you struck the appropriation: the programme stands up, at a fraction
+    _oppEnact(B.id, 0.45);
+    _oppMood(-1, 2.5);
+    createGrudge("v_moderate", 2, 0.9, "Trimmed the bill rather than killing it");
+    GAME.log.push(ico('scissors')+" Line-item vetoed "+p.name+" — it stands up at a fraction of the money, ◈"+itemCost);
+    close();
+  };
+  const veto=()=>{
+    GAME.capital=clamp(GAME.capital-vetoCost,0,100);
+    GAME.oppBillsVetoed=(GAME.oppBillsVetoed||0)+1;
+    const overridden=Math.random()<odds;
+    _oppMood(+1, 7);
+    if(overridden){
+      GAME.oppBillsOverridden=(GAME.oppBillsOverridden||0)+1;
+      GAME.mandateShock=(GAME.mandateShock||0)-6;      // a veto that fails is worse than no veto
+      _oppEnact(B.id, 1);
+      createGrudge("v_moderate",-4,0.9,"Vetoed and was overridden");
+      GAME.log.push(ico('warning')+" Vetoed "+p.name+" — and the legislature overrode you. It is law anyway, and the ◈"+vetoCost+" is gone.");
+      showOppVerdict(false, p, next, modal, onKey);
+    } else {
+      GAME.floorFail=GAME.floorFail||{};
+      GAME.floorFail["enact"+B.id]=GAME.turn+6;        // it cannot come straight back
+      GAME.mandateShock=(GAME.mandateShock||0)+3;
+      GAME.log.push(ico('scales')+" Vetoed "+p.name+" — the override failed and the bill is dead, ◈"+vetoCost);
+      showOppVerdict(true, p, next, modal, onKey);
+    }
+    GAME.pendingOppBill=null;
+  };
+  document.getElementById("oppSign").onclick=sign;
+  const vb=document.getElementById("oppVeto"); if(vb&&!vb.disabled)vb.onclick=veto;
+  const ib=document.getElementById("oppItem"); if(ib&&!ib.disabled)ib.onclick=item;
+  setTimeout(()=>{try{document.getElementById("oppSign").focus({preventScroll:true});}catch(e){}},30);
+}
+/* How the veto landed. Its own screen, because whether an override held is
+   the single thing that tells you what your signature is still worth. */
+function showOppVerdict(sustained, p, next, modal, onKey){
+  const card=document.getElementById("oppBillCard");
+  card.innerHTML=`<div class="sectionhdr">${ico(sustained?'shield':'warning')} ${sustained?"Veto sustained":"Veto overridden"}</div>
+    <div class="sectionsub">${sustained
+      ? `They could not find two-thirds. <b>${p.name}</b> is dead and cannot come back for six quarters — and every member who thought about voting to override just learned what your signature is worth.`
+      : `They found two-thirds in both chambers. <b>${p.name}</b> is law over your objection, you spent the capital anyway, and Salem now knows your veto can be beaten.`}</div>
+    <button class="enactbtn" id="oppVerdictOk">${sustained?"Good":"Understood"} ▸</button>`;
+  const done=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true);
+    try{render();}catch(e){} if(next)next(); };
+  document.getElementById("oppVerdictOk").onclick=done;
+  setTimeout(()=>{try{document.getElementById("oppVerdictOk").focus({preventScroll:true});}catch(e){}},30);
 }
 function showExecOrderEvent(ev, next){
   const E=EXEC_ORDERS[ev.id]; if(!E){ if(next)next(); return; }
@@ -10283,6 +10485,173 @@ function recordLegacy(r){
 }
 function loadLegacy(){ try{ return JSON.parse(localStorage.getItem("sc_legacy")||"[]")||[]; }catch(e){ return []; } }
 
+/* Where a voter bloc stands on the same two axes the governance compass uses:
+   the state's economic role across, personal liberty against state authority
+   up. Blocs carry a four-part ideology; economic, government size and
+   environment are all statements about that economic role, so they fold into
+   one axis exactly as agendaVector folds them for policies. */
+function blocCompassPoint(sim){
+  const io=sim.ideology||{};
+  return { ec: clamp(((io.economic||0)+0.7*(io.govSize||0)+0.3*(io.environment||0))/2.0, -1, 1),
+           so: clamp((io.social||0), -1, 1) };
+}
+/* The mutually exclusive ideology family: it partitions the electorate and
+   sums to one, so a turnout-weighted mean over it is the electorate's centre
+   of gravity rather than an average of overlapping categories. */
+const EC_FAMILY=["socialist","liberal","moderate","conservative","libertarian"];
+/* Every bloc worth plotting as its own dot. The family above is drawn solid
+   because it is the partition; the rest are the interest and identity groups
+   sitting behind it, drawn faint. */
+const EC_OTHERS=["urban","suburban","rural","poor","middleIncome","wealthy","renters",
+  "homeowners","blueCollar","businessClass","collegeEducated","publicUnions","timber",
+  "transitCommuters","motorists","students","parents","retirees"];
+/* A bloc's share at quarter t, read off the recorded history (mem_ stores
+   size*100). Falls back to the live size before any history exists. */
+function ecShareAt(id, t){
+  const h=(GAME.history&&GAME.history["mem_"+id])||[];
+  let v=null;
+  for(const p of h){ if(p.turn<=t)v=p.value; else break; }
+  if(v===null)v=(SIMULANTS[id]?SIMULANTS[id].size*100:0);
+  return v/100;
+}
+/* Your own agenda point at quarter t. */
+function ecAgendaAt(t){
+  const h=(GAME.history&&GAME.history.compass)||[];
+  let v=null;
+  for(const p of h){ if(p.turn<=t)v=p; else break; }
+  if(!v){ const a=agendaVector(); v={ec:a.ec,so:a.so}; }
+  return { ec: clamp(v.ec/24,-1,1), so: clamp(v.so/12,-1,1) };
+}
+/* The electorate's centre of gravity at quarter t, weighted by share AND
+   turnout — the compass point of the people who actually vote. */
+function ecCentroidAt(t){
+  let wsum=0, ec=0, so=0;
+  for(const id of EC_FAMILY){
+    const sim=SIMULANTS[id]; if(!sim)continue;
+    const w=ecShareAt(id,t)*(sim.turnout||0.6);
+    const p=blocCompassPoint(sim);
+    wsum+=w; ec+=p.ec*w; so+=p.so*w;
+  }
+  return wsum>0 ? {ec:ec/wsum, so:so/wsum} : {ec:0,so:0};
+}
+/* The scrubbable panel. Rebuilt in place on every slider step. */
+function electorateCompassSVG(t){
+  const S=380, C=S/2, PAD=30, R=C-PAD;
+  const px=v=>+(C+clamp(v,-1,1)*R).toFixed(1);
+  const py=v=>+(C-clamp(v,-1,1)*R).toFixed(1);
+  let h="";
+  h+=`<rect x="${C-R}" y="${C-R}" width="${R}" height="${R}" fill="var(--clay)" opacity="0.10"/>`;
+  h+=`<rect x="${C}" y="${C-R}" width="${R}" height="${R}" fill="var(--slate-blue)" opacity="0.10"/>`;
+  h+=`<rect x="${C-R}" y="${C}" width="${R}" height="${R}" fill="var(--moss)" opacity="0.10"/>`;
+  h+=`<rect x="${C}" y="${C}" width="${R}" height="${R}" fill="var(--gold)" opacity="0.10"/>`;
+  for(let k=-4;k<=4;k++){
+    const off=(k/4)*R, bold=k===0;
+    h+=`<line x1="${C+off}" y1="${C-R}" x2="${C+off}" y2="${C+R}" stroke="${bold?'var(--ink)':'var(--line)'}" stroke-width="${bold?1.4:0.6}"/>`;
+    h+=`<line x1="${C-R}" y1="${C+off}" x2="${C+R}" y2="${C+off}" stroke="${bold?'var(--ink)':'var(--line)'}" stroke-width="${bold?1.4:0.6}"/>`;
+  }
+  h+=`<text x="${C}" y="${C-R-10}" text-anchor="middle" font-size="9" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.3">STATE AUTHORITY</text>`;
+  h+=`<text x="${C}" y="${C+R+18}" text-anchor="middle" font-size="9" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.3">PERSONAL LIBERTY</text>`;
+  h+=`<text x="${C-R-8}" y="${C}" text-anchor="middle" font-size="9" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.3" transform="rotate(-90 ${C-R-8} ${C})">ECONOMIC LEFT</text>`;
+  h+=`<text x="${C+R+8}" y="${C}" text-anchor="middle" font-size="9" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.3" transform="rotate(90 ${C+R+8} ${C})">ECONOMIC RIGHT</text>`;
+  // the faint interest-group layer
+  for(const id of EC_OTHERS){
+    const sim=SIMULANTS[id]; if(!sim||!sim.ideology)continue;
+    const p=blocCompassPoint(sim), sh=ecShareAt(id,t);
+    const rr=Math.max(2.2, Math.sqrt(sh)*15);
+    h+=`<circle cx="${px(p.ec)}" cy="${py(p.so)}" r="${rr.toFixed(1)}" fill="var(--muted-1)" fill-opacity="0.16" stroke="var(--muted-1)" stroke-opacity="0.3" stroke-width="0.7">`
+      +`<title>${sim.name} — ${(sh*100).toFixed(1)}% of the electorate</title></circle>`;
+  }
+  // the partition, solid, sized by share
+  const famCol={socialist:"var(--clay)", liberal:"var(--slate-blue)", moderate:"var(--muted-1)",
+                conservative:"var(--gold)", libertarian:"var(--moss)"};
+  for(const id of EC_FAMILY){
+    const sim=SIMULANTS[id]; if(!sim)continue;
+    const p=blocCompassPoint(sim), sh=ecShareAt(id,t);
+    const rr=Math.max(3.5, Math.sqrt(sh)*30);
+    h+=`<circle cx="${px(p.ec)}" cy="${py(p.so)}" r="${rr.toFixed(1)}" fill="${famCol[id]}" fill-opacity="0.55" stroke="var(--paper)" stroke-width="1.4">`;
+    h+=`<title>${sim.name} — ${(sh*100).toFixed(1)}% of the electorate</title></circle>`;
+    h+=`<text x="${px(p.ec)}" y="${py(p.so)+3}" text-anchor="middle" font-size="8" font-family="var(--font-data)" fill="var(--ink)" opacity="0.75">${(sh*100).toFixed(0)}</text>`;
+  }
+  // where the electorate's centre of gravity has walked, up to this quarter
+  const cpts=[];
+  for(let q=0;q<=t;q++){ const c=ecCentroidAt(q); cpts.push(px(c.ec)+","+py(c.so)); }
+  if(cpts.length>1)h+=`<polyline points="${cpts.join(" ")}" fill="none" stroke="var(--ink)" stroke-width="1.6" opacity="0.35" stroke-linejoin="round"/>`;
+  // and where yours has
+  const apts=[];
+  for(let q=0;q<=t;q++){ const a=ecAgendaAt(q); apts.push(px(a.ec)+","+py(a.so)); }
+  if(apts.length>1)h+=`<polyline points="${apts.join(" ")}" fill="none" stroke="var(--clay)" stroke-width="1.6" opacity="0.5" stroke-dasharray="4 3" stroke-linejoin="round"/>`;
+  const c0=ecCentroidAt(0), cN=ecCentroidAt(t), aN=ecAgendaAt(t);
+  h+=`<circle cx="${px(c0.ec)}" cy="${py(c0.so)}" r="4" fill="none" stroke="var(--ink)" stroke-width="1.6" opacity="0.45"/>`;
+  h+=`<circle cx="${px(cN.ec)}" cy="${py(cN.so)}" r="7" fill="var(--ink)" stroke="var(--paper)" stroke-width="2"/>`;
+  h+=`<text x="${px(cN.ec)}" y="${py(cN.so)-11}" text-anchor="middle" font-size="8" font-family="var(--font-data)" fill="var(--ink)">ELECTORATE</text>`;
+  h+=`<circle cx="${px(aN.ec)}" cy="${py(aN.so)}" r="6" fill="var(--clay)" stroke="var(--paper)" stroke-width="2"/>`;
+  h+=`<text x="${px(aN.ec)}" y="${py(aN.so)+17}" text-anchor="middle" font-size="8" font-family="var(--font-data)" fill="var(--clay)">YOU</text>`;
+  return `<svg class="compass-svg" viewBox="0 0 ${S} ${S}" role="img" aria-label="The electorate on the political compass">${h}`+
+    `<rect x="${C-R}" y="${C-R}" width="${2*R}" height="${2*R}" fill="none" stroke="var(--ink)" stroke-width="1.4"/></svg>`;
+}
+function ecQuarterLabel(t){
+  const yr=GAME.startYear+Math.floor(t/4);
+  return "Q"+((t%4)+1)+" "+yr+" · quarter "+t;
+}
+function ecReadout(t){
+  const c0=ecCentroidAt(0), cN=ecCentroidAt(t), aN=ecAgendaAt(t);
+  const dx=cN.ec-c0.ec, dy=cN.so-c0.so;
+  const band=v=>{const a=Math.abs(v); return a<0.012?"has not moved":a<0.04?"has edged":a<0.09?"has moved":"has moved sharply";};
+  const xw=dx>0?"right":"left", yw=dy>0?"toward state authority":"toward personal liberty";
+  const gapX=aN.ec-cN.ec, gapY=aN.so-cN.so;
+  const gap=Math.sqrt(gapX*gapX+gapY*gapY);
+  const gw=gap<0.10?"sitting almost on top of them":gap<0.25?"close to where they are":gap<0.45?"a clear step away from them":"a long way from them";
+  return `Since you took office the electorate ${band(dx)} <b>${xw}</b> economically and ${band(dy)} <b>${yw}</b>. `+
+    `Your own agenda is ${gw}.`;
+}
+/* The election-night panel: the compass, a scrubber over every quarter you
+   have governed, and a legend. */
+function electorateCompassHTML(){
+  const t=GAME.turn;
+  const sg=GAME.oppBillsSigned||0, vt=GAME.oppBillsVetoed||0, ov=GAME.oppBillsOverridden||0;
+  const vetoLine=(sg+vt)?`<div class="ec-note" style="margin-bottom:14px"><b>The veto pen:</b> ${sg} bill${sg===1?"":"s"} from the other side signed, ${vt} vetoed${ov?`, and <b style="color:var(--clay)">${ov} of those overridden</b> — two-thirds of both chambers, over your objection`:(vt?`, every one of them sustained`:"")}.</div>`:"";
+  return `<div class="ec-wrap">
+    ${vetoLine}
+    <div class="ec-head">The electorate, and you</div>
+    <div class="ec-note">Every voter bloc placed on the same two axes as your governing compass — the state's economic role across, personal liberty against state authority up. A bloc's position is what it believes and does not move; the <b>size of its dot is how much of the electorate it is</b>, and that does move. The five coloured dots are the ideological partition (they sum to the whole state); the faint ones behind are the interest and identity groups. <b>ELECTORATE</b> is their turnout-weighted centre of gravity and the hollow ring is where it started; <b>YOU</b> is your enacted agenda. Drag the slider to run the term back.</div>
+    <div class="ec-grid">
+      <div>
+        <div id="ecCanvas">${electorateCompassSVG(t)}</div>
+        <div class="ec-scrub">
+          <span class="ec-qlab" id="ecQLab">${ecQuarterLabel(t)}</span>
+          <input type="range" id="ecSlider" min="0" max="${t}" value="${t}" step="1" aria-label="Quarter">
+        </div>
+        <div class="ec-read" id="ecRead">${ecReadout(t)}</div>
+      </div>
+      <div class="ec-legend">
+        <div><i style="background:var(--clay)"></i><b>Socialist</b></div>
+        <div><i style="background:var(--slate-blue)"></i><b>Liberal</b></div>
+        <div><i style="background:var(--muted-1)"></i><b>Moderate</b></div>
+        <div><i style="background:var(--gold)"></i><b>Conservative</b></div>
+        <div><i style="background:var(--moss)"></i><b>Libertarian</b></div>
+        <div style="margin-top:8px"><i style="background:var(--ink)"></i><b>Electorate</b> — centre of gravity</div>
+        <div><i style="background:var(--clay)"></i><b>You</b> — your enacted agenda</div>
+        <div style="margin-top:8px;opacity:.85">The number inside each dot is that bloc's share of the electorate, in per cent.</div>
+      </div>
+    </div>
+  </div>`;
+}
+/* Wire the scrubber. Called after the election card is in the DOM. */
+function wireElectorateCompass(root){
+  const sl=(root||document).querySelector("#ecSlider");
+  if(!sl)return;
+  const draw=()=>{
+    const t=+sl.value;
+    const cv=(root||document).querySelector("#ecCanvas");
+    const lb=(root||document).querySelector("#ecQLab");
+    const rd=(root||document).querySelector("#ecRead");
+    if(cv)cv.innerHTML=electorateCompassSVG(t);
+    if(lb)lb.textContent=ecQuarterLabel(t);
+    if(rd)rd.innerHTML=ecReadout(t);
+  };
+  sl.addEventListener("input",draw);
+  sl.addEventListener("change",draw);
+}
 function showElection(r){
   const succ=!!r.successor;              // term-limited out: the race is for your successor, not you
   GAME.gameOver=!r.won||succ;
@@ -10351,6 +10720,7 @@ function showElection(r){
     ${egRcvTable(r)}
     ${legislatureSectionHTML(r.legis)}
     ${measureResultMapsHTML(r.measures)}
+    ${electorateCompassHTML()}
     ${recordSectionHTML({won, successor:succ})}
     ${egBlocCharts(r.blocs)}
     ${(won && !succ)
@@ -10366,6 +10736,7 @@ function showElection(r){
   modal.classList.remove("hidden");
   // animate: vote bar fills, then counties "report in" fastest-counting first
   setTimeout(()=>{ card.querySelectorAll('.eg-bar i').forEach(b=>{ b.style.width=b.dataset.w+"%"; }); }, 180);
+  try{ wireElectorateCompass(card); }catch(e){}
   const ctyEls=[...card.querySelectorAll('.cty')];
   // hover / focus a county to read its result
   const readEl=card.querySelector("#egCtyRead"), readDflt=readEl?readEl.textContent:"";
@@ -11921,7 +12292,7 @@ function _runTicks(){
   GAME.lastBalance=budgetBalance().balance;
   GAME.surplusStreak=(GAME.lastBalance>0.5)?Math.min(9,(GAME.surplusStreak||0)+1)
                                             :Math.max(0,(GAME.surplusStreak||0)-2);
-  settleFiscal(); tickNationalMood(); tickSituations(); tickOpposition(); maybeFireDilemma();
+  settleFiscal(); tickNationalMood(); tickSituations(); tickOpposition(); maybeFireDilemma(); maybeSendOppBill();
   tickIndicators(); tickGrudges(); tickCynComp(); tickExpectations(); tickGroundGame(); tickCountyCamp();
   tickBallotCampaign();
   tickApproval(); tickVoterApproval(); checkActivistTriggers();
@@ -11991,7 +12362,11 @@ function doEndTurn(){
     else if(GAME.pendingShortfall) showShortfallChoice(afterSurplus);
     else afterSurplus();
   };
-  drainEoEvents(afterEo);
+  const afterOpp=()=>{
+    if(GAME.pendingOppBill) showOppBill(afterEo);
+    else afterEo();
+  };
+  drainEoEvents(afterOpp);
 }
 /* election quarter — ticks run for the campaign quarter, then the election fires */
 function doElectionTurn(){
@@ -17085,7 +17460,8 @@ function bootWorld(startId){
   GAME.activeSituations={}; GAME.situationAge={}; GAME.eventCooldown={}; GAME.grudges=[]; GAME.history={};
   GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.surplusStreak=0; GAME.lawLock={};
   GAME.csfCorpus=2.10; GAME.csfPayout=0.08; GAME.csfElliottMult=1; GAME.csfSaleBooked=false; GAME.esfLottoIn=0; GAME.persRisk="balanced";
-  GAME.execOrders={}; GAME.pendingEoEvents=[];
+  GAME.execOrders={}; GAME.pendingEoEvents=[]; GAME.pendingOppBill=null; GAME.lastOppBill=-99;
+  GAME.oppBillsSigned=0; GAME.oppBillsVetoed=0; GAME.oppBillsOverridden=0;
   GAME.floorFreeze=0; GAME.walkoutSide=null; GAME.walkoutCooldownUntil=0; GAME.walkoutIgnoredUntil=0; GAME.protestIgnoredUntil=0; GAME.splinter=null;
   // the band is set from the world this boot produces, so the pre-roll below
   // must run unbanded — otherwise a second boot inherits the first one's anchor
