@@ -3881,9 +3881,11 @@ const CATALOG={
     blocEffect:{renters:6, businessClass:4, blueCollar:3, moderate:2, urban:2, collegeEducated:1, homeowners:-5, suburban:-3, rural:-2, conservative:-2},
     real:{min:0,max:100,unit:"/100 ambition",decimals:0,label:"production push"},
     ideology:{economic:-0.2,govSize:-0.2}},
-  singleStair:{name:"Single Staircase Building Reform", domain:"social", icon:"house", mechanic:"slider", niche:true, binary:true,
+  singleStair:{name:"Single Staircase Building Reform", domain:"social", icon:"house", mechanic:"law", niche:true, binary:true,
     desc:"Allow residential buildings up to 6 stories to be built with a single exit staircase instead of the required two. Oregon passed the core reform in 2023 (HB 2780), but implementation is uneven and the reform is limited to smaller buildings. Expanding it to more building types and heights unlocks much cheaper, deeper floorplates — the floor area previously lost to a second stairwell becomes a bedroom or studio. Developers estimate it cuts per-unit construction costs 12–18% in mid-rise projects, enabling more missing-middle infill in cities that can't support towers. Every major peer nation already allows this. It is a building-code change — it costs the treasury nothing; the fight is purely political.",
-    value:0.5, capital:6, enactCapital:10, phaseIn:5,
+    // No slider: the code either allows a single stair or it does not, and
+    // allowing it costs the treasury nothing. The fight is entirely political.
+    capital:6, enactCapital:10, phaseIn:5,
     effects:{homelessness:{b:-1,c:-8,i:4}, inequality:-2, gdp:0.1},
     indicatorEffects:{inMigration:2, businessClimate:2, housingAffordability:5},
     blocEffect:{renters:5, blueCollar:3, businessClass:3, liberal:3, moderate:2, homeowners:-3, suburban:-2},
@@ -4040,10 +4042,12 @@ const CATALOG={
     value:0.5, costFull:0.35, capital:6, enactCapital:10,
     blocEffect:{urban:7, businessClass:4, liberal:3, transitCommuters:2, collegeEducated:2, rural:-5, suburban:-3, conservative:-3, timber:-2, libertarian:-2},
     effects:{propertyCrime:-2,gdp:0.1,transitShare:2}, indicatorEffects:{downtown:12,businessClimate:3,inMigration:2}, ideology:{economic:-0.2,govSize:-0.3}},
-  officeConversion:{name:"Office-to-Housing Conversion", domain:"social", icon:"factory", phaseIn:7, mechanic:"law",
-    desc:"Tax incentives and code relief to convert empty downtown office towers into housing — attacking the post-COVID vacancy and the housing shortage at once.",
-    enabled:true, costFull:0.2, capital:6, enactCapital:9,
-    effects:{homelessness:{b:-1,c:-5,i:4},inequality:-1}, indicatorEffects:{downtown:7,businessClimate:3}, ideology:{economic:-0.2,govSize:-0.2}},
+  officeConversion:{name:"Office-to-Housing Conversion", domain:"social", icon:"factory", phaseIn:7, mechanic:"slider",
+    desc:"Tax incentives, gap financing and code relief to convert empty downtown office towers into housing — attacking the post-COVID vacancy and the housing shortage at once. Unlike a code change, this one is bought: a conversion is structurally expensive (new plumbing stacks, new window layouts, floorplates too deep to daylight), and the subsidy is what closes the gap between what the building costs to convert and what the apartments will rent for. Dial it low and a handful of the easiest towers pencil out; dial it high and the marginal ones do too, at real cost per unit.",
+    enabled:true, value:0.5, costFull:0.55, capital:6, enactCapital:9,
+    effects:{homelessness:{b:-1,c:-5,i:4},inequality:-1}, indicatorEffects:{downtown:7,businessClimate:3},
+    blocEffect:{renters:4, urban:4, businessClass:3, blueCollar:3, liberal:2, wealthy:-1},
+    ideology:{economic:-0.2,govSize:-0.2}},
   kickerReform:{name:"Kicker Reform", domain:"economy", icon:"cash-fly", mechanic:"law", reform:true,
     desc:"Retain Oregon's unique constitutional 'kicker' — the automatic refund of any revenue exceeding forecast by 2% — in a reserve instead of rebating it. Stabilizes the budget; enrages tax-conscious voters. A genuine third rail.",
     enabled:true, revenue:0.8, capital:14, enactCapital:18,
@@ -5331,58 +5335,39 @@ const DILEMMAS={
       {label:"Cut a deal — give ground on the agenda",
        text:"You hand organisers enough to declare victory: a task force, a rule restored, a line item put back. Most of the rightward drift is conceded and the marches thin out within a fortnight. Conservatives and business say you folded to a Portland mob; your base is relieved, if not impressed.",
        apply:()=>{
+         const V=protestSide();
          GAME.capital=clamp(GAME.capital-8,0,100);
-         GAME.agendaBaseline+=agendaRightwardShift()*0.6;   // most of the drift is conceded
+         // walking the drift back means moving the baseline TOWARD where you
+         // are, whichever direction you drifted
+         GAME.agendaBaseline+=agendaRightwardShift()*0.6;
          endSituation("leftProtests");
-         createGrudge("v_liberal",8,0.9,"Listened to the street");
-         createGrudge("v_socialist",7,0.9,"Governor backed down");
-         createGrudge("v_urban",5,0.9,"Protests heard");
-         createGrudge("v_publicUnions",5,0.9,"Agenda walked back");
-         createGrudge("v_students",4,0.9,"Won concessions");
-         createGrudge("v_conservative",-8,0.9,"Caved to a mob");
-         createGrudge("v_businessClass",-6,0.9,"Reversed course under pressure");
-         createGrudge("v_moderate",-4,0.9,"Looked shaky");
-         createGrudge("v_rural",-3,0.9,"Portland got its way");
-         shiftCompass(-0.3,-0.2);
-         GAME.log.push(ico('handshake')+" Cut a deal with Portland organisers — agenda drift walked back, ◈ 8 spent");
+         protestGrudges(V.dealUp); protestGrudges(V.dealDown);
+         shiftCompass(V.dealCompass[0],V.dealCompass[1]);
+         GAME.log.push(ico('handshake')+" "+V.dealLog);
        }},
       {label:"Send in the State Police",
        text:"Oregon State Police move into downtown Portland and clear the square and the park within 48 hours. The city reopens and the news cycle turns — but the footage of troopers hauling demonstrators off Broadway does not, and the left will remember which governor sent them. Each time you do this the base comes back angrier.",
        apply:()=>{
+         const V=protestSide();
          GAME.capital=clamp(GAME.capital-4,0,100);
          GAME.protestCrackdowns=(GAME.protestCrackdowns||0)+1;
          GAME.protestIgnoredUntil=GAME.turn+3;
          endSituation("leftProtests");
          GAME.mandateShock=(GAME.mandateShock||0)+3;
-         for(const s of ["liberal","socialist","urban","students","collegeEducated","publicUnions"])
-           if(SIMULANTS[s])SIMULANTS[s].cynicism=(SIMULANTS[s].cynicism||0)+3;
-         createGrudge("v_conservative",10,0.9,"Restored order");
-         createGrudge("v_suburban",7,0.9,"Cleared the streets");
-         createGrudge("v_moderate",5,0.9,"Ended the disruption");
-         createGrudge("v_wealthy",5,0.9,"Order restored");
-         createGrudge("v_businessClass",5,0.9,"Downtown reopened");
-         createGrudge("v_rural",4,0.9,"Cracked down on Portland");
-         createGrudge("v_retirees",3,0.9,"Law and order");
-         createGrudge("v_liberal",-12,0.92,"Sent police against demonstrators");
-         createGrudge("v_socialist",-16,0.92,"State violence against the left");
-         createGrudge("v_urban",-9,0.92,"Troopers on Broadway");
-         createGrudge("v_students",-9,0.92,"Crackdown on protest");
-         createGrudge("v_collegeEducated",-6,0.92,"Civil-liberties alarm");
-         createGrudge("v_publicUnions",-5,0.92,"Ordered the crackdown");
-         createGrudge("i_ruralAlienation",-4,0.85,"Cracked down on Portland protests");
-         createGrudge("i_downtown",-4,0.8,"Police action in downtown Portland");
-         shiftCompass(0.15,0.8);
-         GAME.log.push(ico('shield')+" Sent Oregon State Police to clear downtown Portland");
+         for(const c of V.forceCynics)
+           if(SIMULANTS[c])SIMULANTS[c].cynicism=(SIMULANTS[c].cynicism||0)+3;
+         protestGrudges(V.forceUp);
+         (V.forceDown||[]).forEach(g=>createGrudge("v_"+g[0], g[1], 0.92, g[2]));
+         (V.forceInds||[]).forEach(g=>createGrudge(g[0], g[1], 0.83, g[2]));
+         shiftCompass(V.forceCompass[0],V.forceCompass[1]);
+         GAME.log.push(ico('shield')+" "+V.forceLog);
        }},
       {label:"Say nothing — let it burn out",
        text:"No deal, no troopers. You keep governing and let the wave lose energy on its own. It keeps costing you capital and keeps downtown Portland tense for weeks, but nobody gets dragged off Broadway on camera, and the left grudgingly notes you didn't send anyone after them.",
        apply:()=>{
-         createGrudge("v_liberal",3,0.9,"Didn't repress the protests");
-         createGrudge("v_socialist",4,0.9,"No crackdown");
-         createGrudge("v_moderate",-3,0.9,"Weeks of drift");
-         createGrudge("v_businessClass",-3,0.9,"Downtown left to stew");
-         createGrudge("v_suburban",-2,0.9,"No end in sight");
-         GAME.log.push(ico('doc')+" Let the Portland protest wave run its course");
+         const V=protestSide();
+         protestGrudges(V.quietUp); protestGrudges(V.quietDown);
+         GAME.log.push(ico('doc')+" "+V.quietLog);
        }},
     ]},
   pucRateCase:{title:"The PUC Rate Case", icon:"plug", cooldown:10,
@@ -6143,19 +6128,20 @@ const SITUATIONS={
     watch:{metric:"inequality", startAt:74, clearAt:64, badHigh:true},
     metricEffect:{violentCrime:0.6,propertyCrime:0.6,gdp:-0.10}, moodAxes:{economic:-0.4}, moodMag:1,
     groupMood:{poor:-8,blueCollar:-6,liberal:-5,wealthy:2,socialist:-4}},
-  leftProtests:{name:"Portland Protest Wave", kind:"bad", category:"condition",
+  leftProtests:{name:"Portland Protest Wave", kind:"bad", category:"condition",   // name, desc, mood and indicator effect are set by applyProtestSide()
     desc:"You have spent real political capital moving the state's agenda visibly to the right of where you started, and your left flank has taken it to the streets of Portland — weekend marches downtown, a standing camp in Waterfront Park, Broadway closed on Saturdays. It bleeds a little growth and tourism, keeps downtown Portland on edge, and drains your political capital every quarter it runs. It fades on its own once you steer the agenda back toward where you started; until then the dilemma lets you concede ground to organisers, send Oregon State Police to clear downtown (fast, but it radicalises your base and the footage travels), or let it burn itself out over a few quarters.",
     trigger:()=>{
       if(GAME.turn<=4) return false;
       if(GAME.turn < (GAME.protestIgnoredUntil||0)) return false;
-      const shift=agendaRightwardShift();
+      const shift=agendaBaseDrift();          // away from the people who elected you
       if(shift<5) return false;
       const angry=sid=>{const x=SIMULANTS[sid]; return x?clamp((48-(x.approval??50))/38,0,1):0;};
-      const heat=clamp((shift-5)/10,0,1)*0.55 + angry("liberal")*0.35 + angry("socialist")*0.30 + angry("urban")*0.15 + angry("students")*0.10;
+      let heat=clamp((shift-5)/10,0,1)*0.55;
+      for(const hb of protestSide().heatBlocs)heat+=angry(hb[0])*hb[1];
       const radicalised=clamp((GAME.protestCrackdowns||0)*0.10,0,0.3);
       return Math.random() < clamp(0.03 + heat*0.32 + radicalised, 0, 0.6);
     },
-    clear:()=>agendaRightwardShift() < 2.5 || (GAME.situationAge && (GAME.situationAge.leftProtests||0) > 9),
+    clear:()=>agendaBaseDrift() < 2.5 || (GAME.situationAge && (GAME.situationAge.leftProtests||0) > 9),
     minTurns:3, onTrigger:{capital:-3}, capitalDrain:-3,
     metricEffect:{gdp:-0.08},
     indicatorEffect:{downtown:-3, tourism:-3, businessClimate:-2},
@@ -6436,8 +6422,13 @@ const SITUATIONS={
     indicatorEffect:{digitization:-4},
     groupMood:{poor:-8,blueCollar:-5,liberal:-3}},
   doomLoop:{name:"Portland Doom Loop", kind:"bad", category:"condition",
-    desc:"Empty offices, closed storefronts, and a battered reputation feed on each other — businesses leave because downtown is dying, and downtown dies because businesses leave. Crime, the addiction crisis and visible homelessness are what tip it over: with any of those running, downtown does not have to fall as far before the loop takes hold.",
-    trigger:()=>INDICATORS.downtown.value<40 || (INDICATORS.downtown.value<46 && (GAME.activeSituations.crimeWave||GAME.activeSituations.addictionCrisis||GAME.activeSituations.homelessEmergency)), clear:()=>INDICATORS.downtown.value>50 && !GAME.activeSituations.crimeWave && !GAME.activeSituations.addictionCrisis, onClear:{capital:2},
+    desc:"Empty offices, closed storefronts, and a battered reputation feed on each other — businesses leave because downtown is dying, and downtown dies because businesses leave. Crime, the addiction crisis and visible homelessness are what tip it over: with any of those running, downtown does not have to fall as far before the loop takes hold.\n\n→ TO FIX IT: get Downtown Perception back above 50. That is the only test — clearing the crime or addiction crises helps because downtown recovers when they end, not because the loop checks for them separately.",
+    trigger:()=>INDICATORS.downtown.value<40 || (INDICATORS.downtown.value<46 && (GAME.activeSituations.crimeWave||GAME.activeSituations.addictionCrisis||GAME.activeSituations.homelessEmergency)),
+    // Downtown perception is the whole test, and it is the one on the gauge
+    // above. Crime and the addiction crisis make the loop easier to FALL
+    // into — that is what the trigger is for — but they get no second,
+    // invisible vote on climbing out of it.
+    clear:()=>INDICATORS.downtown.value>50, onClear:{capital:2},
     watch:{indicator:"downtown", startAt:40, clearAt:50, badHigh:false},
     metricEffect:{gdp:-0.15},
     indicatorEffect:{inMigration:-6,businessClimate:-5},
@@ -6773,6 +6764,31 @@ function policyLevel(p){
 }
 // what a new law actually costs in capital right now — a high-momentum
 // opposition makes every enactment a harder floor fight.
+/* The cheapest this bill could possibly be: the best price over every
+   concession the floor screen will offer, with no cushion. If you cannot
+   afford this you cannot afford the bill under any circumstances, which is
+   the only case where greying out the button tells the truth. */
+let _minCostCache={turn:-1, map:{}};
+function minFloorCost(id, dir){
+  if(_minCostCache.turn!==GAME.turn)_minCostCache={turn:GAME.turn, map:{}};
+  const ck=dir+"|"+id;
+  if(ck in _minCostCache.map)return _minCostCache.map[ck];
+  const pol=(dir==="repeal")?POLICIES[id]:CATALOG[id];
+  if(!pol)return null;
+  const levels=(pol.binary===true) ? [1]
+    : (pol.mechanic==="tier"&&pol.tiers&&pol.tiers.length>1)
+      ? (()=>{ const t=pol.tiers.length-1, lo=Math.max(1,pol.tierMin||0), a=[];
+               for(let i=t;i>=lo;i--)a.push(i/t); return a.slice(0,4); })()
+      : [1,0.8,0.6,0.45];
+  let best=null;
+  for(const nv of levels){
+    const w=whipCount(id,dir,nv,0,true);
+    if(!w||!w.possible)continue;
+    if(best===null||w.cost<best)best=w.cost;
+  }
+  _minCostCache.map[ck]=best;
+  return best;   // null = there is no version of this that can pass
+}
 function policyEnactCost(p){
   const base=(p&&p.enactCapital!==undefined)?p.enactCapital:8;
   return Math.round(base*oppositionCapitalMult());
@@ -6927,6 +6943,87 @@ function agendaConservatism(){
   return s;
 }
 function agendaRightwardShift(){ return agendaConservatism()-(GAME.agendaBaseline||0); }
+/* The same number read from where the player is standing: how far the agenda
+   has drifted AWAY from the coalition that elected them. A Democratic
+   governor betrays their base by governing right; a Republican one betrays
+   theirs by governing left. Everything the protest wave does hangs off this,
+   not off the compass's own left-right sign. */
+function agendaBaseDrift(){
+  return (GAME.startId==="conservative"?-1:1)*agendaRightwardShift();
+}
+/* Whose street it is, and everything that follows from that. */
+const PROTEST_SIDES={
+  left:{
+    situation:"Portland Protest Wave",
+    sitDesc:"You have spent real political capital moving the state's agenda visibly to the right of where you started, and your left flank has taken it to the streets of Portland — weekend marches downtown, a standing camp in Waterfront Park, Broadway closed on Saturdays. It bleeds a little growth and tourism, keeps downtown Portland on edge, and drains your political capital every quarter it runs. It fades on its own once you steer the agenda back toward where you started; until then the dilemma lets you concede ground to organisers, send Oregon State Police in to clear downtown (fast, but it radicalises your base and the footage travels), or let it burn itself out over a few quarters.",
+    indicatorEffect:{downtown:-3, tourism:-3, businessClimate:-2},
+    groupMood:{moderate:-5, suburban:-4, businessClass:-5, wealthy:-3, retirees:-3, conservative:-2,
+               parents:-2, socialist:-1, liberal:-1},
+    heatBlocs:[["liberal",0.35],["socialist",0.30],["urban",0.15],["students",0.10]],
+    title:"Portland in the Streets", icon:"muscle",
+    text:"For six straight weekends downtown Portland has belonged to the marchers — Pioneer Courthouse Square to City Hall and back, a standing camp in Waterfront Park, Broadway closed on Saturdays. The grievance is specific and it is your record: the rules you've rolled back, the tax cuts, the harder line on enforcement — your left flank reads the whole rightward turn as a betrayal and wants it reversed. Organisers have permits, a press operation, and your switchboard. You can meet them partway and give ground on the agenda, send Oregon State Police in to clear downtown, or say nothing and let the wave burn itself out.",
+    dealLabel:"Cut a deal — give ground on the agenda",
+    dealText:"You hand organisers enough to declare victory: a task force, a rule restored, a line item put back. Most of the rightward drift is conceded and the marches thin out within a fortnight. Conservatives and business say you folded to a Portland mob; your base is relieved, if not impressed.",
+    dealUp:[["liberal",8,"Listened to the street"],["socialist",7,"Governor backed down"],["urban",5,"Protests heard"],["publicUnions",5,"Agenda walked back"],["students",4,"Won concessions"]],
+    dealDown:[["conservative",-8,"Caved to a mob"],["businessClass",-6,"Reversed course under pressure"],["moderate",-4,"Looked shaky"],["rural",-3,"Portland got its way"]],
+    dealCompass:[-0.3,-0.2],
+    dealLog:"Cut a deal with Portland organisers — agenda drift walked back, ◈ 8 spent",
+    forceLabel:"Send in the State Police",
+    forceText:"Oregon State Police move into downtown Portland and clear the square and the park within 48 hours. The city reopens and the news cycle turns — but the footage of troopers hauling demonstrators off Broadway does not, and the left will remember which governor sent them. Each time you do this the base comes back angrier.",
+    forceCynics:["liberal","socialist","urban","students","collegeEducated","publicUnions"],
+    forceUp:[["conservative",10,"Restored order"],["suburban",7,"Cleared the streets"],["moderate",5,"Ended the disruption"],["wealthy",5,"Order restored"],["businessClass",5,"Downtown reopened"],["rural",4,"Cracked down on Portland"],["retirees",3,"Law and order"]],
+    forceDown:[["liberal",-12,"Sent police against demonstrators"],["socialist",-16,"State violence against the left"],["urban",-9,"Troopers on Broadway"],["students",-9,"Crackdown on protest"],["collegeEducated",-6,"Civil-liberties alarm"],["publicUnions",-5,"Ordered the crackdown"]],
+    forceInds:[["i_ruralAlienation",-4,"Cracked down on Portland protests"],["i_downtown",-4,"Police action in downtown Portland"]],
+    forceCompass:[0.15,0.8],
+    forceLog:"Sent Oregon State Police to clear downtown Portland",
+    quietLabel:"Say nothing — let it burn out",
+    quietText:"No deal, no troopers. You keep governing and let the wave lose energy on its own. It keeps costing you capital and keeps downtown Portland tense for weeks, but nobody gets dragged off Broadway on camera, and the left grudgingly notes you didn't send anyone after them.",
+    quietUp:[["liberal",3,"Didn't repress the protests"],["socialist",4,"No crackdown"]],
+    quietDown:[["moderate",-3,"Weeks of drift"],["businessClass",-3,"Downtown left to stew"],["suburban",-2,"No end in sight"]],
+    quietLog:"Let the Portland protest wave run its course"
+  },
+  right:{
+    situation:"The Base in Revolt",
+    sitDesc:"You have spent real political capital moving the state's agenda visibly to the left of where you started, and the counties that elected you have noticed. Log-truck convoys circle the Capitol mall on Thursdays, county commissions are passing resolutions against you by unanimous vote, a recall petition is being circulated in earnest by people who ran your campaign, and the Greater Idaho signature drives that had gone quiet are moving again. It bleeds a little growth and tourism, keeps eastern Oregon at a rolling boil, and drains your political capital every quarter it runs. It fades on its own once you steer the agenda back toward where you started; until then the dilemma lets you concede ground to the organisers, send Oregon State Police to clear the mall and open the highway (fast, but it radicalises your base and the footage travels), or let it burn itself out over a few quarters.",
+    indicatorEffect:{ruralAlienation:6, tourism:-3, businessClimate:-2},
+    groupMood:{moderate:-5, suburban:-4, businessClass:-5, urban:-3, collegeEducated:-3, transitCommuters:-2,
+               parents:-2, liberal:-1, conservative:-1},
+    heatBlocs:[["conservative",0.35],["libertarian",0.30],["rural",0.15],["timber",0.10]],
+    title:"Convoys on the Capitol Mall", icon:"muscle",
+    text:"For six straight Thursdays the log trucks have come to Salem — a slow lap of the Capitol mall with the air horns going, a standing camp on the lawn, Court Street shut by lunchtime. The grievance is specific and it is your record: the regulations you've left standing, the taxes you didn't cut, the sanctuary law still on the books — the people who put you in the building read the whole leftward drift as a betrayal and want it reversed. The organisers are your own county chairs, they have a permit, a talk-radio operation, and your cell number. You can meet them partway and give ground on the agenda, send Oregon State Police to clear the mall, or say nothing and let it burn itself out.",
+    dealLabel:"Cut a deal — give ground on the agenda",
+    dealText:"You hand the organisers enough to declare victory: a rule pulled back, a task force killed, a line item restored. Most of the leftward drift is conceded and the convoys thin out within a fortnight. The valley papers say you were rolled by your own county chairs; your base is relieved, if not impressed.",
+    dealUp:[["conservative",8,"Listened to the counties"],["libertarian",7,"Governor backed down"],["rural",5,"Convoys heard"],["timber",5,"Agenda walked back"],["businessClass",4,"Won concessions"]],
+    dealDown:[["liberal",-8,"Caved to the convoys"],["publicUnions",-6,"Reversed course under pressure"],["moderate",-4,"Looked shaky"],["urban",-3,"Eastern Oregon got its way"]],
+    dealCompass:[0.3,0.2],
+    dealLog:"Cut a deal with the county chairs — agenda drift walked back, ◈ 8 spent",
+    forceLabel:"Send in the State Police",
+    forceText:"Oregon State Police clear the Capitol mall and open Court Street inside 48 hours, and the highway-blockade citations go out by mail the following week. Salem reopens and the news cycle turns — but the footage of troopers pulling ranchers off the Capitol steps does not, and the right will remember which governor sent them. Each time you do this the base comes back angrier.",
+    forceCynics:["conservative","libertarian","rural","timber","motorists","homeowners"],
+    forceUp:[["liberal",10,"Restored order"],["urban",7,"Cleared the mall"],["moderate",5,"Ended the disruption"],["collegeEducated",5,"Order restored"],["businessClass",5,"Salem reopened"],["publicUnions",4,"Faced down the convoys"],["retirees",3,"Law and order"]],
+    forceDown:[["conservative",-12,"Sent police against his own people"],["libertarian",-16,"State force against protest"],["rural",-9,"Troopers on the Capitol steps"],["timber",-9,"Citations for the convoy"],["motorists",-6,"Blockade citations by mail"],["businessClass",-4,"Turned on his own coalition"]],
+    forceInds:[["i_ruralAlienation",9,"Cleared the convoy off the Capitol mall"]],
+    forceCompass:[-0.15,0.8],
+    forceLog:"Sent Oregon State Police to clear the Capitol mall",
+    quietLabel:"Say nothing — let it burn out",
+    quietText:"No deal, no troopers. You keep governing and let the convoys lose energy on their own. It keeps costing you capital and keeps Salem tense for weeks, but nobody gets pulled off the Capitol steps on camera, and the counties grudgingly note you didn't send anyone after them.",
+    quietUp:[["conservative",3,"Didn't break up the convoys"],["libertarian",4,"No crackdown"]],
+    quietDown:[["moderate",-3,"Weeks of drift"],["businessClass",-3,"Salem left to stew"],["suburban",-2,"No end in sight"]],
+    quietLog:"Let the convoy protests run their course"
+  }
+};
+function protestSide(){ return PROTEST_SIDES[GAME.startId==="conservative"?"right":"left"]; }
+/* Copy the side's wording onto the situation and the dilemma. Called from
+   applyStart, so it is settled before anything renders. */
+function applyProtestSide(){
+  const V=protestSide(), S=SITUATIONS.leftProtests, E=DILEMMAS.protestResponse;
+  if(S){ S.name=V.situation; S.desc=V.sitDesc; S.indicatorEffect=V.indicatorEffect; S.groupMood=V.groupMood; }
+  if(E){ E.title=V.title; E.text=V.text;
+    const lab=[V.dealLabel,V.forceLabel,V.quietLabel], txt=[V.dealText,V.forceText,V.quietText];
+    (E.options||[]).forEach((o,i)=>{ if(lab[i]){o.label=lab[i]; o.text=txt[i];} }); }
+}
+/* Apply a list of [bloc, points, reason] grudges. */
+function protestGrudges(list){ (list||[]).forEach(g=>createGrudge("v_"+g[0], g[1], 0.9, g[2])); }
 /* the enacted agenda as a 2-axis political-compass point.
    ec: economic left(−) / right(+)   so: personal-liberty(−) / state-authority(+)
    Each ideology dimension feeds exactly ONE axis so the axes stay independent:
@@ -9436,7 +9533,7 @@ function showQuarterReport(){
     ${(()=>{const t=agendaRightwardShift();
       const w=t>9?"Hard right of your mandate":t>4?"Right of your mandate":t>1.5?"Drifting right":t<-9?"Hard left of your mandate":t<-4?"Left of your mandate":t<-1.5?"Drifting left":"On your mandate";
       const col=t>4?'var(--clay)':t<-4?'var(--slate-blue)':'inherit';
-      const warn=t>4&&!GAME.activeSituations.leftProtests?' <span style="color:var(--clay)">— protest risk rising</span>':'';
+      const warn=agendaBaseDrift()>4&&!GAME.activeSituations.leftProtests?' <span style="color:var(--clay)">— protest risk rising</span>':'';
       return `<div class="rrow"><span class="rlabel">Agenda tilt</span><span class="rval" style="color:${col}">${w}${warn}</span></div>`;})()}
     ${(()=>{ if(!GAME.opposition)return"";
       const m=GAME.opposition.momentum, d=histDelta("oppMomentum");
@@ -10900,7 +10997,24 @@ const VOTE_SD=1.9;         // vote-day noise per member: absences, conscience, a
                           // close votes stay coin-flips. Breaks still go BOTH ways.
 const VOTE_PROMISE=3.9;    // where a whipped member sits once they have taken the deal — committed, ~98% firm
 const VOTE_DRAWS=600;
-const VOTE_MARGIN=1.3;     // aim just past the line; the cushion buttons buy real insurance on top. Was 2.0, which baked two of the priciest (convex) votes into every "no push" quote.
+const VOTE_MARGIN=1.3;     // the fixed part of the margin: floor management, one absence
+const VOTE_Z=0.55;         // and the part that scales with the spread of the count itself,
+                           // tuned so a quoted whip is a likely win rather than a certain one
+                           // and the cushion buttons still have something left to buy
+const BILL_LOY_FLOOR=0.34; // the discipline a caucus brings to a bill nobody is watching
+/* How much of a party marker this bill is. A caucus whips what shows up in a
+   mailer: big bloc consequences, a clear ideological direction. It does not
+   whip a narrow technical change, and that is precisely why conceding one is
+   worth something — a bill scaled down to a fraction of itself stops being a
+   loyalty test and starts being a vote members can take on the merits. */
+function billSalience(pol){
+  const be=pol.blocEffect||{};
+  let m=0; for(const b in be)m+=Math.abs(be[b]);
+  const io=pol.ideology||{};
+  const i=Math.abs(io.economic||0)+Math.abs(io.social||0)
+         +Math.abs(io.environment||0)+Math.abs(io.govSize||0);
+  return clamp(m/38 + i/1.7, 0, 1);
+}
 function contentionVoteSD(cont){ return VOTE_SD*(1+Math.max(0,(cont||0)-0.35)*1.7); }  // divisive bills wobble more on the day
 /* Probability one member votes yes, given their inclination and vote-day noise. */
 function votePr(incl, sd){ return 1/(1+Math.exp(-incl*1.7/(sd||VOTE_SD))); }
@@ -10964,7 +11078,14 @@ function floorMembers(chamber, pol, dir, ctx){
       continue;
     }
     const mine=held.has(id);
-    const loyal=(mine?BILL_LOYALTY:-BILL_LOYALTY)
+    // Discipline is not a constant, and it is not symmetric. Your own caucus
+    // holds whatever the bill is: it is still the governor's bill and they still
+    // want the win, so watering it down does not cost you them. The OPPOSITION
+    // is what a concession buys. They whip a party marker; they do not whip a
+    // narrow technical change, and once a bill stops being the kind of thing
+    // that shows up in a mailer their members are free to vote the district.
+    const disc=BILL_LOYALTY*(ctx.disc==null?1:ctx.disc);
+    const loyal=(mine?BILL_LOYALTY:-disc)
               + (mine?1:0.3)*((INDICATORS.mandate.value-50)/50)*BILL_MANDATE;
     // a favour owed is a vote you already spent: they sit this one out on you
     const owed=(GAME.legis&&GAME.legis.favors&&GAME.legis.favors[chamber+id])||0;
@@ -10995,28 +11116,50 @@ function chamberWhip(chamber, pol, dir, ctx, cushion){
   // the expected vote — the sum of each member's probability of voting for it —
   // so the headline number means something and the odds follow from it.
   const _sd=ctx.voteSD||VOTE_SD;
-  let expect=0; for(const m of members)expect+=votePr(m.incl,_sd);
+  const pr=members.map(m=>votePr(m.incl,_sd));
+  let expect=0; for(const p of pr)expect+=p;
   const yes=members.filter(m=>m.incl>0);
-  // aim a little past the line: landing exactly on it is a coin flip. A pending
-  // change buys only to the line and sells the safety margin separately, so the
-  // price you are quoted is for passing it, not for passing it comfortably.
-  const mgn=(ctx.margin==null?VOTE_MARGIN:ctx.margin);
-  const short=Math.max(0,Math.ceil(need+mgn-expect));
+  // The line is not the expected count. A chamber of sixty members sitting at
+  // even odds has an expected count right where you want it and loses half the
+  // time, because the spread of that sum is about four votes. So the margin has
+  // a fixed part and a part that scales with the count's own standard
+  // deviation: a firm chamber needs almost nothing, and a mushy one — which is
+  // what you get when nobody in the room cares much either way — needs real
+  // votes bought before the number on the screen means anything.
   // the cheapest holdouts, in order, and what each further vote adds
-  const pool=members.filter(m=>votePr(m.incl,_sd)<0.72&&m.buyable).sort((a,b)=>a.resist-b.resist);
-  // buying past the minimum is insurance: the vote is not certain, and a
-  // cushion is what a whip actually spends money on
+  const pool=members.map((m,i)=>({m,i,p:pr[i]}))
+                    .filter(o=>o.p<0.72&&o.m.buyable)
+                    .sort((a,b)=>a.m.resist-b.m.resist);
+  const firmP=votePr(VOTE_PROMISE,_sd);
+  const fv=firmP*(1-firmP);
+  // Walk the buy order until the expected count clears the line by the spread
+  // that is left. Buying firms members up, which shrinks the spread, so the
+  // target comes down as you go and the loop always terminates.
+  let ex=expect, va=0; for(const p of pr)va+=p*(1-p);
+  const fixedMgn=(ctx.margin==null?VOTE_MARGIN:ctx.margin);
+  const target=()=>need+fixedMgn+(ctx.margin==null?VOTE_Z*Math.sqrt(Math.max(va,0)):0);
+  let k=0;
+  while(ex<target() && k<pool.length){
+    const o=pool[k];
+    ex+=firmP-o.p; va+=fv-o.p*(1-o.p);
+    k++;
+  }
+  const short=k;                    // votes it takes to be SAFE, not merely even
+  // buying past that is insurance on top, which is what the cushion buttons are
   const want=Math.min(pool.length, short+(cushion||0));
-  const buy=pool.slice(0,want);
+  const buy=pool.slice(0,want).map(o=>o.m);
+  // "possible" is the weaker question the block label asks: could the votes
+  // exist at all, at any price, if you bought every holdout in the room.
+  let ceiling=expect; for(const o of pool)ceiling+=firmP-o.p;
   let cost=0;
   buy.forEach((m,i)=>{ cost+=m.resist*BILL_WHIP*(1+i*BILL_CONVEX); });
   return {chamber, members, total, need, yes:Math.round(expect), firm:yes.length, expect, short,
           buy, cost:Math.ceil(cost),
-          possible: short===0 || buy.length>=short,
+          possible: ceiling>=need+0.5,
           unbuyable: members.filter(m=>m.incl<=0&&!m.buyable).length};
 }
 /* Both chambers. Returns everything the floor screen needs. */
-function whipCount(id, dir, narrowed, cushion){
+function whipCount(id, dir, narrowed, cushion, skipOdds){
   const pol=(dir==="repeal")?POLICIES[id]:CATALOG[id];
   if(!pol)return null;
   // a concession is a weaker bill: scale what it does to everyone at once
@@ -11032,6 +11175,12 @@ function whipCount(id, dir, narrowed, cushion){
     ease:_drag?(()=>-_drag):null,
     hHeld:new Set((GAME.legis&&GAME.legis.hHeld)||[...legisSeatMap(OR_HOUSE_DISTRICTS,(GAME.legis&&GAME.legis.house)||0).mine]),
     sHeld:new Set((GAME.legis&&GAME.legis.sHeld)||[...legisSeatMap(OR_SENATE_DISTRICTS,(GAME.legis&&GAME.legis.senate)||0).mine]) };
+  // a smaller bill is a smaller loyalty test — this is what a concession buys
+  // Discipline falls in step with the concession. Salience is measured on the
+  // bill as written (a marquee bill clamps at 1) and then scaled by how far it
+  // has been narrowed, so a half-strength bill is half the loyalty test —
+  // rather than staying a full one because its uncut form was well over the cap.
+  ctx.disc=BILL_LOY_FLOOR+(1-BILL_LOY_FLOOR)*clamp(billSalience(pol)*nw,0,1);
   const cu=cushion||0;
   const H=chamberWhip("house",scaled,dir,ctx,cu), S=chamberWhip("senate",scaled,dir,ctx,cu);
   const base=Math.round(BILL_FLOOR_COST*oppositionCapitalMult());
@@ -11039,7 +11188,8 @@ function whipCount(id, dir, narrowed, cushion){
           cost:H.cost+S.cost+base, base,
           possible:H.possible&&S.possible,
           free:(H.short===0&&S.short===0&&cu===0)};
-  w.odds=votePassOdds(w);
+  // the index page prices dozens of bills a render and never shows the odds
+  w.odds=skipOdds?0:votePassOdds(w);
   return w;
 }
 /* The whip count is a projection, not a result. Members are absent, vote their
@@ -11278,7 +11428,7 @@ function drawFloor(){
     ${binary?`<div class="conc-h">${ico('handshake')} It passes or it does not — there is no half of this one</div>`
       :`<div class="conc-h">${ico('handshake')} ${dialed
       ? "Where it starts — you are voting the dial, and a lower one is an easier vote"
-      : "How strong a bill — a weaker one is a cheaper one"}</div>
+      : "How strong a bill — a narrower one is not just cheaper, it stops being a party-line vote"}</div>
     <div class="conc-row">${opts}</div>`}
     <div class="odds-box ${w.odds>=0.8?'good':w.odds>=0.5?'mid':'bad'}">
       <span class="odds-n">${Math.round(w.odds*100)}%</span>
@@ -13923,10 +14073,22 @@ function indTrend(key){
 
 /* ---------- DETAIL PAGE ---------- */
 let detailKey=null;
+/* Which tab you were on when you opened a detail page, so "back" goes where
+   you actually came from rather than always to the board. */
+let detailFrom="board";
+const DETAIL_HOME={
+  board:{view:"board",  label:"‹ Back to board"},
+  policies:{view:"policies", label:"‹ Back to new policies"},
+  voters:{view:"voters",   label:"‹ Back to voters"},
+  budget:{view:"budget",   label:"‹ Back to budget"},
+  execorders:{view:"execorders", label:"‹ Back to executive orders"}
+};
+function detailHome(){ return DETAIL_HOME[detailFrom]||DETAIL_HOME.board; }
 function openDetail(key){
   if(key==="budget"){settlePending();currentView="budget";detailKey=null;render();return;}
   if(key.startsWith("sit_"))key="s_"+key.slice(4);
   settlePending();
+  if(currentView!=="detail")detailFrom=(DETAIL_HOME[currentView]?currentView:"board");
   detailKey=key; currentView="detail";
   const snap=snapshotFor(key);
   if(snap!==null)GAME.pending={key,snap};
@@ -13974,7 +14136,7 @@ function renderDetail(){
   const logPendActive = GAME.pendingLog && key.startsWith("a_") && GAME.pendingLog.id===key.slice(2) && AGENCIES[key.slice(2)]?.logging!==GAME.pendingLog.snap;
   const pendActive = fundPendActive || logPendActive;
   const pendCost = (fundPendActive ? chargeFor(key, GAME.pending.snap, snapshotFor(key)) : 0) + (logPendActive ? (AGENCIES[key.slice(2)]?.capital||4) : 0);
-  let h=`<div class="detailtop"><button class="backbtn" id="backBtn">‹ Back to board</button>`;
+  let h=`<div class="detailtop"><button class="backbtn" id="backBtn">${detailHome().label}</button>`;
   h+=`</div>`;
   if(pendActive)h+=(GAME.capital<pendCost
     ? `<div class="pendbanner cantafford">${ico('warning')} <b>You cannot afford this change.</b> Moving this costs <b>◈ ${pendCost}</b> and you have <b>◈ ${Math.floor(GAME.capital)}</b>. It will snap back to where it was the moment you leave this page or end the quarter — the numbers below are a preview you have not paid for.</div>`
@@ -14063,17 +14225,29 @@ function renderDetail(){
       // end — this is where a crisis page's "go here to fix it" links land.
       const c=CATALOG[id];
       if(c){
-        const ec=policyEnactCost(c), afford=GAME.capital>=ec;
+        const ec=policyEnactCost(c);
+        // an amendment is bought outright; a bill is whipped, and what it costs
+        // is whatever the floor asks on the day
+        const cFloor=goesToFloor(c,"enact");
+        const cMin=cFloor?minFloorCost(id,"enact"):null;
+        const afford=cFloor ? (cMin!==null&&GAME.capital>=cMin) : GAME.capital>=ec;
         h+=`<div class="sectionhdr">${ico(c.icon)} ${c.name}</div><div class="sectionsub">${descHTML(c.desc)}</div>`;
         h+=`<div class="detailrow"><span class="pill dom">${(DOMAINS[c.domain]||{name:c.domain}).name}</span>
           <span class="pill">Not yet enacted — a proposal on the table</span>
-          <span class="pill cap">◈ ${ec} to enact</span></div>`;
+          ${cFloor
+            ? `<span class="pill cap">${cMin===null?'No version of this can pass the floor'
+                :cMin<=2?'Passes on floor time alone':'From ◈ '+cMin+' to whip'}</span>`
+            : `<span class="pill cap">◈ ${ec} to refer</span>`}</div>`;
         h+=`<button class="ebtoggle" data-eb="${id}">▸ Projected effects if enacted</button>
           <div class="cat-eb" id="eb_${id}">${effectsBreakdownHTML("policy",c)}</div>`;
         if(floorBlocked(id,"enact"))
           h+=`<div class="whip-prev dead">${ico('ban')} Defeated on the floor. It cannot be brought back for ${GAME.floorFail["enact"+id]-GAME.turn} more quarter${(GAME.floorFail["enact"+id]-GAME.turn)===1?'':'s'} — the chamber has voted and will not be asked again this soon.</div>`;
         else h+=whipPreviewHTML(id,"enact");
-        h+=`<div class="repealrow"><button class="enactbtn" data-enact="${id}" ${(!floorBlocked(id,"enact")&&(afford||goesToFloor(c,"enact"))&&!pendingMeasure(id))?'':'disabled'}>${pendingMeasure(id)?`Already before the voters`:c.reform?(afford?`Refer to the voters (◈ ${ec})`:`Need ◈ ${ec} to refer it`):goesToFloor(c,"enact")?`Take it to the floor `+ico('columns'):(afford?`Enact this policy (◈ ${ec})`:`Need ◈ ${ec} to enact`)}</button></div>`;
+        h+=`<div class="repealrow"><button class="enactbtn" data-enact="${id}" ${(!floorBlocked(id,"enact")&&afford&&!pendingMeasure(id))?'':'disabled'}>${
+          pendingMeasure(id)?`Already before the voters`
+          :cFloor?(afford?`Take it to the floor `+ico('columns')
+                        :(cMin===null?`The votes are not there`:`Need ◈ ${cMin} at its narrowest`))
+          :(afford?`Refer to the voters (◈ ${ec})`:`Need ◈ ${ec} to refer it`)}</button></div>`;
         main.innerHTML=h;
         main.querySelectorAll('[data-enact]').forEach(el=>el.addEventListener('click',()=>enactPolicy(el.dataset.enact)));
         main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
@@ -14082,7 +14256,7 @@ function renderDetail(){
           const open=box.classList.toggle("hidden")===false;
           el.textContent=(open?"▾":"▸")+" Projected effects if enacted";
         }));
-        const bb=document.getElementById("backBtn"); if(bb)bb.addEventListener('click',()=>{currentView="board";detailKey=null;render();});
+        const bb=document.getElementById("backBtn"); if(bb)bb.addEventListener('click',()=>{currentView=detailHome().view;detailKey=null;render();});
         return;
       }
       h+=`<div class="sectionsub">This policy is no longer enacted. It may have been repealed — check New Policies to re-enact it.</div>`;main.innerHTML=h;return;
@@ -14545,7 +14719,7 @@ function renderDetail(){
   // environments suppress dialogs, which previously made the button look dead.)
   const goBack=()=>{
     try{ settlePending(); }catch(err){/* never block navigation */}
-    currentView="board"; detailKey=null;
+    currentView=detailHome().view; detailKey=null;
     try{render();}catch(err){ try{renderBoard();renderHUD();renderSidebar();}catch(e2){} }
     // land on the issue web, not scrolled up past the crisis strip and key metrics
     setTimeout(()=>{ const t=document.querySelector('.boardlegend')||document.querySelector('.boardgraph');
@@ -14603,6 +14777,7 @@ function signed(v,dollar){const s=v>=0?'+':'';return dollar?(s+v.toFixed(1)):(s+
 /* ---------- NEW POLICIES (catalog) ---------- */
 function renderPolicies(){
   const avail=Object.keys(CATALOG);
+  _minCostCache={turn:GAME.turn, map:{}};   // priced fresh each time the list is drawn
   let h=`${BACK_BTN_HTML}<div class="sectionhdr">New Policies</div>
     <div class="sectionsub">Proposals not yet enacted, grouped by area. Tap a section to expand it, then enact a policy to spend capital and add it to your Governing Board.</div>`;
   if(!avail.length){ main.innerHTML=h+`<div class="empty">No new policies available — all enacted.</div>`; wireBackBtn(); return; }
@@ -14611,7 +14786,13 @@ function renderPolicies(){
     const isRevPol=p.revenueFull!==undefined||p.revenue!==undefined||net<0;
     const costLabel=isRevPol?`+$${Math.max(0,-net).toFixed(1)}B/yr`:`$${net.toFixed(1)}B/yr`;
     const ecost=policyEnactCost(p), oppTax=ecost-p.enactCapital;
-    const afford=GAME.capital>=ecost;
+    // A referred amendment is bought outright, so its price is a real number
+    // and worth showing. A bill is not: what it costs is what the whip costs,
+    // and that depends on the chamber, the concession and the day. The most
+    // this page can honestly say is whether ANY version of it is affordable.
+    const floorPol=goesToFloor(p,"enact");
+    const floorMin=floorPol?minFloorCost(id,"enact"):null;
+    const afford=floorPol ? (floorMin!==null&&GAME.capital>=floorMin) : GAME.capital>=ecost;
     const beaten=floorBlocked(id,"enact");
     const back=beaten?(GAME.floorFail["enact"+id]-GAME.turn):0;
     return `<div class="catcard${beaten?' beaten':''}" style="--qaccent:${DOMAINS[p.domain].accent}">
@@ -14620,10 +14801,17 @@ function renderPolicies(){
       ${beaten?`<div class="cat-beaten">${ico('ban')} Defeated on the floor — it cannot be brought back for ${back} more quarter${back===1?'':'s'}.</div>`:''}
       <div class="cat-desc">${descHTML(p.desc)}</div>
       <div class="cat-meta"><span class="pill ${isRevPol?'rev':'spend'}">${costLabel}</span>
-        <span class="pill cap">◈ ${ecost} to enact${oppTax>0?` <span style="opacity:.7">(+${oppTax} opposition)</span>`:''}</span></div>
+        ${floorPol
+          ? `<span class="pill cap">${floorMin===null?'No version of this can pass the floor'
+              :floorMin<=2?'Passes on floor time alone':'From ◈ '+floorMin+' to whip'}</span>`
+          : `<span class="pill cap">◈ ${ecost} to refer${oppTax>0?` <span style="opacity:.7">(+${oppTax} opposition)</span>`:''}</span>`}</div>
       <button class="ebtoggle" data-eb="${id}">▸ Projected effects if enacted</button>
       <div class="cat-eb hidden" id="eb_${id}">${effectsBreakdownHTML("policy",p)}</div>
-      <button class="enactbtn" data-enact="${id}" ${(!beaten&&(afford||goesToFloor(p,"enact"))&&!pendingMeasure(id))?'':'disabled'}>${beaten?'Defeated — back in '+back+'q':pendingMeasure(id)?'On the ballot':(p.reform?(afford?'Refer to the voters':'Need '+ecost+' capital'):goesToFloor(p,"enact")?'To the floor':(afford?'Enact policy':'Need '+ecost+' capital'))}</button>
+      <button class="enactbtn" data-enact="${id}" ${(!beaten&&afford&&!pendingMeasure(id))?'':'disabled'}>${
+        beaten?'Defeated — back in '+back+'q'
+        :pendingMeasure(id)?'On the ballot'
+        :floorPol?(afford?'To the floor':(floorMin===null?'The votes are not there':'Need ◈ '+floorMin+' at its narrowest'))
+        :(afford?'Refer to the voters':'Need ◈ '+ecost+' capital')}</button>
     </div>`;
   };
   // group available (non-reform) policies by type-section; reforms get their own section
@@ -16863,6 +17051,7 @@ function bootWorld(startId){
   GAME.prevMetrics={};for(const k in METRICS)GAME.prevMetrics[k]=METRICS[k].value;
   GAME.prevIndicators={};for(const id in INDICATORS)GAME.prevIndicators[id]=INDICATORS[id].value;
   GAME.agendaBaseline=agendaConservatism();   // the inherited status quo — protests measure drift FROM here
+  applyProtestSide();                          // whose base is in revolt depends on whose base elected you
   GAME.compassStart=agendaVector();            // where the mandate sits on the political compass
   // the electorate as inherited — every later size is held in a band round this
   GAME.sizeAnchor={}; for(const sid in SIMULANTS)GAME.sizeAnchor[sid]=SIMULANTS[sid].size;
