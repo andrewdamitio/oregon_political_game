@@ -1359,18 +1359,15 @@
   /* political compass */
   .compass-wrap{max-width:620px;margin:0 auto}
   .compass-svg{width:100%;height:auto;display:block;background:var(--paper-2);border:var(--rule) solid var(--ink);border-radius:var(--radius)}
-  .ec-wrap{margin:18px 0 6px;text-align:left}
+  .ec-wrap{margin:18px auto 6px;text-align:center;max-width:560px}
   .ec-head{font-family:var(--font-display);font-size:13px;letter-spacing:1.4px;color:var(--muted-1);margin-bottom:4px;text-transform:uppercase}
-  .ec-note{font-size:12px;line-height:1.55;color:var(--muted-2);margin-bottom:10px}
-  .ec-grid{display:grid;grid-template-columns:minmax(0,1fr) 190px;gap:14px;align-items:start}
-  @media(max-width:720px){.ec-grid{grid-template-columns:1fr}}
-  .ec-scrub{display:flex;align-items:center;gap:10px;margin-top:10px}
+  .ec-note{font-size:11.5px;line-height:1.55;color:var(--muted-2);margin-bottom:10px;text-align:left}
+  .ec-stage{max-width:340px;margin:0 auto}
+  .ec-svg{width:100%;height:auto}
+  .ec-scrub{display:flex;align-items:center;gap:10px;margin-top:8px}
   .ec-scrub input[type=range]{flex:1;min-width:0}
-  .ec-qlab{font-family:var(--font-data);font-size:12px;color:var(--ink);white-space:nowrap;min-width:118px}
-  .ec-legend{font-size:11px;line-height:1.7;color:var(--muted-2)}
-  .ec-legend b{color:var(--ink)}
-  .ec-legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:baseline}
-  .ec-read{font-family:var(--font-data);font-size:12px;color:var(--muted-2);margin-top:8px;line-height:1.6}
+  .ec-qlab{font-family:var(--font-data);font-size:11px;color:var(--ink);white-space:nowrap;min-width:56px}
+  .ec-read{font-family:var(--font-data);font-size:11.5px;color:var(--muted-2);margin-top:8px;line-height:1.6;text-align:center}
   .compass-legend{display:flex;flex-wrap:wrap;gap:16px;justify-content:center;margin:12px 0 4px;font-size:11px;color:var(--muted-2)}
   .compass-legend span{display:flex;align-items:center;gap:6px}
   .compass-legend i{width:12px;height:12px;border-radius:50%;display:inline-block}
@@ -6544,7 +6541,7 @@ const SITUATIONS={
     moodMag:1,
     groupMood:{wealthy:-8,businessClass:-8,suburban:-4,rural:-3,conservative:-5,libertarian:-5}},
   timberCounties:{name:"Timber Counties Fiscal Crisis", kind:"bad", category:"condition",
-    desc:"As harvest revenues have collapsed, Oregon's timber-dependent counties can't fund sheriffs, schools, or roads — a slow-motion rural government failure.\n\nThe shortfall is fiscal, not physical: these counties fund themselves out of a share of the cut, so when the cut goes the county government goes with it. That means there are two ways out, and only one of them involves a saw.\n\n→ TO FIX IT: get the Logging Rate back above 35 — or enact <b>County Payments in Lieu of Timber Receipts</b> and fund it past 70%, which backfills what the harvest used to pay for out of the General Fund and lifts the crisis with the harvest left exactly where it is. A partial backfill will not clear it, but it does keep it from starting.",
+    desc:"As harvest revenues have collapsed, Oregon's timber-dependent counties can't fund sheriffs, schools, or roads — a slow-motion rural government failure.\n\nThe shortfall is fiscal, not physical: these counties fund themselves out of a share of the cut, so when the cut goes the county government goes with it. That means there are two ways out, and only one of them involves a saw.\n\n→ TO FIX IT: get the Logging Rate back above 35 — or get the counties covered past 70% of what they need. Two things count toward that. <b>Secure Rural Schools</b> is the federal payment, worth 45%, and Congress reauthorises it or lets it lapse on its own schedule; you get told which the year it changes and you have no say in it. <b>County Payments in Lieu of Timber Receipts</b> is the half that is yours — a funded slider that backfills sheriffs, jails, roads and schools out of the General Fund. With the federal money flowing you only need to find the last quarter of it yourself; the year it stops, that gap is entirely yours.",
     // The counties need revenue. Historically that came out of the cut; it can
     // just as well come out of the General Fund, and a governor who took the
     // harvest down on purpose should not be told the only fix is to put it back.
@@ -6750,6 +6747,9 @@ const GAME={
   persRisk:"balanced",  // OIC portfolio posture: "conservative" | "balanced" | "aggressive"
   execOrders:{},        // id -> {state,term,signed,filed,ruling,resigns}
   pendingEoEvents:[],   // filings and rulings waiting for their popups, rulings first
+  // Secure Rural Schools: federal timber-county money, reauthorised or not
+  // by a Congress you do not control. Rolled once a fiscal year.
+  srsActive:true, srsRolled:-1, srsYears:0, pendingSrs:null,
   pendingOppBill:null,  // {id, approp} — a bill the legislature passed, waiting on your desk
   lastOppBill:-99,      // turn the last one arrived (they do not send one every quarter)
   oppBillsSigned:0, oppBillsVetoed:0, oppBillsOverridden:0,
@@ -7055,10 +7055,43 @@ function agendaConservatism(){
    Enacted-and-funded is what counts, so a programme dialled to nothing is
    worth nothing — and it phases in, because a county cannot rehire a
    sheriff's department in a quarter. */
+/* What the federal payment is worth against the counties' need when it is
+   flowing. Real SRS money is a large fraction of a small county's discretionary
+   budget but never all of it — it was always a partial substitute for the
+   receipts, which is why the counties have been in slow crisis with it. */
+const SRS_SHARE=0.45;
+function srsFederal(){ return GAME.srsActive?SRS_SHARE:0; }
+/* Congress decides this once a fiscal year, and it decides it stickily:
+   reauthorisation runs in multi-year stretches, and so do the lapses. */
+function rollSecureRuralSchools(){
+  if(GAME.turn<4)return;                       // the inherited year is the one you were handed
+  if(GAME.turn%4!==0)return;                   // fiscal years, not quarters
+  if(GAME.srsRolled===GAME.turn)return;
+  GAME.srsRolled=GAME.turn;
+  const was=!!GAME.srsActive;
+  // sticky: a programme being paid tends to keep being paid, and a lapsed
+  // one takes a couple of years to find a vehicle
+  const keep=0.72, restore=0.38;
+  const now=was ? (Math.random()<keep) : (Math.random()<restore);
+  GAME.srsActive=now;
+  if(now===was){ GAME.srsYears=(GAME.srsYears||0)+1; return; }
+  GAME.srsYears=0;
+  GAME.pendingSrs={on:now};
+  GAME.log.push(ico(now?'bank':'warning')+(now
+    ? " Congress reauthorised Secure Rural Schools — federal timber-county payments resume"
+    : " Secure Rural Schools lapsed — the federal timber-county payments stop"));
+}
+/* Everything reaching the counties, from both directions. Your own backfill
+   and the federal payment do the same job, which is exactly why letting the
+   federal share carry you is a decision and not a free lunch. */
 function countyBackfill(){
   const p=POLICIES.countyPayments;
-  if(!p||!p.enacted)return 0;
-  return clamp(policyLevel(p)*(p.eff==null?1:p.eff), 0, 1);
+  const state=(p&&p.enacted)?clamp(policyLevel(p)*(p.eff==null?1:p.eff),0,1):0;
+  return clamp(state+srsFederal(), 0, 1);
+}
+function countyBackfillState(){
+  const p=POLICIES.countyPayments;
+  return (p&&p.enacted)?clamp(policyLevel(p)*(p.eff==null?1:p.eff),0,1):0;
 }
 function agendaRightwardShift(){ return agendaConservatism()-(GAME.agendaBaseline||0); }
 /* The same number read from where the player is standing: how far the agenda
@@ -9822,6 +9855,35 @@ function drainEoEvents(next){
 }
 /* The bill on your desk. Sign it, veto it and risk the override, or — only
    on an appropriation — strike the money and let the rest through. */
+/* Washington moved, or did not. Worth a popup either way: a governor who has
+   been leaning on the federal share needs to find out the year it stops, not
+   discover it in a crisis banner two quarters later. */
+function showSrsNotice(ev, next){
+  const card=document.getElementById("oppBillCard"), modal=document.getElementById("oppBillModal");
+  if(!card||!modal){ if(next)next(); return; }
+  const st=countyBackfillState();
+  const covered=clamp(st+srsFederal(),0,1);
+  const gap=covered<0.70;
+  card.innerHTML=`<div class="sectionhdr">${ico(ev.on?'bank':'warning')} ${ev.on?"Secure Rural Schools reauthorised":"Secure Rural Schools has lapsed"}</div>
+    <div class="sectionsub">${ev.on
+      ? "Congress found a vehicle and the federal timber-county payments are flowing again — retroactively, as usual. Sheriff's patrols go back on the road in the O&amp;C counties without you paying for them."
+      : "Congress did not reauthorise it, and the federal timber-county payments stop at the start of the fiscal year. The counties budgeted on the assumption somebody would find a vehicle. Nobody did."}</div>
+    <div class="rrow"><span class="rlabel">Federal share</span><span class="rval" style="color:${ev.on?'var(--good)':'var(--clay)'}">${ev.on?"+"+Math.round(SRS_SHARE*100)+"% of what the counties need":"gone — "+Math.round(SRS_SHARE*100)+"% of the need, withdrawn"}</span></div>
+    <div class="rrow"><span class="rlabel">Your own backfill</span><span class="rval">${st>0?Math.round(st*100)+"% of the need":"not funded"}</span></div>
+    <div class="rrow"><span class="rlabel">Counties now covered</span><span class="rval" style="color:${gap?'var(--clay)':'var(--good)'}">${Math.round(covered*100)}%${gap?" — short of the 70% that holds the crisis off":" — enough"}</span></div>
+    <div class="fnote" style="margin-top:10px">${ev.on
+      ? "It is not yours and it is not permanent. Every dollar of it you count on is a dollar you have to find again the year Washington does not act."
+      : "County Payments in Lieu of Timber Receipts is the lever that does not depend on Congress — it is on the New Policies list, in Taxes &amp; Budget."}</div>
+    <button class="enactbtn" id="srsOk">${ev.on?"Good":"Understood"} ▸</button>`;
+  modal.classList.remove("hidden");
+  const done=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true);
+    try{render();}catch(e){} if(next)next(); };
+  const onKey=e=>{ if(modal.classList.contains("hidden"))return;
+    if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
+  document.getElementById("srsOk").onclick=done;
+  document.addEventListener("keydown",onKey,true);
+  setTimeout(()=>{try{document.getElementById("srsOk").focus({preventScroll:true});}catch(e){}},30);
+}
 function showOppBill(next){
   const B=GAME.pendingOppBill;
   const card=document.getElementById("oppBillCard"), modal=document.getElementById("oppBillModal");
@@ -10533,26 +10595,10 @@ function recordLegacy(r){
 }
 function loadLegacy(){ try{ return JSON.parse(localStorage.getItem("sc_legacy")||"[]")||[]; }catch(e){ return []; } }
 
-/* Where a voter bloc stands on the same two axes the governance compass uses:
-   the state's economic role across, personal liberty against state authority
-   up. Blocs carry a four-part ideology; economic, government size and
-   environment are all statements about that economic role, so they fold into
-   one axis exactly as agendaVector folds them for policies. */
-function blocCompassPoint(sim){
-  const io=sim.ideology||{};
-  return { ec: clamp(((io.economic||0)+0.7*(io.govSize||0)+0.3*(io.environment||0))/2.0, -1, 1),
-           so: clamp((io.social||0), -1, 1) };
-}
-/* The mutually exclusive ideology family: it partitions the electorate and
-   sums to one, so a turnout-weighted mean over it is the electorate's centre
-   of gravity rather than an average of overlapping categories. */
+/* The five mutually exclusive ideology blocs. They partition the electorate
+   and their shares are what the makeup shift actually moves, so they are how
+   a voter's weight changes over a term. */
 const EC_FAMILY=["socialist","liberal","moderate","conservative","libertarian"];
-/* Every bloc worth plotting as its own dot. The family above is drawn solid
-   because it is the partition; the rest are the interest and identity groups
-   sitting behind it, drawn faint. */
-const EC_OTHERS=["urban","suburban","rural","poor","middleIncome","wealthy","renters",
-  "homeowners","blueCollar","businessClass","collegeEducated","publicUnions","timber",
-  "transitCommuters","motorists","students","parents","retirees"];
 /* A bloc's share at quarter t, read off the recorded history (mem_ stores
    size*100). Falls back to the live size before any history exists. */
 function ecShareAt(id, t){
@@ -10562,7 +10608,8 @@ function ecShareAt(id, t){
   if(v===null)v=(SIMULANTS[id]?SIMULANTS[id].size*100:0);
   return v/100;
 }
-/* Your own agenda point at quarter t. */
+/* Your own agenda point at quarter t, on the same normalised axes.
+   (govIdeologyPoint divides by 24 and 12; this is that, back-dated.) */
 function ecAgendaAt(t){
   const h=(GAME.history&&GAME.history.compass)||[];
   let v=null;
@@ -10570,81 +10617,103 @@ function ecAgendaAt(t){
   if(!v){ const a=agendaVector(); v={ec:a.ec,so:a.so}; }
   return { ec: clamp(v.ec/24,-1,1), so: clamp(v.so/12,-1,1) };
 }
-/* The electorate's centre of gravity at quarter t, weighted by share AND
-   turnout — the compass point of the people who actually vote. */
-function ecCentroidAt(t){
-  let wsum=0, ec=0, so=0;
+/* How much each voter counts at quarter t. Nobody changes their mind in this
+   model, so a voter's position is fixed; what moves is how many people like
+   them there are. A voter's weight is therefore how much their own coalition
+   has grown or shrunk against the electorate you inherited. */
+function ecWeights(t){
+  const ratio={};
   for(const id of EC_FAMILY){
-    const sim=SIMULANTS[id]; if(!sim)continue;
-    const w=ecShareAt(id,t)*(sim.turnout||0.6);
-    const p=blocCompassPoint(sim);
-    wsum+=w; ec+=p.ec*w; so+=p.so*w;
+    const now=ecShareAt(id,t), then=ecShareAt(id,0);
+    ratio[id]= then>0.0001 ? clamp(now/then, 0.4, 2.2) : 1;
   }
-  return wsum>0 ? {ec:ec/wsum, so:so/wsum} : {ec:0,so:0};
+  const out=new Array(VOTERS.length);
+  for(let i=0;i<VOTERS.length;i++){
+    const m=VOTERS[i].m||{};
+    let num=0, den=0;
+    for(const id of EC_FAMILY){ const w=m[id]||0; if(w<=0)continue; num+=w*ratio[id]; den+=w; }
+    out[i]= den>0 ? num/den : 1;
+  }
+  return out;
 }
-/* The scrubbable panel. Rebuilt in place on every slider step. */
+/* The electorate's centre of gravity: the weighted mean of the cloud. At
+   t=0 this is exactly the emEc/emSo that runElection measures your record
+   against, so the marker on this chart is the thing costing you vote share. */
+function ecCentroidAt(t, wts){
+  const w=wts||ecWeights(t);
+  let ec=0, so=0, tot=0;
+  for(let i=0;i<VOTERS.length;i++){
+    const v=VOTERS[i], q=w[i];
+    ec+=(v.econ||0)*q; so+=(v.social||0)*q; tot+=q;
+  }
+  return tot>0 ? {ec:ec/tot, so:so/tot} : {ec:0,so:0};
+}
+/* Every modelled voter, as one dot each. Buckets by weight so the whole
+   electorate is a handful of <path> elements instead of two thousand nodes:
+   "M x y h.01" with a round linecap paints a dot. */
+const EC_BUCKETS=[0.72,0.88,1.0,1.14,1.34];
+function ecCloudLayer(px, py, wts){
+  const buckets=[[],[],[],[],[],[]];
+  for(let i=0;i<VOTERS.length;i++){
+    const v=VOTERS[i];
+    let b=0; while(b<EC_BUCKETS.length && wts[i]>EC_BUCKETS[b])b++;
+    buckets[b].push("M"+px(v.econ||0)+" "+py(v.social||0)+"h.01");
+  }
+  // lightest where a coalition has shrunk, darkest where it has grown
+  const op=[0.13,0.19,0.26,0.33,0.42,0.52];
+  let out="";
+  for(let b=0;b<buckets.length;b++){
+    if(!buckets[b].length)continue;
+    out+='<path d="'+buckets[b].join("")+'" stroke="var(--ink)" stroke-opacity="'+op[b]
+      +'" stroke-width="2.1" stroke-linecap="round" fill="none"/>';
+  }
+  return out;
+}
 function electorateCompassSVG(t){
-  const S=380, C=S/2, PAD=30, R=C-PAD;
+  const S=300, C=S/2, PAD=24, R=C-PAD;
   const px=v=>+(C+clamp(v,-1,1)*R).toFixed(1);
   const py=v=>+(C-clamp(v,-1,1)*R).toFixed(1);
+  const wts=ecWeights(t);
   let h="";
-  h+=`<rect x="${C-R}" y="${C-R}" width="${R}" height="${R}" fill="var(--clay)" opacity="0.10"/>`;
-  h+=`<rect x="${C}" y="${C-R}" width="${R}" height="${R}" fill="var(--slate-blue)" opacity="0.10"/>`;
-  h+=`<rect x="${C-R}" y="${C}" width="${R}" height="${R}" fill="var(--moss)" opacity="0.10"/>`;
-  h+=`<rect x="${C}" y="${C}" width="${R}" height="${R}" fill="var(--gold)" opacity="0.10"/>`;
+  h+=`<rect x="${C-R}" y="${C-R}" width="${R}" height="${R}" fill="var(--clay)" opacity="0.07"/>`;
+  h+=`<rect x="${C}" y="${C-R}" width="${R}" height="${R}" fill="var(--slate-blue)" opacity="0.07"/>`;
+  h+=`<rect x="${C-R}" y="${C}" width="${R}" height="${R}" fill="var(--moss)" opacity="0.07"/>`;
+  h+=`<rect x="${C}" y="${C}" width="${R}" height="${R}" fill="var(--gold)" opacity="0.07"/>`;
   for(let k=-4;k<=4;k++){
     const off=(k/4)*R, bold=k===0;
-    h+=`<line x1="${C+off}" y1="${C-R}" x2="${C+off}" y2="${C+R}" stroke="${bold?'var(--ink)':'var(--line)'}" stroke-width="${bold?1.4:0.6}"/>`;
-    h+=`<line x1="${C-R}" y1="${C+off}" x2="${C+R}" y2="${C+off}" stroke="${bold?'var(--ink)':'var(--line)'}" stroke-width="${bold?1.4:0.6}"/>`;
+    h+=`<line x1="${C+off}" y1="${C-R}" x2="${C+off}" y2="${C+R}" stroke="${bold?'var(--ink)':'var(--line)'}" stroke-width="${bold?1.1:0.5}" opacity="${bold?0.5:0.7}"/>`;
+    h+=`<line x1="${C-R}" y1="${C+off}" x2="${C+R}" y2="${C+off}" stroke="${bold?'var(--ink)':'var(--line)'}" stroke-width="${bold?1.1:0.5}" opacity="${bold?0.5:0.7}"/>`;
   }
-  h+=`<text x="${C}" y="${C-R-10}" text-anchor="middle" font-size="9" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.3">STATE AUTHORITY</text>`;
-  h+=`<text x="${C}" y="${C+R+18}" text-anchor="middle" font-size="9" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.3">PERSONAL LIBERTY</text>`;
-  h+=`<text x="${C-R-8}" y="${C}" text-anchor="middle" font-size="9" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.3" transform="rotate(-90 ${C-R-8} ${C})">ECONOMIC LEFT</text>`;
-  h+=`<text x="${C+R+8}" y="${C}" text-anchor="middle" font-size="9" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.3" transform="rotate(90 ${C+R+8} ${C})">ECONOMIC RIGHT</text>`;
-  // the faint interest-group layer
-  for(const id of EC_OTHERS){
-    const sim=SIMULANTS[id]; if(!sim||!sim.ideology)continue;
-    const p=blocCompassPoint(sim), sh=ecShareAt(id,t);
-    const rr=Math.max(2.2, Math.sqrt(sh)*15);
-    h+=`<circle cx="${px(p.ec)}" cy="${py(p.so)}" r="${rr.toFixed(1)}" fill="var(--muted-1)" fill-opacity="0.16" stroke="var(--muted-1)" stroke-opacity="0.3" stroke-width="0.7">`
-      +`<title>${sim.name} — ${(sh*100).toFixed(1)}% of the electorate</title></circle>`;
+  h+=ecCloudLayer(px,py,wts);
+  const fsz=7.5;
+  h+=`<text x="${C}" y="${C-R-8}" text-anchor="middle" font-size="${fsz}" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.1">STATE AUTHORITY</text>`;
+  h+=`<text x="${C}" y="${C+R+14}" text-anchor="middle" font-size="${fsz}" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.1">PERSONAL LIBERTY</text>`;
+  h+=`<text x="${C-R-7}" y="${C}" text-anchor="middle" font-size="${fsz}" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.1" transform="rotate(-90 ${C-R-7} ${C})">ECONOMIC LEFT</text>`;
+  h+=`<text x="${C+R+7}" y="${C}" text-anchor="middle" font-size="${fsz}" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.1" transform="rotate(90 ${C+R+7} ${C})">ECONOMIC RIGHT</text>`;
+  // where the centre of gravity has walked, and where you have
+  const cpts=[], apts=[];
+  for(let q=0;q<=t;q++){
+    const c=ecCentroidAt(q); cpts.push(px(c.ec)+","+py(c.so));
+    const a=ecAgendaAt(q);   apts.push(px(a.ec)+","+py(a.so));
   }
-  // the partition, solid, sized by share
-  const famCol={socialist:"var(--clay)", liberal:"var(--slate-blue)", moderate:"var(--muted-1)",
-                conservative:"var(--gold)", libertarian:"var(--moss)"};
-  for(const id of EC_FAMILY){
-    const sim=SIMULANTS[id]; if(!sim)continue;
-    const p=blocCompassPoint(sim), sh=ecShareAt(id,t);
-    const rr=Math.max(3.5, Math.sqrt(sh)*30);
-    h+=`<circle cx="${px(p.ec)}" cy="${py(p.so)}" r="${rr.toFixed(1)}" fill="${famCol[id]}" fill-opacity="0.55" stroke="var(--paper)" stroke-width="1.4">`;
-    h+=`<title>${sim.name} — ${(sh*100).toFixed(1)}% of the electorate</title></circle>`;
-    h+=`<text x="${px(p.ec)}" y="${py(p.so)+3}" text-anchor="middle" font-size="8" font-family="var(--font-data)" fill="var(--ink)" opacity="0.75">${(sh*100).toFixed(0)}</text>`;
-  }
-  // where the electorate's centre of gravity has walked, up to this quarter
-  const cpts=[];
-  for(let q=0;q<=t;q++){ const c=ecCentroidAt(q); cpts.push(px(c.ec)+","+py(c.so)); }
-  if(cpts.length>1)h+=`<polyline points="${cpts.join(" ")}" fill="none" stroke="var(--ink)" stroke-width="1.6" opacity="0.35" stroke-linejoin="round"/>`;
-  // and where yours has
-  const apts=[];
-  for(let q=0;q<=t;q++){ const a=ecAgendaAt(q); apts.push(px(a.ec)+","+py(a.so)); }
-  if(apts.length>1)h+=`<polyline points="${apts.join(" ")}" fill="none" stroke="var(--clay)" stroke-width="1.6" opacity="0.5" stroke-dasharray="4 3" stroke-linejoin="round"/>`;
-  const c0=ecCentroidAt(0), cN=ecCentroidAt(t), aN=ecAgendaAt(t);
-  h+=`<circle cx="${px(c0.ec)}" cy="${py(c0.so)}" r="4" fill="none" stroke="var(--ink)" stroke-width="1.6" opacity="0.45"/>`;
-  h+=`<circle cx="${px(cN.ec)}" cy="${py(cN.so)}" r="7" fill="var(--ink)" stroke="var(--paper)" stroke-width="2"/>`;
-  h+=`<text x="${px(cN.ec)}" y="${py(cN.so)-11}" text-anchor="middle" font-size="8" font-family="var(--font-data)" fill="var(--ink)">ELECTORATE</text>`;
-  h+=`<circle cx="${px(aN.ec)}" cy="${py(aN.so)}" r="6" fill="var(--clay)" stroke="var(--paper)" stroke-width="2"/>`;
-  h+=`<text x="${px(aN.ec)}" y="${py(aN.so)+17}" text-anchor="middle" font-size="8" font-family="var(--font-data)" fill="var(--clay)">YOU</text>`;
-  return `<svg class="compass-svg" viewBox="0 0 ${S} ${S}" role="img" aria-label="The electorate on the political compass">${h}`+
-    `<rect x="${C-R}" y="${C-R}" width="${2*R}" height="${2*R}" fill="none" stroke="var(--ink)" stroke-width="1.4"/></svg>`;
+  if(cpts.length>1)h+=`<polyline points="${cpts.join(" ")}" fill="none" stroke="var(--ink)" stroke-width="1.3" opacity="0.4" stroke-linejoin="round"/>`;
+  if(apts.length>1)h+=`<polyline points="${apts.join(" ")}" fill="none" stroke="var(--clay)" stroke-width="1.4" opacity="0.5" stroke-dasharray="3 3" stroke-linejoin="round"/>`;
+  const cN=ecCentroidAt(t,wts), aN=ecAgendaAt(t);
+  h+=`<circle cx="${px(cN.ec)}" cy="${py(cN.so)}" r="5" fill="var(--ink)" stroke="var(--paper)" stroke-width="1.8"/>`;
+  h+=`<text x="${px(cN.ec)}" y="${py(cN.so)-9}" text-anchor="middle" font-size="7" font-family="var(--font-data)" fill="var(--ink)">ELECTORATE</text>`;
+  h+=`<circle cx="${px(aN.ec)}" cy="${py(aN.so)}" r="5" fill="var(--clay)" stroke="var(--paper)" stroke-width="1.8"/>`;
+  h+=`<text x="${px(aN.ec)}" y="${py(aN.so)+14}" text-anchor="middle" font-size="7" font-family="var(--font-data)" fill="var(--clay)">YOU</text>`;
+  return `<svg class="compass-svg ec-svg" viewBox="0 0 ${S} ${S}" role="img" aria-label="The electorate on the political compass">${h}`+
+    `<rect x="${C-R}" y="${C-R}" width="${2*R}" height="${2*R}" fill="none" stroke="var(--ink)" stroke-width="1.1"/></svg>`;
 }
 function ecQuarterLabel(t){
   const yr=GAME.startYear+Math.floor(t/4);
-  return "Q"+((t%4)+1)+" "+yr+" · quarter "+t;
+  return "Q"+((t%4)+1)+" "+yr;
 }
 function ecReadout(t){
   const c0=ecCentroidAt(0), cN=ecCentroidAt(t), aN=ecAgendaAt(t);
   const dx=cN.ec-c0.ec, dy=cN.so-c0.so;
-  const band=v=>{const a=Math.abs(v); return a<0.012?"has not moved":a<0.04?"has edged":a<0.09?"has moved":"has moved sharply";};
+  const band=v=>{const a=Math.abs(v); return a<0.004?"has not moved":a<0.015?"has edged":a<0.035?"has moved":"has moved sharply";};
   const xw=dx>0?"right":"left", yw=dy>0?"toward state authority":"toward personal liberty";
   const gapX=aN.ec-cN.ec, gapY=aN.so-cN.so;
   const gap=Math.sqrt(gapX*gapX+gapY*gapY);
@@ -10652,35 +10721,22 @@ function ecReadout(t){
   return `Since you took office the electorate ${band(dx)} <b>${xw}</b> economically and ${band(dy)} <b>${yw}</b>. `+
     `Your own agenda is ${gw}.`;
 }
-/* The election-night panel: the compass, a scrubber over every quarter you
-   have governed, and a legend. */
+/* The election-night panel. */
 function electorateCompassHTML(){
   const t=GAME.turn;
   const sg=GAME.oppBillsSigned||0, vt=GAME.oppBillsVetoed||0, ov=GAME.oppBillsOverridden||0;
-  const vetoLine=(sg+vt)?`<div class="ec-note" style="margin-bottom:14px"><b>The veto pen:</b> ${sg} bill${sg===1?"":"s"} from the other side signed, ${vt} vetoed${ov?`, and <b style="color:var(--clay)">${ov} of those overridden</b> — two-thirds of both chambers, over your objection`:(vt?`, every one of them sustained`:"")}.</div>`:"";
+  const vetoLine=(sg+vt)?`<div class="ec-note"><b>The veto pen:</b> ${sg} bill${sg===1?"":"s"} from the other side signed, ${vt} vetoed${ov?`, and <b style="color:var(--clay)">${ov} of those overridden</b> — two-thirds of both chambers, over your objection`:(vt?`, every one of them sustained`:"")}.</div>`:"";
   return `<div class="ec-wrap">
     ${vetoLine}
     <div class="ec-head">The electorate, and you</div>
-    <div class="ec-note">Every voter bloc placed on the same two axes as your governing compass — the state's economic role across, personal liberty against state authority up. A bloc's position is what it believes and does not move; the <b>size of its dot is how much of the electorate it is</b>, and that does move. The five coloured dots are the ideological partition (they sum to the whole state); the faint ones behind are the interest and identity groups. <b>ELECTORATE</b> is their turnout-weighted centre of gravity and the hollow ring is where it started; <b>YOU</b> is your enacted agenda. Drag the slider to run the term back.</div>
-    <div class="ec-grid">
-      <div>
-        <div id="ecCanvas">${electorateCompassSVG(t)}</div>
-        <div class="ec-scrub">
-          <span class="ec-qlab" id="ecQLab">${ecQuarterLabel(t)}</span>
-          <input type="range" id="ecSlider" min="0" max="${t}" value="${t}" step="1" aria-label="Quarter">
-        </div>
-        <div class="ec-read" id="ecRead">${ecReadout(t)}</div>
+    <div class="ec-note">Every one of the <b>${VOTERS.length.toLocaleString()}</b> voters this game simulates, each at their own place on the compass — the state's economic role across, personal liberty against state authority up. Nobody here changes their mind; what changes over a term is how many of each kind there are, so a dot darkens as its coalition grows and fades as it shrinks. <b>ELECTORATE</b> is the cloud's centre of gravity — the same number your vote share is measured against on election night — and <b style="color:var(--clay)">YOU</b> is your enacted agenda. Drag to run the term back.</div>
+    <div class="ec-stage">
+      <div id="ecCanvas">${electorateCompassSVG(t)}</div>
+      <div class="ec-scrub">
+        <span class="ec-qlab" id="ecQLab">${ecQuarterLabel(t)}</span>
+        <input type="range" id="ecSlider" min="0" max="${t}" value="${t}" step="1" aria-label="Quarter">
       </div>
-      <div class="ec-legend">
-        <div><i style="background:var(--clay)"></i><b>Socialist</b></div>
-        <div><i style="background:var(--slate-blue)"></i><b>Liberal</b></div>
-        <div><i style="background:var(--muted-1)"></i><b>Moderate</b></div>
-        <div><i style="background:var(--gold)"></i><b>Conservative</b></div>
-        <div><i style="background:var(--moss)"></i><b>Libertarian</b></div>
-        <div style="margin-top:8px"><i style="background:var(--ink)"></i><b>Electorate</b> — centre of gravity</div>
-        <div><i style="background:var(--clay)"></i><b>You</b> — your enacted agenda</div>
-        <div style="margin-top:8px;opacity:.85">The number inside each dot is that bloc's share of the electorate, in per cent.</div>
-      </div>
+      <div class="ec-read" id="ecRead">${ecReadout(t)}</div>
     </div>
   </div>`;
 }
@@ -12340,7 +12396,7 @@ function _runTicks(){
   GAME.lastBalance=budgetBalance().balance;
   GAME.surplusStreak=(GAME.lastBalance>0.5)?Math.min(9,(GAME.surplusStreak||0)+1)
                                             :Math.max(0,(GAME.surplusStreak||0)-2);
-  settleFiscal(); tickNationalMood(); tickSituations(); tickOpposition(); maybeFireDilemma(); maybeSendOppBill();
+  settleFiscal(); tickNationalMood(); tickSituations(); rollSecureRuralSchools(); tickOpposition(); maybeFireDilemma(); maybeSendOppBill();
   tickIndicators(); tickGrudges(); tickCynComp(); tickExpectations(); tickGroundGame(); tickCountyCamp();
   tickBallotCampaign();
   tickApproval(); tickVoterApproval(); checkActivistTriggers();
@@ -12414,7 +12470,11 @@ function doEndTurn(){
     if(GAME.pendingOppBill) showOppBill(afterEo);
     else afterEo();
   };
-  drainEoEvents(afterOpp);
+  const afterSrs=()=>{
+    if(GAME.pendingSrs){ const ev=GAME.pendingSrs; GAME.pendingSrs=null; showSrsNotice(ev, afterOpp); }
+    else afterOpp();
+  };
+  drainEoEvents(afterSrs);
 }
 /* election quarter — ticks run for the campaign quarter, then the election fires */
 function doElectionTurn(){
@@ -17511,6 +17571,7 @@ function bootWorld(startId){
   GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.surplusStreak=0; GAME.lawLock={};
   GAME.csfCorpus=2.10; GAME.csfPayout=0.08; GAME.csfElliottMult=1; GAME.csfSaleBooked=false; GAME.esfLottoIn=0; GAME.persRisk="balanced";
   GAME.execOrders={}; GAME.pendingEoEvents=[]; GAME.pendingOppBill=null; GAME.lastOppBill=-99;
+  GAME.srsActive=true; GAME.srsRolled=-1; GAME.srsYears=0; GAME.pendingSrs=null;
   GAME.oppBillsSigned=0; GAME.oppBillsVetoed=0; GAME.oppBillsOverridden=0;
   GAME.floorFreeze=0; GAME.walkoutSide=null; GAME.walkoutCooldownUntil=0; GAME.walkoutIgnoredUntil=0; GAME.protestIgnoredUntil=0; GAME.splinter=null;
   // the band is set from the world this boot produces, so the pre-roll below
