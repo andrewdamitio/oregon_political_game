@@ -2302,15 +2302,30 @@ const INDICATORS={
     ],
     feedback:{gdp:-0.014, unemployment:0.006}},              // high grievance drags growth and pushes jobs out
   ruralAlienation:{name:"Rural Alienation", icon:"tractor", value:45,
-    desc:"How shut-out rural and eastern Oregon feel from a Portland-centered, one-party power structure — the sentiment behind the Greater Idaho votes, GOP walkouts, and Measure 113. The real drivers, in the movement's own words: the income/CAT/carbon tax load, gun laws (Measure 114), drug decriminalization imposed from the valley, restrictions on the timber and resource economy, land-use limits on private property, and a governing agenda that keeps ratcheting left of what rural voters ever endorsed. Eased by resource-economy support and returning decisions to counties.",
+    desc:"How shut-out rural and eastern Oregon feel from a Portland-centered, one-party power structure — the sentiment behind the Greater Idaho votes, GOP walkouts, and Measure 113. It is anchored on what rural residents, timber and conservatives actually think of you, so it cannot drift away from the voter tab; the grievances below are what move it around that level. In the movement's own words: the income/CAT/carbon tax load, gun laws (Measure 114), drug decriminalization imposed from the valley, restrictions on the timber and resource economy, land-use limits on private property, and a governing agenda that keeps ratcheting left of what rural voters ever endorsed. Eased by resource-economy support and returning decisions to counties.",
     // the "one-party ratchet": the further the enacted agenda drifts LEFT of the
     // mandate it inherited, the more rural/eastern Oregon feels a Portland
     // government it can never outvote. Whole-agenda drift (economic + social +
     // government size), not a culture-war axis. Only a real lean past the
     // inherited baseline registers.
     _oneParty:()=>{ const t=(typeof agendaRightwardShift==="function")?agendaRightwardShift():0; return Math.max(0,-t-3)*1.1; },
+    /* What eastern Oregon actually thinks of you, as one number. Rural
+       residents are the bloc the grievance is named for; timber is the
+       resource economy underneath it; conservatives are the politics it
+       organises through. Weighted accordingly, and read against 46 — a
+       little under even, which is where rural Oregon sits toward a Salem
+       government in the ordinary case. */
+    _sentiment:()=>{
+      const a=id=>{const x=SIMULANTS[id]; return x?(x.approval??50):50;};
+      return a("rural")*0.5 + a("timber")*0.3 + a("conservative")*0.2;
+    },
+    /* The anchor. Alienation is not a free-floating gauge: it is how those
+       voters feel, and the grievances below move it around that. Capped so
+       one collapsing bloc cannot take the whole indicator with it. */
+    _mood:()=>clamp((46-INDICATORS.ruralAlienation._sentiment())*0.42, -14, 16),
     derive:()=>{
       let v=45;
+      v+=INDICATORS.ruralAlienation._mood();          // where rural Oregon actually is
       v+=(METRICS.taxBurden.value-38)*0.25;
       v-=(METRICS.loggingRate.value-40)*0.30;             // harvest activity placates resource counties
       v+=(METRICS.gasPrice.value-3.6)*3;
@@ -2326,6 +2341,7 @@ const INDICATORS={
     },
     drivers:()=>[
       {name:"⊕ baseline",v:45,base:true},
+      {name:ico('tractor')+" How rural Oregon feels about you",v:INDICATORS.ruralAlienation._mood(),link:"v_rural"},
       ...(startIndShift("ruralAlienation")?[{name:ico('people')+" Eastern Oregon elected you",v:startIndShift("ruralAlienation")}]:[]),
       {name:ico(METRICS.taxBurden.icon)+" Tax Burden",v:(METRICS.taxBurden.value-38)*0.25,link:"m_taxBurden"},
       {name:ico(METRICS.loggingRate.icon)+" Logging (placates)",v:-(METRICS.loggingRate.value-40)*0.30,link:"m_loggingRate"},
@@ -5328,6 +5344,60 @@ const DILEMMAS={
          GAME.log.push(ico("scales")+" Held the line — the floor stays shut for two quarters, and your coalition rallies");
        }},
     ]},
+  greaterIdaho:{title:"The Border Question", icon:"tractor", cooldown:22,
+    text:()=>{
+      const ra=Math.round(INDICATORS.ruralAlienation.value);
+      return "Two more eastern counties passed Greater Idaho measures on Tuesday, which makes fifteen, and this time the margins were not close. The Idaho House has answered with a memorial inviting Oregon to open talks on the line, and it is sitting in your Capitol with a bill number on it. None of this can actually happen — Article IV §3 needs both legislatures and Congress, and no border has moved that way since West Virginia — and everyone involved knows it. That is not the point. The point is that a third of Oregon's land area has now voted, on the record, that it would rather be governed by another state than by you, rural alienation is running at "+ra+", and the national press has arrived to ask what you intend to do about it. You can go east and pay for it, say plainly that the border is not on the table, or answer the movement without answering the counties.";
+    },
+    influence:()=>{
+      if(GAME.turn<6)return 0;
+      const ra=INDICATORS.ruralAlienation.value;
+      const sour=clamp((46-(SIMULANTS.rural?SIMULANTS.rural.approval:50))/20,0,1);
+      return clamp((ra-58)/20,0,1)*0.7 + sour*0.25;
+    },
+    options:[
+      {label:"Go east and give the counties something real",
+       text:"Six weeks of county courthouses, grange halls and fairground meetings, and you do not arrive empty-handed: a standing rural cabinet seat, county assent restored on a list of land-use and siting decisions Salem had taken, and the sheriffs' grant money that had been sitting in a drawer. The measures do not get repealed — nobody repeals a protest vote — but the organisers stop being able to say nobody listens, which was the only thing holding it together. Portland reads the whole trip as rewarding a tantrum, and the counties you handed authority back to will use it on things you would not have chosen.",
+       apply:()=>{
+         GAME.capital=clamp(GAME.capital-10,0,100);
+         createGrudge("i_ruralAlienation",-16,0.93,"Went east and paid for it");
+         createGrudge("v_rural",9,0.92,"The governor came east");
+         createGrudge("v_timber",7,0.92,"County authority restored");
+         createGrudge("v_conservative",6,0.92,"Listened to the counties");
+         createGrudge("v_liberal",-6,0.9,"Rewarded a secession stunt");
+         createGrudge("v_urban",-5,0.9,"Salem gave ground to Malheur County");
+         createGrudge("v_socialist",-4,0.9,"Capitulated to the right");
+         createCountyMood(COUNTY_GROUPS.greaterIdaho,9,0.9,"Eastern counties — the governor came east");
+         createCountyMood(COUNTY_GROUPS.portlandCore,-4,0.88,"Portland — rewarded the border stunt");
+         shiftCompass(0.2,-0.4);
+         GAME.log.push(ico('tractor')+" Went east and paid for it — county authority restored, ◈ 10 spent");
+       }},
+      {label:"Say plainly that the border is not on the table",
+       text:"You take the constitutional answer and you give it straight, from the Capitol steps, without softening it: the line is fixed, it needs Congress, it is not going to move, and there is no version of this conversation that ends any other way. It is true, it is well received in the valley, and it lands in Burns and Enterprise as exactly the thing they have been saying about Salem for twenty years. The memorial dies in committee. The signature drives do not.",
+       apply:()=>{
+         createGrudge("i_ruralAlienation",11,0.92,"Told the counties the answer was no");
+         createGrudge("v_rural",-8,0.92,"Salem said no from the Capitol steps");
+         createGrudge("v_timber",-6,0.92,"Dismissed out of hand");
+         createGrudge("v_conservative",-6,0.92,"Lectured about the constitution");
+         createGrudge("v_moderate",4,0.9,"Refused to indulge it");
+         createGrudge("v_urban",4,0.9,"Held the state together");
+         createGrudge("v_liberal",3,0.9,"Did not reward it");
+         createCountyMood(COUNTY_GROUPS.greaterIdaho,-8,0.9,"Eastern counties — told no from Salem");
+         GAME.mandateShock=(GAME.mandateShock||0)+2;
+         GAME.log.push(ico('scales')+" Said the border question is closed — the valley agrees, the east does not");
+       }},
+      {label:"Answer the movement without answering the counties",
+       text:"No trip, no concessions, no lecture. You stand up a joint state–county commission with a real budget and a two-year reporting deadline, name three eastern commissioners to it, and let the border question go on being asked inside a room you convened. It changes nothing anyone can point to. It also costs you almost nothing, and it takes the story from a secession vote to a working group, which is the last thing a secession vote wants to be.",
+       apply:()=>{
+         GAME.capital=clamp(GAME.capital-4,0,100);
+         createGrudge("i_ruralAlienation",-6,0.86,"A commission instead of an answer");
+         createGrudge("v_rural",3,0.86,"At least somebody convened something");
+         createGrudge("v_moderate",3,0.9,"Took the heat out of it");
+         createGrudge("v_conservative",-2,0.88,"A commission is not an answer");
+         createCountyMood(COUNTY_GROUPS.greaterIdaho,3,0.86,"Eastern counties — a commission, at least");
+         GAME.log.push(ico('doc')+" Stood up a state–county commission — ◈ 4, and the story moves on");
+       }},
+    ]},
   protestResponse:{title:"Portland in the Streets", icon:"muscle",
     text:"For six straight weekends downtown Portland has belonged to the marchers — Pioneer Courthouse Square to City Hall and back, a standing camp in Waterfront Park, Broadway closed on Saturdays. The grievance is specific and it is your record: the rules you've rolled back, the tax cuts, the harder line on enforcement — your left flank reads the whole rightward turn as a betrayal and wants it reversed. Organisers have permits, a press operation, and your switchboard. You can meet them partway and give ground on the agenda, send Oregon State Police in to clear downtown, or say nothing and let the wave burn itself out.",
     influence:()=>GAME.activeSituations.leftProtests?0.9:0,
@@ -5634,6 +5704,11 @@ const COUNTY_GROUPS={
     Yamhill:0.6, Benton:0.6, Linn:0.6, Lane:0.75},
   // wildland-urban-interface fire country — insurance shock, evacuations
   fireCountry:{Josephine:1, Jackson:0.85, Klamath:0.8, Deschutes:0.7, Douglas:0.6, Jefferson:0.55, Wasco:0.5, Hood_River:0.45, Wallowa:0.5, Grant:0.45, Curry:0.4},
+  // the counties that have passed Greater Idaho measures, plus the two the
+  // campaign is still working. Real list: Baker, Grant, Harney, Lake, Malheur,
+  // Sherman, Union, Wallowa, Jefferson, Morrow, Crook, Klamath, Wheeler.
+  greaterIdaho:{Baker:1, Grant:1, Harney:1, Lake:1, Malheur:1, Sherman:1, Union:1,
+    Wallowa:1, Jefferson:1, Morrow:1, Crook:1, Klamath:1, Wheeler:1, Umatilla:0.6, Gilliam:0.6},
   // irrigated agriculture east of the Cascades — drought, water shutoffs
   irrigatedEast:{Klamath:1, Malheur:1, Morrow:0.8, Umatilla:0.8, Sherman:0.6, Gilliam:0.6, Wasco:0.6, Jefferson:0.6, Crook:0.5, Baker:0.5},
   // dry counties courted by hyperscaler data centers
@@ -6085,10 +6160,14 @@ const SITUATIONS={
     moodAxes:{economic:-0.2,social:-0.2}, moodMag:2,
     groupMood:{urban:-8,poor:-8,liberal:-6,suburban:-4,conservative:1}},
   addictionCrisis:{name:"Addiction & Overdose Crisis", kind:"bad", category:"chronic",
-    desc:"Fentanyl and untreated addiction are overwhelming Oregon after the rocky rollout and repeal of drug decriminalization. Treatment capacity is far short of need. Higher incarceration capacity can help contain the crisis alongside behavioral health investment.",
+    desc:"Fentanyl and untreated addiction are overwhelming Oregon after the rocky rollout and repeal of drug decriminalization. Treatment capacity is far short of need. Higher incarceration capacity can help contain the crisis alongside behavioral health investment.\n\n→ TO FIX IT: get Drug Use below 42, AND get Mental Healthcare Capacity up past 58 — build treatment (Behavioral Health Buildout, the Health Authority budget, Drug Deflection) rather than waiting the wave out. Containing it by force works too: Incarceration Rate above 68 satisfies the same condition, at every cost that implies.",
     startActive:true, minTurns:8, clear:()=>METRICS.drugUse.value<42 && (METRICS.behavioralHealth.value>58 || METRICS.incarcerationRate.value>68),
     costEffect:{humanServices:0.35},
-    watch:{metric:"drugUse", startAt:null, clearAt:42, badHigh:true, alsoMetric:"behavioralHealth", alsoClearAt:58},
+    // alsoAbove: capacity has to come UP, not down. Without the flag the
+    // renderer printed this as "below 58" and marked it met at 46.
+    watch:{metric:"drugUse", startAt:null, clearAt:42, badHigh:true,
+           alsoMetric:"behavioralHealth", alsoClearAt:58, alsoAbove:true,
+           alsoOrMetric:"incarcerationRate", alsoOrClearAt:68, alsoOrAbove:true},
     metricEffect:{propertyCrime:1.4,violentCrime:0.4,homelessness:1.0,drugUse:1.2,gdp:-0.15}, indicatorEffect:{inMigration:-3, tourism:-6},
     moodAxes:{social:0.2}, moodMag:1,
     groupMood:{suburban:-6,rural:-5,blueCollar:-5,liberal:-4,parents:-3,conservative:-2}},
@@ -13120,8 +13199,17 @@ function situationProgressHTML(sid){
   if(w.alsoMetric){
     const am=METRICS[w.alsoMetric];
     if(am){
-      const ok=am.value<=w.alsoClearAt;
-      also=`<div class="threshline" style="margin-top:6px">Second condition: <b>${am.name}</b> must also be below ${w.alsoClearAt} — currently ${Math.round(am.value)}. <span style="color:${ok?'var(--good)':'var(--bad)'}">${ok?'met':'not met'}</span>.</div>`;
+      // which side of the line satisfies it is a property of the condition,
+      // not something the renderer gets to assume
+      const met=x=>w.alsoAbove?(x.v>=x.at):(x.v<=x.at);
+      const main={v:am.value, at:w.alsoClearAt};
+      const om=w.alsoOrMetric?METRICS[w.alsoOrMetric]:null;
+      const alt=om?{v:om.value, at:w.alsoOrClearAt}:null;
+      const altWord=w.alsoOrAbove?"above":"below";
+      const ok=met(main)||(alt&&(w.alsoOrAbove?alt.v>=alt.at:alt.v<=alt.at));
+      also=`<div class="threshline" style="margin-top:6px">Second condition: <b>${am.name}</b> ${w.alsoAbove?"has to climb above":"must fall below"} ${w.alsoClearAt} — currently ${Math.round(am.value)}`;
+      also+= alt ? `, or <b>${om.name}</b> ${altWord} ${w.alsoOrClearAt} — currently ${Math.round(alt.v)}. ` : `. `;
+      also+= `<span style="color:${ok?'var(--good)':'var(--bad)'}">${ok?'met':'not met'}</span>.</div>`;
     }
   }
   return `<div class="ebgroup-label">${sGood?"Are you keeping it?":"Are you ending it?"}</div>
@@ -14524,7 +14612,14 @@ function renderDetail(){
       let thr="";
       if(s.watch.startAt!==null)thr+=`Begins when ${nm} passes ${cmp(s.watch.startAt)}. `;
       thr+=`Clears when ${nm} reaches ${s.watch.badHigh?"below":"above"} ${cmp(s.watch.clearAt)}`;
-      if(s.watch.alsoMetric){const am=METRICS[s.watch.alsoMetric];thr+=` AND ${am.name} below ${s.watch.alsoClearAt}`;}
+      if(s.watch.alsoMetric){
+        const am=METRICS[s.watch.alsoMetric];
+        thr+=` AND ${am.name} ${s.watch.alsoAbove?"above":"below"} ${s.watch.alsoClearAt}`;
+        if(s.watch.alsoOrMetric){
+          const om=METRICS[s.watch.alsoOrMetric];
+          if(om)thr+=` (or ${om.name} ${s.watch.alsoOrAbove?"above":"below"} ${s.watch.alsoOrClearAt})`;
+        }
+      }
       thr+=`. Currently ${nm}: ${curTxt}.`;
       h+=`<div class="ebgroup-label">Trigger thresholds</div><div class="ebgroup"><div class="threshline">${thr}</div></div>`;
       // ...and whether you are actually getting there
