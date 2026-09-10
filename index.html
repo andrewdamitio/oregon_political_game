@@ -98,6 +98,24 @@
      and the base band read as a state device rather than an app title, and the
      rule under STATECRAFT makes OREGON part of one object instead of a tagline
      sitting beside it. */
+  /* ---- SANDBOX FRAME ---- */
+  .sbframe{position:fixed;inset:0;z-index:200;pointer-events:none;
+    border:9px solid var(--gold);box-shadow:inset 0 0 0 2px rgba(0,0,0,.35)}
+  .sbframe.hidden{display:none}
+  .sbbar{position:absolute;left:0;right:0;height:30px;background:var(--gold);color:#231f16;
+    display:flex;align-items:center;gap:14px;padding:0 14px;pointer-events:auto;
+    font-family:var(--font-display);font-size:11px;letter-spacing:.18em;text-transform:uppercase}
+  .sbbar-top{top:-9px}
+  .sbbar-bottom{bottom:-9px;justify-content:center;letter-spacing:.5em}
+  .sblabel{font-weight:700}
+  .sbnote{flex:1;font-family:var(--font-body);font-size:10.5px;letter-spacing:.01em;
+    text-transform:none;opacity:.82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sbexit{background:#231f16;color:var(--gold);border:0;border-radius:3px;cursor:pointer;
+    font-family:var(--font-display);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+    padding:5px 14px;font-weight:700}
+  .sbexit:hover{background:#000}
+  body.sandbox{padding:30px 9px}
+  @media(max-width:720px){ .sbnote{display:none} .sbbar{height:26px} body.sandbox{padding:26px 6px} }
   header .brand{display:flex;align-items:center;gap:11px;position:relative;z-index:2;
     cursor:pointer;background:none;border:0;padding:0;text-align:left;font:inherit;color:inherit;
     -webkit-tap-highlight-color:transparent}
@@ -1365,6 +1383,16 @@
   .board-climate .nmbar{margin-top:2px}
   @media (max-width:820px){.board-climate{grid-template-columns:1fr;gap:10px}}
   /* political compass */
+  .cmap-pick{font-size:11px;color:var(--muted-1);display:inline-flex;align-items:center;gap:6px;margin-left:10px}
+  .cmap-pick select{font-family:var(--font-data);font-size:11px;padding:4px 6px;border:1px solid var(--line-em);background:var(--paper);color:var(--ink);border-radius:4px}
+  .cg-hdr{font-family:var(--font-display);font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted-1);margin:11px 0 5px;border-top:1px solid var(--line);padding-top:8px}
+  .cg-wrap{display:flex;flex-wrap:wrap;gap:4px}
+  .cg-chip{font-size:10.5px;padding:2px 6px;border-radius:3px;border:1px solid var(--line-em);white-space:nowrap}
+  .cg-chip.hi{background:rgba(61,79,124,.14);color:var(--ink)}
+  .cg-chip.lo{background:var(--paper-2);color:var(--muted-2)}
+  .cg-chip b{font-family:var(--font-data)}
+  .cg-note{font-size:10px;line-height:1.5;color:var(--muted-3);margin-top:5px;font-style:italic}
+  .ci-row.cg-pol:hover{background:var(--paper-2)}
   .compass-wrap{max-width:620px;margin:0 auto}
   .compass-svg{width:100%;height:auto;display:block;background:var(--paper-2);border:var(--rule) solid var(--ink);border-radius:var(--radius)}
   .ec-wrap{margin:18px auto 6px;text-align:center;max-width:560px}
@@ -1538,6 +1566,14 @@
 </style>
 </head>
 <body>
+<div id="sandboxFrame" class="sbframe hidden" aria-hidden="true">
+  <div class="sbbar sbbar-top">
+    <span class="sblabel">Sandbox</span>
+    <span class="sbnote">capital never runs out · every vote carries · losing an election does not end the run — every number you see is still the real one</span>
+    <button type="button" class="sbexit" id="sandboxExit">Exit</button>
+  </div>
+  <div class="sbbar sbbar-bottom"><span class="sblabel">Sandbox</span></div>
+</div>
 <svg id="ic-defs" width="0" height="0" aria-hidden="true" style="position:absolute;overflow:hidden"><defs>
 <style>#ic-defs g{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}</style>
 <symbol id="ic-dot" viewBox="0 0 24 24"><g><circle cx="12" cy="12" r="3"/></g></symbol>
@@ -1743,6 +1779,9 @@
   try{ localStorage.removeItem("sc_nextSeed"); localStorage.setItem("sc_curSeed",seed); }catch(e){}
   Math.random=mulberry32(xmur3(seed)());
   window.RUN_SEED=seed;
+  // "sandbox" typed into the seed box. A normal, reproducible run in every
+  // respect except that nothing is allowed to stop you.
+  window.SANDBOX=(seed==="SANDBOX");
   /* Re-point Math.random at a named stream derived from the same seed. The
      world can be built more than once — switching coalitions on the opening
      screen rebuilds it — and every build must draw the same numbers, so the
@@ -9168,12 +9207,14 @@ function countyData(){
   const out={};
   names.forEach((n,i)=>{
     const approval = wSum[i]>0 ? appSum[i]/wSum[i] : 45;
-    const ranked = Object.keys(grp[i])
+    // the whole table, not just the top three — the map page shows both ends
+    // of it, and "who is missing here" is as useful as "who is here"
+    const all = Object.keys(grp[i])
       .filter(sid=>SIMULANTS[sid]&&!SIMULANTS[sid].static&&SIMULANTS[sid].size)
       .map(sid=>({sid, over:(grp[i][sid]/wSum[i])/SIMULANTS[sid].size}))
-      .sort((a,b)=>b.over-a.over)
-      .filter(x=>x.over>1.12).slice(0,3);
-    out[n]={approval, groups:ranked.map(x=>SIMULANTS[x.sid].name), topSids:ranked};
+      .sort((a,b)=>b.over-a.over);
+    const ranked = all.filter(x=>x.over>1.12).slice(0,3);
+    out[n]={approval, groups:ranked.map(x=>SIMULANTS[x.sid].name), topSids:ranked, allSids:all};
   });
   _ctyData=out; _ctyDataTurn=GAME.turn;
   return out;
@@ -10488,6 +10529,35 @@ function _cmHx(h){h=h.replace("#","");return [parseInt(h.slice(0,2),16),parseInt
 function cmMix(t,a,b){t=clamp(t,0,1);const A=_cmHx(a),B=_cmHx(b);return "#"+[0,1,2].map(i=>Math.round(A[i]+(B[i]-A[i])*t).toString(16).padStart(2,"0")).join("");}
 function _cmNth(n){const s=["th","st","nd","rd"],v=n%100;return n+(s[(v-20)%10]||s[v]||s[0]);}
 function _cmLeanWord(v){return v<=.18?"strongly progressive":v<=.4?"leans progressive":v>=.82?"strongly conservative":v>=.6?"leans conservative":"swing"}
+/* Which enacted policies land hardest in one county. A policy's blocEffect
+   says who it pleases and annoys; this county's concentration table says how
+   many of those people live here. Multiply and rank, and you have the bridge
+   between the map and the Governing Board. */
+function countyPolicyPull(name){
+  const d=countyData()[name]; if(!d||!d.allSids)return [];
+  const over={}; for(const x of d.allSids)over[x.sid]=x.over;
+  const out=[];
+  const score=(be,lvl)=>{
+    let v=0;
+    for(const sid in (be||{})){
+      const o=over[sid]; if(o==null)continue;
+      const share=(SIMULANTS[sid]?SIMULANTS[sid].size:0)*o;   // this county's share in that bloc
+      v+=be[sid]*share;
+    }
+    return v*lvl;
+  };
+  for(const id in POLICIES){
+    const p=POLICIES[id]; if(!p||!p.enacted)continue;
+    const be=(p.mechanic==="tier"&&p.tierBlocEffects)?p.tierBlocEffects[p.tierIndex||0]:p.blocEffect;
+    if(!be)continue;
+    const v=score(be, p.mechanic==="tier"?1:Math.max(0.15,policyLevel(p)));
+    if(Math.abs(v)>0.05)out.push({id, name:p.name, icon:p.icon, v});
+  }
+  out.sort((a,b)=>Math.abs(b.v)-Math.abs(a.v));
+  return out.slice(0,6);
+}
+/* The bloc whose concentration the "Where a group lives" mode is shading. */
+let cmapBloc="timber";
 function cmapShades(mode){
   const rows=OR_COUNTIES, tot=rows.reduce((s,r)=>s+r[6],0);
   if(mode==="lean") return {
@@ -10500,6 +10570,27 @@ function cmapShades(mode){
     legend:[{c:"#cdbb8c",label:"Ranch & farm country"},{c:"#7f8a6f",label:"Small-town"},{c:"#22485f",label:"City & suburb"}],
     caption:"How urban each county is — Portland and its suburbs and the mid-size cities down to ranch country with no real town. Judged on the size of each county's main community, not raw population or density."
   };
+  if(mode==="approval"){
+    const cd=countyData();
+    return {
+      fill:r=>{ const a=(cd[r[0]]||{approval:45}).approval;
+        return a>=50 ? cmMix(clamp((a-50)/22,0,1)*0.9+0.1, "#e7e3d5", "#2f5130")
+                     : cmMix(clamp((50-a)/22,0,1)*0.9+0.1, "#e7e3d5", "#93242a"); },
+      legend:[{c:"#93242a",label:"Under water"},{c:"#e7e3d5",label:"Even"},{c:"#2f5130",label:"Ahead"}],
+      caption:"Your approval among the voters who live in each county, right now. This is the same number election night counts, so a wall of red east of the Cascades is a real problem and not a cosmetic one."
+    };
+  }
+  if(mode==="bloc"){
+    const cd=countyData();
+    const nm=(SIMULANTS[cmapBloc]||{name:cmapBloc}).name;
+    const ov=r=>{ const d=cd[r[0]]; if(!d||!d.allSids)return 1;
+      const f=d.allSids.filter(x=>x.sid===cmapBloc)[0]; return f?f.over:0; };
+    return {
+      fill:r=>cmMix(clamp((ov(r)-0.4)/2.2,0,1), "#e7e3d5", "#3d4f7c"),
+      legend:[{c:"#e7e3d5",label:"Below their statewide share"},{c:"#3d4f7c",label:"Concentrated here"}],
+      caption:"Where <b>"+nm+"</b> actually live, as a multiple of their share of the state. Anything a policy does to this group lands hardest in the dark counties — and county feeling is what campaign work and regional dilemmas move."
+    };
+  }
   const mxShare=Math.max(...rows.map(r=>r[6]/tot));
   return {
     fill:r=>cmMix(Math.sqrt((r[6]/tot)/mxShare), "#e7e3d5", "#33562f"),
@@ -10510,6 +10601,7 @@ function cmapShades(mode){
 function renderCountyMap(){
   const rows=OR_COUNTIES, tot=rows.reduce((s,r)=>s+r[6],0);
   const sh=cmapShades(cmapMode);
+  const cd=countyData();
   const ranked=rows.map((r,i)=>({i,name:r[0],pop:r[6]})).sort((a,b)=>b.pop-a.pop);
   const rankOf={}; ranked.forEach((r,k)=>rankOf[r.i]=k+1);
   const topShare=ranked[0].pop/tot*100;
@@ -10520,16 +10612,22 @@ function renderCountyMap(){
     labels+=`<text class="cm-lbl" x="${r[3]}" y="${r[4]+1.8}" text-anchor="middle">${r[1]}</text>`;
   });
   const svg=`<svg class="cmap-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Oregon county map">${paths}${labels}</svg>`;
-  const modes=[["electorate","Electorate"],["lean","Political lean"],["urban","Urban–rural"]];
+  const modes=[["electorate","Electorate"],["approval","Your approval"],["bloc","Where a group lives"],["lean","Political lean"],["urban","Urban–rural"]];
   const modeBtns=modes.map(([k,l])=>`<button data-mode="${k}" class="${k===cmapMode?"on":""}">${l}</button>`).join("");
+  // the group picker only matters in bloc mode
+  const blocOpts=Object.keys(SIMULANTS).filter(sid=>SIMULANTS[sid]&&!SIMULANTS[sid].static&&SIMULANTS[sid].size)
+    .map(sid=>`<option value="${sid}"${sid===cmapBloc?" selected":""}>${SIMULANTS[sid].name}</option>`).join("");
+  const blocPick=cmapMode==="bloc"
+    ? `<label class="cmap-pick">Group <select id="cmapBlocSel">${blocOpts}</select></label>` : "";
   const legend=sh.legend.filter(l=>l.label).map(l=>`<span><i style="background:${l.c}"></i>${l.label}</span>`).join("");
   const top5=ranked.slice(0,6).map(r=>`<div class="ci-row"><span>${r.name}</span><span>${(r.pop/tot*100).toFixed(1)}%</span></div>`).join("");
 
   main.innerHTML=`${BACK_BTN_HTML}
     <div class="sectionhdr">${ico('columns')} Oregon by County</div>
-    <div class="sectionsub">The same 36-county geometry the election-night map uses. Hover a county — or tab through them — to see its share of the statewide electorate and its character. ${sh.caption}</div>
+    <div class="sectionsub">The same 36-county geometry election night uses, and the same voters. Hover a county — or tab through them — for who lives there, how you are doing with them, and which of your policies is landing on them hardest. ${sh.caption}</div>
     <div class="cmap-top">
       <div class="cmap-modes">${modeBtns}</div>
+      ${blocPick}
     </div>
     <div class="cmap-layout">
       ${svg}
@@ -10545,24 +10643,46 @@ function renderCountyMap(){
   const info=document.getElementById("cmapInfo");
   const paint=(i)=>{
     const r=OR_COUNTIES[i], p=COUNTY_PROFILE[r[0]]||{}, share=r[6]/tot*100;
+    const d=cd[r[0]]||{approval:45, allSids:[]};
     const tags=[];
     if(p.urb!=null)tags.push(p.urb>=.85?"urban":p.urb>=.6?"city & suburbs":p.urb<=.16?"remote rural":p.urb<=.42?"rural":"small-town");
     if(p.ideo!=null)tags.push(_cmLeanWord(p.ideo));
     if(p.col!=null&&(p.col>=.68||p.col<=.34))tags.push(p.col>=.68?"college-heavy":"few college grads");
     if(p.res!=null&&p.res>=.7)tags.push("resource economy");
     if(p.age!=null&&(p.age>=.66||p.age<=.36))tags.push(p.age>=.66?"older population":"younger population");
+    // ---- who is here, and who is not ----
+    const all=d.allSids||[];
+    const heavy=all.filter(x=>x.over>=1.25).slice(0,6);
+    const thin=all.filter(x=>x.over<=0.7).slice(-4).reverse();
+    const chip=(x,cls)=>`<span class="cg-chip ${cls}">${SIMULANTS[x.sid]?SIMULANTS[x.sid].name:x.sid} <b>${x.over.toFixed(1)}×</b></span>`;
+    // ---- how you are doing here ----
+    const app=d.approval, appCol=app>=52?'var(--good)':app>=44?'var(--warn)':'var(--bad)';
+    const gr=(typeof countyGrudge==="function")?countyGrudge(r[0]):0;
+    const cc=(GAME.countyCamp&&GAME.countyCamp[r[0]])||null;
+    const pres=cc?clamp(ccTotal(cc)/COUNTY_CAMP_CAP,0,1):0;
+    // ---- what is landing on them ----
+    const pull=countyPolicyPull(r[0]);
+    const pullRows=pull.map(x=>`<div class="ci-row cg-pol" data-detail="p_${x.id}" style="cursor:pointer">
+      <span>${ico(x.icon)} ${x.name}</span>
+      <span style="color:${x.v>0?'var(--good)':'var(--clay)'}">${x.v>0?'+':''}${x.v.toFixed(2)}</span></div>`).join("");
     info.innerHTML=`<h4>${r[0]} County</h4>
-      <div class="ci-sub">${rankOf[i]===1?"largest":_cmNth(rankOf[i])+" largest"} of 36 · ${r[1]}</div>
-      <div class="ci-big">${share.toFixed(1)}%<small> of Oregon's voters</small></div>
-      <div class="ci-bar"><i style="width:${clamp(share/topShare*100,2,100).toFixed(1)}%"></i></div>
+      <div class="ci-sub">${rankOf[i]===1?"largest":_cmNth(rankOf[i])+" largest"} of 36 · ${r[1]} · ${share.toFixed(1)}% of Oregon's voters</div>
+      <div class="ci-big" style="color:${appCol}">${Math.round(app)}%<small> approve of you here</small></div>
+      <div class="ci-bar"><i style="width:${clamp(app,2,100).toFixed(1)}%;background:${appCol}"></i></div>
+      ${Math.abs(gr)>0.4?`<div class="ci-row"><span>Regional feeling</span><span style="color:${gr>0?'var(--good)':'var(--bad)'}">${gr>0?'warm +':'sore '}${gr.toFixed(1)}</span></div>`:''}
+      ${pres>0.05?`<div class="ci-row"><span>Campaign presence</span><span>${campStrengthWord(pres)}</span></div>`:''}
       <div class="ci-row"><span>Population</span><span>${Math.round(r[6]*1000).toLocaleString()}</span></div>
-      <div class="ci-row"><span>Rank by size</span><span>#${rankOf[i]} of 36</span></div>
       ${p.ideo!=null?`<div class="ci-row"><span>Political lean</span><span>${_cmLeanWord(p.ideo)}</span></div>`:""}
-      ${p.urb!=null?`<div class="ci-row"><span>Setting</span><span>${p.urb>=.85?"urban":p.urb>=.6?"city &amp; suburbs":p.urb<=.16?"remote rural":p.urb<=.42?"rural":"small-town"}</span></div>`:""}
       <div class="ci-row"><span>Density</span><span>${Math.round(countyDensity(r[0])).toLocaleString()} / sq mi</span></div>
-      ${p.col!=null?`<div class="ci-row"><span>College share</span><span>${Math.round(p.col*100)}th percentile</span></div>`:""}
+      ${heavy.length?`<div class="cg-hdr">Concentrated here</div><div class="cg-wrap">${heavy.map(x=>chip(x,"hi")).join("")}</div>
+        <div class="cg-note">A multiple of each group's share of the whole state. Anything that moves these groups moves this county hardest.</div>`:""}
+      ${thin.length?`<div class="cg-hdr">Barely here</div><div class="cg-wrap">${thin.map(x=>chip(x,"lo")).join("")}</div>`:""}
+      ${pullRows?`<div class="cg-hdr">What you have enacted that lands here</div>${pullRows}
+        <div class="cg-note">Your live policies weighted by this county's own mix — click one to open it.</div>`:
+        `<div class="cg-hdr">What you have enacted that lands here</div><div class="cg-note">Nothing you have enacted moves this county much yet.</div>`}
       <div class="ci-tags">${tags.map(w=>`<span>${w}</span>`).join("")}</div>
       <div class="cmap-legend">${legend}</div>`;
+    info.querySelectorAll("[data-detail]").forEach(el=>el.addEventListener("click",()=>openDetail(el.dataset.detail)));
   };
   const markSel=el=>{ main.querySelectorAll(".cm-cty.sel").forEach(x=>x.classList.remove("sel")); el.classList.add("sel"); };
   main.querySelectorAll(".cm-cty").forEach(el=>{
@@ -10573,9 +10693,10 @@ function renderCountyMap(){
     el.addEventListener("click",go);   // tap on touch devices
   });
   main.querySelectorAll(".cmap-modes button").forEach(b=>b.addEventListener("click",()=>{ cmapMode=b.dataset.mode; renderCountyMap(); }));
+  const bsel=document.getElementById("cmapBlocSel");
+  if(bsel)bsel.addEventListener("change",()=>{ cmapBloc=bsel.value; renderCountyMap(); });
   wireBackBtn();
 }
-
 /* Election-night breakdown: turnout + first-preference vote for every interest
    group. Voters belong to several groups at once, so the bars overlap. */
 function egBlocCharts(blocs){
@@ -10828,7 +10949,10 @@ function wireElectorateCompass(root, optsFn){
 }
 function showElection(r){
   const succ=!!r.successor;              // term-limited out: the race is for your successor, not you
-  GAME.gameOver=!r.won||succ;
+  // Sandbox: the result is counted and reported exactly as it happened —
+  // including a loss, in full, with the margin and the county map — but the
+  // run continues rather than ending on it.
+  GAME.gameOver=window.SANDBOX?false:(!r.won||succ);
   recordLegacy(r);
   const card=document.getElementById("electionCard");
   let thirdLine='';
@@ -10897,8 +11021,8 @@ function showElection(r){
     ${electorateCompassHTML()}
     ${recordSectionHTML({won, successor:succ})}
     ${egBlocCharts(r.blocs)}
-    ${(won && !succ)
-      ? `<button id="electionContinue" class="enactbtn">Begin Next Term ▸</button>`
+    ${(won && !succ)||window.SANDBOX
+      ? `<button id="electionContinue" class="enactbtn">${(!won||succ)?"Carry on anyway — sandbox":"Begin Next Term"} ▸</button>`
       : `<div class="eg-seedline">Seed <code>${window.RUN_SEED||"—"}</code></div>
          <div class="eg-endbtns">
            <button id="electionContinue" class="enactbtn">New Game</button>
@@ -11860,6 +11984,9 @@ function votePassOdds(w){
 function runFloorVote(w){
   const out={};
   let passed=true;
+  // Sandbox: the count is still run and reported honestly below, but the
+  // chamber always delivers. You get to see what the real number was.
+  const _sb=!!window.SANDBOX;
   for(const key of ["house","senate"]){
     const C=w[key];
     const bought=new Set(C.buy.map(m=>m.id));
@@ -11868,10 +11995,10 @@ function runFloorVote(w){
       const base=bought.has(m.id)?VOTE_PROMISE:m.incl;
       if(base+gauss()*(w.voteSD||VOTE_SD)>0)yes++;
     }
-    out[key]={yes, need:C.need, ok:yes>=C.need};
-    if(yes<C.need)passed=false;
+    out[key]={yes, need:C.need, ok:_sb?true:yes>=C.need, real:yes>=C.need};
+    if(!_sb && yes<C.need)passed=false;
   }
-  out.passed=passed;
+  out.passed=_sb?true:passed;
   return out;
 }
 /* The clerk reads the result. A bill that dies deserves to be told to your
@@ -12019,7 +12146,7 @@ function drawFloor(){
   if(!pol)return;
   const card=document.getElementById("floorCard"), modal=document.getElementById("floorModal");
   const w=whipCount(F.id,F.dir,F.narrowed,F.cushion);
-  const afford=GAME.capital>=w.cost;
+  const afford=GAME.capital>=w.cost||!!window.SANDBOX;
   const verb=F.dir==="repeal"?"Repeal":"Enact";
   // A weaker bill used to be an abstract percentage that, on a policy with a
   // dial, changed nothing at all once it passed — narrowing only ever reached
@@ -12076,7 +12203,7 @@ function drawFloor(){
       <span class="wc-num ${afford?'':'broke'}">◈ ${w.cost} <span class="wc-have">of ◈ ${GAME.capital}</span></span></div>
     ${(w.house.buy.length+w.senate.buy.length)?`<div class="whip-owed">Members you whip will owe you nothing afterwards — they have already paid. The next bill that hurts their seat, they are gone.</div>`:``}
     <div style="display:flex;gap:10px;margin:6px 0 4px;flex-wrap:wrap">
-      <button class="enactbtn" id="floorGo" ${(w.possible&&afford)?'':'disabled'}>${
+      <button class="enactbtn" id="floorGo" ${((w.possible||window.SANDBOX)&&afford)?'':'disabled'}>${
         (!w.possible||!afford)?floorBlockLabel(w)
         :"Call the vote"+(binary?"":" — "+(dialed?dialLab(F.narrowed):(F.narrowed>=1?"full bill":Math.round(F.narrowed*100)+"% strength")))
           +((w.house.buy.length+w.senate.buy.length)?", whipping "+(w.house.buy.length+w.senate.buy.length):"")}</button>
@@ -15573,7 +15700,7 @@ function enactPolicy(id){
     GAME.log.push("✗ The legislature voted on "+src.name+" this quarter — not again until next."); render(); return; }
   if(goesToFloor(src,"enact")){ showFloor(id,"enact"); return; }   // it needs votes, not just money
   const ecost=policyEnactCost(src);
-  if(GAME.capital<ecost){GAME.log.push("✗ Not enough capital to enact "+src.name);render();return;}
+  if(!window.SANDBOX && GAME.capital<ecost){GAME.log.push("✗ Not enough capital to enact "+src.name);render();return;}
   GAME.capital-=ecost;
   mootCitizenMeasure(id,"enacted");
   _applyEnact(id);
@@ -15585,8 +15712,9 @@ function enactPolicy(id){
 function passBill(id, dir, narrowed, cushion){
   if(floorFrozen())return false;                  // there is no quorum to call
   const w=whipCount(id,dir,narrowed,cushion);
-  if(!w||!w.possible||GAME.capital<w.cost)return false;
-  GAME.capital-=w.cost;
+  if(!w)return false;
+  if(!window.SANDBOX && (!w.possible||GAME.capital<w.cost))return false;
+  GAME.capital=clamp(GAME.capital-w.cost,0,CAPITAL_MAX);
   GAME.legis.favors=GAME.legis.favors||{};
   const whipped=[...w.house.buy,...w.senate.buy];
   for(const m of whipped)
@@ -15647,7 +15775,7 @@ function repealPolicy(id){
     GAME.log.push("✗ The legislature voted on "+p.name+" this quarter — not again until next."); render(); return; }
   if(goesToFloor(p,"repeal")){ showFloor(id,"repeal"); return; }   // striking a law needs votes too
   const cost=p.repealCost!==undefined?p.repealCost:(p.capital||6);
-  if(GAME.capital<cost){GAME.log.push("✗ Not enough capital to repeal "+p.name);render();return;}
+  if(!window.SANDBOX && GAME.capital<cost){GAME.log.push("✗ Not enough capital to repeal "+p.name);render();return;}
   GAME.capital-=cost;
   mootCitizenMeasure(id,"repealed");
   _applyRepeal(id,{});
@@ -16133,7 +16261,7 @@ function resolvePendingVote(key, origSnap, curSnap, cushion, quiet){
   const changeCost=chargeFor(key,origSnap,curSnap);
   const total=(w?w.cost:0)+changeCost;
   const nm=nameFor(key);
-  if(GAME.capital<total||(w&&!w.possible)){
+  if(!window.SANDBOX && (GAME.capital<total||(w&&!w.possible))){
     restoreFrom(key,origSnap);
     GAME.log.push("✗ "+(w&&!w.possible?"No majority exists for it at any price — ":"Not enough capital — ")+nm+" reverted");
     return false;
@@ -16310,7 +16438,7 @@ function paintPendingFloor(){
   } else {
     const spec=w.spec, isCut=!!spec.cut, isRev=(w.kind!=="program")&&!isCut;
     const total=w.cost+changeCost;
-    const afford=GAME.capital>=total;
+    const afford=GAME.capital>=total||!!window.SANDBOX;
     const cush=[0,2,4,6].map(cv=>{
       const q=pendingWhip(key,orig,cur,cv);
       if(!q)return '';
@@ -16347,7 +16475,7 @@ function paintPendingFloor(){
         <span>${w.cost?`Whipping ${w.house.buy.length+w.senate.buy.length} vote${(w.house.buy.length+w.senate.buy.length)===1?"":"s"}, plus ◈${changeCost} for the change itself`:`◈${changeCost} for the change — you already have the votes`}</span>
         <span class="wc-num ${afford?'':'broke'}">◈ ${total} <span class="wc-have">of ◈ ${Math.floor(GAME.capital)}</span></span></div>
       <div style="display:flex;gap:10px;margin:6px 0 4px;flex-wrap:wrap">
-        <button class="enactbtn" id="pfGo" ${(w.possible&&afford)?'':'disabled'}>${
+        <button class="enactbtn" id="pfGo" ${((w.possible||window.SANDBOX)&&afford)?'':'disabled'}>${
           (!w.possible||!afford)?floorBlockLabel(w)
           :"Call the vote"+(w.cost?` — whipping ${w.house.buy.length+w.senate.buy.length}`:"")}</button>
         <button class="enactbtn ghost" id="pfNo">Withdraw the change</button>
@@ -17472,7 +17600,31 @@ function renderInPlace(){
   }catch(e){}
 }
 let _lastNavKey=null;   // currentView (+ detailKey, since "detail" covers many pages) as of the last render
+/* In sandbox, capital is refilled to the ceiling on every redraw. A spend
+   still comes off first, so the price of a thing is visible on the HUD for
+   the moment it costs you — you just never run out. */
+function sandboxTopUp(){
+  if(!window.SANDBOX)return;
+  if(GAME.capital<CAPITAL_MAX)GAME.capital=CAPITAL_MAX;
+}
+/* Paint the frame and wire Exit once. */
+function mountSandboxFrame(){
+  const f=document.getElementById("sandboxFrame"); if(!f)return;
+  if(!window.SANDBOX){ f.classList.add("hidden"); document.body.classList.remove("sandbox"); return; }
+  f.classList.remove("hidden"); f.setAttribute("aria-hidden","false");
+  document.body.classList.add("sandbox");
+  const x=document.getElementById("sandboxExit");
+  if(x&&!x._wired){
+    x._wired=true;
+    x.addEventListener("click",()=>{
+      if(!confirm("Leave sandbox and start a fresh ordinary game? This sandbox run is discarded."))return;
+      try{ localStorage.removeItem("sc_nextSeed"); localStorage.setItem("sc_freshGame","1"); }catch(e){}
+      location.href=location.origin+location.pathname;
+    });
+  }
+}
 function render(){
+  sandboxTopUp(); mountSandboxFrame();
   renderHUD();renderSidebar();renderRailVoters();renderRailCompass();
   // Scroll to top only on an actual NAVIGATION — a different view, or (within
   // the detail view, which reuses one currentView for every metric/bloc/policy
