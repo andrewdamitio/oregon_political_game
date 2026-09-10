@@ -6809,6 +6809,7 @@ const GAME={
   // Secure Rural Schools: federal timber-county money, reauthorised or not
   // by a Congress you do not control. Rolled once a fiscal year.
   srsActive:true, srsRolled:-1, srsYears:0,   // federal timber-county payments: on/off, rolled per fiscal year
+  capCarry:0,           // fractional political capital owed to / from mobilised groups
   pendingOppBill:null,  // {id, approp} — a bill the legislature passed, waiting on your desk
   lastOppBill:-99,      // turn the last one arrived (they do not send one every quarter)
   oppBillsSigned:0, oppBillsVetoed:0, oppBillsOverridden:0,
@@ -7701,6 +7702,18 @@ function tickNationalMood(){
    unpopular, the national wind is against you, crises fire, or your agenda
    has drifted from your mandate; falls when you're solid and delivering.
    Feeds a level shift + a variance term into the election. */
+/* What organised groups are worth to the other side. A mobilisation is not
+   just a turnout number at the next election — it is people in the field
+   against you now, and the game already has a gauge for that. Past 60,
+   momentum raises the capital price of every new law; it also sets how
+   strong the challenger is on election night. */
+function mobilizedPressure(){
+  if(!GAME.activists)return 0;
+  let p=0;
+  for(const act of Object.values(GAME.activists))
+    p += (act.dir==="against") ? 2.4 : -1.9;
+  return clamp(p,-6,9);
+}
 function tickOpposition(){
   const o=GAME.opposition; if(!o)return;
   let m=o.momentum;
@@ -7719,6 +7732,7 @@ function tickOpposition(){
   m += Math.max(0, Math.abs(agendaRightwardShift())-4)*0.22;   // off-mandate drift is a wedge
   if((GAME.uturnCount||0)>0 && GAME.turn%2===0) m += 0.8;      // a record of flip-flops
   m += (GAME.changeAppetite||0)*9;                            // a restless electorate is recruiting ground
+  m += mobilizedPressure();                                   // groups actually organising, for or against
   m += (24-m)*0.06;                                   // reversion toward a low hum when nothing's wrong
   o.momentum = clamp(m, 0, 100);
   o.barb = oppositionBarb();
@@ -8999,7 +9013,7 @@ function mobilizationsHTML(){
       <div class="act-body">
         <div><span class="act-label">${act.label}</span><span class="act-badge ${act.dir}">${isFor?'FOR YOU':'AGAINST YOU'}</span></div>
         <div class="act-desc">${act.desc}</div>
-        <div class="act-meta">↑ Turnout: ${turnoutGroups.join(', ')}${act.capitalDrain>0?` · <span style="color:var(--clay)">−${act.capitalDrain.toFixed(1)} cap/qtr</span>`:''}${act.capitalGain>0?` · <span style="color:var(--moss)">+${act.capitalGain.toFixed(1)} cap/qtr</span>`:''}</div>
+        <div class="act-meta">↑ Turnout: ${turnoutGroups.join(', ')}${act.capitalDrain>0?` · <span style="color:var(--clay)">−${act.capitalDrain.toFixed(1)} cap/qtr</span>`:''}${act.capitalGain>0?` · <span style="color:var(--moss)">+${act.capitalGain.toFixed(1)} cap/qtr</span>`:''}${act.dir==="against"?` · <span style="color:var(--clay)">+2.4 opposition momentum</span>`:` · <span style="color:var(--moss)">−1.9 opposition momentum</span>`}</div>
       </div>
       <span class="act-turns">${act.turnsLeft} qtr${act.turnsLeft===1?'':'s'}</span>
     </div>`;
@@ -11600,6 +11614,10 @@ const BILL_WHIP=1.15;      // capital per point of resistance
 const BILL_CONVEX=0.10;    // each further vote costs more than the last (softened: a 10-vote whip no longer costs 2.4x per head)
 const BILL_UNBUYABLE=13;   // past this a member would lose their seat: not for sale
 const BILL_FLOOR_COST=2;   // floor time, drafting, the clerk — every bill costs this
+/* Political capital is clamped to 100 everywhere it is earned or spent, so a
+   whip that prices above this is not expensive — it is unreachable. Offering
+   it as a greyed-out button implies saving up would work, and it never can. */
+const CAPITAL_MAX=100;
 const VOTE_SD=1.9;         // vote-day noise per member: absences, conscience, a deal you never heard about.
                           // Was 2.7, which had ~13% of a chamber voting off its projected side on a
                           // bill the model called safe — a whip count you could not trust. At 1.9 a
@@ -11704,9 +11722,13 @@ function floorMembers(chamber, pol, dir, ctx){
     // funds. It is the difference between "should the state do this" and "how
     // much of it should the state do", and it shrinks to nothing as the change
     // gets more contentious.
+    // How much a seat likes YOU moves your own members and the marginals; it
+    // has far less to do with how an opposition member votes on a bill their
+    // own district wants. Weighting it equally on both benches was what made
+    // a safe conservative seat read as a no on a policy conservatives want.
     const incl=verdict+loyal-owed*3.2
       +(ctx.ease?ctx.ease(mine):0)
-      +(ctx.supportW||0)*(support-50);
+      +(ctx.supportW||0)*(support-50)*(mine?1:0.35);
     const marginal=1-clamp(Math.abs(support-50)/22,0,1);       // 1 = knife-edge
     const resist=Math.max(0.4,VOTE_PROMISE-incl)*(0.55+0.95*marginal)*0.42;
     out.push({id, chamber, mine, incl, verdict, support, marginal, resist, owed,
@@ -11794,9 +11816,11 @@ function whipCount(id, dir, narrowed, cushion, skipOdds){
   const cu=cushion||0;
   const H=chamberWhip("house",scaled,dir,ctx,cu), S=chamberWhip("senate",scaled,dir,ctx,cu);
   const base=Math.round(BILL_FLOOR_COST*oppositionCapitalMult());
+  const _cost=H.cost+S.cost+base;
   const w={house:H, senate:S, narrowed:nw, cushion:cu, needsSuper:billNeedsSuper(pol),
-          cost:H.cost+S.cost+base, base,
-          possible:H.possible&&S.possible,
+          cost:_cost, base,
+          overCap:_cost>CAPITAL_MAX,
+          possible:H.possible&&S.possible&&_cost<=CAPITAL_MAX,
           free:(H.short===0&&S.short===0&&cu===0)};
   // the index page prices dozens of bills a render and never shows the odds
   w.odds=skipOdds?0:votePassOdds(w);
@@ -11929,6 +11953,9 @@ function goesToFloor(pol, dir){
    could ever hold. Either way the player should see the shortfall, not a
    bare "Cannot pass" or a misleading "Not enough capital". */
 function floorBlockLabel(w){
+  // priced past the ceiling: not a matter of saving up, it cannot be done
+  if(w.overCap)
+    return "Beyond any whip — ◈"+w.cost+" when you can never hold more than ◈"+CAPITAL_MAX;
   if(!w.possible){
     const seg=(C,name)=>{ if(!C||C.short<=0)return null;
       const u=C.unbuyable||0;
@@ -12438,9 +12465,19 @@ function _calcCapital(){
   // a walkout you chose to ignore: the chamber won't function for you for a while
   GAME.capitalPerTurn=+cpt.toFixed(1);
   GAME.capital=Math.round(clamp(GAME.capital+GAME.capitalPerTurn,0,100));
-  if(GAME.activists){for(const act of Object.values(GAME.activists)){
-    GAME.capital=Math.round(clamp(GAME.capital-(act.capitalDrain||0)+(act.capitalGain||0),0,100));
-  }}
+  // Organised groups cost (or earn) you a fraction of a point a quarter. That
+  // used to be applied as Math.round(capital - 0.3), which against an integer
+  // capital is exactly nothing — every drain in the table rounded straight
+  // back to where it started. Carry the fraction and spend it when it adds up.
+  if(GAME.activists){
+    let net=0;
+    for(const act of Object.values(GAME.activists))net+=(act.capitalGain||0)-(act.capitalDrain||0);
+    if(net){
+      GAME.capCarry=(GAME.capCarry||0)+net;
+      const whole=Math.trunc(GAME.capCarry);
+      if(whole){ GAME.capital=clamp(GAME.capital+whole,0,100); GAME.capCarry-=whole; }
+    }
+  }
   // budget surplus dividend: fiscal discipline earns legislative goodwill
   if((GAME.lastBalance||0)>0.5)GAME.capital=clamp(GAME.capital+1,0,100);
 }
@@ -16047,6 +16084,12 @@ function pendingWhip(key, origSnap, curSnap, cushion){
   const _cvSD=contentionVoteSD(spec.cont);
   const _cvMgn=spec.cont>=0.35 ? VOTE_MARGIN+(spec.cont-0.35)*3.0 : 0;
   const ctx={ sf:_sf, align:coalitionAlignment(_sf), ease:spec.ease, supportW:spec.supportW, margin:_cvMgn, voteSD:_cvSD,
+    // The change path already says a contested question is where "party
+    // discipline is the first thing to go" and members "vote their district" —
+    // but it only eased YOUR caucus. The opposition carried full discipline
+    // however badly their own voters wanted the thing. Both benches loosen now,
+    // which is what lets the other side's support actually carry a bill.
+    disc: BILL_LOY_FLOOR+(1-BILL_LOY_FLOOR)*(1-clamp(spec.cont,0,1)*0.8),
     hHeld:new Set((GAME.legis&&GAME.legis.hHeld)||[...legisSeatMap(OR_HOUSE_DISTRICTS,(GAME.legis&&GAME.legis.house)||0).mine]),
     sHeld:new Set((GAME.legis&&GAME.legis.sHeld)||[...legisSeatMap(OR_SENATE_DISTRICTS,(GAME.legis&&GAME.legis.senate)||0).mine]) };
   const cu=cushion||0;
@@ -16054,9 +16097,11 @@ function pendingWhip(key, origSnap, curSnap, cushion){
   // an ordinary programme change costs no floor time — it rides an existing
   // budget bill. A revenue bill is its own fight and is billed as one.
   const base=(spec.kind==="program"&&spec.cont<0.35)?0:Math.round(BILL_FLOOR_COST*oppositionCapitalMult());
+  const _cost=H.cost+S.cost+base;
   const w={house:H, senate:S, narrowed:1, cushion:cu, spec, kind:spec.kind, voteSD:_cvSD,
-           needsSuper:spec.needsSuper, cost:H.cost+S.cost+base, base,
-           possible:H.possible&&S.possible,
+           needsSuper:spec.needsSuper, cost:_cost, base,
+           overCap:_cost>CAPITAL_MAX,
+           possible:H.possible&&S.possible&&_cost<=CAPITAL_MAX,
            free:(H.short===0&&S.short===0&&cu===0&&base===0)};
   w.odds=votePassOdds(w);
   // a real fight is never a certainty, however comfortable the arithmetic looks:
@@ -17645,7 +17690,7 @@ function bootWorld(startId){
   GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.surplusStreak=0; GAME.lawLock={};
   GAME.csfCorpus=2.10; GAME.csfPayout=0.08; GAME.csfElliottMult=1; GAME.csfSaleBooked=false; GAME.esfLottoIn=0; GAME.persRisk="balanced";
   GAME.execOrders={}; GAME.pendingEoEvents=[]; GAME.pendingOppBill=null; GAME.lastOppBill=-99;
-  GAME.srsActive=true; GAME.srsRolled=-1; GAME.srsYears=0;
+  GAME.srsActive=true; GAME.srsRolled=-1; GAME.srsYears=0; GAME.capCarry=0;
   GAME.oppBillsSigned=0; GAME.oppBillsVetoed=0; GAME.oppBillsOverridden=0;
   GAME.floorFreeze=0; GAME.walkoutSide=null; GAME.walkoutCooldownUntil=0; GAME.walkoutIgnoredUntil=0; GAME.protestIgnoredUntil=0; GAME.splinter=null;
   // the band is set from the world this boot produces, so the pre-roll below
