@@ -2125,8 +2125,12 @@ const SPENDING={
 const METRICS={
   unemployment:{name:"Unemployment", icon:"briefcase", value:5.2, baseline:5.2, eq:6.2, min:1.5,max:16,
     inertia:0.2, invert:true, fmt:"pctRaw", realNote:"OR actual: 5.2% (Feb 2026)"},
-  education:{name:"Educational Attainment", icon:"cap", value:64, baseline:64, eq:55, min:0,max:100,
-    inertia:0.15, fmt:"pct", realNote:"~64% HS+some college index"},
+  education:{name:"Public School Attainment", icon:"cap", value:64, baseline:64, eq:55, min:0,max:100,
+    inertia:0.15, fmt:"pct",
+    realNote:"How far students in Oregon's PUBLIC schools get — ~64% HS+some college index. Vouchers, a hollowing-out roll and lax attendance enforcement all pull on it. What the economy actually runs on is Statewide Attainment, which counts the private and home-schooled sector too."},
+  attainAll:{name:"Statewide Attainment", icon:"cap", value:64, baseline:64, eq:55, min:0,max:100,
+    inertia:0.15, fmt:"pct",
+    realNote:"Every Oregon young person, wherever they are schooled: the public system weighted by its enrolment share, plus the private and home-schooled sector at its own higher level. This is the number the workforce and the economy read."},
   violentCrime:{name:"Violent Crime", icon:"siren", value:38, baseline:38, eq:37, min:0,max:100,
     inertia:0.18, invert:true, realNote:"Assaults, robberies — drives fear and headlines"},
   propertyCrime:{name:"Property Crime", icon:"lock-open", value:64, baseline:64, eq:68, min:0,max:100,
@@ -2275,7 +2279,7 @@ const INDICATORS={
       v-=(METRICS.propertyCrime.value-52)*0.22;
       v-=(METRICS.violentCrime.value-40)*0.15;
       v+=(INDICATORS.inMigration.value-50)*0.25;         // talent availability
-      v+=(METRICS.education.value-60)*0.20;
+      v+=(METRICS.attainAll.value-60)*0.20;
       v-=Math.pow(Math.max(0,3.8-METRICS.unemployment.value),2)*1.4;   // tapped-out labor market — can't staff up
       if(GAME.activeSituations.techBoom)v+=10;
       if(GAME.activeSituations.recession)v-=10;
@@ -2291,7 +2295,7 @@ const INDICATORS={
       {name:ico(METRICS.propertyCrime.icon)+" Property Crime",v:-(METRICS.propertyCrime.value-52)*0.22,link:"m_propertyCrime"},
       {name:ico(METRICS.violentCrime.icon)+" Violent Crime",v:-(METRICS.violentCrime.value-40)*0.15,link:"m_violentCrime"},
       {name:ico(INDICATORS.inMigration.icon)+" Talent (in-migration)",v:(INDICATORS.inMigration.value-50)*0.25,link:"i_inMigration"},
-      {name:ico(METRICS.education.icon)+" Educational Attainment",v:(METRICS.education.value-60)*0.20,link:"m_education"},
+      {name:ico(METRICS.attainAll.icon)+" Statewide Attainment",v:(METRICS.attainAll.value-60)*0.20,link:"m_attainAll"},
       ...(METRICS.unemployment.value<3.8?[{name:ico('muscle')+" Labor shortage (tight hiring)",v:-Math.pow(3.8-METRICS.unemployment.value,2)*1.4,link:"m_unemployment"}]:[]),
       {name:ico(INDICATORS.downtown.icon)+" Downtown Perception",v:(INDICATORS.downtown.value-45)*0.06,link:"i_downtown"},
     ],
@@ -2798,6 +2802,13 @@ const PERS_PAYROLL={k12:0.34, humanServices:0.14, debtAdmin:0.14, publicSafety:0
 /* The Land Board distributes this share of the Common School Fund's market
    value to K-12 each year — the real board has run 3.5-4%. */
 const CSF_PAYOUT_RATE=0.038;
+/* How much further, on average, a privately or home-schooled Oregonian gets
+   than a public-school one. Almost all of this is selection: the families
+   with the means and the attention to leave were already going to do better.
+   It is what makes Statewide Attainment more than a copy of the public
+   number, and it is why moving a child into that sector lifts the statewide
+   figure even as it lowers the public one. */
+const PRIVATE_ATTAIN_PREMIUM=14;
 /* How the Oregon Investment Council is told to run the PERS fund. Costs no
    political capital — it is a board posture, not a bill — but it decides how
    hard the unfunded liability swings with the market. alpha is the long-run
@@ -3244,7 +3255,7 @@ const SECTIONS={
 /* id → section. Covers metrics, indicators (now full statistics),
    policies, agencies, landuse. Anything unmapped falls back by domain. */
 const SECTION_OF={
-  truancy:"pubservices", publicEnrollment:"pubservices",
+  truancy:"pubservices", publicEnrollment:"pubservices", attainAll:"pubservices",
   countyPayments:"taxes",   // it is a transfer programme, and it is argued about as one
   // statistics
   taxBurden:"taxes", collectionRate:"taxes", disposableIncome:"taxes",
@@ -4195,7 +4206,12 @@ const CATALOG={
   schoolChoice:{name:"School Choice Vouchers", domain:"eduHealth", icon:"ticket", mechanic:"slider",
     desc:"Education Savings Accounts letting families spend per-pupil funds at private or charter schools. Boosts choice and pleases conservatives; critics warn it drains the public school fund and widens gaps.",
     value:0.5, costFull:0.3, capital:9, enactCapital:13,
-    effects:{education:-2,inequality:4},
+    // The drain is declared here so it shows on the policy's own page as a
+    // direct effect: nine points of public enrolment at full funding, money
+    // following the child out of the building by design. What it does to
+    // public attainment and proficiency is a hump, not a line — see the
+    // competition curve in metricTarget.
+    effects:{publicEnrollment:-9, inequality:4},
     blocEffect:{conservative:7, libertarian:6, parents:4, rural:3, businessClass:2, moderate:1, publicUnions:-11, liberal:-6, socialist:-5, urban:-3, collegeEducated:-2},
     sizeEffect:{publicUnions:-0.04},
     ideology:{economic:0.5,social:0.4,govSize:0.4}},
@@ -4257,11 +4273,14 @@ const CATALOG={
     // calibration pass folds this into the opening baseline, so the starting
     // numbers are unchanged — what it buys is a card that reads honestly at
     // rest and a real improvement every step up the ladder.
+    // publicEnrollment is declared per tier so the card shows it: enforcement
+    // holds the marginal child in a seat, but the top tier is coercive enough
+    // that some families withdraw rather than comply.
     tierEffects:[
-      {eduOutcomes:-2.5, education:-1.5},
-      {eduOutcomes:2.0, education:1.2},
-      {eduOutcomes:4.0, education:2.2, propertyCrime:-1.0},
-      {eduOutcomes:5.0, education:2.8, propertyCrime:-1.6, inequality:1.8, incarcerationRate:1.2}
+      {eduOutcomes:-2.5, education:-1.5, publicEnrollment:-1.5},
+      {eduOutcomes:2.0, education:1.2, publicEnrollment:0},
+      {eduOutcomes:4.0, education:2.2, propertyCrime:-1.0, publicEnrollment:1.2},
+      {eduOutcomes:5.0, education:2.8, propertyCrime:-1.6, inequality:1.8, incarcerationRate:1.2, publicEnrollment:-1.0}
     ],
     tierIndicatorEffects:[
       {},
@@ -4284,7 +4303,10 @@ const CATALOG={
   vaccineMandate:{name:"End Nonmedical Vaccine Exemptions", domain:"eduHealth", icon:"syringe", binary:true, mechanic:"law",
     desc:"Require school immunization with medical-only exemptions. Oregon's nonmedical exemption rate is among the nation's highest and climbing (7.5% of kindergartners by 2018). SB 442 (2015) and HB 3063 (2019) both died — even under Democratic supermajorities — after furious 'medical freedom' opposition and the 2019 measles outbreak.",
     enabled:true, costFull:0.02, capital:12, enactCapital:14,
-    effects:{health:{b:1,c:3,i:3}},
+    // Ending nonmedical exemptions moves the exemption-seeking families rather
+    // than converting them — California's private and home-school rolls rose
+    // after SB 277, which is the honest result to model.
+    effects:{health:{b:1,c:3,i:3}, publicEnrollment:-2.2},
     blocEffect:{libertarian:-9, conservative:-4, rural:-2, moderate:-1, liberal:4, socialist:2, parents:2},
     ideology:{social:-0.3,govSize:-0.5}},
   persReform:{name:"PERS Benefit Reform", domain:"economy", icon:"bank", mechanic:"law",
@@ -4843,20 +4865,20 @@ const MEMBERSHIP_DRIVERS={
       if(GAME.activeSituations.techBoom)d.push({name:ico('monitor')+" Tech boom",v:0.01});
       return d;}},
   collegeEducated:{
-    f:()=>(METRICS.education.value-64)*0.0014+(INDICATORS.inMigration.value-50)*0.0010,
+    f:()=>(METRICS.attainAll.value-64)*0.0014+(INDICATORS.inMigration.value-50)*0.0010,
     desc:"Grows with educational attainment and the in-migration of credentialed workers.",
     drivers:()=>[
-      {name:ico('cap')+" Education quality",v:(METRICS.education.value-64)*0.0014,link:"m_education"},
+      {name:ico('cap')+" Statewide attainment",v:(METRICS.attainAll.value-64)*0.0014,link:"m_attainAll"},
       {name:ico('chart-up')+" In-migration",v:(INDICATORS.inMigration.value-50)*0.0010,link:"i_inMigration"},
     ]},
   blueCollar:{
     f:()=>(METRICS.unemployment.value-5)*0.005
-      -(METRICS.education.value-64)*0.001
+      -(METRICS.attainAll.value-64)*0.001
       -(POLICIES.deregulation?effLevelOf(POLICIES.deregulation)*0.02:0),
     desc:"Unemployment pushes people into precarity; rising attainment and deregulation slowly shrink it.",
     drivers:()=>{const d=[];
       d.push({name:ico('chart-down')+" Unemployment",v:(METRICS.unemployment.value-5)*0.005,link:"m_unemployment"});
-      d.push({name:ico('cap')+" Education attainment",v:-(METRICS.education.value-64)*0.001,link:"m_education"});
+      d.push({name:ico('cap')+" Statewide attainment",v:-(METRICS.attainAll.value-64)*0.001,link:"m_attainAll"});
       if(POLICIES.deregulation)d.push({name:ico('doc')+" Deregulation",v:-(effLevelOf(POLICIES.deregulation))*0.02,link:"p_deregulation"});
       return d;}},
   students:{
@@ -6427,8 +6449,8 @@ const SITUATIONS={
     groupMood:{businessClass:6,blueCollar:5,wealthy:5,moderate:2,middleIncome:2}},
   educationLeader:{name:"Education Leader", kind:"good", category:"condition",
     desc:"Oregon is recognized for top educational outcomes.",
-    trigger:()=>METRICS.education.value>82, clear:()=>METRICS.education.value<74,
-    watch:{metric:"education", startAt:82, clearAt:74, badHigh:false},
+    trigger:()=>METRICS.attainAll.value>82, clear:()=>METRICS.attainAll.value<74,
+    watch:{metric:"attainAll", startAt:82, clearAt:74, badHigh:false},
     metricEffect:{}, moodMag:1, groupMood:{students:6,publicUnions:4,parents:4,collegeEducated:2}},
   // ============================================================
   // RANDOM EVENTS — episodic, roll in and out (see EVENT_POOL).
@@ -6509,8 +6531,8 @@ const SITUATIONS={
                renters:-4, poor:-4, retirees:-2}},
   brainGain:{name:"Brain-Gain Magnet", kind:"good", category:"condition",
     desc:"Educational attainment above 80 has turned Oregon into a national talent magnet — the Seattle / Austin dynamic. Educated professionals move in, lifting the economy (they compound GDP growth), the business climate, and state capacity. But the same newcomers bid up housing faster than it can be built, and the prosperity concentrates in the urban core while rural Oregon feels none of it — the widening split that entrenches an urban-progressive majority. Holds while Educational Attainment ≥ 80; breaks below 74.",
-    trigger:()=>GAME.turn>6 && METRICS.education.value>=80,
-    clear:()=>METRICS.education.value<74,
+    trigger:()=>GAME.turn>6 && METRICS.attainAll.value>=80,
+    clear:()=>METRICS.attainAll.value<74,
     minTurns:4, mandateShock:2,
     metricEffect:{gdp:0.08, inequality:0.15, homelessness:0.12},
     indicatorEffect:{inMigration:3, businessClimate:2, housingAffordability:-3, ruralAlienation:3, digitization:2},
@@ -6520,8 +6542,8 @@ const SITUATIONS={
                rural:-5, timber:-3, blueCollar:-3}},
   gradGlut:{name:"Graduate Underemployment", kind:"bad", category:"condition",
     desc:"Oregon has built a highly credentialed workforce faster than its economy can absorb one. Degree‑holders are stuck in jobs that don't require the degree, the wage premium for education is eroding, and the sharpest young graduates are leaving for Seattle, the Bay, and Denver where the matching jobs are. Voters who took on debt — or paid taxes — for that education see a broken bargain. Resolves when growth catches up to the credential base (GDP Index within 10 of Educational Attainment) or attainment slips back below 68.",
-    trigger:()=>GAME.turn>8 && METRICS.education.value>=74 && (METRICS.education.value-effective("gdp"))>=18,
-    clear:()=>(METRICS.education.value-effective("gdp"))<=10 || METRICS.education.value<68,
+    trigger:()=>GAME.turn>8 && METRICS.attainAll.value>=74 && (METRICS.attainAll.value-effective("gdp"))>=18,
+    clear:()=>(METRICS.attainAll.value-effective("gdp"))<=10 || METRICS.attainAll.value<68,
     minTurns:4, onTrigger:{capital:-2},
     metricEffect:{inequality:0.3, gdp:-0.05, education:-0.08},
     indicatorEffect:{inMigration:-3, businessClimate:-2, ruralAlienation:2},
@@ -7034,7 +7056,7 @@ function minFloorCost(id, dir){
   if(ck in _minCostCache.map)return _minCostCache.map[ck];
   const pol=(dir==="repeal")?POLICIES[id]:CATALOG[id];
   if(!pol)return null;
-  const levels=(pol.binary===true) ? [1]
+  const levels=(pol.binary===true||pol.reform) ? [1]
     : (pol.mechanic==="tier"&&pol.tiers&&pol.tiers.length>1)
       ? (()=>{ const t=pol.tiers.length-1, lo=Math.max(1,pol.tierMin||0), a=[];
                for(let i=t;i>=lo;i--)a.push(i/t); return a.slice(0,4); })()
@@ -7469,19 +7491,45 @@ function metricTarget(k){
   // result to model. And a truancy regime harsh enough to prosecute parents
   // pushes some of them to withdraw the child instead of complying.
   if(k==="publicEnrollment"){
+    // Vouchers, the truancy ladder and the vaccine mandate now declare their
+    // pull in their own effects, so it shows on their pages. What is left
+    // here is the part no policy owns.
     t+=(METRICS.eduOutcomes.value-43)*0.22;             // good schools hold families
-    if(POLICIES.vaccineMandate)t-=2.2;                  // exemption-seekers exit, they do not convert
-    if(POLICIES.schoolChoice)t-=policyLevel(POLICIES.schoolChoice)*9;
     if(POLICIES.stateSchoolFund)t+=(policyLevel(POLICIES.stateSchoolFund)-0.55)*4;
-    // truancy: enforcement holds the marginal child in a seat, but the top
-    // tier is coercive enough that some families leave rather than comply.
-    if(POLICIES.truancy)t+=truancyEnrollPull();
   }
-  // A hollowing-out system loses the families with the most capacity to go
-  // first, so what is left is harder and costlier to teach. Enrolment feeds
-  // back into proficiency below its starting level, never above it.
-  if(k==="eduOutcomes")
-    t+=Math.min(0,(METRICS.publicEnrollment.value-89))*0.30;
+  // A HOLLOWING-OUT SYSTEM IS A HARDER ONE TO TEACH. The families with the
+  // most capacity to go go first, so what is left is costlier per child and
+  // harder to move. This is live at all times, not only in the crisis — the
+  // crisis is just where it stops being survivable. A roll that GROWS helps,
+  // more weakly, because the funding formula follows the child both ways.
+  {
+    const enrGap=METRICS.publicEnrollment.value-89;
+    if(k==="eduOutcomes") t += enrGap<0 ? enrGap*0.34 : enrGap*0.10;
+    if(k==="education")   t += enrGap<0 ? enrGap*0.30 : enrGap*0.09;
+  }
+  // COMPETITION, WHICH IS THE ACTUAL ARGUMENT FOR VOUCHERS. A district that
+  // has never faced an exit option responds when it suddenly does. It is a
+  // hump and not a line: it peaks around a fifth of full funding and turns
+  // negative past about 45%, because past that the pressure stops being
+  // pressure and starts being the money and the easiest-to-teach students
+  // walking out of the building. Paired with the linear enrolment drain the
+  // policy declares, a light-touch ESA is a real statewide gain and a
+  // universal one is a rout.
+  if(POLICIES.schoolChoice && (k==="education"||k==="eduOutcomes")){
+    const v=clamp(policyLevel(POLICIES.schoolChoice),0,1);
+    t += (k==="eduOutcomes") ? (v*9.0 - v*v*20.0) : (v*6.0 - v*v*13.0);
+  }
+  // STATEWIDE ATTAINMENT: the public system weighted by how many children are
+  // still in it, plus the private and home-schooled sector at its own level.
+  // The premium is selection, not magic — the families with the means to
+  // leave were always going to do better — but it is real, which is how
+  // moving a child out can raise this number while lowering the public one.
+  if(k==="attainAll"){
+    const cal=(m.calib||0);
+    const share=clamp(METRICS.publicEnrollment.value/100,0,1);
+    const pub=METRICS.education.value;
+    t = share*pub + (1-share)*(pub+PRIVATE_ATTAIN_PREMIUM) + cal;
+  }
   // --- Civil commitment × psychiatric beds interaction ---------------------
   // Commitment only works if beds exist to receive people. Its effect on
   // homelessness/drug-use/disorder SCALES with bed availability, and is a
@@ -7569,16 +7617,29 @@ function metricContributors(k){
       out.push({name:ico(E.icon)+' '+E.name+' <span style="opacity:.65">(executive order)</span>', v:e*_r, link:"eo_"+id});
   }
   if(k==="publicEnrollment"){
-    out.push({name:ico('book')+" K-12 Proficiency", v:(METRICS.eduOutcomes.value-43)*0.22, link:"m_eduOutcomes"});
-    if(POLICIES.vaccineMandate)out.push({name:ico('syringe')+" End Nonmedical Vaccine Exemptions", v:-2.2, link:"p_vaccineMandate"});
-    if(POLICIES.schoolChoice)out.push({name:ico('ticket')+" School Choice Vouchers", v:-policyLevel(POLICIES.schoolChoice)*9, link:"p_schoolChoice"});
+    // Vouchers, the truancy ladder and the vaccine mandate declare their pull
+    // in their own effects now, so the generic policy sweep above already
+    // lists them. What is left here is the part no policy owns.
+    out.push({name:ico('book')+" K-12 Proficiency — good schools hold families", v:(METRICS.eduOutcomes.value-43)*0.22, link:"m_eduOutcomes"});
     if(POLICIES.stateSchoolFund)out.push({name:ico('cap')+" State School Fund", v:(policyLevel(POLICIES.stateSchoolFund)-0.55)*4, link:"p_stateSchoolFund"});
-    { const tv=POLICIES.truancy?truancyEnrollPull():0;
-      if(Math.abs(tv)>0.01)out.push({name:ico('scales')+' Truancy Law', v:tv, link:'p_truancy'}); }
   }
-  if(k==="eduOutcomes"){
-    const ex=Math.min(0,(METRICS.publicEnrollment.value-89))*0.30;
-    if(ex)out.push({name:ico('cap')+" Public enrolment falling — the hardest to teach are what is left", v:ex, link:"m_publicEnrollment"});
+  if(k==="eduOutcomes"||k==="education"){
+    const enrGap=METRICS.publicEnrollment.value-89;
+    const ex=(k==="eduOutcomes") ? (enrGap<0?enrGap*0.34:enrGap*0.10) : (enrGap<0?enrGap*0.30:enrGap*0.09);
+    if(Math.abs(ex)>0.01)out.push({name:ico('cap')+(enrGap<0?" Public enrolment falling — the hardest to teach are what is left":" Public enrolment holding above where you found it"), v:ex, link:"m_publicEnrollment"});
+    if(POLICIES.schoolChoice){
+      const v=clamp(policyLevel(POLICIES.schoolChoice),0,1);
+      const cv=(k==="eduOutcomes")?(v*9.0-v*v*20.0):(v*6.0-v*v*13.0);
+      if(Math.abs(cv)>0.01)out.push({name:ico('ticket')+" School Choice — "+(cv>0?"competitive pressure on the districts":"past the sweet spot: money and easy students walking out"), v:cv, link:"p_schoolChoice"});
+    }
+  }
+  if(k==="attainAll"){
+    // A blend, so the two bars are what each sector contributes against the
+    // equilibrium rather than pushes on top of it.
+    const share=clamp(METRICS.publicEnrollment.value/100,0,1);
+    const pub=METRICS.education.value, priv=pub+PRIVATE_ATTAIN_PREMIUM;
+    out.push({name:ico('cap')+" Public schools — "+Math.round(share*100)+"% of children, reaching "+pub.toFixed(0), v:share*(pub-m.eq), link:"m_education"});
+    out.push({name:ico('house')+" Private &amp; home school — "+Math.round((1-share)*100)+"% of children, reaching "+priv.toFixed(0), v:(1-share)*(priv-m.eq), link:"m_publicEnrollment"});
   }
   if(k==="gamblingRate"&&GAME.sportsBook){
     const bk=GAME.sportsBook;
@@ -8877,6 +8938,14 @@ function runElection(){
   const oppSwing = (Math.random()-0.5) * clamp(oppM/100,0,1) * 0.09;  // up to ±4.5 pts, random
   share=clamp(share*0.66 + anchor*0.34 + oppShift + oppSwing, 0.03, 0.97);
   const turnoutPct=tot/VOTERS.length;
+  // Every graph on election night reconciles to the headline. The headline is
+  // the raw tally blended with the realism anchor and the challenger's
+  // momentum, so a raw graph can sit nine points away from the number over
+  // it. The county map and the bloc bars both work head-to-head and layer
+  // the splinters on afterwards, so the thing they aim at is the headline
+  // expressed head-to-head.
+  const thirdSW  = tot>0 ? third/tot : 0;
+  const shareH2H = clamp(share/Math.max(0.02, 1-thirdSW), 0.02, 0.98);
   // ---- per-county results, from those same tallies ----
   // Head-to-head first (you vs challenger among major-candidate ballots), then
   // third parties layered on proportionally. This keeps the you/opp ordering
@@ -8903,7 +8972,10 @@ function runElection(){
   });
   // reconcile the population-weighted county head-to-head mean to the statewide share
   let csw=0,csp=0; for(const c of counties){ csw+=c._h2h*c.popK; csp+=c.popK; }
-  const cadj = share - (csp>0 ? csw/csp : share);
+  // against the head-to-head headline, so that once each county is scaled
+  // down by its own splinter vote the population-weighted mean lands on the
+  // real share rather than a couple of points under it
+  const cadj = shareH2H - (csp>0 ? csw/csp : shareH2H);
   for(const c of counties){
     const h=clamp(c._h2h+cadj,0.02,0.98);
     const thd=clamp(c._thL+c._thR,0,0.6);
@@ -8916,11 +8988,30 @@ function runElection(){
   // ---- per-interest-group results (fractions of each group's members) ----
   const nv=VOTERS.length||1;
   const blocs=blocIds.map(sid=>{
-    const B=blocAgg[sid], m=B.m||1e-9, s=SIMULANTS[sid];
+    const B=blocAgg[sid], m=B.m||1e-9, t=B.turn||1e-9, s=SIMULANTS[sid];
+    // Shares of the votes this group actually CAST. Dividing by membership
+    // instead made every bar read as vote-share times turnout — a group that
+    // broke 50/47 drew as 23/22 — which could not be compared to the result at
+    // the top of the page. Turnout is on the row label; it is not a segment.
     return { sid, name:s.name, cat:s.category||"other", size:B.m/nv,
-             turnout:B.turn/m, you:B.y/m, opp:B.n/m,
-             third:(B.thL+B.thR)/m, thirdL:B.thL/m, thirdR:B.thR/m };
+             turnout:B.turn/m, you:B.y/t, opp:B.n/t,
+             third:(B.thL+B.thR)/t, thirdL:B.thL/t, thirdR:B.thR/t };
   }).sort((a,b)=>b.size-a.size);
+  // ...and reconciled to the headline, exactly as the county map is
+  {
+    let bw=0, bh=0;
+    for(const b of blocs){
+      const h2=b.you+b.opp; if(h2<=0)continue;
+      const w=b.size*b.turnout;
+      bw+=w; bh+=(b.you/h2)*w;
+    }
+    const badj = bw>0 ? (shareH2H - bh/bw) : 0;
+    for(const b of blocs){
+      const thd=clamp(b.third,0,0.9), h2=b.you+b.opp;
+      const h=clamp((h2>0?b.you/h2:0.5)+badj, 0.02, 0.98);
+      b.you=h*(1-thd); b.opp=(1-h)*(1-thd);
+    }
+  }
   // ---- ranked-choice second round (only meaningful when RCV is on) ----
   let rcvRounds=null;
   if(rcv){
@@ -8931,10 +9022,15 @@ function runElection(){
     const remL=r1L-toYouL, remR=r1R-toYouR;
     const toOppL=remL*0.30, toOppR=remR*0.30;           // a minority find the challenger
     const exhausted=(remL-toOppL)+(remR-toOppR);         // the rest ranked no one else
+    // Shift both rounds by whatever the anchor and the challenger's momentum
+    // did to the headline, so round two lands on the declared result and
+    // round one plus the transfers still equals round two.
+    const radj = share - (r1You+toYouL+toYouR);
+    const aYou = clamp(r1You+radj, 0.01, 0.98), aOpp = clamp(r1Opp-radj, 0.01, 0.98);
     rcvRounds={
-      r1:{you:r1You,opp:r1Opp,spL:r1L,spR:r1R},
+      r1:{you:aYou, opp:aOpp, spL:r1L, spR:r1R},
       xfer:{toYou:toYouL+toYouR, toOpp:toOppL+toOppR, exhausted},
-      r2:{you:r1You+toYouL+toYouR, opp:r1Opp+toOppL+toOppR, exhausted}
+      r2:{you:clamp(aYou+toYouL+toYouR,0,1), opp:clamp(aOpp+toOppL+toOppR,0,1), exhausted}
     };
   }
   return {won:share>=0.5, share, approval:overallApproval(), intention:votingIntention(),
@@ -10834,19 +10930,18 @@ function egBlocCharts(blocs){
   const bar=(b)=>{
     const you=clamp(b.you*100,0,100), opp=clamp(b.opp*100,0,100),
           tl=clamp((b.thirdL||0)*100,0,100), tr=clamp((b.thirdR||0)*100,0,100);
-    const no=Math.max(0,100-you-opp-tl-tr);
     const seg=(w,col,lbl)=>{ const t=`${b.name} · ${lbl} — ${w.toFixed(1)}%`;
       return `<i style="width:${w}%;background:${col}" data-t="${t}" title="${t}"></i>`; };
-    const full=`You ${you.toFixed(0)}% · Challenger ${opp.toFixed(0)}% · Left ${tl.toFixed(0)}% · Right ${tr.toFixed(0)}% · Didn't vote ${no.toFixed(0)}%`;
+    const full=`You ${you.toFixed(0)}% · Challenger ${opp.toFixed(0)}% · Left ${tl.toFixed(0)}% · Right ${tr.toFixed(0)}%`;
     return `<div class="eg-blk">
       <div class="eg-blk-name">${b.name}<span>${(b.size*100).toFixed(0)}% of voters · ${(b.turnout*100).toFixed(0)}% turnout</span></div>
       <div class="eg-blk-bar" title="${full}">
-        ${seg(you,'var(--moss)','You')}${seg(opp,'var(--clay)','Challenger')}${seg(tl,'var(--slate-blue)','Left splinter')}${seg(tr,'var(--gold)','Right splinter')}${seg(no,'#b9b3a2',"Didn't vote")}
+        ${seg(you,'var(--moss)','You')}${seg(opp,'var(--clay)','Challenger')}${seg(tl,'var(--slate-blue)','Left splinter')}${seg(tr,'var(--gold)','Right splinter')}
       </div></div>`;
   };
   let h=`<div class="eg-section"><h3 class="eg-h3">How each group voted</h3>
-    <div class="eg-note">Every group's members, split by first-preference vote — with turnout modelled per group. The left splinter is Pacific Green / Working Families, the right is Libertarian / Constitution. People belong to several groups at once, so these overlap.</div>
-    <div class="eg-blk-legend"><span><i style="background:var(--moss)"></i>You</span><span><i style="background:var(--clay)"></i>Challenger</span><span><i style="background:var(--slate-blue)"></i>Left splinter</span><span><i style="background:var(--gold)"></i>Right splinter</span><span><i style="background:#b9b3a2"></i>Didn't vote</span></div>
+    <div class="eg-note">How each group's <b>votes</b> split, on the same scale as the statewide result above — each bar is 100% of the ballots that group cast, and its turnout is on the row. The left splinter is Pacific Green / Working Families, the right is Libertarian / Constitution. People belong to several groups at once, so these overlap.</div>
+    <div class="eg-blk-legend"><span><i style="background:var(--moss)"></i>You</span><span><i style="background:var(--clay)"></i>Challenger</span><span><i style="background:var(--slate-blue)"></i>Left splinter</span><span><i style="background:var(--gold)"></i>Right splinter</span></div>
     <div class="eg-blkread" id="egBlkRead">Hover a bar segment for its exact share</div>`;
   for(const [cat,label] of CAT){
     const rows=blocs.filter(b=>b.cat===cat);
@@ -11924,6 +12019,10 @@ function billVerdict(comp, lean, pol, dir){
 /* Does a bill need three-fifths? Anything that moves revenue does, under
    Article IV §25. */
 function billNeedsSuper(pol){
+  // Article IV §25 governs bills that raise revenue. A joint resolution
+  // referring an amendment raises nothing — the voters do that, if they pass
+  // it — so a referral is a simple majority however much money it moves.
+  if(pol && pol.reform) return false;
   // the Simple-Majority Revenue amendment strikes Article IV §25 outright
   if(POLICIES.revenueMajority && POLICIES.revenueMajority.enacted) return false;
   if(pol._super!=null)return pol._super;                // a pending change says so itself
@@ -12065,6 +12164,17 @@ function whipCount(id, dir, narrowed, cushion, skipOdds){
   // has been narrowed, so a half-strength bill is half the loyalty test —
   // rather than staying a full one because its uncut form was well over the cap.
   ctx.disc=BILL_LOY_FLOOR+(1-BILL_LOY_FLOOR)*clamp(billSalience(pol)*nw,0,1);
+  // A REFERRAL IS NOT AN ENACTMENT. Voting to put an amendment on the ballot
+  // is a vote to let the voters decide, which is the standard cover for
+  // crossing the aisle and is much easier to defend at home than the measure
+  // itself. The other side gets the bigger share of that easing — "let the
+  // people vote" is exactly the argument that moves an opposition member —
+  // and the caucus whips it at half strength.
+  if(pol && pol.reform){
+    const base=ctx.ease;
+    ctx.ease=(mine)=>(base?base(mine):0)+(mine?3.2:4.6);
+    ctx.disc*=0.55;
+  }
   const cu=cushion||0;
   const H=chamberWhip("house",scaled,dir,ctx,cu), S=chamberWhip("senate",scaled,dir,ctx,cu);
   const base=Math.round(BILL_FLOOR_COST*oppositionCapitalMult());
@@ -12198,7 +12308,12 @@ function whipPreviewHTML(id, dir){
   return `<div class="whip-prev ${cls}">${ico('columns')} House <b>${w.house.yes}</b>/${w.house.need} · Senate <b>${w.senate.yes}</b>/${w.senate.need}${w.needsSuper?' <span class="wpv-s">three-fifths, it raises revenue</span>':''} — ${txt}</div>`;
 }
 function goesToFloor(pol, dir){
-  if(!pol||pol.reform)return false;          // amendments go to the voters instead
+  if(!pol)return false;
+  // An amendment is the voters' to decide — but the legislature is the one
+  // that puts it in front of them, and a joint resolution passes both
+  // chambers like anything else. Referring it, and referring its repeal,
+  // are both floor votes.
+  if(pol.reform)return true;
   if(dir==="repeal")return pol.mechanic==="law";   // striking a law needs a bill
   return true;                               // creating ANY new programme is a bill
 }
@@ -12275,7 +12390,8 @@ function drawFloor(){
   const card=document.getElementById("floorCard"), modal=document.getElementById("floorModal");
   const w=whipCount(F.id,F.dir,F.narrowed,F.cushion);
   const afford=GAME.capital>=w.cost||!!window.SANDBOX;
-  const verb=F.dir==="repeal"?"Repeal":"Enact";
+  const verb=pol.reform ? (F.dir==="repeal"?"Refer a repeal of":"Refer")
+                        : (F.dir==="repeal"?"Repeal":"Enact");
   // A weaker bill used to be an abstract percentage that, on a policy with a
   // dial, changed nothing at all once it passed — narrowing only ever reached
   // policyLevel() for `law`. So on anything with a dial the options ARE the
@@ -12285,7 +12401,9 @@ function drawFloor(){
   // there is no 60% of a repeal, no three-fifths of a quorum rule. Offering a
   // strength row on those was offering a choice that meant nothing, so a
   // policy that is genuinely all-or-nothing says so and gets none.
-  const binary=pol.binary===true;
+  // There is no 60% of a constitutional amendment: you refer it as written or
+  // you do not refer it.
+  const binary=pol.binary===true||!!pol.reform;
   const dialed=["slider","intensity","tier","allocation"].indexOf(pol.mechanic)>=0;
   const dialLab=nv=>{
     if(pol.mechanic==="tier"&&pol.tiers)
@@ -12316,7 +12434,9 @@ function drawFloor(){
   }).join("");
   const oddsWord=w.odds>=0.95?"near-certain":w.odds>=0.8?"likely":w.odds>=0.55?"probable":w.odds>=0.4?"a coin flip":w.odds>=0.15?"an outside chance":"almost hopeless";
   card.innerHTML=`<div class="sectionhdr">${ico('columns')} ${verb} — ${pol.name}</div>
-    <div class="sectionsub">This is a bill, not a purchase. It passes when a majority of each chamber votes for it${w.needsSuper?`, and because it raises revenue it needs <b>three-fifths</b> of both under Article IV §25`:``}. Members vote the way the people in their seat feel about <i>this bill</i> — so what you can pass depends on which seats your majority runs through.</div>
+    <div class="sectionsub">${pol.reform
+      ? `This is a <b>joint resolution</b>, not a bill. The legislature is not deciding the amendment — it is deciding whether the <b>voters</b> get to. That takes a simple majority of both chambers, never three-fifths, and no signature from you. It is a much easier vote than the measure itself: "let the people decide" is the standard cover for crossing the aisle, so referrals carry on votes a bill never could.`
+      : `This is a bill, not a purchase. It passes when a majority of each chamber votes for it${w.needsSuper?`, and because it raises revenue it needs <b>three-fifths</b> of both under Article IV §25`:``}. Members vote the way the people in their seat feel about <i>this bill</i> — so what you can pass depends on which seats your majority runs through.`}</div>
     ${binary?`<div class="conc-h">${ico('handshake')} It passes or it does not — there is no half of this one</div>`
       :`<div class="conc-h">${ico('handshake')} ${dialed
       ? "Where it starts — you are voting the dial, and a lower one is an easier vote"
@@ -12984,11 +13104,13 @@ function nextBallotInfo(){
 
 /* Refer an amendment to the voters. Charges the capital now — getting it on
    the ballot is the part you control — and queues it for the next ballot. */
-function referMeasure(id,dir){
+/* free=true when the floor has already voted for it and been billed for the
+   whip — the referral itself is not a second purchase. */
+function referMeasure(id,dir,free){
   const p=dir==="enact"?CATALOG[id]:POLICIES[id];
   if(!p||pendingMeasure(id))return false;
-  const cost=dir==="enact"?policyEnactCost(p):(p.repealCost!==undefined?p.repealCost:(p.capital||6));
-  if(GAME.capital<cost){
+  const cost=free?0:(dir==="enact"?policyEnactCost(p):(p.repealCost!==undefined?p.repealCost:(p.capital||6)));
+  if(!free && GAME.capital<cost){
     GAME.log.push("✗ Not enough capital to refer "+p.name+" to the ballot");render();return false;
   }
   GAME.capital-=cost;
@@ -15799,7 +15921,7 @@ function renderPolicies(){
       const nPend=(GAME.ballot&&GAME.ballot.pending?GAME.ballot.pending.length:0);
       h+=`<div class="reformnote">
         <div class="rn-h">${ico('ballot')} These are not yours to pass</div>
-        <div class="rn-b">Every amendment here changes Oregon's constitution, and the constitution belongs to the voters. Spending capital only <b>refers</b> a measure to the ballot — the people decide it. The same is true in reverse: an amendment already in force can only be taken back out by another vote.
+        <div class="rn-b">Every amendment here changes Oregon's constitution, and the constitution belongs to the voters. You cannot enact one, and you cannot put one on the ballot on your own either — the <b>legislature refers it</b>, by joint resolution, on a simple majority of both chambers. That is a far easier floor vote than a bill: members are only deciding whether the voters get to decide, which is the standard cover for crossing the aisle. The same is true in reverse: an amendment already in force can only be taken back out by another referral and another vote.
         <br><br>Measures are decided only when voters are already at the polls: <b>the midterm</b>, or <b>concurrently with your own re-election</b>. There are no special elections. Campaign for a referred measure from <b>Campaign HQ → Ballot measures</b>, out of the same energy your re-election draws on.</div>
         <div class="rn-f">Next ballot: <b>${nb.label}</b>${nb.quartersAway>0?` — ${nb.quartersAway} quarter${nb.quartersAway===1?'':'s'} away`:` — this quarter`}${nPend?` · ${nPend} measure${nPend===1?'':'s'} already on it`:``}</div>
       </div>`;
@@ -15865,8 +15987,8 @@ function _applyEnact(id, level){
 function enactPolicy(id){
   const src=CATALOG[id];
   if(!src)return;
-  // a constitutional amendment is not yours to enact — refer it to the voters
-  if(src.reform){ if(referMeasure(id,"enact"))render(); return; }
+  // A constitutional amendment is not yours to enact and not yours to refer
+  // on your own — the legislature refers it, so it goes to the floor first.
   if(GAME.floorFail&&GAME.floorFail["enact"+id]>GAME.turn){
     GAME.log.push("✗ "+src.name+" lost on the floor — it cannot be brought back yet"); render(); return; }
   if(lawLockHard(id)){
@@ -15908,6 +16030,15 @@ function passBill(id, dir, narrowed, cushion){
     return false;
   }
   markLawVoted(id);
+  // A referral clears the floor and goes onto the ballot. It does not become
+  // law today; the voters decide it at the next statewide election.
+  const _isReform=!!((dir==="repeal"?POLICIES[id]:CATALOG[id])||{}).reform;
+  if(_isReform){
+    referMeasure(id,dir,true);
+    showVoteResult({ok:true, name:nm, res, w, narrowed, referred:true});
+    render();
+    return true;
+  }
   if(dir==="repeal"){
     mootCitizenMeasure(id,"repealed");
     _applyRepeal(id,{});
@@ -15939,9 +16070,8 @@ function passBill(id, dir, narrowed, cushion){
 function repealPolicy(id){
   const p=POLICIES[id];
   if(!p||p.noRepeal)return;
-  // an amendment already in the constitution can only be taken back out by
-  // the same people who put it in — refer the repeal to the voters
-  if(p.reform){ if(referMeasure(id,"repeal"))render(); return; }
+  // An amendment in the constitution can only be taken back out by the people
+  // who put it in — and the legislature has to refer that repeal to them.
   if(GAME.floorFail&&GAME.floorFail["repeal"+id]>GAME.turn){
     GAME.log.push("✗ That repeal lost on the floor — it cannot be brought back yet"); render(); return; }
   if(lawLockHard(id)){
