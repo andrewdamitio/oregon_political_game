@@ -436,6 +436,8 @@
   .welcome-title .startnote{font-size:12.5px;max-width:600px;color:var(--muted-2);margin-top:2px}
   .welcome-title .welcome-help{max-width:600px;margin:18px auto 0;text-align:left;
     border-top:1px solid var(--line);padding-top:10px}
+  .welcome-body .wg-h{font-family:var(--font-display);font-size:12px;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--gold);margin:14px 0 -4px}
   .welcome-title .welcome-help summary{font-family:var(--font-display);font-size:13px;letter-spacing:1px;
     text-transform:uppercase;color:var(--muted-1);cursor:pointer;list-style:none;text-align:center}
   .welcome-title .welcome-help summary::-webkit-details-marker{display:none}
@@ -544,6 +546,21 @@
   /* an order already in force: the same button, green, and it opens the
      order's page rather than doing anything destructive from a list */
   .fcard-btn.on{background:var(--moss);color:var(--paper)}
+  /* ---- THE REBALANCE ---- */
+  .aus-target{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+    background:var(--paper-2);border:var(--rule) solid var(--ink);border-radius:var(--radius);padding:10px 13px;margin:10px 0 4px}
+  .aus-target b{font-family:var(--font-data);font-size:20px}
+  .aus-bar{height:9px;background:var(--paper);border:1px solid var(--line-em);border-radius:2px;overflow:hidden;margin:7px 0 14px}
+  .aus-bar i{display:block;height:100%;background:var(--clay);transition:width .18s}
+  .aus-bar i.done{background:var(--moss)}
+  .aus-row{display:grid;grid-template-columns:1fr 132px 76px;gap:10px;align-items:center;
+    padding:7px 0;border-bottom:1px solid var(--line-faint)}
+  .aus-row .aus-n{font-size:12.5px;color:var(--ink)}
+  .aus-row .aus-sub{font-size:10.5px;color:var(--muted-3);margin-top:2px}
+  .aus-row input[type=range]{width:100%}
+  .aus-row .aus-save{font-family:var(--font-data);font-size:12.5px;text-align:right}
+  .aus-row .aus-save.on{color:var(--clay);font-weight:700}
+  @media(max-width:560px){ .aus-row{grid-template-columns:1fr 92px 66px} }
   .fcard-btn.on:hover{background:var(--ink)}
   .fcard-btn .ico{width:.95em;height:.95em;vertical-align:-.12em;margin-right:.25em}
   .fbar{position:relative;height:8px;background:var(--paper-2);border-radius:var(--radius);margin:6px 0}
@@ -1738,6 +1755,7 @@
 <div id="surplusModal" class="modal hidden"><div class="card" id="surplusCard"></div></div>
 <div id="eoEventModal" class="modal hidden"><div class="card" id="eoEventCard" style="max-width:520px"></div></div>
 <div id="oppBillModal" class="modal hidden"><div class="card" id="oppBillCard" style="max-width:560px"></div></div>
+<div id="austerityModal" class="modal hidden" style="z-index:66"><div class="card" id="austerityCard" style="max-width:660px"></div></div>
 <div id="reserveModal" class="modal hidden"><div class="card" id="reserveCard" style="max-width:470px"></div></div>
 <div id="newGameModal" class="modal hidden" style="z-index:70"><div class="card" id="newGameCard" style="max-width:420px"></div></div>
 <div id="termLimitModal" class="modal hidden" style="z-index:65"><div class="card" id="termLimitCard" style="max-width:460px"></div></div>
@@ -4931,7 +4949,10 @@ function spendTotal(){let t=0;const sp=spendingByArea();for(const k in sp)t+=sp[
 const DILEMMAS={
   austerityMandated:{title:"Austerity Reckoning", icon:"warning",
     text:"The structural deficit has grown beyond what reserves can cover. Oregon's balanced-budget requirement means the legislature must act — there is no option to simply borrow and wait. Every caucus wants someone else's programs cut. You must decide where the pain falls.",
-    influence:()=>Math.min(0.75,((GAME.structuralDebt||0)*0.28)+((GAME.deficitStreak||0)*0.12)),
+    // Superseded by the Rebalance board, which is what a balanced-budget
+    // emergency actually looks like. Kept out of the rotation rather than
+    // deleted so a saved game mid-dilemma still resolves.
+    influence:()=>-1,
     options:[
       {label:"Cut social services", text:"DHS and OHA budgets are cut; homeless services intensity is reduced. Real ongoing savings of ~$1.2B — but health, behavioral health, and homelessness will worsen.",
        apply:()=>{
@@ -6921,6 +6942,8 @@ const GAME={
   // by a Congress you do not control. Rolled once a fiscal year.
   srsActive:true, srsRolled:-1, srsYears:0,   // federal timber-county payments: on/off, rolled per fiscal year
   capCarry:0,           // fractional political capital owed to / from mobilised groups
+  lastAusterity:-99,    // turn of the last signed rebalance
+  pendingAusterity:null, // {target, cuts} — the balanced-budget rebalance, blocking the quarter
   pendingOppBill:null,  // {id, approp} — a bill the legislature passed, waiting on your desk
   lastOppBill:-99,      // turn the last one arrived (they do not send one every quarter)
   oppBillsSigned:0, oppBillsVetoed:0, oppBillsOverridden:0,
@@ -8720,6 +8743,147 @@ function budgetBalance(){
    Scaled to the size of the state economy — a $0.8B hole means far more to a
    $300B economy than to a $500B one — rather than a fixed dollar figure.
    Roughly 0.26% of total GDP (≈ $0.8B at the starting ~$305B). */
+/* WHAT A GOVERNOR CAN ACTUALLY CUT. Each line names the lever that moves,
+   who it belongs to, and what falls over when it shrinks. maxCut is how far
+   a single rebalance can take it — nobody closes a hole by abolishing the
+   State School Fund, and the constitution would not let them. */
+const AUSTERITY_LINES=[
+  {id:"stateSchoolFund", kind:"policy", label:"State School Fund", icon:"cap", maxCut:0.18,
+   note:"The largest single line in the budget, and the one districts feel within a term.",
+   blocs:{parents:-9, publicUnions:-9, students:-5, liberal:-4, teachers:-6, moderate:-3},
+   metrics:{eduOutcomes:-4.5, education:-2.5}},
+  {id:"oha", kind:"agency", label:"Oregon Health Authority", icon:"hospital", maxCut:0.24,
+   note:"Public health, behavioural health and the state's share of the Health Plan.",
+   blocs:{poor:-8, liberal:-4, publicUnions:-4, urban:-3, retirees:-3},
+   metrics:{health:-4, behavioralHealth:-5, drugUse:2}},
+  {id:"dhs", kind:"agency", label:"Human Services", icon:"handshake", maxCut:0.24,
+   note:"Child welfare, aging and disability services, self-sufficiency caseloads.",
+   blocs:{poor:-9, liberal:-4, publicUnions:-4, parents:-3},
+   metrics:{health:-3, homelessness:3, inequality:2}},
+  {id:"corrections", kind:"agency", label:"Corrections", icon:"lock", maxCut:0.22,
+   note:"Prison operations and community supervision. Beds and programming both.",
+   blocs:{conservative:-6, suburban:-4, moderate:-3, retirees:-3, socialist:2},
+   metrics:{violentCrime:2.5, propertyCrime:3, incarcerationRate:-6}},
+  {id:"odot", kind:"agency", label:"Transportation", icon:"road", maxCut:0.26,
+   note:"Paving, bridges and transit operations. The backlog simply grows.",
+   blocs:{motorists:-7, rural:-4, blueCollar:-3, businessClass:-3, transitCommuters:-4},
+   metrics:{gdp:-0.10}},
+  {id:"universities", kind:"policy", label:"Public Universities", icon:"cap", maxCut:0.28,
+   note:"Tuition rises to cover what the state stops sending.",
+   blocs:{students:-8, collegeEducated:-5, liberal:-3, parents:-3},
+   metrics:{education:-2.5, inequality:1.5}},
+  {id:"ohcs", kind:"agency", label:"Housing & Community Services", icon:"houses", maxCut:0.30,
+   note:"Shelter, rent assistance and the affordable pipeline.",
+   blocs:{renters:-7, poor:-6, urban:-4, liberal:-3},
+   metrics:{homelessness:4, inequality:1.5}},
+  {id:"judiciary", kind:"agency", label:"Courts", icon:"scales", maxCut:0.20,
+   note:"Docket capacity. Cases that are not heard become cases that are dropped.",
+   blocs:{moderate:-4, conservative:-3, businessClass:-3, collegeEducated:-2},
+   metrics:{propertyCrime:2, incarcerationRate:-4}},
+];
+/* What one line currently costs the state, in $B/yr. */
+function austerityLineCost(L){
+  if(L.kind==="agency"){ const a=AGENCIES[L.id]; return a?agencySpend(a):0; }
+  const p=POLICIES[L.id]; return p?Math.max(0,policyNetCost(p)):0;
+}
+/* The hole the rebalance has to close, in $B/yr. Big enough to hurt, and it
+   grows with the debt you let accumulate. */
+function austerityTarget(){
+  return +clamp(0.55 + (GAME.structuralDebt||0)*0.42, 0.55, 3.2).toFixed(2);
+}
+function austeritySaved(cuts){
+  let v=0;
+  for(const L of AUSTERITY_LINES)v+=austerityLineCost(L)*((cuts&&cuts[L.id])||0);
+  return v;
+}
+/* Open the board. Blocks the quarter until it is signed. */
+function openAusterity(){
+  if(GAME.pendingAusterity)return;
+  GAME.pendingAusterity={target:austerityTarget(), cuts:{}};
+  GAME.log.push(ico('warning')+" Balanced-budget emergency — the legislature is waiting on a rebalance");
+}
+function drawAusterity(){
+  const A=GAME.pendingAusterity; if(!A)return;
+  const card=document.getElementById("austerityCard"), modal=document.getElementById("austerityModal");
+  if(!card||!modal)return;
+  const saved=austeritySaved(A.cuts), need=A.target;
+  const pct=clamp(saved/need,0,1), done=saved>=need-0.001;
+  let rows="";
+  for(const L of AUSTERITY_LINES){
+    const cost=austerityLineCost(L), f=(A.cuts[L.id]||0);
+    const cut=cost*f;
+    rows+='<div class="aus-row"><div><div class="aus-n">'+ico(L.icon)+' <b>'+L.label+'</b> '
+      +'<span style="color:var(--muted-3)">$'+cost.toFixed(2)+'B/yr</span></div>'
+      +'<div class="aus-sub">'+L.note+'</div></div>'
+      +'<input type="range" min="0" max="'+Math.round(L.maxCut*100)+'" step="1" value="'+Math.round(f*100)+'" data-auscut="'+L.id+'">'
+      +'<div class="aus-save'+(f>0?' on':'')+'">'+(f>0?('−'+Math.round(f*100)+'%<br><span style="font-size:10.5px">$'+cut.toFixed(2)+'B</span>'):'—')+'</div></div>';
+  }
+  card.innerHTML='<div class="sectionhdr">'+ico('warning')+' The Rebalance</div>'
+    +'<div class="sectionsub">Oregon cannot borrow its way through a shortfall — Article IX §2 requires a balanced budget, so the legislature has to take the money out of programmes that are already running. Every line below has a constituency and every one of them is somebody’s emergency. You choose which, and how deep. <b>There is no option that is not a cut.</b></div>'
+    +'<div class="aus-target"><span>Still to find</span><b style="color:'+(done?'var(--good)':'var(--clay)')+'">$'+Math.max(0,need-saved).toFixed(2)+'B</b>'
+      +'<span style="font-family:var(--font-data);font-size:12px;color:var(--muted-2)">$'+saved.toFixed(2)+'B of $'+need.toFixed(2)+'B</span></div>'
+    +'<div class="aus-bar"><i class="'+(done?'done':'')+'" style="width:'+(pct*100).toFixed(1)+'%"></i></div>'
+    +rows
+    +'<div class="fnote" style="margin-top:12px">Cuts are real and they stay: each one moves that programme’s funding lever, and it stays there until you fund it back. Beyond the money, a deep rebalance costs you the constituency for every line you touch and it costs the state <b>capacity</b> — the people who make the machine work are the first thing a cut reaches.</div>'
+    +'<button class="enactbtn" id="ausGo" style="margin-top:12px"'+(done?'':' disabled')+'>'
+      +(done?'Sign the rebalance — $'+saved.toFixed(2)+'B in cuts ▸':'Find $'+Math.max(0,need-saved).toFixed(2)+'B more')+'</button>';
+  modal.classList.remove("hidden");
+  card.querySelectorAll('[data-auscut]').forEach(el=>el.addEventListener('input',e=>{
+    const id=e.currentTarget.dataset.auscut;
+    A.cuts[id]=(+e.currentTarget.value)/100;
+    drawAusterity();
+  }));
+  const go=document.getElementById("ausGo");
+  if(go&&!go.disabled)go.onclick=()=>applyAusterity();
+}
+/* Sign it: the levers move, the money comes off the debt, and everyone whose
+   programme you cut remembers. */
+function applyAusterity(){
+  const A=GAME.pendingAusterity; if(!A)return;
+  const saved=austeritySaved(A.cuts);
+  let depth=0, touched=0;
+  for(const L of AUSTERITY_LINES){
+    const f=A.cuts[L.id]||0; if(f<=0.001)continue;
+    touched++; depth+=f;
+    // move the real lever, proportionally
+    if(L.kind==="agency"){
+      const a=AGENCIES[L.id];
+      if(a)a.funding=+clamp((a.funding??0.5)*(1-f), 0.05, 1).toFixed(3);
+    } else {
+      const p=POLICIES[L.id];
+      if(p){
+        if(p.mechanic==="intensity")p.intensity=+clamp((p.intensity??0.5)*(1-f),0.02,1).toFixed(3);
+        else p.value=+clamp((p.value??0.5)*(1-f), 0.02, 1).toFixed(3);
+      }
+    }
+    // the constituency, in proportion to how deep you went
+    const scale=f/Math.max(0.01,L.maxCut);
+    for(const b in (L.blocs||{}))createGrudge("v_"+b, L.blocs[b]*scale, 0.91, "Cut in the rebalance: "+L.label);
+    for(const mk in (L.metrics||{}))createGrudge("m_"+mk, L.metrics[mk]*scale, 0.9, "Cut in the rebalance: "+L.label);
+  }
+  // the money
+  GAME.structuralDebt=+Math.max(0,(GAME.structuralDebt||0)-saved).toFixed(3);
+  GAME.deficitStreak=0;
+  // STATE CAPACITY. A cut reaches the people who run the machine first, so
+  // the apparatus gets slower and more expensive per unit of service exactly
+  // when it is being asked to do the same job with less.
+  const avg=touched?depth/touched:0;
+  // Real, and painful, but not a death spiral: overhead above 95 already
+  // inflates every programme area, so a rebalance that pushed it to the
+  // ceiling would make next quarter’s hole bigger than the one you just closed.
+  createGrudge("i_adminOverhead", 2.5+avg*12, 0.92, "Rebalance — capacity cut to the bone");
+  createGrudge("i_digitization", -(1.5+avg*6), 0.92, "Rebalance — modernisation shelved");
+  // and the act itself
+  createGrudge("v_moderate", -3, 0.9, "Presided over an austerity budget");
+  createGrudge("v_conservative", 3, 0.9, "Balanced the budget with cuts");
+  createGrudge("v_libertarian", 2, 0.9, "Balanced the budget with cuts");
+  GAME.mandateShock=(GAME.mandateShock||0)-3;
+  shiftCompass(0.8,0);
+  GAME.log.push(ico('scissors')+" Rebalance signed — $"+saved.toFixed(2)+"B cut across "+touched+" programme"+(touched===1?"":"s"));
+  GAME.pendingAusterity=null; GAME.lastAusterity=GAME.turn;
+  const modal=document.getElementById("austerityModal"); if(modal)modal.classList.add("hidden");
+  try{render();}catch(e){}
+}
 function fiscalCrisisThreshold(){
   const gsp=METRICS.gspLevel ? METRICS.gspLevel.value : 305;
   return +clamp(gsp*0.0026, 0.5, 5).toFixed(2);
@@ -9801,9 +9965,28 @@ function showWelcome(onDone){
     <details class="welcome-help">
       <summary>How to play</summary>
       <div class="welcome-body">
-        <p>Enact policy from <b>New Policies</b>. The <b>Governing Board</b> maps how every lever connects to every outcome — hover a tile to light up its web. Crime, jobs, housing, schools, health, the environment, the budget: pull one and the others move.</p>
-        <p>Anything substantial goes to the <b>floor</b>: you get a whip count seat by seat, the odds, and the chance to buy the margin. Crises, dilemmas and a persistent opposition test you along the way, and the voters — statewide and county by county — remember.</p>
-        <p>After this screen you set your <b>platform</b>: the promises you'll be judged against at your first re-election.</p>
+        <p><b>You are the Governor of Oregon for up to eight years.</b> A turn is one quarter. You spend the quarter changing things, then press <b>End Quarter</b> and the state reacts. Elections come every four years; the midterm in between decides how much of the legislature you keep.</p>
+
+        <p class="wg-h">The two things you spend</p>
+        <p><b>Political capital</b> (◈, top bar) buys votes in the legislature. You earn it every quarter — more when your approval and your mandate are high, less when they are not — and it caps at 100, so there is no saving up forever. <b>Money</b> is the state budget, in $B a year, and it has to balance over time or the shortfall accumulates into a crisis.</p>
+
+        <p class="wg-h">Getting something done</p>
+        <p><b>New Policies</b> is the catalogue — search it, or browse by area. Almost everything real goes to <b>the floor</b>: you see the whip count seat by seat, the odds of it passing, and what it would cost to buy the votes you are short. You can weaken a bill to make it cheaper, or buy a cushion of spare votes as insurance. Members vote how their own district feels about that specific bill, so what you can pass depends on which seats your majority runs through — and the other side will sometimes carry something their voters want even if you proposed it.</p>
+        <p>Policies already in force sit on the <b>Governing Board</b>. Most have a dial; moving it a little is administrative, moving it a lot goes back to the floor.</p>
+
+        <p class="wg-h">Reading the state</p>
+        <p>The Governing Board is a map of how everything connects. Click any statistic to open its page: what is pushing it up, what is pulling it down, and what it feeds in turn. Nothing moves in isolation — cut corrections and property crime rises; let public school enrolment slide and attainment follows it down.</p>
+        <p><b>Crises</b> are conditions that fire when a number crosses a line and keep costing you until it crosses back. Every one of them tells you exactly what clears it. <b>Dilemmas</b> are one-off choices with no clean answer.</p>
+
+        <p class="wg-h">Things that are not yours to decide</p>
+        <p><b>Constitutional amendments</b> only the voters can pass — you ask the legislature to put one on the ballot. <b>Executive orders</b> need nobody's permission and cost little, but they do about a quarter of what a law would and can be struck down in court. If you lose the legislature, <b>bills arrive on your desk</b> to sign or veto, and a veto can be overridden by two-thirds of both chambers.</p>
+
+        <p class="wg-h">Staying in office</p>
+        <p>Approval is the headline, but the election is decided county by county and group by group — the <b>Voters</b> and <b>Oregon by County</b> pages show you where you actually stand and which of your own policies is doing the damage where. <b>Campaign HQ</b> is where you work counties, target groups and read the seat forecast.</p>
+        <p>Next screen you set your <b>platform</b>: the promises you will be judged against at re-election. Keep them and you get a swing; break them and you pay for it.</p>
+
+        <p class="wg-h">If you just want to look around</p>
+        <p>Start a game on the seed <b>sandbox</b> and nothing can stop you: capital never runs out, every floor vote carries, and losing an election does not end the run. Every number still tells you the truth.</p>
       </div>
     </details>
     <div class="welcome-seed">
@@ -12868,6 +13051,13 @@ function _runTicks(){
   GAME.surplusStreak=(GAME.lastBalance>0.5)?Math.min(9,(GAME.surplusStreak||0)+1)
                                             :Math.max(0,(GAME.surplusStreak||0)-2);
   settleFiscal(); tickNationalMood(); tickSituations(); rollSecureRuralSchools(); tickOpposition(); maybeFireDilemma(); maybeSendOppBill();
+  // The rebalance: once the shortfall is past what the reserves can absorb and
+  // the crisis has actually bitten, the legislature stops waiting.
+  // Not in the first year: the opening slate is already a hole, and a
+  // rebalance in quarter four is a reckoning for somebody else’s budget.
+  if(!GAME.pendingAusterity && GAME.turn>=8 && GAME.activeSituations.fiscalCrisis
+     && (GAME.structuralDebt||0) > fiscalCrisisThreshold()*1.15
+     && GAME.turn-(GAME.lastAusterity??-99) >= 8) openAusterity();
   tickIndicators(); tickGrudges(); tickCynComp(); tickExpectations(); tickGroundGame(); tickCountyCamp();
   tickBallotCampaign();
   tickApproval(); tickVoterApproval(); checkActivistTriggers();
@@ -13998,6 +14188,10 @@ function showCampPopup(opts){
 }
 function endTurn(){
   if(GAME.gameOver)return;
+  // A balanced-budget emergency outranks everything else on the desk: the
+  // legislature cannot adjourn on an unbalanced budget, so nothing else moves
+  // until the rebalance is signed.
+  if(GAME.pendingAusterity){ drawAusterity(); return; }
   if(GAME.pendingDilemma){GAME.log.push("❖ Resolve the dilemma before ending the quarter");render();return;}
   // A change you dialled in but never voted gets its floor before the quarter
   // ends. Ending the quarter used to settle it silently, which meant a tax
@@ -15921,7 +16115,9 @@ function renderPolicies(){
       const nPend=(GAME.ballot&&GAME.ballot.pending?GAME.ballot.pending.length:0);
       h+=`<div class="reformnote">
         <div class="rn-h">${ico('ballot')} These are not yours to pass</div>
-        <div class="rn-b">Every amendment here changes Oregon's constitution, and the constitution belongs to the voters. You cannot enact one, and you cannot put one on the ballot on your own either — the <b>legislature refers it</b>, by joint resolution, on a simple majority of both chambers. That is a far easier floor vote than a bill: members are only deciding whether the voters get to decide, which is the standard cover for crossing the aisle. The same is true in reverse: an amendment already in force can only be taken back out by another referral and another vote.
+        <div class="rn-b">These change the constitution, so <b>only the voters can pass them</b>. You cannot.
+        <br><br>What you can do is ask the legislature to put one on the ballot. That is a floor vote like any other, but an <b>easy</b> one — a simple majority, never three-fifths, and members are only voting to let the voters decide. That is a much simpler thing to defend at home, so referrals often carry with votes from the other side.
+        <br><br>Repealing one works the same way: another floor vote, another trip to the ballot.
         <br><br>Measures are decided only when voters are already at the polls: <b>the midterm</b>, or <b>concurrently with your own re-election</b>. There are no special elections. Campaign for a referred measure from <b>Campaign HQ → Ballot measures</b>, out of the same energy your re-election draws on.</div>
         <div class="rn-f">Next ballot: <b>${nb.label}</b>${nb.quartersAway>0?` — ${nb.quartersAway} quarter${nb.quartersAway===1?'':'s'} away`:` — this quarter`}${nPend?` · ${nPend} measure${nPend===1?'':'s'} already on it`:``}</div>
       </div>`;
@@ -18175,7 +18371,7 @@ function bootWorld(startId){
   GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.surplusStreak=0; GAME.lawLock={};
   GAME.csfCorpus=2.10; GAME.csfPayout=0.08; GAME.csfElliottMult=1; GAME.csfSaleBooked=false; GAME.esfLottoIn=0; GAME.persRisk="balanced"; GAME.csfRisk="balanced";
   GAME.execOrders={}; GAME.pendingEoEvents=[]; GAME.pendingOppBill=null; GAME.lastOppBill=-99;
-  GAME.srsActive=true; GAME.srsRolled=-1; GAME.srsYears=0; GAME.capCarry=0;
+  GAME.srsActive=true; GAME.srsRolled=-1; GAME.srsYears=0; GAME.capCarry=0; GAME.pendingAusterity=null; GAME.lastAusterity=-99;
   GAME.oppBillsSigned=0; GAME.oppBillsVetoed=0; GAME.oppBillsOverridden=0;
   GAME.floorFreeze=0; GAME.walkoutSide=null; GAME.walkoutCooldownUntil=0; GAME.walkoutIgnoredUntil=0; GAME.protestIgnoredUntil=0; GAME.splinter=null;
   // the band is set from the world this boot produces, so the pre-roll below
