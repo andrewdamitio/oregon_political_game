@@ -2021,7 +2021,7 @@ const _ICO_ALIAS={
   abortionrestrict:"crossing",medicaidwork:"muscle",dereg:"scissors",carbontax:"factory",
   taxcut:"chart-down",water:"water",vaccine:"syringe",persreform:"bank",proptax:"tent",
   preschool:"cap",nuclear:"atom",safeconsume:"syringe",lng:"fuel",tort:"scales",cascadia:"wave",
-  medicaid:"hospital",revenue:"columns",treasury:"coins",corrections:"lock",judiciary:"columns",
+  medicaid:"hospital",revenue:"columns",corrections:"lock",judiciary:"columns",
   dhs:"handshake",oha:"hospital",odot:"road",forestry:"tree",ohcs:"house",deq:"flask",oprd:"mountain",
   landuse:"map",corptax:"factory","gov-digit":"monitor",
   // ui / situations
@@ -2110,7 +2110,7 @@ const SPENDING={
     policies:["policing","prisonRegimen","measure11"], note:"State Police, Corrections, Courts, prison operations"},
   housing:{name:"Housing & Community Dev.", base:0.0, agencies:["ohcs"], policies:["affordableHousing","rentStabilization","officeConversion","singleStair"],
     note:"OHCS agency budget + housing production policies"},
-  economy:{name:"Economic & Workforce Dev.", base:0.45, agencies:["revenueDept","treasury"],
+  economy:{name:"Economic & Workforce Dev.", base:0.58, agencies:["revenueDept"],
     policies:["rndTaxCredit","digitalGov","downtownRevitalization","cannabis"],
     note:"Business Oregon, fiscal agencies, OLCC"},
   natResources:{name:"Natural Resources & Environment", base:0.1, agencies:["odot","forestry","deq","oprd"],
@@ -2811,6 +2811,26 @@ const PERS_RISK={
     note:"Weighted to equities, private markets and real assets. Over a good decade this is the single largest lever on the liability — and a serious downturn blows the hole open faster than any benefit reform can close it."}
 };
 function persRisk(){ return PERS_RISK[GAME.persRisk] || PERS_RISK.balanced; }
+/* The Common School Fund is run by the same Oregon Investment Council, and
+   it is mostly financial assets — the trust land is a small, shrinking slice.
+   ret is the long-run return on the corpus over a full cycle; beta is how
+   hard a quarter's market move lands on it. */
+const CSF_RISK={
+  safe:{label:"Safe", ret:0.043, beta:0.004,
+    note:"Bond- and cash-heavy. It lags the school-funding need in a normal decade — the corpus grows slower than the payout — but a market crash barely dents it and the distribution to K-12 holds steady."},
+  balanced:{label:"Balanced", ret:0.053, beta:0.009,
+    note:"The inherited allocation: a diversified mix that roughly keeps pace with the payout over a full cycle, giving ground in a crash and making it back in a boom."},
+  aggressive:{label:"Aggressive", ret:0.068, beta:0.019,
+    note:"Weighted to equities, private markets and real assets — the same tilt the Council runs for PERS. Over a good decade it grows the corpus fastest and shrinks the General Fund's school bill; a serious downturn cuts the distribution when schools can least afford it."}
+};
+function csfRisk(){ return CSF_RISK[GAME.csfRisk] || CSF_RISK.balanced; }
+/* Quarterly total return on the corpus at the current posture. A sale ends
+   the working-land drag, so a fully financial portfolio earns a touch more. */
+function csfReturnQ(sold){
+  const c=csfRisk();
+  const soldBonus = sold ? 0.010 : 0;
+  return (c.ret+soldBonus)/4 + GAME.marketLevel*c.beta + GAME.econCycle*c.beta*0.4;
+}
 /* Article XV §4(4)(d): this share of net lottery proceeds is constitutionally
    dedicated to the Education Stability Fund. REVENUE.lottery models the
    General-Fund-bound share, so this rides on top of it rather than out of it. */
@@ -3238,7 +3258,7 @@ const SECTION_OF={
   govOps:"pubservices",
   // policies & agencies — taxes
   incomeTax:"taxes", cannabisTax:"taxes", corpTax:"taxes", salesTax:"taxes", gasTax:"taxes", vehicleReg:"taxes", evFee:"taxes", estateTax:"taxes", eitc:"taxes",
-  carbonTax:"taxes", taxCut:"taxes", kickerReform:"taxes", propTaxReform:"taxes", preschoolForAll:"taxes", revenueDept:"taxes", treasury:"taxes", persReform:"taxes",
+  carbonTax:"taxes", taxCut:"taxes", kickerReform:"taxes", propTaxReform:"taxes", preschoolForAll:"taxes", revenueDept:"taxes", persReform:"taxes",
   // public services
   stateSchoolFund:"pubservices", universities:"pubservices", stateColleges:"pubservices", communityColleges:"pubservices",
   higherEd:"pubservices", oregonPromise:"pubservices", phoneBanSchools:"pubservices", digitalGov:"pubservices", odot:"pubservices", motorVoter:"pubservices",
@@ -4471,10 +4491,11 @@ const AGENCIES={
     desc:"Collects income & corporate taxes. More funding → higher collection rate → more revenue from existing tax rates.",
     effects:{collectionRate:14}, indicatorEffects:{businessClimate:-1.5}, // collection up, but aggressive enforcement nags business
     ideology:{govSize:0.1}},
-  treasury:{name:"State Treasury", domain:"economy", icon:"coins",
-    funding:0.5, costMin:0.08, costFull:0.18, capital:3,
-    desc:"Debt issuance, investments, PERS oversight. Sound fiscal management reassures employers and rating agencies.",
-    effects:{}, indicatorEffects:{businessClimate:3}, ideology:{}},
+  // The State Treasury agency was removed: it spent money and capital for a
+  // flat +3 business climate and nothing else, and its real work — running
+  // the state's funds and PERS oversight — is now on the budget tab (Fiscal
+  // Machinery, the fund pages, the PERS portfolio posture). Its small
+  // operating cost is folded into the Economic & Workforce Development base.
   corrections:{name:"Dept. of Corrections", domain:"social", icon:"lock",
     funding:0.5, costMin:0.7, costFull:1.5, capital:4, cutSurcharge:1.3,
     desc:"State prisons and community supervision. Two jobs. First, it is the final link in the justice pipeline: without bed capacity, convictions produce early releases and courts resort to plea deals that skip incarceration entirely — so cutting it drags down Justice Pipeline Effectiveness alongside police and the courts. Second, on its own, the programming budget (education, treatment, job training, reentry) drives recidivism: fund it above the baseline and released people re-offend less; starve it and the same beds churn out more crime. The Prison Regimen policy sets how that budget is spent.",
@@ -6871,6 +6892,7 @@ const GAME={
   csfSaleBooked:false,  // one-shot latch for the trust-land sale proceeds
   esfLottoIn:0,         // annualized lottery money flowing into the Education Stability Fund
   persRisk:"balanced",  // OIC portfolio posture: "conservative" | "balanced" | "aggressive"
+  csfRisk:"balanced",   // Common School Fund portfolio posture: "safe" | "balanced" | "aggressive"
   execOrders:{},        // id -> {state,term,signed,filed,ruling,resigns}
   pendingEoEvents:[],   // filings and rulings waiting for their popups, rulings first
   // Secure Rural Schools: federal timber-county money, reauthorised or not
@@ -7202,7 +7224,16 @@ function srsFederal(){ return GAME.srsActive?SRS_SHARE:0; }
    unless the federal share is lapsed or the Timber Counties crisis is live —
    a payment that is quietly flowing does not need a card. */
 function srsFiscalCard(){
-  if(GAME.srsActive && !GAME.activeSituations.timberCounties) return "";
+  const nextRoll=(Math.floor(GAME.turn/4)+1)*4;
+  const q=Math.max(1,nextRoll-GAME.turn);
+  // When the money is flowing and nothing is on fire, a compact green line
+  // is enough — you can see at a glance that the timber counties are
+  // federally covered. The full card is for when they are not.
+  if(GAME.srsActive && !GAME.activeSituations.timberCounties){
+    return '<div class="fcard"><div class="fname">'+ico("handshake")+' Secure Rural Schools</div>'
+      +'<div class="fval" style="color:var(--good)">Federally funded ✓</div>'
+      +'<div class="fnote">Congress is funding the O&amp;C and timber counties this year — worth '+Math.round(SRS_SHARE*100)+'% of what they need for sheriffs, jails and roads, at no cost to the state. It is reauthorised roughly four years in five; the next vote lands in <b>'+q+' quarter'+(q===1?"":"s")+'</b>.</div></div>';
+  }
   const st=countyBackfillState(), fed=srsFederal();
   const covered=clamp(st+fed,0,1), short=covered<0.70;
   const pct=x=>Math.round(x*100)+"%";
@@ -7231,7 +7262,10 @@ function rollSecureRuralSchools(){
   const was=!!GAME.srsActive;
   // sticky: a programme being paid tends to keep being paid, and a lapsed
   // one takes a couple of years to find a vehicle
-  const keep=0.72, restore=0.38;
+  // Congress reauthorises it about four years in five. Stickier than a coin
+  // both ways: a programme being paid keeps being paid, a lapsed one takes
+  // a year or two to find a vehicle. Steady state ≈ 80% funded.
+  const keep=0.85, restore=0.60;
   const now=was ? (Math.random()<keep) : (Math.random()<restore);
   GAME.srsActive=now;
   if(now===was){ GAME.srsYears=(GAME.srsYears||0)+1; return; }
@@ -8407,7 +8441,7 @@ function tickEconomy(){
       GAME.csfSaleBooked=true;
       GAME.log.push(ico('bank')+" Trust lands sold — $1.30B into the Common School Fund");
     }
-    const retQ = (sold?0.068:0.052)/4 + GAME.marketLevel*(sold?0.0115:0.006);
+    const retQ = csfReturnQ(sold);
     // deposits are grazing leases and what harvest there is on school-fund land,
     // so the cut scales them; the Elliott settlement set how much of that base
     // survived. Selling the trust lands ends them outright.
@@ -10045,7 +10079,9 @@ function drainEoEvents(next){
 }
 /* The bill on your desk. Sign it, veto it and risk the override, or — only
    on an appropriation — strike the money and let the rest through. */
-/* srsFederal(), countyBackfill() and the Fiscal Machinery card are the wholefunction showOppBill(next){
+/* srsFederal(), countyBackfill() and the Fiscal Machinery card are the whole
+   of the Secure Rural Schools surface now — no popup. */
+function showOppBill(next){
   const B=GAME.pendingOppBill;
   const card=document.getElementById("oppBillCard"), modal=document.getElementById("oppBillModal");
   if(!B||!CATALOG[B.id]||!card||!modal){ GAME.pendingOppBill=null; if(next)next(); return; }
@@ -15012,6 +15048,11 @@ function renderDetail(){
       GAME.log.push(ico('coffin')+" PERS portfolio set to "+persRisk().label.toLowerCase());
       render();
     }));
+    main.querySelectorAll('[data-csfrisk]').forEach(el=>el.addEventListener('click',e=>{
+      GAME.csfRisk=e.currentTarget.dataset.csfrisk;
+      GAME.log.push(ico('cap')+" Common School Fund portfolio set to "+csfRisk().label.toLowerCase());
+      render();
+    }));
     return;
   }
   // is there an unsaved, changed proposal on this page?
@@ -15669,9 +15710,12 @@ function signed(v,dollar){const s=v>=0?'+':'';return dollar?(s+v.toFixed(1)):(s+
 function renderPolicies(){
   const avail=Object.keys(CATALOG);
   _minCostCache={turn:GAME.turn, map:{}};   // priced fresh each time the list is drawn
+  const q=(GAME.polSearch||"").trim().toLowerCase();
   let h=`${BACK_BTN_HTML}<div class="sectionhdr">New Policies</div>
-    <div class="sectionsub">Proposals not yet enacted, grouped by area. Tap a section to expand it, then enact a policy to spend capital and add it to your Governing Board.</div>`;
-  if(!avail.length){ main.innerHTML=h+`<div class="empty">No new policies available — all enacted.</div>`; wireBackBtn(); return; }
+    <div class="sectionsub">Proposals not yet enacted, grouped by area. Tap a section to expand it, then enact a policy to spend capital and add it to your Governing Board.</div>
+    <div class="websearch"><svg class="sbico" aria-hidden="true"><use href="#ic-search"/></svg>
+      <input type="text" id="polSearch" placeholder="Search policies by name, effect or area…" value="${(GAME.polSearch||"").replace(/"/g,'&quot;')}" autocomplete="off"></div>`;
+  if(!avail.length){ main.innerHTML=h+`<div class="empty">No new policies available — all enacted.</div>`; wireBackBtn(); wirePolSearch(); return; }
   const renderCard=(id)=>{
     const p=CATALOG[id], net=policyNetCost(p);
     const isRevPol=p.revenueFull!==undefined||p.revenue!==undefined||net<0;
@@ -15705,6 +15749,29 @@ function renderPolicies(){
         :(afford?'Refer to the voters':'Need ◈ '+ecost+' capital')}</button>
     </div>`;
   };
+  // --- SEARCH RESULTS: while a query is present, the accordion steps aside ---
+  if(q){
+    const hit=id=>{
+      const p=CATALOG[id];
+      const hay=(p.name+" "+(typeof p.desc==="string"?p.desc:"")+" "+(DOMAINS[p.domain]?DOMAINS[p.domain].name:"")+" "+(SECTIONS[sectionFor(id)]?SECTIONS[sectionFor(id)].name:"")).toLowerCase();
+      return q.split(/\s+/).every(w=>hay.indexOf(w)>=0);
+    };
+    const results=avail.filter(hit);
+    h+=`<div class="sectionsub" style="margin-top:4px">${results.length} match${results.length===1?"":"es"} for “${q.replace(/</g,"&lt;")}”</div>`;
+    h+= results.length
+      ? `<div class="catgrid">${results.map(renderCard).join("")}</div>`
+      : `<div class="empty">Nothing matches. Clear the search to browse by area.</div>`;
+    main.innerHTML=h;
+    wireBackBtn(); wirePolSearch();
+    main.querySelectorAll('[data-enact]').forEach(el=>el.addEventListener('click',()=>enactPolicy(el.dataset.enact)));
+    main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
+    main.querySelectorAll('[data-eb]').forEach(el=>el.addEventListener('click',e=>{
+      const box=document.getElementById("eb_"+el.dataset.eb);
+      const open=box.classList.toggle("hidden")===false;
+      el.textContent=(open?"▾":"▸")+" Projected effects if enacted";
+    }));
+    return;
+  }
   // group available (non-reform) policies by type-section; reforms get their own section
   const reforms=avail.filter(id=>CATALOG[id].reform);
   const bySec={};
@@ -15741,7 +15808,7 @@ function renderPolicies(){
     h+=`</div>`;
   }
   main.innerHTML=h;
-  wireBackBtn();
+  wireBackBtn(); wirePolSearch();
   main.querySelectorAll('[data-polsec]').forEach(el=>el.addEventListener('click',()=>{
     const k=el.dataset.polsec; GAME.openPolSections[k]=!GAME.openPolSections[k]; render();
   }));
@@ -15752,6 +15819,20 @@ function renderPolicies(){
     const open=box.classList.toggle("hidden")===false;
     el.textContent=(open?"▾":"▸")+" Projected effects if enacted";
   }));
+}
+/* Wire the New Policies search box. It re-renders on every keystroke, so it
+   restores focus and caret position afterwards. */
+function wirePolSearch(){
+  const el=document.getElementById("polSearch");
+  if(!el)return;
+  el.addEventListener("input",()=>{
+    GAME.polSearch=el.value;
+    const pos=el.selectionStart;
+    renderPolicies();
+    const el2=document.getElementById("polSearch");
+    if(el2){ el2.focus(); try{ el2.setSelectionRange(pos,pos); }catch(e){} }
+  });
+  el.addEventListener("keydown",e=>{ if(e.key==="Escape"){ GAME.polSearch=""; renderPolicies(); } });
 }
 /* The mechanical half of enacting — moving the policy onto the board. Split
    out from enactPolicy so the ballot can call it when voters ratify an
@@ -16742,12 +16823,12 @@ const FUNDS={
     val:()=>GAME.csfCorpus||0,
     blurb:"The endowment Oregon received at statehood — roughly 600,000 remaining acres of mostly eastern-Oregon rangeland, held in trust by the State Land Board and pledged to K-12 in perpetuity. The corpus is never spent. Only its earnings are.",
     inflows:()=>{
-      const sold=csfLandsSold(), pr=(GAME.csfCorpus||0);
-      const ret=pr*((sold?0.068:0.052)+GAME.marketLevel*(sold?0.046:0.024));
+      const sold=csfLandsSold(), pr=(GAME.csfCorpus||0), cr=csfRisk();
+      const ret=pr*((cr.ret+(sold?0.010:0))+GAME.marketLevel*cr.beta*4);
       const dep=sold?0.004:0.040*(METRICS.loggingRate.value/40)*(GAME.csfElliottMult??1);
       return [
-        {name:"Investment return on the corpus", v:ret,
-         note:sold?"A diversified financial portfolio since the trust lands were sold — higher expected return, and it swings with the market.":"Working land and a conservative portfolio: about 5.2% over a cycle."},
+        {name:"Investment return on the corpus — "+cr.label.toLowerCase()+" posture", v:ret,
+         note:(sold?"A fully financial portfolio since the trust lands were sold. ":"Mostly financial assets, with a shrinking slice of working land. ")+"At the "+cr.label.toLowerCase()+" posture, about "+((cr.ret+(sold?0.010:0))*100).toFixed(1)+"% over a cycle. Change it on this page."},
         {name:sold?"Residual receipts":"Grazing leases & harvest on trust land", v:dep,
          note:sold?"The leases ended with the land. What is left is unclaimed property and odds and ends.":"Scales with the logging rate ("+Math.round(METRICS.loggingRate.value)+") and with how much of the base the Elliott settlement left ("+Math.round((GAME.csfElliottMult??1)*100)+"%)."}];
     },
@@ -16819,12 +16900,27 @@ function renderFundDetail(id){
   h+=`<div class="ebgroup-label" style="margin-top:14px">Money in</div><div class="ebgroup">${inn.map(o=>row(o,1)).join("")}</div>`;
   h+=`<div class="ebgroup-label" style="margin-top:12px">Money out</div><div class="ebgroup">${out.map(o=>row(o,-1)).join("")}</div>`;
   if(id==="pers")h+=persRiskControlHTML();
+  if(id==="csf")h+=csfRiskControlHTML();
   const nt=(typeof F.note==="function")?F.note():F.note;
   h+=`<div class="lg-verdict" style="margin-top:14px">${nt}</div>`;
   return h;
 }
 /* The one control on a fund page: how the Oregon Investment Council is told to
    run the PERS portfolio. No capital — the board answers to you already. */
+function csfRiskControlHTML(){
+  const cur=GAME.csfRisk||"balanced";
+  let h=`<div class="ebgroup-label" style="margin-top:16px">Investment posture</div>
+    <div class="fnote" style="margin-bottom:8px">The Oregon Investment Council runs this corpus the way it runs PERS — and most of it is financial assets, not land. Telling it how much risk to carry costs no political capital and takes effect next quarter. The distribution to schools is a fixed ${(CSF_PAYOUT_RATE*100).toFixed(1)}% of the corpus, so a bigger corpus is a smaller call on the General Fund — and a crash under an aggressive posture is a smaller school check in a bad year.</div>`;
+  for(const k in CSF_RISK){
+    const r=CSF_RISK[k], on=(k===cur);
+    h+=`<div class="rrow" style="border-left:3px solid ${on?'var(--slate-blue)':'transparent'};padding-left:8px">
+      <span class="rlabel"><b>${r.label}</b>${on?' <span style="color:var(--slate-blue)">— current</span>':''}
+        <div class="fnote" style="margin-top:2px">${r.note}</div>
+        <div class="fnote" style="margin-top:2px;opacity:.75">Long-run return on the corpus: <b>${(r.ret*100).toFixed(1)}%/yr</b> · market sensitivity <b>${(r.beta*400).toFixed(0)}%</b></div></span>
+      <span class="rval">${on?"":`<button class="fcard-btn" data-csfrisk="${k}">Adopt</button>`}</span></div>`;
+  }
+  return h;
+}
 function persRiskControlHTML(){
   const cur=GAME.persRisk||"balanced";
   let h=`<div class="ebgroup-label" style="margin-top:16px">Investment posture</div>
@@ -17042,7 +17138,7 @@ function renderBudget(){
       h+=`<div class="fcard"><div class="fname">${ico('bank')} Common School Fund</div><div class="fval">${(GAME.csfCorpus||0).toFixed(2)}B</div>
         <div class="fnote"><b>How it works.</b> The corpus is the statehood land grant, held by the State Land Board. Money goes IN from ${sold?'investment returns alone':'grazing leases and harvest on the trust lands, plus investment returns'}; money comes OUT as a fixed <b>${(CSF_PAYOUT_RATE*100).toFixed(1)}%</b> of the corpus every year — <b>$${(pay*1000).toFixed(0)}M</b> right now — paid straight to the school budget <b>before</b> any General Fund appropriation. Spending it on anything else is not an option the state has, and it cannot be raided to close a deficit. Grow the corpus and the General Fund's share of schools shrinks. ${sold
           ? 'The trust lands are sold: the corpus is a diversified portfolio now, earning more and swinging harder with the market, and the lease deposits are gone for good.'
-          : 'Because the deposits ride on the cut and the leases, the logging rate feeds this number — and the Elliott settlement set how much of the base survived.'}</div><button class="fcard-btn" data-fund="csf">${ico('search')} Inputs &amp; outputs →</button></div>`; }
+          : 'Because the deposits ride on the cut and the leases, the logging rate feeds this number — and the Elliott settlement set how much of the base survived.'}</div><button class="fcard-btn" data-fund="csf">${ico('wrench')} Manage →</button></div>`; }
     h+=`<div class="fcard"><div class="fname">${ico('cap')} Education Stability Fund</div><div class="fval">${GAME.eduStability.toFixed(2)}B</div>
       <div class="fnote"><b>How it works.</b> IN: ${(LOTTERY_ESF_SHARE*100).toFixed(0)}% of net lottery proceeds are constitutionally dedicated to this fund — <b>$${((GAME.esfLottoIn||0)*1000).toFixed(0)}M/yr</b> at your current lottery setting${GAME.eduStability>=+(budgetBalance().spend*0.055).toFixed(2)?' (at the cap, so the dedication is idle)':''} — plus 40% of any surplus that escapes the kicker. Capped at ~5.5% of the budget.
       OUT: one purpose only. When a deficit exhausts the Rainy Day Fund and forces a cut, this fund is spent to absorb up to <b>85%</b> of the hit to the school budget, and nothing else. It cannot close the general gap, and you cannot draw on it deliberately.</div><button class="fcard-btn" data-fund="esf">${ico('search')} Inputs &amp; outputs →</button></div>`;
@@ -17059,6 +17155,24 @@ function renderBudget(){
           : `Nothing carried — every quarter's gap has been met by revenue or the Rainy Day Fund.`}
           A <b>Structural Deficit Crisis</b> triggers past <b>−$${thr.toFixed(2)}B</b> (≈0.26% of the state's $${Math.round((METRICS.gspLevel?METRICS.gspLevel.value:305))}B GDP — the bar rises as the economy grows) or four straight deficit quarters. ${(near&&GAME.rainyDay>0.3)?'Draw on the Rainy Day Fund above to pay it down.':''}</div><button class="fcard-btn" data-fund="debt">${ico('search')} Inputs &amp; outputs →</button></div>`;
     }
+    // PERS belongs with the funds — it has a page and a portfolio control.
+    {
+      const ual=GAME.persUAL||28, funded=clamp((130-ual)/130,0,1);
+      const growth=(GAME.persRate-(GAME.persRate0||5.26));
+      const sw=GAME.persMarketSwing||0;
+      const swTxt = Math.abs(sw)<0.05 ? "flat this year"
+        : sw<0 ? `<b style="color:var(--good)">−${(-sw).toFixed(2)}B this year</b> (fund gaining on the market)`
+        : `<b style="color:var(--bad)">+${sw.toFixed(2)}B this year</b> (market losses)`;
+      h+=`<div class="fcard"><div class="fname">PERS — Unfunded Liability</div>
+        <div class="fval" style="color:${funded>=0.8?'var(--warn)':'var(--clay)'}">${Math.round(ual)}B <span style="font-size:12px;color:var(--muted-3)">· ${Math.round(funded*100)}% funded</span></div>
+        <div class="fbar2"><i style="width:${clamp((1-funded)/0.5*100,0,100)}%;background:var(--clay)"></i></div>
+        <div class="fnote">The hole between what PERS owes and what it holds. It moves with investment returns — ${swTxt} — and new benefits accrue every quarter. Sets the employer contribution rate (<b>${GAME.persRate.toFixed(2)}B</b>), of which <b>${growth>=0?'+':''}${growth.toFixed(2)}B</b> above the starting rate is fresh pressure on the General Fund. ${POLICIES.persReform?'PERS Reform is bending the accrual curve.':'PERS Reform can bend the accrual curve.'} New service cost is accruing at <b>${Math.round((GAME.persWave!=null?GAME.persWave:1)*100)}%</b> of its starting pace as the pre-1996 tiers retire out.</div><button class="fcard-btn" data-fund="pers">${ico('wrench')} Manage →</button></div>`;
+    }
+    // Everything past here is a readout, not a fund. Break to its own grid.
+    h+=`</div>
+      <div class="fiscal-title" style="margin-top:22px">Forces on the budget</div>
+      <div class="fnote" style="margin:-6px 0 12px">Read-only — the cycle, the federal picture, and the earmarks that move revenue and cost between quarters. None of these has its own page.</div>
+      <div class="fiscal-grid">`;
     // --- revenue dynamics ---
     if(POLICIES.kickerReform){
       h+=`<div class="fcard"><div class="fname">${ico('cash-fly')} Kicker</div><div class="fval" style="color:var(--good)">Repealed</div>
@@ -17077,18 +17191,6 @@ function renderBudget(){
         <div class="fnote">The whole state economy, compounding at ${gr>=0?'+':''}${gr.toFixed(1)}%/yr. The slow structural trend under the cycle: a bigger economy widens the tax base and raises the crisis line above; a recession that shrinks it scars revenue for years. <span data-detail="m_gspLevel" style="color:var(--slate-blue);cursor:pointer">details →</span></div></div>`;
     }
     // --- cost pressures ---
-    {
-      const ual=GAME.persUAL||28, funded=clamp((130-ual)/130,0,1);
-      const growth=(GAME.persRate-(GAME.persRate0||5.26));
-      const sw=GAME.persMarketSwing||0;
-      const swTxt = Math.abs(sw)<0.05 ? "flat this year"
-        : sw<0 ? `<b style="color:var(--good)">−$${(-sw).toFixed(2)}B this year</b> (fund gaining on the market)`
-        : `<b style="color:var(--bad)">+$${sw.toFixed(2)}B this year</b> (market losses)`;
-      h+=`<div class="fcard"><div class="fname">PERS — Unfunded Liability</div>
-        <div class="fval" style="color:${funded>=0.8?'var(--warn)':'var(--clay)'}">$${Math.round(ual)}B <span style="font-size:12px;color:var(--muted-3)">· ${Math.round(funded*100)}% funded</span></div>
-        <div class="fbar2"><i style="width:${clamp((1-funded)/0.5*100,0,100)}%;background:var(--clay)"></i></div>
-        <div class="fnote">The hole between what PERS owes and what it holds. It moves with investment returns — ${swTxt} — and new benefits accrue every quarter. Sets the employer contribution rate (<b>$${GAME.persRate.toFixed(2)}B</b>), of which <b>$${growth>=0?'+':''}${growth.toFixed(2)}B</b> above the starting rate is fresh pressure on the General Fund. ${POLICIES.persReform?'PERS Reform is bending the accrual curve.':'PERS Reform can bend the accrual curve.'} New service cost is accruing at <b>${Math.round((GAME.persWave!=null?GAME.persWave:1)*100)}%</b> of its starting pace as the pre-1996 tiers retire out.</div><button class="fcard-btn" data-fund="pers">${ico('search')} Inputs &amp; outputs →</button></div>`;
-    }
     {
       const o=ohpFiscal();
       const stateDelta=o.stateShare-o.stateShare0;
@@ -17941,7 +18043,7 @@ function bootWorld(startId){
   GAME.legis.hHeld=null; GAME.legis.sHeld=null; GAME.legis.favors={};
   GAME.activeSituations={}; GAME.situationAge={}; GAME.eventCooldown={}; GAME.grudges=[]; GAME.history={};
   GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.surplusStreak=0; GAME.lawLock={};
-  GAME.csfCorpus=2.10; GAME.csfPayout=0.08; GAME.csfElliottMult=1; GAME.csfSaleBooked=false; GAME.esfLottoIn=0; GAME.persRisk="balanced";
+  GAME.csfCorpus=2.10; GAME.csfPayout=0.08; GAME.csfElliottMult=1; GAME.csfSaleBooked=false; GAME.esfLottoIn=0; GAME.persRisk="balanced"; GAME.csfRisk="balanced";
   GAME.execOrders={}; GAME.pendingEoEvents=[]; GAME.pendingOppBill=null; GAME.lastOppBill=-99;
   GAME.srsActive=true; GAME.srsRolled=-1; GAME.srsYears=0; GAME.capCarry=0;
   GAME.oppBillsSigned=0; GAME.oppBillsVetoed=0; GAME.oppBillsOverridden=0;
