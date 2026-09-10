@@ -2841,6 +2841,12 @@ const EXEC_ORDERS={
     desc:"Bar every state agency and state-funded body from spending resources on federal civil immigration enforcement, and from sharing data collected for other purposes. Oregon has had a sanctuary statute since 1987; this puts teeth in it administratively.",
     effects:{},
     indicatorEffects:{inMigration:3, ruralAlienation:4},
+    // The order's own reach line says federal money conditioned on cooperation
+    // is not within your control, and this is where that bites: grant
+    // conditions, withheld formula money, and the litigation that follows.
+    // It presses the Federal Funds Index down while the order stands, which
+    // flows straight into the Medicaid match and Oregon's share of OHP.
+    fedPress:0.055,
     blocEffect:{liberal:4, urban:3, poor:3, socialist:3, collegeEducated:2, conservative:-5, rural:-4, moderate:-2},
     legalBase:0.14},
   eoHiringFreeze:{name:"Statewide Hiring Freeze", icon:"ban", capital:2, phaseIn:6,
@@ -2912,6 +2918,28 @@ function execIndicatorPush(k){
   return v;
 }
 /* $B/yr of spending an order holds back */
+/* What standing executive orders are doing to the budget, as a named card. A
+   holdback withholding half a billion a year and a hiring freeze saving a
+   fifth of one were being folded silently into the payroll lines; a governor
+   should be able to see them named and priced. */
+function eoFiscalCard(){
+  const live=eoLiveList().filter(id=>EXEC_ORDERS[id].savings);
+  if(!live.length)return "";
+  let net=0; const rows=[];
+  for(const id of live){
+    const E=EXEC_ORDERS[id], v=(E.savings||0)*eoRamp(id);
+    net+=v;
+    rows.push('<div class="rrow"><span class="rlabel">'+ico(E.icon)+' '+E.name+'</span>'
+      +'<span class="rval" style="color:'+(v>0?'var(--good)':'var(--clay)')+'">'
+      +(v>0?'holds back $':'adds $')+Math.abs(v).toFixed(2)+'B/yr</span></div>');
+  }
+  const word = net>0 ? "withholding" : "adding";
+  return '<div class="fcard"><div class="fname">'+ico("doc")+' Executive Orders</div>'
+    +'<div class="fval" style="color:'+(net>0?"var(--good)":"var(--clay)")+'">'
+    +(net>=0?"−$":"+$")+Math.abs(net).toFixed(2)+'B/yr</div>'
+    +rows.join("")
+    +'<div class="fnote">Standing orders, '+word+' money across every payroll-bearing line in the budget without a vote. It is real money and it is not appropriated — which is exactly why an allotment holdback is the most legally exposed thing on the list. Rescind one and its share of this comes straight back. Amounts phase in with the order.</div></div>';
+}
 function eoSavings(){
   let v=0;
   for(const id of eoLiveList())v+=(EXEC_ORDERS[id].savings||0)*eoRamp(id);
@@ -6872,6 +6900,7 @@ const GAME={
   ohpEnrollIdx:1.0,     // Oregon Health Plan enrollment vs. baseline (~1.4M). Countercyclical: a recession swells it.
   fedIndex:1.0,         // federal-funds multiplier; shocked by federal events
   pendingKicker:0,
+  corpKickerToK12:0,    // Measure 85: the corporate kicker is dedicated to K-12, not refunded
   sportsBook:null,       // null | "lottery" | "commercial" | "tribal" — how sports wagering runs      // kicker owed, paid out next cycle
   pendingSurplus:null,  // {surplus} — a kicker-eligible surplus awaiting the player's end-of-quarter choice
   // Consecutive quarters closed in the black. One good quarter is luck; three
@@ -8297,7 +8326,15 @@ function revenueBySource(){
       // estate wealth is equity-heavy — market swings move asset values more than income does
       amt*=(1+clamp(GAME.marketLevel*0.20,-0.22,0.22));
     }
-    if(id==="federalFunds")amt*=GAME.fedIndex;   // federal shocks
+    if(id==="federalFunds"){
+      // Medicaid is an OPEN-ENDED match — when the caseload surges Washington
+      // pays its share of the surge too. Showing this line pinned while the
+      // Oregon Health Plan line grew underneath it read as though the state ate
+      // the whole increase. It does not; it eats its own share, which is what
+      // the paired line in spendingByArea charges.
+      const o=ohpFiscal();
+      amt = FED_OTHER*GAME.fedIndex + o.fedShare;
+    }
     out[id]=amt;
   }
   // revenue-generating policies WITHOUT their own ledger line (psilocybin
@@ -8415,12 +8452,25 @@ function tickEconomy(){
       - (POLICIES.medicaidWork ? 0.010 : 0);
     GAME.ohpEnrollIdx = +clamp(GAME.ohpEnrollIdx, 0.82, 1.35).toFixed(3);
   }
-  GAME.fedIndex += (1.0-GAME.fedIndex)*0.03;   // slow recovery toward baseline
+  // A standing order that defies a federal funding condition holds the index
+  // down for as long as it stands. Rescind it and the recovery below pulls
+  // the money back, slowly, the way it actually comes back.
+  let fedFloor=1.0;
+  for(const id of eoLiveList()){
+    const p=EXEC_ORDERS[id].fedPress;
+    if(p)fedFloor-=p*eoRamp(id);
+  }
+  GAME.fedIndex += (fedFloor-GAME.fedIndex)*0.03;   // slow drift toward what the orders allow
 }
 /* Oregon Health Plan fiscal breakdown — total program cost, Oregon's share,
    and the federal match. Enrollment is countercyclical; the coverage lever
    sets eligibility breadth & benefit richness; a federal pullback or a block
    grant shifts cost onto the state. Pure — safe to call from anywhere. */
+/* The non-Medicaid half of the Federal Funds line: transport, education,
+   public-health and block grants. Everything in that $6.5B that is NOT the
+   Medicaid match, held flat and scaled only by the federal index. */
+const FED_MEDICAID_BASE = 8.0*(0.78+0.44*0.55)*(1-0.34);   // ≈$5.40B match at the inherited caseload
+const FED_OTHER = 6.5 - FED_MEDICAID_BASE;                 // ≈$1.10B of everything else
 function ohpFiscal(){
   const cov = POLICIES.ohpCoverage ? policyLevel(POLICIES.ohpCoverage) : 0.55;   // 0..1, status quo 0.55
   const covMult = 0.78 + 0.44*cov;                                               // 0.78 gutted .. 1.22 max
@@ -8453,7 +8503,10 @@ function spendingByArea(){
     // So a larger endowment reads as a smaller call on the General Fund, not as a
     // larger school budget. (The Education Stability Fund sits behind both and is
     // drawn only in settleFiscal, to cushion a forced cut to this line.)
-    if(id==="k12")amt=Math.max(0, amt-(GAME.csfPayout||0));
+    // Dedicated money pays the school bill before the General Fund does: the
+    // Common School Fund distribution first, then any corporate kicker that
+    // Measure 85 sent here instead of out to taxpayers.
+    if(id==="k12")amt=Math.max(0, amt-(GAME.csfPayout||0)-(GAME.corpKickerToK12||0));
     // prison population drives corrections costs (the Measure 11 chain:
     // mandatory minimums → incarceration growth → corrections crowd-out)
     if(id==="publicSafety")amt+=Math.max(0,(METRICS.incarcerationRate.value-50))*0.012;
@@ -8488,8 +8541,12 @@ function spendingByArea(){
     // Oregon's OWN share grows above its ~$2.78B baseline when enrollment
     // surges, benefits broaden, or Washington pulls its match back.
     if(id==="ohp"){
+      // The gross programme, plus the pass-through federal money that is not
+      // Medicaid. Netted against the paired revenue line above, what actually
+      // hits the General Fund is (stateShare − stateShare0) and nothing else —
+      // identical to the old flat-6.5 arithmetic, with both lines now true.
       const o=ohpFiscal();
-      amt+=6.5*GAME.fedIndex + (o.stateShare - o.stateShare0);
+      amt+=FED_OTHER*GAME.fedIndex + o.total - o.stateShare0;
     }
     // active crises inflate program costs (caseloads, response, recovery)
     for(const sid in GAME.activeSituations){
@@ -8538,6 +8595,24 @@ function spendingByArea(){
   }
   return out;
 }
+/* The discretionary half of the ledger — what a legislature appropriates. The
+   federal Medicaid match arrives earmarked and leaves the same day, and the
+   gas tax, registration fees and the EV charge are dedicated to highways by
+   Article IX §3a. Neither is money anybody in Salem gets to argue about, so
+   neither belongs in the number people quote. */
+const ROAD_REVENUE=["gasTaxRev","vehicleFees","evFeeRev"];
+function gfLotterySubtotal(){
+  const rev=revenueBySource(), spd=spendingByArea();
+  let federal=rev.federalFunds||0, roads=0;
+  for(const id of ROAD_REVENUE)roads+=rev[id]||0;
+  let revenue=0; for(const id in rev)revenue+=rev[id];
+  revenue-=federal+roads;
+  if(GAME.pendingKicker>0)revenue-=GAME.pendingKicker;
+  // the matching outgoings: the pass-through half of OHP, and the road money
+  let spend=0; for(const id in spd)spend+=spd[id];
+  spend-=federal+roads;
+  return {revenue, spend, federal, roads};
+}
 function budgetBalance(){
   const rev=revenueBySource(), spd=spendingByArea();
   let revenue=Object.values(rev).reduce((a,b)=>a+b,0);
@@ -8560,6 +8635,7 @@ function fiscalCrisisThreshold(){
 function settleFiscal(){
   const {revenue,spend,balance:annualBal}=budgetBalance();
   GAME.pendingKicker=0;        // consumed this cycle
+  GAME.corpKickerToK12=0;      // and so is the corporate half that went to schools
   // CONSTITUTIONAL EARMARK, settled before anything else: a fixed share of net
   // lottery proceeds goes to the Education Stability Fund whether the budget is
   // in surplus or not. It stops at the cap; past that the dedication has nowhere
@@ -10193,8 +10269,24 @@ function _resolveSurplus(fraction, capCost){
     GAME.log.push(ico('bank')+" Moved $"+dedicate.toFixed(2)+"B of the surplus into the emergency reserves before the kicker"+(capCost?" (−◈"+capCost+")":""));
   }
   if(refundQ>0.001){
-    GAME.pendingKicker=refundQ*4;   // annualized — the budget ledger runs in $B/yr
-    GAME.log.push(ico('cash-fly')+" Kicker triggered — $"+refundQ.toFixed(2)+"B refunds to taxpayers next quarter");
+    // OREGON HAS TWO KICKERS AND THEY DO OPPOSITE THINGS. The personal kicker
+    // refunds to taxpayers as a credit on next year's return. The CORPORATE
+    // kicker has been constitutionally dedicated to K-12 since Measure 85
+    // (2012) and cannot be refunded at all. Split the surplus by the two
+    // taxes' shares of the kicker-eligible base: the corporate part is the
+    // one route in this game by which a boom pays for a classroom.
+    const rv=revenueBySource();
+    const pit=rv.personalIncome||0, cit=rv.corpActivity||0;
+    const corpFrac = (pit+cit)>0 ? clamp(cit/(pit+cit),0,0.35) : 0;
+    const corpQ = refundQ*corpFrac, persQ = refundQ-corpQ;
+    if(corpQ>0.0005){
+      GAME.corpKickerToK12=+(corpQ*4).toFixed(3);      // annualized, for the ledger
+      GAME.log.push(ico('cap')+" Corporate kicker — $"+corpQ.toFixed(2)+"B dedicated to K-12 under Measure 85, not refunded");
+    }
+    if(persQ>0.001){
+      GAME.pendingKicker=persQ*4;   // annualized — the budget ledger runs in $B/yr
+      GAME.log.push(ico('cash-fly')+" Personal kicker triggered — $"+persQ.toFixed(2)+"B refunds to taxpayers next quarter");
+    }
   }
 }
 /* end-of-quarter popup: a surplus cleared the kicker line and you have the
@@ -16893,7 +16985,8 @@ function renderBudget(){
   const salesTaxOn = !!(POLICIES.salesTax && POLICIES.salesTax.enacted);
   let h=`${BACK_BTN_HTML}
     <div class="sectionhdr">State Budget</div>
-    <div class="sectionsub">Annualized General Fund + Lottery, 2025-27 biennium scale. ${salesTaxOn?'The personal income tax still carries most of the budget, alongside the sales tax you enacted.':'Oregon has no sales tax — the personal income tax carries the budget.'} Figures move as you change tax rates and program funding.</div>`;
+    <div class="sectionsub">Annualized, at 2025-27 biennium scale. ${salesTaxOn?'The personal income tax still carries most of the budget, alongside the sales tax you enacted.':'Oregon has no sales tax — the personal income tax carries the budget.'} Figures move as you change tax rates and program funding.
+    <br><br>This ledger shows <b>everything that flows through the state</b>, not just the part Oregon argues about. The <b>General Fund + Lottery</b> subtotal below is the discretionary budget — what a legislature actually appropriates. The rest is the federal Medicaid match, which arrives earmarked and leaves the same day, and the highway taxes, which Article IX §3a dedicates to roads and which you cannot spend on anything else.</div>`;
   {
     const debt=GAME.structuralDebt||0, res=(GAME.rainyDay||0)+(GAME.eduStability||0);
     h+=`<div class="mgrid" style="margin-bottom:22px">
@@ -16902,6 +16995,13 @@ function renderBudget(){
       <div class="mcard"><div class="mname">Balance / Yr</div><div class="mval" style="color:${b.balance>=0?'var(--good)':'var(--bad)'}">${b.balance>=0?'+':''}$${b.balance.toFixed(1)}B</div></div>
       <div class="mcard"><div class="mname">${debt>0.005?'Accumulated Shortfall':'Total Reserves'}</div><div class="mval" style="color:${debt>0.005?'var(--bad)':'var(--good)'}">${debt>0.005?'−$'+debt.toFixed(1)+'B':'$'+res.toFixed(1)+'B'}</div></div>
     </div>`;
+    // The discretionary half, stated plainly. The headline totals above carry
+    // the federal Medicaid match (earmarked in, straight back out) and the
+    // highway taxes Article IX section 3a dedicates to roads. Neither is money
+    // anyone in Salem gets to argue about, so neither belongs in the number
+    // people quote at each other.
+    { const g=gfLotterySubtotal();
+      h+='<div class="fnote" style="margin:-14px 0 20px">Of that, <b>General Fund + Lottery</b> — the discretionary budget a legislature actually appropriates — is <b>$'+g.revenue.toFixed(1)+'B</b> in against <b>$'+g.spend.toFixed(1)+'B</b> out. The rest is the federal Medicaid match (<b>$'+g.federal.toFixed(1)+'B</b>, earmarked in and straight back out) and the constitutionally dedicated highway taxes (<b>$'+g.roads.toFixed(1)+'B</b>).</div>'; }
   }
   // ---- fiscal machinery panel ----
   {
@@ -17000,6 +17100,7 @@ function renderBudget(){
     h+=`<div class="fcard"><div class="fname">${ico('globe')} Federal Funds Index</div><div class="fval" style="color:${GAME.fedIndex<0.95?'var(--bad)':'#4a463c'}">${(GAME.fedIndex*100).toFixed(0)}%</div>
       <div class="fnote">~$44B all-funds flows from Washington. A federal tax-law shock cuts this; it slowly recovers. A weaker match pushes Oregon Health Plan cost onto the state (above).</div></div>`;
     h+=srsFiscalCard();
+    h+=eoFiscalCard();
     if(GAME.pendingKicker>0)
       h+=`<div class="fcard" style="border-left-color:var(--gold)"><div class="fname">${ico('cash-fly')} Kicker Refund Due</div><div class="fval" style="color:var(--gold)">−$${GAME.pendingKicker.toFixed(2)}B</div>
         <div class="fnote">Revenue beat forecast by 2%+ — the ENTIRE surplus refunds to taxpayers next quarter. ${POLICIES.kickerReform?'':'Enact Kicker Reform to bank it instead.'}</div></div>`;
@@ -17826,7 +17927,7 @@ function bootWorld(startId){
   GAME.agendaBaseline=0; GAME.compassStart={ec:0,so:0}; GAME.compassEvents={ec:0,so:0};
   GAME.mandateShock=0; GAME.changeAppetite=0; GAME.uturnCount=0; GAME.protestCrackdowns=0;
   GAME.floorFail={}; GAME.enactedAt={}; GAME.senateClass=0; GAME.serviceDisrupt=0;
-  GAME.pendingKicker=0; GAME.pendingSurplus=null; GAME.elliottResolved=false; GAME.sportsBook=null;
+  GAME.pendingKicker=0; GAME.corpKickerToK12=0; GAME.pendingSurplus=null; GAME.elliottResolved=false; GAME.sportsBook=null;
   GAME.legisElections=0;
   // ---- back to the authored data
   for(const k in METRICS){ METRICS[k].value=WORLD_SEED.m[k]; METRICS[k].calib=0; }
