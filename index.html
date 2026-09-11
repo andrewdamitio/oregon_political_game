@@ -2612,12 +2612,20 @@ const INDICATORS={
     // a strained system prices scarcity into the power bill first, then bites growth
     feedback:{electricRate:0.006, gdp:-0.0022}},
   justiceEffectiveness:{name:"Justice Pipeline Effectiveness", icon:"scales", value:50,
-    desc:"How well Oregon's justice system functions end-to-end. Crime reduction from incapacitation is limited by the weakest of three pillars: police (arrests), judiciary (prosecution), and corrections (jail capacity). All three must be adequately funded for the chain to work. Police retain a prevention benefit even when the pipeline is broken. A working pipeline also leans on open drug use (enforcement, drug courts, diversion) and, through supervised release with services, on street homelessness.",
+    desc:"How well Oregon's justice system functions end-to-end, across three pillars: police (arrests), the judiciary (prosecution) and corrections (capacity). Each one you fund adds to the gauge and they stack — a better-funded court improves the pipeline whether or not it was the thing holding it back. But the chain is only as strong as its weakest link is long: a fifth of the gauge is the worst-funded pillar on its own, so starving any one of the three caps what the other two can deliver. A working pipeline also leans on open drug use (enforcement, drug courts, diversion) and, through supervised release with services, on street homelessness.",
     derive:()=>{
       const police = POLICIES.policing?effLevelOf(POLICIES.policing):0.25;
       const prosecution = AGENCIES.judiciary?.funding??0.5;
       const jail = AGENCIES.corrections?.funding??0.5;
-      return clamp(Math.min(police, prosecution, jail)*100, 0, 100);
+      // The three pillars ADD. This was Math.min, which meant funding the
+      // judiciary bought nothing at all unless it happened to be the worst
+      // of the three, and funding two of them bought no more than funding
+      // one. The bottleneck is still real — a prosecutor with nowhere to put
+      // anybody is not much use — so the weakest pillar keeps a fifth of the
+      // weight, and the rest is the sum.
+      const sum  = police*0.34 + prosecution*0.33 + jail*0.33;
+      const weak = Math.min(police, prosecution, jail);
+      return clamp((sum*0.80 + weak*0.20)*100, 0, 100);
     },
     drivers:()=>[
       {name:ico('shield')+" Police Funding",v:(POLICIES.policing?effLevelOf(POLICIES.policing):0.25)*100,link:"p_policing"},
@@ -6546,11 +6554,17 @@ const SITUATIONS={
   wildfireSeason:{name:"Severe Wildfire Season", kind:"bad", category:"event", cooldown:6,
     desc:"Catastrophic wildfires choke the Willamette Valley with smoke and force evacuations across eastern and southern Oregon. Hundreds of thousands of acres of forest and watershed burn — environmental quality falls hard, then heals slowly over the years it takes the land to come back.",
     costEffect:{natResources:0.45},
-    metricEffect:{environment:-8,health:-4,gdp:-0.4,loggingRate:-6}, moodAxes:{environment:-0.2}, moodMag:2, minTurns:2,
-    onTrigger:{capital:-4, metrics:{environment:-12},
+    // A fire season is weather with a fuel load. The counties that were
+    // evacuated are entitled to ask where the state was — that is the county
+    // mood, and it stays. The rest of Oregon turning on you because the sky
+    // was orange is not real, so the statewide anger comes down to a quarter
+    // of what it was and the damage moves into the forest, the smoke and the
+    // summer's lost output, where it belongs.
+    metricEffect:{environment:-11,health:-6,gdp:-0.55,loggingRate:-6}, moodAxes:{environment:-0.2}, moodMag:0.5, minTurns:2,
+    onTrigger:{capital:-2, metrics:{environment:-12},
       grudges:[{target:"m_environment", value:-3, decay:0.9, label:"Burn scars — forests & watersheds regrowing"}],
-      countyMood:{spec:COUNTY_GROUPS.fireCountry, value:-5, decay:0.9, label:"Fire-country counties — evacuations & smoke"}}, mandateShock:-5,
-    groupMood:{rural:-8,timber:-9,students:-3,liberal:-2,blueCollar:-2}},
+      countyMood:{spec:COUNTY_GROUPS.fireCountry, value:-5, decay:0.9, label:"Fire-country counties — evacuations & smoke"}}, mandateShock:-1.5,
+    groupMood:{rural:-2,timber:-2}},
   businessExodus:{name:"Business Climate Collapse", kind:"bad", category:"condition",
     desc:"Oregon's stacked costs and regulatory burden have crossed a tipping point. Companies are announcing relocations to Washington and Idaho — and the exodus feeds itself: as anchor firms leave, their suppliers and service vendors follow, Oregon's anti-business reputation hardens, and the remaining talent pool thins. Reversing it requires meaningfully improving the business climate, not just stopping the slide.",
     trigger:()=>INDICATORS.businessClimate.value<30, onClear:{capital:3},
@@ -6736,10 +6750,13 @@ const SITUATIONS={
     metricEffect:{gasPrice:0.25,gdp:-0.15}, moodMag:1, minTurns:2,
     groupMood:{rural:-6,blueCollar:-6,timber:-5,suburban:-3,motorists:-7}},
   heatDome:{name:"Heat Dome", kind:"bad", category:"event",
-    desc:"A record heat dome bakes the Willamette Valley (echoing the deadly 2021 event). Cooling centers are overwhelmed; outdoor work halts.",
-    metricEffect:{health:-3}, moodMag:1, minTurns:1,
-    indicatorEffect:{tourism:-8},
-    groupMood:{poor:-6,blueCollar:-4,rural:-2,students:-2}},
+    desc:"A record heat dome bakes the Willamette Valley, echoing the deadly 2021 event that killed ninety-six Oregonians in a week. Cooling centres are overwhelmed, outdoor work halts, and the grid strains under air conditioning in a housing stock largely built without it.\n\nThis is weather, and Oregonians know it: nobody is blaming you for the sky. What it costs you is not popularity but the state of the state — a heat dome breaks things, and you govern the wreckage afterwards.",
+    // A heat dome is weather. It docks statistics, not constituencies: this
+    // used to take six points off the poor and four off blue-collar voters
+    // for something no governor causes and none can prevent.
+    metricEffect:{health:-7, gdp:-0.18, electricRate:0.5}, moodMag:0, minTurns:1,
+    indicatorEffect:{tourism:-8, infraStrain:6},
+    groupMood:{}},
   cyberattack:{name:"State Systems Cyberattack", kind:"bad", category:"event",
     desc:"Ransomware cripples state IT systems — benefits portals, DMV, payroll. Oregon's aging infrastructure makes it an easy target. Every department is working off paper and phone calls while IT scrambles.",
     indicatorEffect:{adminOverhead:7}, moodMag:2, minTurns:4, onTrigger:{capital:-4},
@@ -6798,12 +6815,17 @@ const SITUATIONS={
     groupMood:{publicUnions:-11, parents:-7, poor:-6, liberal:-5, socialist:-4, urban:-3, moderate:-3,
                conservative:2, libertarian:2}},
   timberCounties:{name:"Timber Counties Fiscal Crisis", kind:"bad", category:"condition",
-    desc:"As harvest revenues have collapsed, Oregon's timber-dependent counties can't fund sheriffs, schools, or roads — a slow-motion rural government failure.\n\nThe shortfall is fiscal, not physical: these counties fund themselves out of a share of the cut, so when the cut goes the county government goes with it. That means there are two ways out, and only one of them involves a saw.\n\n→ TO FIX IT: get the Logging Rate back above 35 — or get the counties covered past 70% of what they need. Two things count toward that. <b>Secure Rural Schools</b> is the federal payment, worth 45%, reauthorised or left to lapse by a Congress you do not control — its current status is on the <b>Fiscal Machinery</b> board in the State Budget, and you have no say in it. <b>County Payments in Lieu of Timber Receipts</b> is the half that is yours — a funded slider that backfills sheriffs, jails, roads and schools out of the General Fund. With the federal money flowing you only need to find the last quarter of it yourself; the year it stops, that gap is entirely yours.",
+    desc:"As harvest revenues have collapsed, Oregon's timber-dependent counties can't fund sheriffs, schools, or roads — a slow-motion rural government failure.\n\nThe shortfall is fiscal, not physical: these counties fund themselves out of a share of the cut, so when the cut goes the county government goes with it. That means there are two ways out, and only one of them involves a saw.\n\n→ TO FIX IT: get the Logging Rate back above 35 — or get the counties covered past 70% of what they need. Two things count toward that. <b>Secure Rural Schools</b> is the federal payment, worth 45%, reauthorised or left to lapse by a Congress you do not control — its current status is on the <b>Fiscal Machinery</b> board in the State Budget, and you have no say in it. While it is flowing the counties hold together and this crisis cannot start, whatever the harvest is doing. <b>County Payments in Lieu of Timber Receipts</b> is the half that is yours — a funded slider that backfills sheriffs, jails, roads and schools out of the General Fund. It is what stands between these counties and a collapse the year Congress does not reauthorise, and the year that happens the whole gap is yours.",
     // The counties need revenue. Historically that came out of the cut; it can
     // just as well come out of the General Fund, and a governor who took the
     // harvest down on purpose should not be told the only fix is to put it back.
-    trigger:()=>METRICS.loggingRate.value<25 && countyBackfill()<0.55,
-    clear:()=>METRICS.loggingRate.value>35 || countyBackfill()>=0.70, onClear:{capital:2},
+    // The federal payment holds the line on its own. Secure Rural Schools is
+    // worth 45% and this used to want 55%, so a governor with the money
+    // flowing and nothing of their own sat under the line and got the crisis
+    // anyway — while the policy page told them the federal share left only
+    // the last quarter to find. It cannot fire while Washington is paying.
+    trigger:()=>METRICS.loggingRate.value<25 && !GAME.srsActive && countyBackfill()<0.55,
+    clear:()=>METRICS.loggingRate.value>35 || GAME.srsActive || countyBackfill()>=0.70, onClear:{capital:2},
     watch:{metric:"loggingRate", startAt:25, clearAt:35, badHigh:false,
            alsoNote:"— or by funding County Payments in Lieu of Timber Receipts past 70%, which lifts it with the harvest left exactly where it is"},
     metricEffect:{propertyCrime:0.7},
@@ -8916,9 +8938,13 @@ function openAusterity(){
 }
 /* The negotiation. You are shown every party that is not yours, what it
    would bring, and what it would charge, and you build 51 out of it. */
-function drawCoalition(){
+function drawCoalition(next){
   const card=document.getElementById("coalitionCard"), modal=document.getElementById("coalitionModal");
   if(!card||!modal)return;
+  // There is nothing to negotiate until a chamber has actually been elected
+  // under the new rules.
+  if(!prOn()||!GAME.legis||!GAME.legis.prCounts){ GAME.pendingCoalition=null; if(next)next(); return; }
+  if(next!==undefined)GAME._coalNext=next;
   if(!GAME.coalPick)GAME.coalPick=[];
   const c=(GAME.legis&&GAME.legis.prCounts)||{};
   const mine=prMyParty(), own=c[mine]||0;
@@ -8974,6 +9000,7 @@ function drawCoalition(){
     GAME.coalPick=null;
     modal.classList.add("hidden");
     render();
+    const k=GAME._coalNext; GAME._coalNext=null; if(k)k();
   };
 }
 function drawAusterity(){
@@ -10746,7 +10773,7 @@ function showMidterm(m){
       <div class="eg-note">${prOn()?"Oregon now has a single chamber of 100 members, elected statewide on party vote share with a 4% threshold. Every seat was on this ballot. A majority is 51 and almost nobody ever has one alone — what decides the term is who you can build it out of.":`Oregon runs a 30-seat Senate and a 60-seat House. The whole House was on this ballot; the Senate runs staggered four-year terms, so only half of it — 15 seats — was. Three-fifths of each chamber — 18 and 36, the dashed line on both bars — is the threshold that matters: Article IV §25 requires it to raise revenue at all.`}</div>
       ${legisBarHTML("Senate",LEGIS.senate,L.after.senate,LEGIS.superS,L.sSwing,GAME.splinter?GAME.splinter.senate.length:0,senateHeldOver(L))}
       ${legisBarHTML("House",LEGIS.house,L.after.house,LEGIS.superH,L.hSwing,GAME.splinter?GAME.splinter.house.length:0)}
-      ${GAME.splinter?`<div class="eg-note" style="border-left:3px solid #6b5b95;padding-left:8px">Your own ${GAME.splinter.side==="left"?"left":"right"} flank broke away: a ${splinterName(GAME.splinter.side)} bloc took <b>${GAME.splinter.house.length+GAME.splinter.senate.length}</b> seats off the opposition. They are not yours to whip — they carry your flank's bills and kill the rest.</div>`:""}
+      ${(GAME.splinter&&!prOn())?`<div class="eg-note" style="border-left:3px solid #6b5b95;padding-left:8px">Your own ${GAME.splinter.side==="left"?"left":"right"} flank broke away: a ${splinterName(GAME.splinter.side)} bloc took <b>${GAME.splinter.house.length+GAME.splinter.senate.length}</b> seats off the opposition. They are not yours to whip — they carry your flank's bills and kill the rest.</div>`:""}
       ${legMapsHTML(L)}
       <div class="lg-verdict ${st.tier}"><b>${st.label}.</b> ${st.note}${flipped?` <b style="color:${capCol(capDelta)}">That is a change from tonight — you went in with ${stBefore.label.charAt(0).toLowerCase()+stBefore.label.slice(1)}.</b>`:``}</div>
       <div class="rrow"><span class="rlabel">Chambers → political capital</span>
@@ -11722,6 +11749,14 @@ function showElection(r){
     GAME._platformDraft=[];
     GAME.countyCamp={};   // county campaign presence is spent — the next term's is a fresh build
     render();
+    // A parliament with no majority has to be negotiated into a government
+    // before it is anything at all, and that happens the moment the count
+    // is in — not whenever you next happen to end a quarter.
+    if(GAME.pendingCoalition){
+      GAME.pendingCoalition=null;
+      drawCoalition(()=>showPlatformModal());
+      return;
+    }
     showPlatformModal();  // now, with a fresh mandate, commit to the term ahead
   };
   document.getElementById("electionContinue").onclick=proceed;
@@ -12148,13 +12183,11 @@ function enterPRMode(){
   GAME.prMode=true;
   LEGIS.house=PR_SEATS; LEGIS.majH=51; LEGIS.superH=60; LEGIS.quorumH=67;
   LEGIS.senate=0; LEGIS.majS=0; LEGIS.superS=0; LEGIS.quorumS=0;
-  runPRElection(true);
+  GAME.prPending=false;
   GAME.coalition=null;
-  // a brand new chamber has no government, however it got here
-  GAME.pendingCoalition=(GAME.legis.house<LEGIS.majH);
-  const c=GAME.legis.prCounts;
-  GAME.log.push(ico('columns')+" Proportional representation takes effect — one chamber of "+PR_SEATS+": "
-    +PR_PARTIES.map(p=>p.short+" "+(c[p.id]||0)).join(" · "));
+  // The chamber itself is seated by the election that brought the new rules
+  // into force, not here — this only changes what a legislature IS.
+  GAME.log.push(ico('columns')+" The House and the Senate are dissolved — Oregon elects a single Assembly of "+PR_SEATS+" on vote share");
 }
 /* Seat the chamber. Runs when the amendment takes effect and at every
    legislative election after it. */
@@ -12704,7 +12737,7 @@ function legislatureSectionHTML(L){
     <div class="eg-note">${prOn()?"Oregon now has a single chamber of 100 members, elected statewide on party vote share with a 4% threshold. Every seat was on this ballot. A majority is 51 and almost nobody ever has one alone — what decides the term is who you can build it out of.":`Oregon elects its legislature every even year, so the whole House and half the Senate were on tonight's ballot with you. Three-fifths of each — 18 and 36, the dashed line on both bars — is the threshold that matters: Article IV §25 requires it to raise revenue at all.`}</div>
     ${legisBarHTML("Senate",LEGIS.senate,L.after.senate,LEGIS.superS,L.sSwing,GAME.splinter?GAME.splinter.senate.length:0,senateHeldOver(L))}
     ${legisBarHTML("House",LEGIS.house,L.after.house,LEGIS.superH,L.hSwing,GAME.splinter?GAME.splinter.house.length:0)}
-    ${GAME.splinter?`<div class="eg-note" style="border-left:3px solid #6b5b95;padding-left:8px">Your own ${GAME.splinter.side==="left"?"left":"right"} flank broke away: a ${splinterName(GAME.splinter.side)} bloc took <b>${GAME.splinter.house.length+GAME.splinter.senate.length}</b> seats off the opposition. They are not yours to whip — they carry your flank's bills and kill the rest.</div>`:""}
+    ${(GAME.splinter&&!prOn())?`<div class="eg-note" style="border-left:3px solid #6b5b95;padding-left:8px">Your own ${GAME.splinter.side==="left"?"left":"right"} flank broke away: a ${splinterName(GAME.splinter.side)} bloc took <b>${GAME.splinter.house.length+GAME.splinter.senate.length}</b> seats off the opposition. They are not yours to whip — they carry your flank's bills and kill the rest.</div>`:""}
     ${legMapsHTML(L)}
     <div class="lg-verdict ${st.tier}"><b>${st.label}.</b> ${st.note}${flipped?` <b style="color:${capCol(capDelta)}">That is a change from tonight — you went in with ${stBefore.label.charAt(0).toLowerCase()+stBefore.label.slice(1)}.</b>`:``}</div>
     <div class="rrow"><span class="rlabel">Chambers → political capital</span>
@@ -13691,12 +13724,22 @@ function splinterSeats(raw){
 }
 function splinterName(side){ return side==="left" ? "Working Families" : "Independence"; }
 function runLegislativeElection(approval){
+  // An amendment ratified last cycle comes into force at THIS election —
+  // the first one held under the new rules. Read where you stood BEFORE
+  // flipping the switch, because legisStanding answers for whatever kind of
+  // legislature currently exists: ask it afterwards and it reports on an
+  // Assembly nobody has elected yet.
+  let _preConversion=null;
+  if(GAME.prPending && !GAME.prMode){
+    _preConversion=legisStanding(GAME.legis);
+    enterPRMode();
+  }
   const L=GAME.legis||(GAME.legis={senate:LEGIS.superS,house:LEGIS.superH});
   // Under PR the whole chamber is re-elected on vote share, every time —
   // there is no seat held over and no district swing to compute.
   if(prOn()){
     const before={senate:0, house:L.house||0};
-    const standingBefore=legisStanding(before);
+    const standingBefore=_preConversion||legisStanding(before);
     GAME.legisElections=(GAME.legisElections||0)+1;
     const r=runPRElection(false);
     const after={senate:0, house:GAME.legis.house};
@@ -13705,6 +13748,7 @@ function runLegislativeElection(approval){
     GAME.coalition=null;
     GAME.pendingCoalition=(GAME.legis.house<LEGIS.majH);
     return {before, after, sSwing:0, hSwing:after.house-before.house, senateUp:[],
+            converted:!!_preConversion,
             standingBefore, standingAfter:legisStanding(after),
             pr:true, shares:r.shares, seats:r.seats};
   }
@@ -13860,7 +13904,10 @@ function doEndTurn(){
     // every seat in the House and half the Senate are on this ballot too —
     // unless the districts are gone, in which case nothing is
     let legis=null;
-    if(prOn()){
+    // A chamber already elected on vote share is not on a midterm ballot.
+    // But the midterm that CONVERTS the legislature is an election like any
+    // other — it is the first one held under the new rules.
+    if(prOn() && !GAME.prPending){
       GAME.log.push(ico('columns')+" The Assembly is not on this ballot — under proportional representation it is elected whole, at the general");
     }else{
       legis=runLegislativeElection(oa);
@@ -14059,6 +14106,10 @@ function senateHeldOver(R){
 }
 function legisBarHTML(name,total,seats,superLine,change,splinter,heldOver){
   if(!total)return "";   // a chamber that no longer exists
+  // Neither does the other one. Under proportional representation there is
+  // no House and no Senate — there is an Assembly, and the party benches
+  // below are the whole of it.
+  if(prOn())return "";
   const spl=splinter||0;
   const pct=seats/total*100, splPct=spl/total*100, sp=superLine/total*100;
   const dir=change>0?"up":change<0?"down":"flat";
@@ -16990,9 +17041,13 @@ function _applyEnact(id, level){
   delete CATALOG[id];
   POLICIES[id]._id=id;
   GAME.log.push("★ Enacted "+p.name);
-  // Proportional representation is not a policy that sits on the board — it
-  // reseats the legislature the moment it takes effect.
-  if(id==="propRep" && typeof enterPRMode==="function")enterPRMode();
+  // Proportional representation does not reseat the chamber on the night it
+  // passes. The election printed on the same ballot was counted under the
+  // old rules and stands; the new rules govern the next one.
+  if(id==="propRep"){
+    GAME.prPending=true;
+    GAME.log.push(ico('columns')+" Proportional representation is ratified — it governs the next legislative election, not tonight's");
+  }
   syncCannabisTab();
 }
 function enactPolicy(id){
