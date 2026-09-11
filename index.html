@@ -7693,7 +7693,12 @@ function govIdeologyPoint(){
    new equilibrium rather than accumulating forever. (Per-quarter push
    values are divided by the metric's inertia so their steady-state
    magnitude matches their stated size.) */
-function metricTarget(k){
+/* How much of the gap to equilibrium a depressed economy closes each
+   quarter, on its own, with nobody governing. Tuned empirically to the
+   weakest value that lets good policy separate from neglect — see the
+   commit that introduced it. */
+const GDP_RECOVERY=0.55;
+function metricTarget(k, noRecovery){
   const m=METRICS[k];
   let t=m.eq;
   for(const id in POLICIES)t+=policyEffect(POLICIES[id],k);
@@ -7854,6 +7859,15 @@ function metricTarget(k){
     const floor=k==="violentCrime"?15:36;
     if(t<floor)t=floor+(t-floor)*0.4;
   }
+  /* THE RECOVERY. Only ever upward, only ever from below equilibrium, and
+     proportional to how far below it the economy has been driven. At the
+     floor it is worth better than a point of growth a quarter; within half a
+     point of equilibrium it is worth almost nothing; at or above it, it is
+     exactly zero, so nothing here can manufacture a boom. */
+  if(k==="gdp" && !noRecovery){
+    const gap=m.eq-t;
+    if(gap>0)t+=gap*GDP_RECOVERY;
+  }
   return t;
 }
 /* itemized version of metricTarget for the metric detail page:
@@ -7884,6 +7898,13 @@ function metricContributors(k){
       const cv=(k==="eduOutcomes")?(v*9.0-v*v*20.0):(v*6.0-v*v*13.0);
       if(Math.abs(cv)>0.01)out.push({name:ico('ticket')+" School Choice — "+(cv>0?"competitive pressure on the districts":"past the sweet spot: money and easy students walking out"), v:cv, link:"p_schoolChoice"});
     }
+  }
+  if(k==="gdp"){
+    // Exactly what metricTarget added, rather than re-derived from the items
+    // above — those are itemised against eq and do not include calib, so
+    // summing them understates the real target by several points.
+    const rec=metricTarget("gdp")-metricTarget("gdp",true);
+    if(rec>0.02)out.push({name:ico('chart-up')+" Recovery — cheap capital and labour after a downturn", v:rec});
   }
   if(k==="attainAll"){
     // A blend, so the two bars are what each sector contributes against the
