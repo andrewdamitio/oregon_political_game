@@ -6798,7 +6798,7 @@ const SITUATIONS={
     trigger:()=>{const ease=POLICIES.civilCommitment?policyLevel(POLICIES.civilCommitment):0; return ease>(METRICS.psychBeds.value/100)*1.1+0.15;},
     clear:()=>{const ease=POLICIES.civilCommitment?policyLevel(POLICIES.civilCommitment):0; return ease<=(METRICS.psychBeds.value/100)*1.1+0.05;}},
   unemploymentSystemFailure:{name:"Unemployment System Meltdown", kind:"bad", category:"event", noChoice:true,
-    desc:"Just as a downturn hits, Oregon's decades-old unemployment-insurance mainframe buckles under the claim surge — exactly as it did in 2020. Benefits stall for weeks, the press is brutal, and there is nothing to decide: you simply wear it. The lesson is that the time to modernize was years ago.",
+    desc:"Just as a downturn hits, Oregon's decades-old unemployment-insurance mainframe buckles under the claim surge — exactly as it did in 2020. Benefits stall for weeks, the press is brutal, and there is nothing to decide: you simply wear it. The lesson is that the time to modernize was years ago. A Government Operations budget funded past 75% blocks this outright, without waiting for Digitization's own slower build.",
     metricEffect:{}, moodMag:3, minTurns:2, onTrigger:{capital:-7,metrics:{disposableIncome:-3}},
     indicatorEffect:{digitization:-6,businessClimate:-3},
     groupMood:{blueCollar:-9,poor:-9,publicUnions:-5,suburban:-4}},
@@ -6988,7 +6988,13 @@ const EVENT_POOL=[
   {id:"measlesOutbreak", prob:0.045, gate:()=>!POLICIES.vaccineMandate},
   {id:"federalShock", prob:0.04, gate:()=>true},
   {id:"cyberattack", prob:0.055, gate:()=>INDICATORS.digitization.value<55},
-  {id:"unemploymentSystemFailure", prob:0.06, gate:()=>INDICATORS.digitization.value<48 && (GAME.activeSituations.recession||METRICS.unemployment.value>7)},
+  // Digitization is the slow route — it takes ten quarters to build even
+  // after Government Operations is fully funded. A governor who has
+  // actually put the money into the administrative budget shouldn't have to
+  // wait out that phase-in to stop being exposed.
+  {id:"unemploymentSystemFailure", prob:0.06, gate:()=>INDICATORS.digitization.value<48
+    && policyLevel(POLICIES.govOps||{value:0.3})<0.75
+    && (GAME.activeSituations.recession||METRICS.unemployment.value>7)},
   {id:"benefitsBacklog", prob:0.045, gate:()=>INDICATORS.digitization.value<45},
   {id:"gridEmergency", prob:0.05, seasonal:[2],
    gate:()=>INDICATORS.infraStrain.value>=66 && (GAME.activeSituations.heatDome||GAME.activeSituations.techBoom||GAME.activeSituations.gdpBoom||METRICS.evAdoption.value>40),
@@ -10841,7 +10847,7 @@ function showOppVerdict(sustained, p, next, modal, onKey){
   card.innerHTML=`<div class="sectionhdr">${ico(sustained?'shield':'warning')} ${sustained?"Veto sustained":"Veto overridden"}</div>
     <div class="sectionsub">${sustained
       ? `They could not find two-thirds. <b>${p.name}</b> is dead and cannot come back for six quarters — and every member who thought about voting to override just learned what your signature is worth.`
-      : `They found two-thirds in both chambers. <b>${p.name}</b> is law over your objection, you spent the capital anyway, and Salem now knows your veto can be beaten.`}</div>
+      : `They found two-thirds in both chambers. <b>${p.name}</b> is law over your objection — the veto itself cost you nothing, but Salem now knows it can be beaten, and it will try again.`}</div>
     <button class="enactbtn" id="oppVerdictOk">${sustained?"Good":"Understood"} ▸</button>`;
   const done=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true);
     try{render();}catch(e){} if(next)next(); };
@@ -11885,7 +11891,11 @@ function showElection(r){
     if(window._elecKey){document.removeEventListener("keydown",window._elecKey,true);window._elecKey=null;}
     modal.classList.add("hidden"); modal.classList.remove("grand");
     GAME.lastMargin=clamp((r.share-0.5)*2,-1,1);
-    if(succ || !won){                       // term-limited out, or defeated — the run is over
+    // Sandbox: nothing here ends the run, so an election that would have
+    // ended it does not reload the page either — it keeps going exactly as
+    // a win would. GAME.gameOver was already false; this is the code path
+    // that had forgotten to ask.
+    if((succ || !won) && !window.SANDBOX){    // term-limited out, or defeated — the run is over
       try{ localStorage.setItem("sc_freshGame","1"); }catch(e){}
       location.href=location.origin+location.pathname;
       return;
@@ -12671,6 +12681,12 @@ const LEG_ANCHOR=0.40;    // how much of the historical partisan baseline still 
 // an approval slump costs seats without annihilating the caucus.
 const LEG_REF=44;
 const LEG_TIDE_CAP=4.0;  // asymptotic ceiling (pts) on the FAVOURABLE uniform swing
+// A rout should cost you the marginals and the lean seats, not the whole
+// chamber. Wider than the favourable cap on purpose — an anti-incumbent wave
+// genuinely does hit harder than a pro-incumbent one — but it saturates for
+// the same reason: nothing in a real state legislature wipes every seat
+// including the safest ones off a statewide approval number alone.
+const LEG_TIDE_FLOOR=4.0;
 
 /* A turnout-weighted average of how you are doing statewide, so a district can be compared
    against it — the DIFFERENCE is what reshapes the coalition. */
@@ -12742,7 +12758,7 @@ function districtSupport(row, sf, align){
   // wave tops out at a realistic majority rather than annexing the chamber
   const raw=s-LEG_REF;
   const tide = raw>=0 ? LEG_TIDE_CAP*Math.tanh((raw*LEG_UNIFORM)/LEG_TIDE_CAP)
-                      : raw*LEG_UNIFORM;
+                      : -LEG_TIDE_FLOOR*Math.tanh((-raw*LEG_UNIFORM)/LEG_TIDE_FLOOR);
   return 50+(lean-50)*a*LEG_ANCHOR + coalitionPull(comp,s)*LEG_SPREAD + tide + (GAME.legisCalib||0);
 }
 /* Composition rows carry the lean alongside, so support() has a baseline. */
