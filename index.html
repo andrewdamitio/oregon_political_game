@@ -1256,6 +1256,9 @@
   .prp-share{color:var(--muted-1);font-variant-numeric:tabular-nums;width:52px;text-align:right}
   .prp-seats{font-weight:700;font-variant-numeric:tabular-nums;width:34px;text-align:right}
   .prc-note{margin-top:8px;font-size:12px;color:var(--muted-1);line-height:1.5}
+  .eo-hint{margin:2px 0 8px;padding:9px 11px;border-left:3px solid var(--slate-blue);
+    background:var(--paper-2);border-radius:4px;font-size:12px;line-height:1.55;color:var(--muted-1)}
+  .eo-hint b{color:var(--ink)}
   .lg-bar i.held{opacity:.34}
   .legmap-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin:14px 0 6px}
   .legmap-card{border:var(--rule) solid var(--ink);background:var(--paper-2);padding:9px 10px 10px;box-shadow:3px 3px 0 var(--shadow-hard)}
@@ -9478,7 +9481,7 @@ function settleFiscal(){
   // a deliberate Rainy Day draw the player called this quarter lands here as one-time cash
   if((GAME.reserveInfusion||0)>0){
     balance+=GAME.reserveInfusion;
-    GAME.log.push(ico('bank')+" $"+GAME.reserveInfusion.toFixed(2)+"B Rainy Day draw applied to the budget");
+    GAME.log.push(ico('bank')+" $"+GAME.reserveInfusion.toFixed(2)+"B Rainy Day draw applied to the budget"+(teachOnce("fiscalBoard")?FISCAL_POINTER:""));
     GAME.reserveInfusion=0;
   }
   // (debt interest is charged once, as the visible Debt Service line in spendingByArea)
@@ -11217,7 +11220,7 @@ function _resolveSurplus(fraction, capCost){
     }
     if(persQ>0.001){
       GAME.pendingKicker=persQ*4;   // annualized — the budget ledger runs in $B/yr
-      GAME.log.push(ico('cash-fly')+" Personal kicker triggered — $"+persQ.toFixed(2)+"B refunds to taxpayers next quarter");
+      GAME.log.push(ico('cash-fly')+" Personal kicker triggered — $"+persQ.toFixed(2)+"B refunds to taxpayers next quarter"+(teachOnce("fiscalBoard")?FISCAL_POINTER:""));
     }
   }
 }
@@ -11292,7 +11295,7 @@ function drawReserves(amt){
   createGrudge("v_homeowners",-2,0.9,"Raided the Rainy Day Fund");
   createGrudge("v_businessClass",-2,0.9,"Raided the Rainy Day Fund");
   createGrudge("i_businessClimate",-1,0.9,"Reserves drawn down");
-  GAME.log.push(ico('bank')+" Legislature drew $"+amt.toFixed(2)+"B from the Rainy Day Fund");
+  GAME.log.push(ico('bank')+" Legislature drew $"+amt.toFixed(2)+"B from the Rainy Day Fund"+(teachOnce("fiscalBoard")?FISCAL_POINTER:""));
 }
 function showReserveDraw(){
   if(!reserveDrawAvailable())return;
@@ -12214,7 +12217,24 @@ function recordSectionHTML(opts){
     <div style="font-size:12px;color:var(--muted-2);border-top:1px solid var(--line);padding-top:8px;text-align:center">
       Structural debt <b style="color:${debt>0.05?'var(--bad)':'var(--good)'}">${debt>0.05?'−$'+debt.toFixed(2)+'B':'none'}</b>
       &nbsp;·&nbsp; Reserves <b>$${reserves.toFixed(2)}B</b></div>
+    ${untouchedHTML()}
   </div>`;
+}
+/* What this run never used. The term is over and the only question left is
+   whether to start another, which makes this the one moment where saying so
+   is an invitation rather than a nag. Named, never counted or scored. */
+function untouchedHTML(){
+  const miss=[];
+  if(!Object.keys(GAME.execOrders||{}).length)
+    miss.push("signed an <b>executive order</b> — eight of them need nobody's permission and no floor vote");
+  const refs=((GAME.ballot&&GAME.ballot.history)||[]).filter(m=>m.source!=="citizen");
+  if(!refs.length)
+    miss.push("put a <b>constitutional amendment</b> to the voters — the legislature refers it, and it is the only way to change the rules you govern under, up to and including what a legislature is");
+  if(!((GAME.campLog||[]).length))
+    miss.push("worked a bloc from <b>Campaign HQ</b> — persuasion and turnout are a separate lever from anything on the policy board");
+  if(!miss.length)return "";
+  return `<div class="eg-note" style="margin-top:10px;border-left:3px solid var(--slate-blue);padding-left:9px;text-align:left">
+    <b>Still in here, if you go again.</b> This term never ${miss.join("; never ")}.</div>`;
 }
 /* Fires four quarters before the end of a term-limited term: your window to
    pass the term-limit repeal if you want to keep governing. */
@@ -13686,6 +13706,102 @@ function goesToFloor(pol, dir){
    cannot survive the vote), or the whip bill is real but larger than you
    could ever hold. Either way the player should see the shortfall, not a
    bare "Cannot pass" or a misleading "Not enough capital". */
+/* Which executive orders reach the same statistics a given bill was aimed
+   at. Matched on the effect keys themselves rather than on a hand-written
+   mapping, so it stays true as either table changes. */
+/* Effects come as a plain number or as {b,c,i} — baseline, crisis, inertia.
+   Take whichever the table actually carries so a sign can be read off it. */
+function eoNum(v){ if(typeof v==="number")return v;
+  if(v&&typeof v==="object")return (v.c!=null?v.c:(v.b!=null?v.b:0));
+  return 0; }
+const EO_GENERIC=new Set(["m:gdp","m:unemployment","m:taxBurden",
+  "i:businessClimate","i:inMigration"]);
+function eoAlternatives(pol){
+  if(!pol)return [];
+  // Direction matters, not just contact. An order that drives homelessness UP
+  // is not a route to a bill that drives it down.
+  const want=new Map();
+  const put=(key,v)=>{ const n=eoNum(v); if(n)want.set(key,n); };
+  for(const k in (pol.effects||{}))put("m:"+k,pol.effects[k]);
+  for(const k in (pol.indicatorEffects||{}))put("i:"+k,pol.indicatorEffects[k]);
+  if(pol.mechanic==="tier"&&Array.isArray(pol.tierEffects))
+    for(const te of pol.tierEffects)for(const k in (te||{}))put("m:"+k,te[k]);
+  if(!want.size)return [];
+  /* Weight a shared statistic by how rare it is across the executive-order
+     table. Nearly every order touches GDP or Business Climate, so those
+     establish nothing — matching on them paired a housing bill with the
+     Sanctuary Directive. A statistic only one or two orders reach is a real
+     link, and only a real link is allowed to propose an order at all. */
+  const freq={};
+  for(const id in EXEC_ORDERS){
+    const E=EXEC_ORDERS[id];
+    for(const k in (E.effects||{}))freq["m:"+k]=(freq["m:"+k]||0)+1;
+    for(const k in (E.indicatorEffects||{}))freq["i:"+k]=(freq["i:"+k]||0)+1;
+  }
+  const out=[];
+  for(const id in EXEC_ORDERS){
+    if(eoState(id))continue;                       // already signed
+    const E=EXEC_ORDERS[id];
+    const hit=[]; let score=0, distinctive=false;
+    const take=(key,label,mag)=>{
+      const pv=want.get(key); if(!pv)return;
+      // same statistic AND the same direction, or it is not an alternative
+    if(Math.sign(pv)!==Math.sign(mag))return;
+      // A trivial nudge is not a route to anything.
+      mag=eoNum(mag); if(Math.abs(mag)<1.5)return;
+      // GDP, business climate, in-migration, unemployment and the tax burden
+      // are the connective tissue of the whole model — nearly everything
+      // touches them, so on their own they establish no relationship at all.
+      // Matching on them alone paired Affordable Housing Bonds with a hiring
+      // freeze. They can be listed once something real has been found; they
+      // can never be what finds it.
+      // And it has to be a shared GOAL, not a shared cost. Two things that
+      // both raise rural alienation are not alternative routes to each other
+      // — that is the price each one pays, not the reason to reach for it.
+      const good = key.charAt(0)==="i"
+        ? indDeltaGood(key.slice(2), mag)
+        : !(METRICS[key.slice(2)]||{}).invert ? mag>0 : mag<0;
+      if(!good)return;
+      if(!EO_GENERIC.has(key))distinctive=true;
+      const f=freq[key]||1;
+      score+=1/f; hit.push(label);
+    };
+    for(const k in (E.effects||{}))if(METRICS[k])take("m:"+k,METRICS[k].name,E.effects[k]);
+    for(const k in (E.indicatorEffects||{}))if(INDICATORS[k])take("i:"+k,INDICATORS[k].name,E.indicatorEffects[k]);
+    if(distinctive)out.push({id, name:E.name, hit:[...new Set(hit)], score});
+  }
+  out.sort((a,b)=>b.score-a.score);
+  return out.slice(0,2);
+}
+/* The line offering that route, shown only where a bill has actually died. */
+function eoHintHTML(pol){
+  const alt=eoAlternatives(pol);
+  if(!alt.length){
+    // No order reaches what this bill was for — with eight of them, usually
+    // true. Say once a run that the category exists at all, then never again:
+    // a player who has watched a bill die and does not know there is a route
+    // that needs no votes will never go looking for one.
+    if(!teachOnce("eoExists"))return "";
+    return `<div class="eo-hint">${ico("doc")} <b>A bill is not the only instrument you have.</b> An
+      <b>executive order</b> needs nobody's permission and no floor vote — it does about a quarter of
+      what a law would and a court can strike it down, but it does not need this chamber. There are
+      eight of them on the <b>Executive Orders</b> tab. None of them reaches what this particular bill
+      was for.</div>`;
+  }
+  const names=alt.map(a=>"<b>"+a.name+"</b>").join(" and ");
+  const stats=[...new Set(alt.reduce((z,a)=>z.concat(a.hit),[]))].slice(0,3).join(", ");
+  return `<div class="eo-hint">${ico('doc')} <b>There is another route.</b> ${names} reach${alt.length===1?"es":""} 
+    ${stats} without a vote — an executive order needs nobody's permission and costs little, 
+    but it does about a quarter of what a law would and a court can take it away. They are on the 
+    <b>Executive Orders</b> tab.</div>`;
+}
+/* Say a thing once a run and never again. */
+function teachOnce(key){
+  GAME.taught=GAME.taught||{};
+  if(GAME.taught[key])return false;
+  GAME.taught[key]=1; return true;
+}
+const FISCAL_POINTER=" — the Fiscal Machinery board on the State Budget tab is where this is tracked";
 function floorBlockLabel(w){
   // priced past the ceiling: not a matter of saving up, it cannot be done
   if(w.overCap)
@@ -13821,6 +13937,7 @@ function drawFloor(){
           +((w.house.buy.length+w.senate.buy.length)?", whipping "+(w.house.buy.length+w.senate.buy.length):"")}</button>
       <button class="enactbtn ghost" id="floorNo">Pull the bill</button>
     </div>
+    ${w.possible?"":eoHintHTML(pol)}
     <div class="floor-roll">${ico('columns')} The count, seat by seat</div>
     ${whipChamberHTML(w.house,pol,F.dir)}
     ${whipChamberHTML(w.senate,pol,F.dir)}
