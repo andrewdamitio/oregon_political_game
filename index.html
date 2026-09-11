@@ -571,6 +571,18 @@
   .aus-pbtn{flex:1 1 0;min-width:96px;padding:7px 8px;border:1px solid var(--ink);background:var(--paper);color:var(--ink);
     font-size:12px;border-radius:var(--radius);cursor:pointer}
   .aus-pbtn.on{background:var(--ink);color:var(--paper)}
+  /* what set a situation off, and what would end it */
+  .sf-any{font-size:11px;color:var(--muted-3);font-style:italic;margin:0 0 5px}
+  .sf-r{display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-top:1px solid var(--line-faint)}
+  .sf-r:first-of-type{border-top:0}
+  .sf-n{font-family:var(--font-data);font-size:10.5px;color:var(--muted-3);min-width:13px;padding-top:3px}
+  .sf-cs{flex:1 1 auto;min-width:0}
+  .sf-c{display:flex;gap:7px;font-size:12.5px;line-height:1.45;padding:1.5px 0;color:var(--muted-1)}
+  .sf-c .sf-m{font-family:var(--font-data);width:11px;flex:none;color:var(--muted-3)}
+  .sf-c.ok{color:var(--ink)} .sf-c.ok .sf-m{color:var(--good)}
+  .sf-c.bad{color:var(--ink)} .sf-c.bad .sf-m{color:var(--clay)}
+  .sf-c em{font-style:normal;font-family:var(--font-data);color:var(--muted-2);white-space:nowrap}
+  .sf-c .sf-l{color:var(--slate-blue);cursor:pointer}
   .fcard-btn.on:hover{background:var(--ink)}
   .fcard-btn .ico{width:.95em;height:.95em;vertical-align:-.12em;margin-right:.25em}
   .fbar{position:relative;height:8px;background:var(--paper-2);border-radius:var(--radius);margin:6px 0}
@@ -6555,14 +6567,19 @@ const SITUATIONS={
     watch:{metric:"drugUse", startAt:null, clearAt:42, badHigh:true,
            alsoMetric:"behavioralHealth", alsoClearAt:58, alsoAbove:true,
            alsoOrMetric:"incarcerationRate", alsoOrClearAt:68, alsoOrAbove:true},
-    metricEffect:{propertyCrime:1.4,violentCrime:0.4,homelessness:1.0,drugUse:1.2,gdp:-0.15}, indicatorEffect:{inMigration:-3, tourism:-6},
+    // No drug-use push: the crisis IS the drug use, and raising it while the
+    // exit is "drug use under 42" moved the exit away as you walked toward it.
+    metricEffect:{propertyCrime:1.4,violentCrime:0.4,homelessness:1.0,gdp:-0.15}, indicatorEffect:{inMigration:-3, tourism:-6},
     moodAxes:{social:0.2}, moodMag:1,
     groupMood:{suburban:-6,rural:-5,blueCollar:-5,liberal:-4,parents:-3,conservative:-2}},
   housingShortage:{name:"Chronic Housing Shortage", kind:"bad", category:"chronic",
     desc:"Decades of underbuilding behind the urban growth boundary have left Oregon hundreds of thousands of homes short, pushing prices and rents out of reach.",
     startActive:true, minTurns:8, clear:()=>METRICS.homelessness.value<40 && METRICS.inequality.value<52,
     watch:{metric:"homelessness", startAt:null, clearAt:40, badHigh:true, alsoMetric:"inequality", alsoClearAt:52},
-    metricEffect:{inequality:0.8, gdp:-0.08}, indicatorEffect:{inMigration:-6},
+    // No inequality push: the shortage clears at inequality under 52, and
+    // pushing inequality up closed that door from the inside. What rent does
+    // to the people paying it reaches inequality through the housing market.
+    metricEffect:{gdp:-0.08}, indicatorEffect:{inMigration:-6},
     moodAxes:{economic:-0.2}, moodMag:1,
     groupMood:{urban:-5,renters:-8,blueCollar:-4,poor:-5,businessClass:-2,homeowners:4,wealthy:2}},
   // ============================================================
@@ -6644,7 +6661,12 @@ const SITUATIONS={
         || nonprofitControl()>0.78;
     },
     costEffect:{humanServices:0.34, social:0.30, housing:0.22},
-    metricEffect:{homelessness:0.6}, moodAxes:{economic:0.25, govSize:0.55}, moodMag:2,
+    // No homelessness push of its own: route 1 out of this is homelessness
+    // under 48, and a +0.6 standing push made that route harder the longer
+    // you worked it. The real mechanism is already modelled where it belongs
+    // — the routed programmes' own effect on homelessness goes negative past
+    // the point where you are funding the caseload instead of clearing it.
+    metricEffect:{}, moodAxes:{economic:0.25, govSize:0.55}, moodMag:2,
     groupMood:{libertarian:-8,conservative:-6,businessClass:-6,wealthy:-4,moderate:-3,rural:-3,blueCollar:-1,
                liberal:6,socialist:8,publicUnions:6,urban:3,students:3}},
   // ---- positive conditions ----
@@ -6689,7 +6711,11 @@ const SITUATIONS={
     clear:()=>INDICATORS.businessClimate.value>44,
     watch:{indicator:"businessClimate", startAt:35, clearAt:44, badHigh:false},
     metricEffect:{gdp:-0.42, unemployment:0.5},
-    indicatorEffect:{inMigration:-6, businessClimate:-2},
+    // No push on business climate, directly or through in-migration: the
+    // exodus ends when climate reaches 44, and it was holding climate down by
+    // about 3.5 points the whole time. People still follow the jobs out —
+    // through unemployment, which in-migration reads.
+    indicatorEffect:{},
     moodMag:2, moodAxes:{economic:0.3}, minTurns:3,
     onTrigger:{capital:-3},
     groupMood:{businessClass:-10, wealthy:-7, suburban:-4, blueCollar:-4, rural:-3}},
@@ -6701,8 +6727,12 @@ const SITUATIONS={
     metricEffect:{taxBurden:-2}, moodAxes:{economic:0.5,govSize:0.5}, moodMag:2, minTurns:3,
     onTrigger:{capital:-5},
     groupMood:{wealthy:-9,businessClass:-8,rural:-7,suburban:-4,conservative:-3,libertarian:-3,motorists:-2}},
-  recession:{name:"National Recession", kind:"bad", category:"event",
-    desc:"A national downturn drags Oregon's economy with it.",
+  // cooldown: a live recession drags the national cycle down 0.13 a quarter,
+  // and the odds of a recession read that cycle — so with nothing in the way,
+  // one recession left the door open for the next. Recoveries are not
+  // instant, but they are real: six quarters before another can start.
+  recession:{name:"National Recession", kind:"bad", category:"event", cooldown:6,
+    desc:"A national downturn drags Oregon's economy with it. It holds the national cycle down while it runs, so the quarter it ends is not the quarter the economy is well — but another cannot begin for six quarters.",
     metricEffect:{gdp:-0.6,unemployment:0.5,loggingRate:-8}, moodMag:2, minTurns:3,
     groupMood:{blueCollar:-7,businessClass:-6,poor:-6,middleIncome:-3,moderate:-2}},
   transportCliff:{name:"Transportation Funding Cliff", kind:"bad", category:"condition",
@@ -6735,15 +6765,21 @@ const SITUATIONS={
     trigger:()=>METRICS.gdp.value>3.5&&INDICATORS.inMigration.value>58,
     clear:()=>METRICS.gdp.value<2.8||INDICATORS.inMigration.value<50,
     watch:{metric:"gdp", startAt:3.5, clearAt:2.8, badHigh:false},
-    metricEffect:{gdp:0.25,unemployment:-0.2,inequality:0.8}, moodMag:2, minTurns:3, mandateShock:7,
-    indicatorEffect:{businessClimate:6,inMigration:4},
+    // No GDP or in-migration push: both are its own trigger (growth over 3.5%
+    // and in-migration over 58), so the boom was buying itself the conditions
+    // it needs to continue. It still shows up where a boom shows up: jobs,
+    // inequality, and a business climate that lifts by 10 in its own model.
+    metricEffect:{unemployment:-0.2,inequality:0.8}, moodMag:2, minTurns:3, mandateShock:7,
+    indicatorEffect:{},
     groupMood:{businessClass:8,wealthy:5,collegeEducated:5,urban:2,timber:-2}},
   gdpBoom:{name:"Overheating Economy", kind:"good", category:"condition",
     desc:"A Booming Economy has crossed into overdrive — GDP Index above 80 (roughly 3.75%+ real growth). Capital and employers pour in, joblessness falls, your approval rides the wave, and the surging tax base funds everything (including the schools that feed the Brain-Gain Magnet). But an overheating economy runs hot: rents and land prices outpace wages, the gains concentrate at the top, fixed-income Oregonians feel the squeeze, and every service contract costs more to run. Holds while GDP Index ≥ 80; drops back to a plain Booming Economy below 72.",
     trigger:()=>GAME.turn>6 && effective("gdp")>=80,
     clear:()=>effective("gdp")<72,
     minTurns:4, mandateShock:2,
-    metricEffect:{gdp:0.04, unemployment:-0.07, inequality:0.22, homelessness:0.14, environment:-0.16, education:0.15},
+    // No GDP push: an overheating economy is defined as GDP index 80+, and it
+    // was topping up the number that defines it.
+    metricEffect:{unemployment:-0.07, inequality:0.22, homelessness:0.14, environment:-0.16, education:0.15},
     indicatorEffect:{inMigration:2, businessClimate:1.5, housingAffordability:-2.5, taxGrievance:1.5},
     costEffect:{humanServices:0.08, housing:0.10},
     moodMag:1.5,
@@ -6768,7 +6804,9 @@ const SITUATIONS={
       sitNear(METRICS.attainAll.value-effective("gdp"), 18, 10),
       sitNear(METRICS.attainAll.value, 74, 68)),
     minTurns:4, onTrigger:{capital:-2},
-    metricEffect:{inequality:0.3, gdp:-0.05, education:-0.08},
+    // No GDP push: the glut is measured as attainment MINUS the GDP index, so
+    // dragging GDP widened the very gap that has to close to 10 to end it.
+    metricEffect:{inequality:0.3, education:-0.08},
     indicatorEffect:{inMigration:-3, businessClimate:-2, ruralAlienation:2},
     moodMag:2, moodAxes:{economic:-0.15},
     groupMood:{collegeEducated:-8, students:-7, parents:-4, liberal:-3, urban:-2, blueCollar:1}},
@@ -6895,8 +6933,13 @@ const SITUATIONS={
     groupMood:{}},
   cyberattack:{name:"State Systems Cyberattack", kind:"bad", category:"event",
     desc:"Ransomware cripples state IT systems — benefits portals, DMV, payroll. Oregon's aging infrastructure makes it an easy target. Every department is working off paper and phone calls while IT scrambles.",
-    indicatorEffect:{adminOverhead:7}, moodMag:2, minTurns:4, onTrigger:{capital:-4},
-    indicatorEffect:{digitization:-14,businessClimate:-4,adminOverhead:22},
+    moodMag:2, minTurns:4, onTrigger:{capital:-4},
+    // No Digitization push: the attack takes the systems OFFLINE, which is the
+    // overhead spike below, but it does not make the state's IT older — and
+    // the gate for the next attack is Digitization under 55, so the old -14
+    // meant every ransomware quarter bought the next one. (There were also two
+    // indicatorEffect keys here; the second silently replaced the first.)
+    indicatorEffect:{businessClimate:-4,adminOverhead:22},
     groupMood:{publicUnions:-4,poor:-6,moderate:-4,blueCollar:-2}},
   bedOvercrowding:{name:"Psychiatric System Overcrowding", kind:"bad", category:"condition",
     desc:"You've made civil commitment easy, but the psychiatric beds to hold those committed don't exist. The beds you have are full and stay full: people are boarded in emergency rooms for days, held in jail cells, or cycled right back to the street untreated. The Oregon State Hospital is over capacity and under a federal contempt order. The fix is not less commitment — it is more beds.",
@@ -6961,7 +7004,11 @@ const SITUATIONS={
     watch:{metric:"publicEnrollment", startAt:82, clearAt:85, badHigh:false},
     minTurns:4, capitalDrain:-1,
     costEffect:{k12:0.12},
-    metricEffect:{eduOutcomes:-2.0, inequality:0.9},
+    // No outcomes push: a shrinking roll already drags outcomes and education
+    // every quarter (the hollowing-out term in metricTarget), and outcomes are
+    // what set enrolment. This was a second turn of the same screw, inside the
+    // crisis that needs enrolment back over 85 to end.
+    metricEffect:{inequality:0.9},
     indicatorEffect:{localAutonomy:-4},
     moodAxes:{economic:0.15}, moodMag:2,
     groupMood:{publicUnions:-11, parents:-7, poor:-6, liberal:-5, socialist:-4, urban:-3, moderate:-3,
@@ -6988,7 +7035,10 @@ const SITUATIONS={
     trigger:()=>(GAME.structuralDebt||0)>fiscalCrisisThreshold() || (GAME.deficitStreak||0)>=4,
     clear:()=>(GAME.structuralDebt||0)<fiscalCrisisThreshold()*0.375 && (GAME.deficitStreak||0)===0, onClear:{capital:4},
     watch:{metric:"balance", startAt:-0.5, clearAt:0.5, badHigh:false},
-    costEffect:{debtAdmin:0.45},
+    // No cost of its own: the crisis ends when the debt comes down, and a
+    // standing +$0.45B on the books deepened the deficit that built the debt.
+    // Carrying the debt is already charged, visibly, as the Debt Service line
+    // (4% of the balance a year) — this was the same money twice.
     metricEffect:{gdp:-0.20},
     indicatorEffect:{businessClimate:-5, inMigration:-3},
     moodAxes:{economic:0.3,govSize:-0.2}, moodMag:2,
@@ -7034,19 +7084,24 @@ const SITUATIONS={
     startActive:true,
     trigger:()=>METRICS.environment.value>66&&INDICATORS.tourism.value>50,
     clear:()=>METRICS.environment.value<60||INDICATORS.tourism.value<40,
-    watch:{indicator:"tourism", startAt:60, clearAt:40, badHigh:true},
+    watch:{indicator:"tourism", startAt:50, clearAt:40, badHigh:true,
+      alsoNote:"It also needs Environmental Quality above 66 to begin, and ends if that falls below 60."},
     // a baseline condition that already exists — it does NOT hand the governor
     // free approval. Its bite is economic: the gdp / in-migration / tourism /
     // business-climate lift here, which voters feel only through those metrics,
     // and which erodes if visible disorder tarnishes the brand.
     metricEffect:{gdp:0.10, unemployment:-0.05},
-    indicatorEffect:{inMigration:5, tourism:3, businessClimate:3}},
+    // No tourism push: the brand holds while tourism is high, so lifting
+    // tourism was the condition propping up its own test.
+    indicatorEffect:{inMigration:5, businessClimate:3}},
   talentMagnet:{name:"Talent Magnet", kind:"good", category:"condition",
-    desc:"Low unemployment and a quality-of-life edge over San Francisco and Seattle are drawing skilled workers and young families to Oregon. Strong in-migration is self-reinforcing — talent attracts employers who attract more talent. The dynamic sustains itself as long as jobs remain plentiful and people keep arriving.",
+    desc:"Low unemployment and a quality-of-life edge over San Francisco and Seattle are drawing skilled workers and young families to Oregon. Employers follow the talent, so the business climate lifts while it lasts. It holds as long as jobs stay plentiful and people keep arriving — but it does not manufacture either, and when one of them goes the magnet goes with it.",
     trigger:()=>INDICATORS.inMigration.value>65&&METRICS.unemployment.value<4.5,
     clear:()=>INDICATORS.inMigration.value<55||METRICS.unemployment.value>6,
     watch:{indicator:"inMigration", startAt:65, clearAt:55, badHigh:false},
-    metricEffect:{gdp:0.12,unemployment:-0.15},
+    // No unemployment push: it ends when unemployment passes 6%, and pushing
+    // unemployment down held that door shut from the inside.
+    metricEffect:{gdp:0.12},
     indicatorEffect:{businessClimate:5},
     moodMag:1,
     groupMood:{businessClass:5,liberal:3,collegeEducated:5,urban:3}},
@@ -7054,7 +7109,7 @@ const SITUATIONS={
     desc:"Administrative Overhead has crossed 85 and the apparatus is buckling. Three things happen at once, all scaling with how far over 85 you are (maxing around overhead 100):\n\n1. Delivery weakens — every active policy (except revenue and Government Operations itself) moves the statistics less than its stated level, up to ~15% weaker.\n2. Credit dries up — voters give less approval for the programs you fund, because the benefit isn't reaching them.\n3. Costs inflate — every program area's budget rises (overtime, duplicated work, emergency contractors, coordination failures), up to ~+18%.\n\n→ TO FIX IT: raise the Government Operations & Workforce budget (it builds Gov. Digitization capacity, which is what actually drives overhead down), enact Business Deregulation or Civil Service Merit Exams (both cut red tape directly), or trim lower-priority program spending — overhead rises with every dollar you spend, and large programs like the State School Fund are the biggest contributors. Past overhead 95, Administrative Overload activates on top.",
     trigger:()=>INDICATORS.adminOverhead.value>85,
     clear:()=>INDICATORS.adminOverhead.value<82, onClear:{capital:1},
-    watch:{indicator:"adminOverhead", startAt:90, clearAt:82, badHigh:true},
+    watch:{indicator:"adminOverhead", startAt:85, clearAt:82, badHigh:true},   // starts at 85, which is what the trigger says
     moodAxes:{govSize:-0.2}, moodMag:1,
     groupMood:{businessClass:-3, moderate:-2, poor:-2, parents:-2, suburban:-1}},
   adminCrisis:{name:"Administrative Overload", kind:"bad", category:"condition",
@@ -7106,50 +7161,299 @@ function eligibilityStrain(){
   let score=0; for(const p of parts)score+=p.v;
   return {score, parts};
 }
+/* ============================================================
+   WHAT FEEDS A SITUATION, AND WHAT WOULD END IT
+   A page must never paraphrase a test it does not actually run. Every
+   condition with more than one test declares those tests here — the same
+   comparisons the trigger and clear functions make — with where each one
+   stands right now. Routes out are declared as routes: a crisis with three
+   ways out shows three, and the page says any one of them is enough.
+   ============================================================ */
+function fc(name, now, ok, link){
+  return {name:name, now:(now==null||now==="")?null:String(now), ok:!!ok, link:link||null};
+}
+// Only link a policy the state actually has; an unenacted one has no page.
+function plink(id){ return POLICIES[id]?("p_"+id):null; }
+function plevelTxt(id){ const p=POLICIES[id]; return p?(Math.round(policyLevel(p)*100)+"%"):"not enacted"; }
+function econWord(c){ return c>0.33?"boom":c>0.10?"expansion":c<-0.33?"recession":c<-0.10?"downturn":"steady"; }
+function econTxt(){ const c=GAME.econCycle||0; return econWord(c)+" ("+(c>=0?"+":"")+c.toFixed(2)+")"; }
+function gdpIndex(){ return effective("gdp"); }
+function _sn(v){ return String(Math.round(v)); }
+function _sitAge(sid){ return (GAME.situationAge&&GAME.situationAge[sid])||0; }
+(function(){
+  const S=SITUATIONS, I=INDICATORS, M=METRICS;
+  const iv=k=>I[k].value, mv=k=>M[k].value;
+  const pct1=v=>v.toFixed(1)+"%";
+
+  S.costOfLiving.feeds=()=>({
+    begin:[[ fc("A hot economy: GDP index at 60 or more — costs bite hardest when the money is moving", _sn(gdpIndex()), gdpIndex()>=60, "m_gdp"),
+             fc("Housing Affordability under 42", _sn(iv("housingAffordability")), iv("housingAffordability")<42, "i_housingAffordability") ]],
+    end:[[ fc("Housing Affordability back above 52", _sn(iv("housingAffordability")), iv("housingAffordability")>52, "i_housingAffordability") ],
+         [ fc("The economy cools: GDP index below 50", _sn(gdpIndex()), gdpIndex()<50, "m_gdp") ]]});
+
+  S.techBoom.feeds=()=>({
+    begin:[[ fc("Growth above 3.5% a year", pct1(mv("gdp")), mv("gdp")>3.5, "m_gdp"),
+             fc("In-Migration above 58", _sn(iv("inMigration")), iv("inMigration")>58, "i_inMigration") ]],
+    end:[[ fc("Growth falls below 2.8%", pct1(mv("gdp")), mv("gdp")<2.8, "m_gdp") ],
+         [ fc("In-Migration falls below 50", _sn(iv("inMigration")), iv("inMigration")<50, "i_inMigration") ]]});
+
+  S.boomingEconomy.feeds=()=>({
+    begin:[[ fc("GDP index between 70 and 79 — the good stretch, before it runs hot", _sn(gdpIndex()), gdpIndex()>=70&&gdpIndex()<80, "m_gdp"),
+             fc("Unemployment under 4.8%", pct1(mv("unemployment")), mv("unemployment")<4.8, "m_unemployment") ]],
+    end:[[ fc("GDP index falls below 66", _sn(gdpIndex()), gdpIndex()<66, "m_gdp") ],
+         [ fc("GDP index reaches 80 — it becomes "+S.gdpBoom.name, _sn(gdpIndex()), gdpIndex()>=80, "m_gdp") ]]});
+
+  S.gdpBoom.feeds=()=>({
+    begin:[[ fc("GDP index at 80 or more", _sn(gdpIndex()), gdpIndex()>=80, "m_gdp") ]],
+    end:[[ fc("GDP index falls below 72", _sn(gdpIndex()), gdpIndex()<72, "m_gdp") ]],
+    show:{metric:"gdp", badHigh:false}});
+
+  S.brainGain.feeds=()=>({
+    begin:[[ fc("Statewide Attainment at 80% or more", _sn(mv("attainAll"))+"%", mv("attainAll")>=80, "m_attainAll") ]],
+    end:[[ fc("Attainment falls below 74%", _sn(mv("attainAll"))+"%", mv("attainAll")<74, "m_attainAll") ]],
+    show:{metric:"attainAll", badHigh:false}});
+
+  S.gradGlut.feeds=()=>{
+    const gap=mv("attainAll")-gdpIndex();
+    return {
+      begin:[[ fc("Attainment at 74% or more", _sn(mv("attainAll"))+"%", mv("attainAll")>=74, "m_attainAll"),
+               fc("Attainment at least 18 points above the GDP index — more credentials than the economy can absorb", _sn(gap)+" points", gap>=18, "m_gdp") ]],
+      end:[[ fc("The gap closes to 10 points — growth catches up to the credentials", _sn(gap)+" points", gap<=10, "m_gdp") ],
+           [ fc("Attainment falls below 68%", _sn(mv("attainAll"))+"%", mv("attainAll")<68, "m_attainAll") ]],
+      show:{metric:"gdp", badHigh:false},
+      note:"The first route is the one worth having. The second closes the gap by making Oregon less educated."};
+  };
+
+  S.keepOregonOregon.feeds=()=>({
+    begin:[[ fc("In-Migration at 64 or more", _sn(iv("inMigration")), iv("inMigration")>=64, "i_inMigration"),
+             fc("Housing Affordability under 50 — growth people can feel in the rent", _sn(iv("housingAffordability")), iv("housingAffordability")<50, "i_housingAffordability"),
+             fc("The economy is not in a downturn", econTxt(), (GAME.econCycle||0)>-0.1, "budget") ]],
+    end:[[ fc("In-Migration settles below 52 — a pace the state has digested", _sn(iv("inMigration")), iv("inMigration")<52, "i_inMigration") ],
+         [ fc("Housing Affordability reaches 58 — build enough and the pressure comes off", _sn(iv("housingAffordability")), iv("housingAffordability")>=58, "i_housingAffordability") ]],
+    show:{indicator:"housingAffordability", badHigh:false}});
+
+  S.gentrificationBacklash.feeds=()=>({
+    begin:[[ fc("GDP index at 66 or more, and no downturn", _sn(gdpIndex())+", "+econTxt(), gdpIndex()>=66&&(GAME.econCycle||0)>-0.05, "m_gdp"),
+             fc("Downtown Perception at 58 or more — the revival people are angry about", _sn(iv("downtown")), iv("downtown")>=58, "i_downtown"),
+             fc("Disposable Income at 56 or more", _sn(mv("disposableIncome")), mv("disposableIncome")>=56, "m_disposableIncome"),
+             fc("Housing Affordability at 44 or less, OR In-Migration at 60 or more", _sn(iv("housingAffordability"))+" / "+_sn(iv("inMigration")), iv("housingAffordability")<=44||iv("inMigration")>=60, "i_housingAffordability") ]],
+    end:[[ fc("Housing Affordability reaches 54", _sn(iv("housingAffordability")), iv("housingAffordability")>=54, "i_housingAffordability") ],
+         [ fc("Downtown Perception falls below 48", _sn(iv("downtown")), iv("downtown")<48, "i_downtown") ],
+         [ fc("GDP index falls below 62", _sn(gdpIndex()), gdpIndex()<62, "m_gdp") ],
+         [ fc("The economy turns down", econTxt(), (GAME.econCycle||0)<-0.15, "budget") ]],
+    show:{indicator:"housingAffordability", badHigh:false},
+    note:"Three of the four exits are the boom ending. The one worth taking is the first."});
+
+  S.trafficGridlock.feeds=()=>({
+    begin:[[ fc("GDP index at 64 or more, and no downturn", _sn(gdpIndex())+", "+econTxt(), gdpIndex()>=64&&(GAME.econCycle||0)>-0.05, "m_gdp"),
+             fc("In-Migration at 58 or more", _sn(iv("inMigration")), iv("inMigration")>=58, "i_inMigration"),
+             fc("Bike/Transit Commute Share under 14%", _sn(mv("transitShare"))+"%", mv("transitShare")<14, "m_transitShare") ]],
+    end:[[ fc("Transit share reaches 18% — the growth arrives on something other than a car", _sn(mv("transitShare"))+"%", mv("transitShare")>=18, "m_transitShare") ],
+         [ fc("In-Migration falls below 48", _sn(iv("inMigration")), iv("inMigration")<48, "i_inMigration") ],
+         [ fc("GDP index falls below 60", _sn(gdpIndex()), gdpIndex()<60, "m_gdp") ],
+         [ fc("The economy turns down", econTxt(), (GAME.econCycle||0)<-0.2, "budget") ]],
+    show:{metric:"transitShare", badHigh:false}});
+
+  S.growthWaterWar.feeds=()=>({
+    begin:[[ fc("GDP index at 64 or more, and no downturn", _sn(gdpIndex())+", "+econTxt(), gdpIndex()>=64&&(GAME.econCycle||0)>-0.1, "m_gdp"),
+             fc("In-Migration at 58 or more", _sn(iv("inMigration")), iv("inMigration")>=58, "i_inMigration"),
+             fc("Data-Center Energy Framework under 55%", plevelTxt("dataCenterEnergy"), !POLICIES.dataCenterEnergy||policyLevel(POLICIES.dataCenterEnergy)<0.55, plink("dataCenterEnergy")),
+             fc("Groundwater & Water Rights Reform under 50%", plevelTxt("waterRights"), !POLICIES.waterRights||policyLevel(POLICIES.waterRights)<0.5, plink("waterRights")) ]],
+    end:[[ fc("Water rights reform past 60%", plevelTxt("waterRights"), !!POLICIES.waterRights&&policyLevel(POLICIES.waterRights)>=0.6, plink("waterRights")),
+           fc("AND Environmental Quality at 58 or more", _sn(mv("environment")), mv("environment")>=58, "m_environment") ],
+         [ fc("GDP index falls below 58", _sn(gdpIndex()), gdpIndex()<58, "m_gdp") ],
+         [ fc("In-Migration falls below 48", _sn(iv("inMigration")), iv("inMigration")<48, "i_inMigration") ]],
+    note:"Only the first route settles the argument. The other two are the growth stopping, which settles it too, and costs more."});
+
+  S.infraCrunch.feeds=()=>({
+    begin:[[ fc("Infrastructure Strain at 68 or more", _sn(iv("infraStrain")), iv("infraStrain")>=68, "i_infraStrain"),
+             fc("GDP index at 56 or more — there has to be growth for it to outrun", _sn(gdpIndex()), gdpIndex()>=56, "m_gdp") ]],
+    end:[[ fc("Strain back under 56", _sn(iv("infraStrain")), iv("infraStrain")<56, "i_infraStrain") ],
+         [ fc("GDP index falls below 48 — the growth stops instead", _sn(gdpIndex()), gdpIndex()<48, "m_gdp") ]]});
+
+  S.oregonBrand.feeds=()=>({
+    begin:[[ fc("Environmental Quality above 66", _sn(mv("environment")), mv("environment")>66, "m_environment"),
+             fc("Tourism Appeal above 50", _sn(iv("tourism")), iv("tourism")>50, "i_tourism") ]],
+    end:[[ fc("Environmental Quality falls below 60", _sn(mv("environment")), mv("environment")<60, "m_environment") ],
+         [ fc("Tourism Appeal falls below 40", _sn(iv("tourism")), iv("tourism")<40, "i_tourism") ]]});
+
+  S.talentMagnet.feeds=()=>({
+    begin:[[ fc("In-Migration above 65", _sn(iv("inMigration")), iv("inMigration")>65, "i_inMigration"),
+             fc("Unemployment under 4.5% — jobs are what they are coming for", pct1(mv("unemployment")), mv("unemployment")<4.5, "m_unemployment") ]],
+    end:[[ fc("In-Migration falls below 55", _sn(iv("inMigration")), iv("inMigration")<55, "i_inMigration") ],
+         [ fc("Unemployment passes 6%", pct1(mv("unemployment")), mv("unemployment")>6, "m_unemployment") ]]});
+
+  S.timberCounties.feeds=()=>({
+    begin:[[ fc("Harvest below 25", _sn(mv("loggingRate")), mv("loggingRate")<25, "m_loggingRate"),
+             fc("No federal Secure Rural Schools payments", GAME.srsActive?"flowing":"lapsed", !GAME.srsActive),
+             fc("County backfill under 55%", Math.round(countyBackfill()*100)+"%", countyBackfill()<0.55, plink("countyPayments")) ]],
+    end:[[ fc("Harvest back above 35", _sn(mv("loggingRate")), mv("loggingRate")>35, "m_loggingRate") ],
+         [ fc("Federal Secure Rural Schools payments resume — not yours to decide", GAME.srsActive?"flowing":"lapsed", !!GAME.srsActive) ],
+         [ fc("County backfill at 70% — the state payment does the harvest's job", Math.round(countyBackfill()*100)+"%", countyBackfill()>=0.70, plink("countyPayments")) ]]});
+
+  S.bedOvercrowding.feeds=()=>{
+    const ease=POLICIES.civilCommitment?policyLevel(POLICIES.civilCommitment):0;
+    const cap=(mv("psychBeds")/100)*1.1;
+    return {
+      begin:[[ fc("Commitment easing outruns bed capacity — more people committed than there are beds to hold", "easing "+Math.round(ease*100)+"% against capacity "+Math.round((cap+0.15)*100)+"%", ease>cap+0.15, plink("civilCommitment")) ]],
+      end:[[ fc("Capacity catches up: build beds, or narrow the commitment standard", "easing "+Math.round(ease*100)+"% against "+Math.round((cap+0.05)*100)+"%", ease<=cap+0.05, "m_psychBeds") ]]};
+  };
+
+  S.fiscalCrisis.feeds=()=>{
+    const line=fiscalCrisisThreshold(), debt=GAME.structuralDebt||0;
+    const streak=GAME.deficitStreak||0, bal=GAME.lastBalance||0;
+    return {
+      begin:[[ fc("Accumulated debt above $"+line.toFixed(2)+"B", "$"+debt.toFixed(2)+"B", debt>line, "budget") ],
+             [ fc("Four straight quarters of deficit", streak+" in a row", streak>=4, "budget") ]],
+      end:[[ fc("Debt back under $"+(line*0.375).toFixed(2)+"B", "$"+debt.toFixed(2)+"B", debt<line*0.375, "budget"),
+             fc("AND not running a deficit", streak?("deficit, "+streak+" quarters running"):"balanced or better", streak===0, "budget") ]],
+      noProgress:true,
+      note:"Your budget is running "+(bal>=0
+        ?("a $"+bal.toFixed(2)+"B surplus, and a surplus pays the debt down before it does anything else")
+        :("a $"+(-bal).toFixed(2)+"B deficit, which adds to the debt every quarter the reserves cannot cover"))
+        +". Carrying it costs 4% a year on the Debt Service line, so the debt is not idle while you wait."};
+  };
+
+  S.surplusFight.feeds=()=>({
+    begin:[[ fc("Three straight quarters of surplus", (GAME.surplusStreak||0)+" in a row", (GAME.surplusStreak||0)>=3, "budget"),
+             fc("A surplus above $0.5B", "$"+(GAME.lastBalance||0).toFixed(2)+"B", (GAME.lastBalance||0)>0.5, "budget") ]],
+    end:[[ fc("The surplus falls under $0.2B", "$"+(GAME.lastBalance||0).toFixed(2)+"B", (GAME.lastBalance||0)<0.2, "budget") ],
+         [ fc("The run of surpluses breaks", (GAME.surplusStreak||0)+" in a row", (GAME.surplusStreak||0)<2, "budget") ]]});
+
+  S.kickerPayout.feeds=()=>({
+    begin:[[ fc("A surplus above $2.2B", "$"+(GAME.lastBalance||0).toFixed(2)+"B", (GAME.lastBalance||0)>2.2, "budget"),
+             fc("The kicker is still law", POLICIES.kickerReform?"reformed":"in force", !POLICIES.kickerReform) ]],
+    end:[[ fc("The surplus falls below $1.2B", "$"+(GAME.lastBalance||0).toFixed(2)+"B", (GAME.lastBalance||0)<1.2, "budget") ]]});
+
+  S.doomLoop.feeds=()=>{
+    const crises=["crimeWave","addictionCrisis","homelessEmergency"].filter(k=>GAME.activeSituations[k]);
+    return {
+      begin:[[ fc("Downtown Perception below 40", _sn(iv("downtown")), iv("downtown")<40, "i_downtown") ],
+             [ fc("Downtown Perception below 46", _sn(iv("downtown")), iv("downtown")<46, "i_downtown"),
+               fc("AND a crime wave, addiction crisis or homelessness emergency running", crises.length?crises.map(k=>SITUATIONS[k].name).join(", "):"none running", crises.length>0) ]],
+      end:[[ fc("Downtown Perception back above 50", _sn(iv("downtown")), iv("downtown")>50, "i_downtown") ]],
+      note:"Those crises make the loop easier to fall into. They get no second vote on climbing out: Downtown Perception is the whole test."};
+  };
+
+  S.transportCliff.feeds=()=>{
+    const g=policyLevel(POLICIES.gasTax), r=policyLevel(POLICIES.vehicleReg);
+    const e=POLICIES.evFee?policyLevel(POLICIES.evFee):0;
+    const have=g*0.9+r*0.6+e*0.2;
+    const boom=GAME.activeSituations.gdpBoom||GAME.activeSituations.brainGain||GAME.activeSituations.techBoom;
+    const strain=boom?clamp((iv("inMigration")-58)/22,0,1)*0.16:0;
+    return {
+      begin:[[ fc("Road revenue below the line — the gas tax, registration and the EV fee together", have.toFixed(2)+" against "+(0.75+strain).toFixed(2), have<(0.75+strain)) ]],
+      also:{label:"The three levers that pay for roads", conds:[
+        fc("Gas Tax (weight 0.9 — much the largest)", plevelTxt("gasTax"), g>0.75, plink("gasTax")),
+        fc("Vehicle Registration (weight 0.6)", plevelTxt("vehicleReg"), r>0.75, plink("vehicleReg")),
+        fc("EV Road-Use Fee (weight 0.2)", plevelTxt("evFee"), e>0.75, plink("evFee"))]},
+      end:[[ fc("Road revenue back above "+(0.85+strain).toFixed(2), have.toFixed(2), have>=(0.85+strain)) ]],
+      note:(strain>0.001
+        ?("A boom is on, so the bar is raised: growth puts traffic on roads the old revenue was never sized for.")
+        :"The bar rises while a boom is running — more people, more traffic, same pavement.")};
+  };
+
+  S.leftProtests.feeds=()=>{
+    const d=agendaBaseDrift(), V=protestSide();
+    return {
+      begin:[[ fc("Your agenda has moved 5 points or more from where it started — away from the people who elected you", d.toFixed(1)+" points", d>=5) ]],
+      also:{label:"What raises the odds each quarter", conds:(V.heatBlocs||[]).map(hb=>{
+        const sim=SIMULANTS[hb[0]]; const a=sim?(sim.approval??50):50;
+        return fc((sim?sim.name:hb[0])+" angry (under 48 approval)", _sn(a), a<48, "v_"+hb[0]); })},
+      end:[[ fc("Agenda drift back under 2.5 points", d.toFixed(1)+" points", d<2.5) ],
+           [ fc("It burns out after ten quarters", "quarter "+(_sitAge("leftProtests")+1), _sitAge("leftProtests")>9) ]],
+      note:"Past the drift line this is a roll each quarter, not a certainty — likelier the further you have moved and the angrier the blocs above are. Cracking down raises it again."};
+  };
+
+  S.gopWalkout.feeds=()=>{
+    const w=walkoutPressure(), L=GAME.legis||{};
+    const quorumTxt="House "+(L.house||0)+"/"+LEGIS.quorumH+(LEGIS.quorumS?(", Senate "+(L.senate||0)+"/"+LEGIS.quorumS):"");
+    return {
+      begin:[[ fc("Walkout pressure past 38% — "+w.label+", and a caucus angry enough to spend half a year on it", Math.round(w.heat*100)+"%", w.heat>=0.38),
+               fc("You do not hold a two-thirds quorum on your own", quorumTxt, !quorumProof()),
+               fc("Simple-Majority Quorum is not in the constitution", POLICIES.quorumReform?"passed":"not passed", !POLICIES.quorumReform) ]],
+      end:[[ fc("Pass Simple-Majority Quorum — the permanent answer", POLICIES.quorumReform?"passed":"not passed", !!POLICIES.quorumReform) ],
+           [ fc("Hold two-thirds of both chambers — then there is no quorum to deny", quorumTxt, quorumProof()) ],
+           [ fc("Wait: it ends after two quarters", "quarter "+(_sitAge("gopWalkout")+1), _sitAge("gopWalkout")>=2) ]]};
+  };
+})();
 /* EVENT_POOL — random events that can fire. Each has a base per-quarter
-   probability and an optional `gate` (only eligible if true). Severity of
-   the world nudges some up. */
+   probability and an optional `gate` (only eligible if true). `mult` is the
+   list of things that move those odds, each with the factor it applies: the
+   roll multiplies them and the event's page prints the same list, so what a
+   player is told and what the game does cannot drift apart. `why` is the
+   gate in the same shape, as routes. An event with neither is what it looks
+   like: luck, weather, or Washington. */
 const EVENT_POOL=[
   // the first floating array off Coos Bay — likelier once the clean-power mandate
   // is actually pushing, and once the state has the capacity to permit it
   {id:"offshoreWind", prob:0.05, gate:()=>GAME.turn>10 && METRICS.electricRate.value>13.6
      && (POLICIES.renewablePortfolio?POLICIES.renewablePortfolio.tierIndex:0)>=3,
-   probMult:()=>1+clamp((INDICATORS.businessClimate.value-48)/40,0,0.8)},
-  {id:"wildfireSeason", prob:0.09, gate:()=>true, seasonal:[2,3],
-   probMult:()=>{
-     const envFactor=1-(METRICS.environment.value-60)*0.01;             // healthier forests/watersheds burn less
-     const resil=POLICIES.wildfireResilience?policyLevel(POLICIES.wildfireResilience):0.5;
-     const resFactor=1-(resil-0.5)*0.5;                                 // funded resilience program trims odds
-     return envFactor*resFactor;
-   }},
-  {id:"recession", prob:0.18, gate:()=>GAME.econCycle<-0.35 || (GAME.overheat||0)>0.72, probMult:()=>1+(GAME.overheat||0)*1.1},
+   why:()=>[[ fc("Past the first two and a half years", turnLabel(GAME.turn), GAME.turn>10),
+              fc("Electricity above 13.6¢ — the price that makes offshore pencil", METRICS.electricRate.value.toFixed(1)+"¢", METRICS.electricRate.value>13.6, "m_electricRate"),
+              fc("Renewable Portfolio Standard at 80% Clean or higher", POLICIES.renewablePortfolio?("tier "+POLICIES.renewablePortfolio.tierIndex):"not enacted", (POLICIES.renewablePortfolio?POLICIES.renewablePortfolio.tierIndex:0)>=3, plink("renewablePortfolio")) ]],
+   mult:()=>[{name:"Business Climate "+_sn(INDICATORS.businessClimate.value)+" — developers price the politics too", x:1+clamp((INDICATORS.businessClimate.value-48)/40,0,0.8), link:"i_businessClimate"}]},
+  // A fire season is fuel, heat and drought. Its odds used to read
+  // Environmental Quality — which a fire knocks down by 23 points, so every
+  // fire bought the next one. They now read what actually loads a season.
+  {id:"wildfireSeason", prob:0.08, gate:()=>true, seasonal:[2,3],
+   mult:()=>{ const resil=POLICIES.wildfireResilience?policyLevel(POLICIES.wildfireResilience):0.5;
+     return [{name:"A drought already under way", x:GAME.activeSituations.droughtWater?1.35:1, link:"s_droughtWater"},
+             {name:"A heat dome already under way", x:GAME.activeSituations.heatDome?1.25:1, link:"s_heatDome"},
+             {name:"Wildfire Resilience Fund — fuel off the land before it burns ("+plevelTxt("wildfireResilience")+")", x:1-(resil-0.5)*0.5, link:plink("wildfireResilience")}]; },
+   hint:"The Wildfire Resilience Fund is the lever you hold: enacted and fully funded it takes a quarter off these odds, and left dialled down it adds a quarter. A drought or a heat dome already running is the weather stacking on top of that."},
+  {id:"recession", prob:0.18, gate:()=>GAME.econCycle<-0.35 || (GAME.overheat||0)>0.72,
+   why:()=>[[ fc("The economic cycle below −0.35", econTxt(), (GAME.econCycle||0)<-0.35, "budget") ],
+            [ fc("An economy overheated past 72% — a boom with a correction owed", Math.round((GAME.overheat||0)*100)+"%", (GAME.overheat||0)>0.72, "budget") ]],
+   mult:()=>[{name:"Overheating ("+Math.round((GAME.overheat||0)*100)+"%) — the hotter it ran, the harder it lands", x:1+(GAME.overheat||0)*1.1, link:"budget"}]},
   {id:"federalWindfall", prob:0.06, gate:()=>true},
   {id:"droughtWater", prob:0.06, gate:()=>true, seasonal:[2,3],
-   probMult:()=>{
-     const wr=POLICIES.waterRights?policyLevel(POLICIES.waterRights):0;
-     return (1-wr*0.4)*(1+growthResourceStrain()*0.7);                  // reform eases it; water/power-hungry growth worsens it
-   }},
+   mult:()=>{ const wr=POLICIES.waterRights?policyLevel(POLICIES.waterRights):0, gs=growthResourceStrain();
+     return [{name:"Groundwater & Water Rights Reform ("+plevelTxt("waterRights")+")", x:1-wr*0.4, link:plink("waterRights")},
+             {name:"Growth pressing on water and power ("+Math.round(gs*100)+"%) — a hot economy, heavy in-migration, thirsty fabs", x:1+gs*0.7, link:plink("dataCenterEnergy")}]; },
+   hint:"Water rights reform cuts these odds directly; a Data-Center Energy Framework cuts the growth strain that raises them."},
   {id:"scandal", prob:0.035, gate:()=>true},
   {id:"cascadiaQuake", prob:0.0023, gate:()=>true},
-  {id:"heatDome", prob:0.07, gate:()=>true, seasonal:[2], probMult:()=>1+growthResourceStrain()*0.5},
+  {id:"heatDome", prob:0.07, gate:()=>true, seasonal:[2],
+   mult:()=>{ const gs=growthResourceStrain();
+     return [{name:"Growth pressing on water and power ("+Math.round(gs*100)+"%) — more load, more people, less slack when it hits", x:1+gs*0.5, link:plink("dataCenterEnergy")}]; }},
   {id:"oilShock", prob:0.05, gate:()=>true},
-  {id:"klamathCrisis", prob:0.05, gate:()=>!POLICIES.waterRights||policyLevel(POLICIES.waterRights)<0.5, seasonal:[2,3], probMult:()=>1+growthResourceStrain()*0.6},
-  {id:"measlesOutbreak", prob:0.045, gate:()=>!POLICIES.vaccineMandate},
+  {id:"klamathCrisis", prob:0.05, seasonal:[2,3],
+   gate:()=>!POLICIES.waterRights||policyLevel(POLICIES.waterRights)<0.5,
+   why:()=>[[ fc("Groundwater & Water Rights Reform under 50% — the allocations are still first-in-time", plevelTxt("waterRights"), !POLICIES.waterRights||policyLevel(POLICIES.waterRights)<0.5, plink("waterRights")) ]],
+   mult:()=>[{name:"Growth pressing on water and power ("+Math.round(growthResourceStrain()*100)+"%)", x:1+growthResourceStrain()*0.6, link:plink("dataCenterEnergy")}]},
+  {id:"measlesOutbreak", prob:0.045, gate:()=>!POLICIES.vaccineMandate,
+   why:()=>[[ fc("Nonmedical vaccine exemptions still allowed", POLICIES.vaccineMandate?"ended":"allowed", !POLICIES.vaccineMandate) ]],
+   hint:"Ending nonmedical exemptions takes this off the board entirely."},
   {id:"federalShock", prob:0.04, gate:()=>true},
-  {id:"cyberattack", prob:0.055, gate:()=>INDICATORS.digitization.value<55},
+  {id:"cyberattack", prob:0.055, gate:()=>INDICATORS.digitization.value<55,
+   why:()=>[[ fc("Gov. Digitization below 55 — unpatched systems are the way in", _sn(INDICATORS.digitization.value), INDICATORS.digitization.value<55, "i_digitization") ]],
+   hint:"Building Digitization past 55 closes the door. The Government Operations budget is the slow route; Digital Government Modernization is the direct one."},
   // Digitization is the slow route — it takes ten quarters to build even
   // after Government Operations is fully funded. A governor who has
   // actually put the money into the administrative budget shouldn't have to
   // wait out that phase-in to stop being exposed.
   {id:"unemploymentSystemFailure", prob:0.06, gate:()=>INDICATORS.digitization.value<48
     && policyLevel(POLICIES.govOps||{value:0.3})<0.75
-    && (GAME.activeSituations.recession||METRICS.unemployment.value>7)},
+    && (GAME.activeSituations.recession||METRICS.unemployment.value>7),
+   why:()=>[[ fc("Gov. Digitization below 48", _sn(INDICATORS.digitization.value), INDICATORS.digitization.value<48, "i_digitization"),
+              fc("Government Operations budget under 75% — the mainframe nobody funded the replacement for", plevelTxt("govOps"), policyLevel(POLICIES.govOps||{value:0.3})<0.75, plink("govOps")),
+              fc("A claims surge: a recession, or unemployment above 7%", METRICS.unemployment.value.toFixed(1)+"%"+(GAME.activeSituations.recession?", recession running":""), !!GAME.activeSituations.recession||METRICS.unemployment.value>7, "m_unemployment") ]],
+   hint:"Funding Government Operations past 75% blocks this outright, without waiting out Digitization's ten-quarter build."},
   {id:"gridEmergency", prob:0.05, seasonal:[2],
    gate:()=>INDICATORS.infraStrain.value>=66 && (GAME.activeSituations.heatDome||GAME.activeSituations.techBoom||GAME.activeSituations.gdpBoom||METRICS.evAdoption.value>40),
-   probMult:()=>1+clamp((INDICATORS.infraStrain.value-66)/24,0,1)*1.1},
+   why:()=>[[ fc("Infrastructure Strain at 66 or more", _sn(INDICATORS.infraStrain.value), INDICATORS.infraStrain.value>=66, "i_infraStrain"),
+              fc("A demand spike: a heat dome, a tech boom, an overheating economy, or EV adoption past 40%", _sn(METRICS.evAdoption.value)+"% EVs"+(GAME.activeSituations.heatDome?", heat dome":"")+(GAME.activeSituations.techBoom?", tech boom":"")+(GAME.activeSituations.gdpBoom?", overheating":""),
+                 !!(GAME.activeSituations.heatDome||GAME.activeSituations.techBoom||GAME.activeSituations.gdpBoom||METRICS.evAdoption.value>40), "i_infraStrain") ]],
+   mult:()=>[{name:"How far past 66 the strain has gone", x:1+clamp((INDICATORS.infraStrain.value-66)/24,0,1)*1.1, link:"i_infraStrain"}]},
   {id:"teacherStrike", prob:0.055,
    gate:()=>strikeCapacity()>0 && ((SIMULANTS.publicUnions?.approval??50)<44 || boomWageGap()>0.5),
-   probMult:()=>(1+boomWageGap()*1.2)*strikeCapacity()},
+   why:()=>[[ fc("Teachers can lawfully strike — bargaining rights, and no right-to-work law", strikeCapacity()>0?(strikeCapacity()<1?"limited rights":"full rights"):"no lawful strike", strikeCapacity()>0, plink("collectiveBargaining")),
+              fc("A grievance: public-union approval under 44, or pay lagging a hot economy", "approval "+_sn(SIMULANTS.publicUnions?.approval??50)+", pay gap "+Math.round(boomWageGap()*100)+"%", (SIMULANTS.publicUnions?.approval??50)<44||boomWageGap()>0.5, "v_publicUnions") ]],
+   mult:()=>{ const cap=strikeCapacity(), gap=boomWageGap();
+     const out=[{name:"Pay lagging a hot economy (gap "+Math.round(gap*100)+"%) — fund the State School Fund and it closes", x:1+gap*1.2, link:plink("stateSchoolFund")}];
+     if(cap>0&&cap<1)out.push({name:"Limited bargaining rights — harder to call one", x:cap, link:plink("collectiveBargaining")});
+     return out; }},
 ];
 
 /* NATIONAL_MOOD — a persistent background variable doing a random walk.
@@ -8174,7 +8478,8 @@ function rollEvents(){
     if(GAME.turn < ((GAME.eventCooldown||{})[e.id]||0))continue;   // still cooling down from the last one
     if(e.gate&&!e.gate())continue;                 // condition not met
     let p=e.prob;
-    if(e.probMult)p*=clamp(e.probMult(),0.4,1.6);  // policy preparedness nudges odds up/down
+    if(e.mult)p*=clamp(eventMultTotal(e),0.4,1.6);   // the same factors the event's page prints
+    else if(e.probMult)p*=clamp(e.probMult(),0.4,1.6);  // policy preparedness nudges odds up/down
     if(e.seasonal&&e.seasonal.includes(q))p*=1.8;  // seasonal boost
     p*=RUN_HISTORY.weight(e.id);                    // damp events seen in recent runs, favour fresh ones
     eligible.push({id:e.id,p});
@@ -15949,6 +16254,89 @@ function sparkline(series, opts={}){
    whether the thing you did last quarter is working. This charts the watched
    statistic against the level that actually ends the crisis, reads the recent
    trend, and says plainly whether you are on pace, stalled, or going backwards. */
+/* The checklist a situation's page shows: the real test, where it stands, and
+   whether it holds right now. A tick is not always good news — on "what set
+   it off" for a crisis it is the reason you are in one — so each list is told
+   which way round it runs. */
+function sitCondHTML(c, okIsBad){
+  const cls=c.ok?(okIsBad?"bad":"ok"):"off";
+  const nm=c.link?('<span data-detail="'+c.link+'" class="sf-l">'+c.name+'</span>'):c.name;
+  return '<div class="sf-c '+cls+'"><span class="sf-m">'+(c.ok?"\u2713":"\u2717")+'</span><span>'+nm
+    +(c.now?' <em>'+c.now+'</em>':'')+'</span></div>';
+}
+function sitRoutesHTML(label, routes, okIsBad, anyTxt){
+  routes=(routes||[]).filter(r=>r&&r.length);
+  if(!routes.length)return "";
+  let h='<div class="ebgroup-label">'+label+'</div><div class="ebgroup">';
+  if(routes.length>1)h+='<div class="sf-any">'+anyTxt+'</div>';
+  routes.forEach((r,i)=>{
+    h+='<div class="sf-r">'+(routes.length>1?('<div class="sf-n">'+(i+1)+'</div>'):'')
+      +'<div class="sf-cs">'+r.map(c=>sitCondHTML(c,okIsBad)).join("")+'</div></div>';
+  });
+  return h+'</div>';
+}
+function eventMultTotal(e){
+  let x=1;
+  try{ for(const m of (e.mult()||[]))x*=(m.x==null?1:m.x); }catch(err){}
+  return x;
+}
+function _oddsPct(p){ return (p<0.01?(p*100).toFixed(2):(p*100).toFixed(1))+"%"; }
+function _seasonTxt(sea){ return (sea||[]).map(q=>"Q"+(q+1)).join("\u2013"); }
+/* A random event's odds, in full: the base chance, everything that moves it
+   and by how much, the gate, the season, and what that comes to this quarter.
+   The multipliers are the same list the roll multiplies. */
+function eventOddsHTML(sid){
+  const e=EVENT_POOL.find(x=>x.id===sid); if(!e)return "";
+  const s=SITUATIONS[sid], good=!!(s&&s.kind==="good"), active=!!GAME.activeSituations[sid];
+  let open=true; try{ open=!e.gate||!!e.gate(); }catch(err){}
+  let ms=[]; if(e.mult){ try{ ms=(e.mult()||[]).filter(m=>m&&m.x!=null); }catch(err){ ms=[]; } }
+  let tot=1; for(const m of ms)tot*=m.x;
+  const totC=clamp(tot,0.4,1.6);
+  const q=GAME.turn%4, inSeason=!!(e.seasonal&&e.seasonal.includes(q));
+  const vw=RUN_HISTORY.weight(sid);
+  const cool=Math.max(0,((GAME.eventCooldown||{})[sid]||0)-GAME.turn);
+  const now=open?e.prob*totC*(inSeason?1.8:1)*vw:0;
+  let h='<div class="ebgroup-label">'+(active?"Why it happened, and the odds of another":"The odds of it")+'</div><div class="ebgroup">';
+  h+='<div class="threshline">Base chance <b>'+_oddsPct(e.prob)+' a quarter</b>'
+    +(e.seasonal?(', and \u00d71.8 in season ('+_seasonTxt(e.seasonal)+')'):'')+'.</div>';
+  if(e.why){
+    let rs=[]; try{ rs=e.why()||[]; }catch(err){ rs=[]; }
+    if(rs.length)h+='<div class="sf-any">'+(rs.length>1
+      ?'It can only happen while one of these routes holds.'
+      :'It can only happen while all of these hold.')+'</div>';
+    rs.forEach(r=>{ h+='<div class="sf-r"><div class="sf-cs">'+r.map(c=>sitCondHTML(c,!good)).join("")+'</div></div>'; });
+  }
+  if(ms.length){
+    // every declared factor, including any sitting at neutral: those are the
+    // levers, and a player cannot pull one they are never shown
+    const sc=Math.max(0.1,...ms.map(m=>Math.abs(m.x-1)));
+    for(const m of ms){
+      const up=m.x>1, flat=Math.abs(m.x-1)<=0.005;
+      h+=effectBar(m.name+(flat?" — not moving them right now":(up?" — raising the odds":" — lowering the odds")), m.x-1, sc,
+        {color:flat?'var(--muted-3)':((up!==good)?'var(--clay)':'var(--good)'), link:m.link, fmt:v=>"\u00d7"+(1+v).toFixed(2)});
+    }
+    if(Math.abs(tot-totC)>0.005)
+      h+='<div class="threshline">Together that is \u00d7'+tot.toFixed(2)+', capped at \u00d7'+totC.toFixed(2)+'.</div>';
+  } else if(!e.why){
+    h+='<div class="threshline">Nothing on the board changes these odds. It is weather, Washington, or luck.</div>';
+  }
+  if(Math.abs(vw-1)>0.01)
+    h+='<div class="threshline">'+(vw>1
+      ?('Not seen in your recent games, so it is weighted up (\u00d7'+vw.toFixed(2)+') for variety.')
+      :('Seen in your recent games, so it is weighted down (\u00d7'+vw.toFixed(2)+') for variety.'))+'</div>';
+  h+='<div class="threshline"><b>'+(open
+      ?('Right now: about '+_oddsPct(now)+' a quarter')
+      :'Right now: it cannot happen at all — the conditions above do not hold')+'</b>'
+    +(cool?(' \u00b7 and it is cooling down for '+cool+' more quarter'+(cool===1?'':'s')):'')
+    +'. At most one new event starts in any quarter.</div>';
+  if(e.hint)h+='<div class="fnote" style="margin:2px 0 0">'+e.hint+'</div>';
+  h+='<div class="threshline" style="margin-top:6px;font-style:italic">'
+    +((s&&s.minTurns)
+      ?('Once it starts it runs at least '+s.minTurns+' quarter'+(s.minTurns===1?'':'s')+', then has a 55% chance each quarter of passing.')
+      :'It has a 55% chance each quarter of passing.')
+    +((s&&s.cooldown)?(' After it ends, another cannot begin for '+s.cooldown+' quarters.'):'')+'</div>';
+  return h+'</div>';
+}
 function situationProgressHTML(sid){
   const s=SITUATIONS[sid]; if(!s||!s.watch)return "";
   const w=s.watch, isInd=!!w.indicator;
@@ -17431,11 +17819,21 @@ function renderDetail(){
         +`The Medicaid share scales with the caseload, so a recession on top of this makes it worse. `
         +`<span data-detail="budget" style="color:var(--slate-blue);cursor:pointer">State Budget →</span></div>`;
     }
-    // A condition with no single gauge can declare the forces behind it, so its
-    // page says what is feeding it and not only what it does.
-    if(typeof s.feeds==="function"){
-      let F=null; try{ F=s.feeds(); }catch(e){ F=null; }
-      if(F){
+    // WHAT FEEDS IT, AND WHAT WOULD END IT. A random event shows its odds and
+    // everything that moves them. A condition shows the tests it actually
+    // runs — the same comparisons trigger() and clear() make — with where each
+    // one stands, and its ways out as separate routes. Anything with a single
+    // gauge still leans on that gauge's own drivers, below.
+    let F=null;
+    if(typeof s.feeds==="function"){ try{ F=s.feeds(); }catch(err){ F=null; } }
+    h+=eventOddsHTML(sid);
+    if(F){
+      if(F.begin)h+=sitRoutesHTML(sGood?"What brought it on":"What set it off", F.begin, !sGood,
+        "Either route is enough on its own \u2014 every line inside one has to hold.");
+      if(F.also&&F.also.conds&&F.also.conds.length)
+        h+=`<div class="ebgroup-label">${F.also.label}</div><div class="ebgroup"><div class="sf-cs">`
+          +F.also.conds.map(c=>sitCondHTML(c,!sGood)).join("")+`</div></div>`;
+      if(F.score!=null){
         h+=`<div class="ebgroup-label">Trigger thresholds</div><div class="ebgroup"><div class="threshline">Begins when ${F.label} passes ${F.start}. Clears when it falls below ${F.clear}. Currently <b>${F.score.toFixed(1)}</b>.</div></div>`;
         const live=(F.parts||[]).filter(d=>Math.abs(d.v)>0.05).sort((a,b)=>b.v-a.v);
         if(live.length){
@@ -17445,33 +17843,40 @@ function renderDetail(){
             h+=effectBar(d.name+(good?" — holding it down":" — pushing it up"),d.v,sc,
               {color:good?'var(--good)':'var(--clay)',link:d.link,fmt:v=>(v>=0?'+':'')+v.toFixed(1)}); }
           h+=`</div>`;
-          if(F.note)h+=`<div class="fnote" style="margin-top:-2px">${F.note}</div>`;
         }
       }
+      if(F.end)h+=sitRoutesHTML(sGood?"What would end it":"Ways out", F.end, sGood,
+        "Any one of these ends it \u2014 every line inside one has to hold.");
+      if(F.note)h+=`<div class="fnote" style="margin-top:-2px">${F.note}</div>`;
     }
-    if(s.watch){
-      const isInd=!!s.watch.indicator;
-      const wm=isInd?INDICATORS[s.watch.indicator]:METRICS[s.watch.metric];
-      const cur=isInd?wm.value:(s.watch.metric==="balance"?GAME.lastBalance:(wm?wm.value:0));
-      const curTxt=(!isInd&&s.watch.metric==="balance")?("$"+cur.toFixed(2)+"B"):((!isInd&&wm.fmt==="pctRaw")?cur.toFixed(1)+"%":Math.round(cur));
-      const nm=wm?wm.name:(s.watch.metric||s.watch.indicator);
-      const cmp=v=>(!isInd&&s.watch.metric==="balance")?("$"+v.toFixed(1)+"B"):((!isInd&&wm.fmt==="pctRaw")?v+"%":v);
-      let thr="";
-      if(s.watch.startAt!==null)thr+=`Begins when ${nm} passes ${cmp(s.watch.startAt)}. `;
-      thr+=`Clears when ${nm} reaches ${s.watch.badHigh?"below":"above"} ${cmp(s.watch.clearAt)}`;
-      if(s.watch.alsoMetric){
-        const am=METRICS[s.watch.alsoMetric];
-        thr+=` AND ${am.name} ${s.watch.alsoAbove?"above":"below"} ${s.watch.alsoClearAt}`;
-        if(s.watch.alsoOrMetric){
-          const om=METRICS[s.watch.alsoOrMetric];
-          if(om)thr+=` (or ${om.name} ${s.watch.alsoOrAbove?"above":"below"} ${s.watch.alsoOrClearAt})`;
+    // The gauge this page leans on: the situation's own watch, or the one a
+    // multi-test condition nominates in feeds().show.
+    const W=s.watch||(F&&F.show)||null;
+    if(W){
+      const isInd=!!W.indicator;
+      const wm=isInd?INDICATORS[W.indicator]:METRICS[W.metric];
+      const cur=isInd?wm.value:(W.metric==="balance"?GAME.lastBalance:(wm?wm.value:0));
+      const curTxt=(!isInd&&W.metric==="balance")?("$"+cur.toFixed(2)+"B"):((!isInd&&wm.fmt==="pctRaw")?cur.toFixed(1)+"%":Math.round(cur));
+      const nm=wm?wm.name:(W.metric||W.indicator);
+      const cmp=v=>(!isInd&&W.metric==="balance")?("$"+v.toFixed(1)+"B"):((!isInd&&wm.fmt==="pctRaw")?v+"%":v);
+      if(s.watch && !(F&&(F.begin||F.end||F.score!=null))){
+        let thr="";
+        if(W.startAt!==null)thr+=`Begins when ${nm} passes ${cmp(W.startAt)}. `;
+        thr+=`Clears when ${nm} reaches ${W.badHigh?"below":"above"} ${cmp(W.clearAt)}`;
+        if(W.alsoMetric){
+          const am=METRICS[W.alsoMetric];
+          thr+=` AND ${am.name} ${W.alsoAbove?"above":"below"} ${W.alsoClearAt}`;
+          if(W.alsoOrMetric){
+            const om=METRICS[W.alsoOrMetric];
+            if(om)thr+=` (or ${om.name} ${W.alsoOrAbove?"above":"below"} ${W.alsoOrClearAt})`;
+          }
         }
+        if(W.alsoNote)thr+=" "+W.alsoNote;
+        thr+=`. Currently ${nm}: ${curTxt}.`;
+        h+=`<div class="ebgroup-label">Trigger thresholds</div><div class="ebgroup"><div class="threshline">${thr}</div></div>`;
       }
-      if(s.watch.alsoNote)thr+=" "+s.watch.alsoNote;
-      thr+=`. Currently ${nm}: ${curTxt}.`;
-      h+=`<div class="ebgroup-label">Trigger thresholds</div><div class="ebgroup"><div class="threshline">${thr}</div></div>`;
       // ...and whether you are actually getting there
-      h+=situationProgressHTML(sid);
+      if(s.watch && !(F&&F.noProgress))h+=situationProgressHTML(sid);
       // ---- what's improving or worsening the crisis ----
       if(isInd){
         // WHAT IS FEEDING IT. A derived indicator already computes its own
@@ -17486,14 +17891,14 @@ function renderDetail(){
           const live=ds.filter(d=>d&&!d.base&&Math.abs(d.v)>0.25);
           if(live.length){
             live.sort((a,b)=>{
-              const ag=indDeltaGood(s.watch.indicator,a.v)?1:0, bg=indDeltaGood(s.watch.indicator,b.v)?1:0;
+              const ag=indDeltaGood(W.indicator,a.v)?1:0, bg=indDeltaGood(W.indicator,b.v)?1:0;
               return ag-bg||Math.abs(b.v)-Math.abs(a.v);
             });
             const base=ds.find(d=>d&&d.base);
             h+=`<div class="ebgroup-label">What is feeding ${nm} right now</div><div class="ebgroup">`;
             const sc=Math.max(0.5,...live.map(d=>Math.abs(d.v)));
             for(const d of live){
-              const good=indDeltaGood(s.watch.indicator,d.v);
+              const good=indDeltaGood(W.indicator,d.v);
               h+=effectBar(d.name+(good?" — holding it up":" — dragging it down"),d.v,sc,
                 {color:good?'var(--good)':'var(--clay)',link:d.link,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' pts'});
             }
@@ -17503,7 +17908,7 @@ function renderDetail(){
           }
         }
         // and what you can do about it: the levers that name it directly
-        const ik=s.watch.indicator, contribs=[];
+        const ik=W.indicator, contribs=[];
         for(const id in POLICIES){const p=POLICIES[id];if(p.indicatorEffects&&p.indicatorEffects[ik]){const e=p.indicatorEffects[ik]*policyLevel(p);if(Math.abs(e)>0.05)contribs.push({name:ico(p.icon)+' '+p.name,e,link:"p_"+id});}}
         for(const id in AGENCIES){const a=AGENCIES[id];if(a.indicatorEffects&&a.indicatorEffects[ik]){const e=a.indicatorEffects[ik]*(a.funding??0.5);if(Math.abs(e)>0.05)contribs.push({name:ico(a.icon)+' '+a.name,e,link:"a_"+id});}
           if(a.loggingIndicatorEffects&&a.loggingIndicatorEffects[ik]){const e=a.loggingIndicatorEffects[ik]*(a.logging??0.5);if(Math.abs(e)>0.05)contribs.push({name:ico(a.icon)+' '+a.name+' harvest',e,link:"a_"+id});}}
@@ -17518,7 +17923,7 @@ function renderDetail(){
           h+=`<div class="ebgroup-label">${sMoveHdr}</div><div class="ebnote">No active policy is currently lifting ${nm}${sGood?". It will fade on its own if conditions slip.":" — it will keep feeding on itself until you intervene."}</div>`;
         }
       }
-      const mk=s.watch.metric;
+      const mk=W.metric;
       if(mk&&mk!=="balance"){
         const contribs=[];
         // upstream CAUSES first: other statistics feeding this metric via links
@@ -17537,7 +17942,7 @@ function renderDetail(){
           }}
         if(contribs.length){
           // for a badHigh metric, negative effect = improving (green); positive = worsening (red)
-          const improving=v=>s.watch.badHigh?v<0:v>0;
+          const improving=v=>W.badHigh?v<0:v>0;
           contribs.sort((a,b)=> (improving(a.e)?-1:1)*Math.abs(a.e) - (improving(b.e)?-1:1)*Math.abs(b.e) );
           // sort improving first
           contribs.sort((a,b)=>{const ai=improving(a.e)?0:1,bi=improving(b.e)?0:1; return ai-bi || Math.abs(b.e)-Math.abs(a.e);});
@@ -17631,7 +18036,7 @@ function renderDetail(){
     } else {
       if(sid!=="federalShock")h+=`<div class="ebgroup-label">Effect on voter blocs</div><div class="ebnote">None directly — this ${s.kind==="good"?"condition":"situation"} doesn't hand you (or cost you) approval on its own. It reaches voters only through the metrics above.</div>`;
     }
-    if(s.minTurns)h+=`<div class="sectionsub" style="margin-top:12px">This ${s.category==="event"?"event":"situation"} persists at least ${s.minTurns} quarters before it can subside.</div>`;
+    if(s.minTurns && !EVENT_POOL.some(e=>e.id===sid))h+=`<div class="sectionsub" style="margin-top:12px">This ${s.category==="event"?"event":"situation"} persists at least ${s.minTurns} quarters before it can subside.</div>`;
   } else if(key==="nationalMood"){
     const nm=NATIONAL_MOOD.value;
     h+=`<div class="sectionhdr">National Political Mood</div>
