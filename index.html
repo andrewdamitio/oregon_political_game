@@ -1217,6 +1217,15 @@
   .coal-terms{display:flex;flex-direction:column;gap:2px;font-size:11.5px;margin-top:3px}
   .coal-terms .ok{color:var(--muted-1)} .coal-terms .bad{color:var(--clay)}
   .coal-warn{font-size:11.5px;color:var(--clay);margin-top:3px}
+  .ausr-head{display:flex;align-items:center;gap:16px;padding:12px 14px;border-radius:6px;
+    background:var(--paper-2);margin:10px 0 4px}
+  .ausr-head>div{display:flex;flex-direction:column;gap:2px}
+  .ausr-head span{font-size:11.5px;color:var(--muted-2)}
+  .ausr-head b{font-family:var(--font-data);font-size:21px}
+  .ausr-arrow{font-size:18px;color:var(--muted-2)}
+  .ausr-row{display:flex;align-items:center;gap:10px;padding:3px 0;font-size:12.5px}
+  .ausr-l{flex:1 1 auto}
+  .ausr-v{font-family:var(--font-data);font-variant-numeric:tabular-nums;font-weight:600}
   .prchamber{margin:10px 0}
   .prc-h{font-family:var(--font-display);font-size:12px;letter-spacing:.05em;text-transform:uppercase;
     color:var(--muted-1);margin-bottom:8px;display:flex;align-items:center;gap:6px}
@@ -3126,7 +3135,8 @@ function tickExecOrders(){
     if(o.state==="enjoined"||o.state==="upheld")continue;             // settled either way
     if(o.state==="active"){
       // only while the challenge is still timely
-      if(eoInChallengeWindow(id) && Math.random()<eoLegalRisk(id)){
+      // In the sandbox the courts do not take your orders away.
+      if(!window.SANDBOX && eoInChallengeWindow(id) && Math.random()<eoLegalRisk(id)){
         o.state="challenged"; o.filed=GAME.turn; o.ruling=GAME.turn+2+Math.floor(Math.random()*3);
         (GAME.pendingEoEvents=GAME.pendingEoEvents||[]).push({kind:"filed", id});
         GAME.log.push(ico('gavel')+" Lawsuit filed against "+E.name);
@@ -4186,7 +4196,7 @@ const CATALOG={
     value:0.4, costFull:1.2, capital:6, enactCapital:11,
     blocEffect:{transitCommuters:8, urban:6, liberal:4, collegeEducated:3, students:3, socialist:2, motorists:-5, rural:-5, conservative:-3, libertarian:-3, suburban:-2},
     effects:{environment:8,gdp:0.3,unemployment:-0.4,transitShare:10}, ideology:{environment:-0.6,economic:-0.3,govSize:-0.4}},
-  highSpeedRail:{name:"Pacific Northwest High Speed Rail", domain:"envInfra", icon:"train", mechanic:"slider", phaseIn:14,
+  highSpeedRail:{name:"Pacific Northwest High Speed Rail", domain:"envInfra", icon:"train", mechanic:"slider", phaseIn:14, citizenWeight:0.80,
     desc:"A state commitment to electrified high-speed rail along the I-5 corridor — Portland to Eugene in under an hour, eventually connecting to Seattle. The case is real: the Pacific Northwest Rail Corridor already carries 800,000 riders/year at mediocre speeds; true high-speed service (200+ mph) would add hundreds of thousands of riders, attract corporate relocation, gut short-haul air demand, and permanently shift the region's transportation culture.\n\nThe costs are equally real. Capital construction of the Oregon segment alone runs $8–12B over 10–15 years. The state share — even assuming federal infrastructure funds — is the largest capital commitment in Oregon history. Coordination across ODOT, ODFW, tribal consultations, DEQ permitting, NEPA review, FRA oversight, local government right-of-way, and private railroad access creates an administrative load unlike any other program — this policy noticeably increases government overhead while under construction. The slider sets the ambition level: low investment funds planning and corridor preservation; full investment launches construction.\n\nBloc politics are nakedly geographic: urbanites and progressives are true believers; rural Oregon sees it as a multi-billion dollar gift to Portland, and motorists resent every dollar diverted from highways. Over a generation, it genuinely shifts how Oregonians commute — slowly shrinking the driver-majority coalition that makes green transportation policy so difficult.",
     value:0, costFull:2.8, capital:10, enactCapital:18,
     effects:{environment:7, gdp:0.18, unemployment:-0.7, transitShare:8},
@@ -4318,7 +4328,13 @@ const CATALOG={
   eVerify:{name:"Mandatory E-Verify & Immigration Enforcement", domain:"social", icon:"id-card", mechanic:"law",
     desc:"Require employers to verify work eligibility and expand state cooperation with federal immigration enforcement — reversing Oregon's sanctuary-state posture. Fierce backlash from progressive and Latino communities; labor shortages in agriculture.",
     enabled:true, costFull:0.1, capital:11, enactCapital:15,
-    effects:{gdp:-0.3,unemployment:0.3}, ideology:{social:0.8,economic:0.3,govSize:0.3}},
+    effects:{gdp:-0.3,unemployment:0.3},
+    // The entire purpose of the policy is to make it harder to work in Oregon
+    // without papers, and Oregon's agricultural, food-processing and
+    // construction labour forces are exactly where that lands. Fewer people
+    // come, and some of the ones already here leave.
+    indicatorEffects:{inMigration:-9},
+    ideology:{social:0.8,economic:0.3,govSize:0.3}},
   medicaidWork:{name:"Medicaid Work Requirements", domain:"eduHealth", icon:"muscle", mechanic:"law",
     desc:"Require able-bodied adult Medicaid recipients to complete work, job training, or community service hours to maintain eligibility. Saves ~$350M/year in state health spending and aligns with federal waiver programs; but coverage losses hit the working poor hardest and modestly worsen public health outcomes over time. Federal courts have repeatedly struck down similar requirements — implementation risk is high.",
     enabled:true, costFull:-0.35, capital:8, enactCapital:11, repealCost:12,
@@ -6140,8 +6156,7 @@ function ELECTORATE_SHIFT(){
   // professional class that anchors the urban left starts to leave
   let decline=0;
   if(GAME.activeSituations.fiscalCrisis)decline+=1;
-  if(GAME.activeSituations.businessExodus)decline+=0.8;
-  if(GAME.activeSituations.corporateExodus)decline+=0.7;
+  if(GAME.activeSituations.businessExodus)decline+=1.3;   // was split across two exodus events
   if(GAME.activeSituations.recession)decline+=0.5;
   decline=Math.min(decline,2.5);
   if(decline>0){
@@ -6571,13 +6586,18 @@ const SITUATIONS={
       grudges:[{target:"m_environment", value:-3, decay:0.9, label:"Burn scars — forests & watersheds regrowing"}],
       countyMood:{spec:COUNTY_GROUPS.fireCountry, value:-5, decay:0.9, label:"Fire-country counties — evacuations & smoke"}}, mandateShock:-1.5,
     groupMood:{rural:-2,timber:-2}},
-  businessExodus:{name:"Business Climate Collapse", kind:"bad", category:"condition",
-    desc:"Oregon's stacked costs and regulatory burden have crossed a tipping point. Companies are announcing relocations to Washington and Idaho — and the exodus feeds itself: as anchor firms leave, their suppliers and service vendors follow, Oregon's anti-business reputation hardens, and the remaining talent pool thins. Reversing it requires meaningfully improving the business climate, not just stopping the slide.",
-    trigger:()=>INDICATORS.businessClimate.value<30, onClear:{capital:3},
-    clear:()=>INDICATORS.businessClimate.value>40,
-    watch:{indicator:"businessClimate", startAt:30, clearAt:40, badHigh:false},
-    metricEffect:{gdp:-0.30, unemployment:0.4},
-    indicatorEffect:{inMigration:-6},
+  businessExodus:{name:"Corporate Exodus", kind:"bad", category:"condition",
+    desc:"Oregon's stacked costs have crossed a tipping point and the announcements have started — relocations to Washington and Idaho, expansions that go to Boise instead of Hillsboro. Intel, Nike and Adidas have all named the same things: the Corporate Activity Tax on gross receipts, the compliance load, the sense that Salem is not on their side.\n\nWhat makes it hurt is that leaving is a decision a company makes once. The firms that were going to move are moving now, their suppliers follow, and for a few years Oregon loses payroll it does not get back quickly. But it is not a permanent haemorrhage: the ones who were going to go, go, and if you fix what drove them the bleeding slows on its own even before the condition lifts.",
+    // An exodus is a stock adjustment, not a flow. The drag decays toward a
+    // third of its opening strength as the firms that were leaving finish
+    // leaving — see situationDecay(). Modelling it as a permanent -0.3 GDP
+    // forever is what turned one bad quarter into a terminal one.
+    decays:{half:7, floor:0.34},
+    trigger:()=>INDICATORS.businessClimate.value<35, onClear:{capital:3},
+    clear:()=>INDICATORS.businessClimate.value>44,
+    watch:{indicator:"businessClimate", startAt:35, clearAt:44, badHigh:false},
+    metricEffect:{gdp:-0.42, unemployment:0.5},
+    indicatorEffect:{inMigration:-6, businessClimate:-2},
     moodMag:2, moodAxes:{economic:0.3}, minTurns:3,
     onTrigger:{capital:-3},
     groupMood:{businessClass:-10, wealthy:-7, suburban:-4, blueCollar:-4, rural:-3}},
@@ -6878,22 +6898,11 @@ const SITUATIONS={
     watch:{metric:"balance", startAt:2.2, clearAt:1.2, badHigh:true},
     metricEffect:{}, indicatorEffect:{taxGrievance:-4}, moodAxes:{economic:0.3,govSize:0.3}, moodMag:2,
     groupMood:{wealthy:5,rural:4,suburban:3,publicUnions:-3,libertarian:2,conservative:2}},
-  corporateExodus:{name:"Corporate Exodus", kind:"bad", category:"condition",
-    desc:"Oregon's business tax stack — the Corporate Activity Tax on gross receipts, rising compliance costs, and a regulatory environment perceived as hostile — is prompting major employers to shift operations out of state. Unlike the personal-income tax revolt, this targets corporate location decisions: Intel, Nike, and Adidas have all flagged Oregon's cost structure.",
-    // Either route in: a broadly hostile climate, OR a deliberate hike in the
-    // gross-receipts tax specifically. The CAT is the lever Intel, Nike and
-    // Adidas all named, so pushing it hard should summon this by itself rather
-    // than only as a second-order effect of the burden composite.
-    trigger:()=>(INDICATORS.businessClimate.value<38&&METRICS.taxBurden.value>50)
-      ||(POLICIES.corpTax&&policyLevel(POLICIES.corpTax)>0.72
-         &&INDICATORS.businessClimate.value<46),
-    clear:()=>(INDICATORS.businessClimate.value>48||METRICS.taxBurden.value<44)
-      &&!(POLICIES.corpTax&&policyLevel(POLICIES.corpTax)>0.72&&INDICATORS.businessClimate.value<50), onClear:{capital:3},
-    watch:{indicator:"businessClimate", startAt:38, clearAt:48, badHigh:false},
-    metricEffect:{gdp:-0.22,unemployment:0.40},
-    indicatorEffect:{businessClimate:-3,inMigration:-5},
-    moodMag:2,
-    groupMood:{businessClass:-9,wealthy:-7,blueCollar:-6,suburban:-3,timber:-3,moderate:-2}},
+  // Corporate Exodus was removed. It and Business Exodus were the same event
+  // twice over, and between them they formed a trapdoor: the pair took 5.75
+  // points a quarter off the Business Climate you then had to raise by ten to
+  // eighteen to escape, and festering made it worse the longer you were
+  // stuck. One exodus is enough, and it is the one below.
   oregonBrand:{name:"Oregon Brand Strength", kind:"good", category:"condition",
     desc:"Clean mountains, Pacific coastline, wine country, and farm-to-table culture have made 'Oregon' a genuine lifestyle brand — drawing tourists, outdoor enthusiasts, and remote workers who can live anywhere and choose here. The brand is alive at game start, already quietly lifting in-migration, business investment, and GDP. But it is not indestructible: visible disorder — open drug use, crime, grimy downtowns — is exactly what national media amplifies, and it eats directly into the tourism and relocation appeal the brand depends on. The addiction crisis and crime waves are already compromising it. Clean up the state and the brand rebounds; let those problems fester and the lifestyle premium erodes away.",
     startActive:true,
@@ -7236,9 +7245,21 @@ function effExpr(raw,x,key){
    people caught in it lose ground you cannot easily give back, and the political
    cost of having tolerated it accumulates. Caps at +40% so it sharpens the
    mid-game against coasting without making a bad opening unrecoverable. */
+/* Some crises are a stock adjustment rather than a standing flow: the firms
+   that were going to leave finish leaving. A situation with decays:{half,floor}
+   fades toward its floor on that half-life instead of festering upward. */
+function situationDecay(sid){
+  const S=SITUATIONS[sid]; if(!S||!S.decays)return 1;
+  const age=(GAME.situationAge&&GAME.situationAge[sid])||0;
+  const f=S.decays.floor==null?0.34:S.decays.floor;
+  const h=S.decays.half||7;
+  return +(f+(1-f)*Math.pow(0.5, age/h)).toFixed(3);
+}
 function festerMult(sid){
   const st=SITUATIONS[sid];
   if(!st||st.category==="event"||st.kind==="good")return 1;
+  // a stock adjustment fades instead of festering
+  if(st.decays)return situationDecay(sid);
   const age=(GAME.situationAge&&GAME.situationAge[sid])||0;
   return 1+clamp((age-8)/40,0,0.40);
 }
@@ -8432,7 +8453,29 @@ function approvalTarget(sid, raw){
     // one that loathes you keeps a small floor of "eh, could be worse".
     if(a>68) a=68+(a-68)*0.6;
     if(a<24) a=24-(24-a)*0.8;
-    return clamp(a,0,100);
+    return clamp(a,partisanFloor(sid),100);
+}
+/* THE FLOOR UNDER YOUR OWN SIDE, and why it is not fixed.
+   Under first-past-the-post a partisan has nowhere to go. However badly you
+   govern, the alternative is the other party, so people who agree with you
+   about everything else stay — and that is the reason a failing governor
+   still polls thirty with their own base instead of zero.
+   RANKED-CHOICE VOTING gives them somewhere to put a first preference
+   without electing the other side, so the floor drops.
+   PROPORTIONAL REPRESENTATION removes it altogether: there are real parties
+   with real seats waiting, and five per cent of the vote is five members
+   instead of nothing. That is the bargain the amendment makes — you stop
+   being protected by the fact that nobody has anywhere else to go.
+   The floor is scaled by how close a bloc is to the way you actually govern,
+   so it holds your own coalition up and does nothing for the other side. */
+function partisanFloor(sid){
+  if(typeof prOn==="function" && prOn())return 0;
+  const sim=SIMULANTS[sid]; if(!sim||!sim.ideology)return 0;
+  const rcv=!!(POLICIES.rankedChoice&&POLICIES.rankedChoice.enabled);
+  const base=rcv?7:14;
+  const g=govIdeologyPoint();
+  const prox=1-(Math.abs(sim.ideology.economic-g.economic)+Math.abs(sim.ideology.social-g.social))/2.4;
+  return +(base*clamp(prox,0,1)).toFixed(2);
 }
 function tickApproval(){
   for(const sid in SIMULANTS){
@@ -8836,7 +8879,7 @@ function gfLotterySubtotal(){
 }
 function budgetBalance(){
   const rev=revenueBySource(), spd=spendingByArea();
-  let revenue=Object.values(rev).reduce((a,b)=>a+b,0);
+  let revenue=Object.values(rev).reduce((a,b)=>a+b,0)+emergencyRevenue();
   const spend=Object.values(spd).reduce((a,b)=>a+b,0);
   // pending kicker refunds walk out the door this cycle
   if(GAME.pendingKicker>0)revenue-=GAME.pendingKicker;
@@ -8915,6 +8958,11 @@ function revenuePassFrac(){
   const sn=LEGIS.superS>0 ? clamp((L.senate||0)/LEGIS.superS,0,1) : 1;
   return +clamp(Math.min(h,sn)*0.9+0.05, 0.05, 0.95).toFixed(3);
 }
+/* What the emergency taxes bring in every year, at what survived the
+   three-fifths gate. Recorded when the package is signed and carried in the
+   budget from then on — they were closing the target on the board and then
+   producing nothing, which quietly made cuts the only real lever. */
+function emergencyRevenue(){ return +(GAME.emergencyRevenue||0).toFixed(3); }
 function austerityRaised(rev){
   const f=revenuePassFrac();
   let v=0;
@@ -8928,13 +8976,18 @@ function austerityLineCost(L){
 }
 /* The hole the rebalance has to close, in $B/yr. Big enough to hurt, and it
    grows with the debt you let accumulate. */
-/* How much has to be found. A first shortfall is a small, tractable package;
-   a decade of accumulated debt behind it is not. Both the hole in this
-   year's budget and the pile behind it count, so the board scales from a
-   half-billion nuisance to something that will define your term. */
+/* What the legislature has to find. NOT the accumulated debt — no budget in
+   history has been written to retire a decade of borrowing in one quarter,
+   and Article IX §2 does not ask for that. It asks that the coming biennium
+   balances. So: close the hole in this year's budget, and leave a structural
+   surplus on top of it, which is what actually brings the debt down and what
+   the rating agencies are watching for. A big pile behind you raises the bar
+   only through what it costs to carry. */
+const AUS_SURPLUS=0.45;          // the margin above zero a package has to clear
 function austerityTarget(){
   const gap=Math.max(0, -(GAME.lastBalance||0));
-  return +clamp(0.40 + (GAME.structuralDebt||0)*0.42 + gap*0.30, 0.40, 3.2).toFixed(2);
+  const carry=(GAME.structuralDebt||0)*0.05;   // debt service, not repayment
+  return +clamp(gap+AUS_SURPLUS+carry, 0.45, 4.2).toFixed(2);
 }
 function austeritySaved(cuts){
   let v=0;
@@ -8944,7 +8997,7 @@ function austeritySaved(cuts){
 /* Open the board. Blocks the quarter until it is signed. */
 function openAusterity(){
   if(GAME.pendingAusterity)return;
-  GAME.pendingAusterity={target:austerityTarget(), cuts:{}, rev:{}};
+  GAME.pendingAusterity={target:austerityTarget(), cuts:{}, rev:{}, _before:{balance:GAME.lastBalance}};
   GAME.log.push(ico('warning')+" Balanced-budget emergency — the legislature is waiting on a stabilization package");
 }
 /* The negotiation. You are shown every party that is not yours, what it
@@ -9107,8 +9160,12 @@ function applyAusterity(){
     for(const mk in (R.metrics||{}))createGrudge("m_"+mk, R.metrics[mk]*f, 0.93, "Emergency revenue: "+R.label);
     for(const ik in (R.inds||{}))createGrudge("i_"+ik, R.inds[ik]*f, 0.93, "Emergency revenue: "+R.label);
   }
-  // the money
-  GAME.structuralDebt=+Math.max(0,(GAME.structuralDebt||0)-saved).toFixed(3);
+  // THE MONEY. The cuts above already moved the real levers, so the saving is
+  // in next quarter's budget by construction; the taxes are booked here and
+  // collected every quarter from now on. What this does NOT do is retire the
+  // accumulated debt — that comes down out of the surplus you now run, which
+  // is the whole point of being asked for a surplus rather than a payoff.
+  GAME.emergencyRevenue=+((GAME.emergencyRevenue||0)+revTot).toFixed(3);
   GAME.deficitStreak=0;
   // STATE CAPACITY. A cut reaches the people who run the machine first, so
   // the apparatus gets slower and more expensive per unit of service exactly
@@ -9127,9 +9184,88 @@ function applyAusterity(){
   shiftCompass(0.8,0);
   GAME.log.push(ico('scissors')+" Emergency budget stabilization signed — $"+cutTot.toFixed(2)+"B cut across "
     +touched+" programme"+(touched===1?"":"s")+(revTot>0.005?(", $"+revTot.toFixed(2)+"B raised from "+revTouched+" tax"+(revTouched===1?"":"es")):""));
-  GAME.pendingAusterity=null; GAME.lastAusterity=GAME.turn;
-  const modal=document.getElementById("austerityModal"); if(modal)modal.classList.add("hidden");
+  GAME.lastAusterity=GAME.turn;
+  // what it did, before you go back to governing
+  const before=A._before||{};
+  GAME.pendingAusterity=null;
+  try{ showAusterityResult({cutTot, revTot, touched, revTouched, lines:A.cuts, rev:A.rev, before}); }
+  catch(e){ const m=document.getElementById("austerityModal"); if(m)m.classList.add("hidden"); }
   try{render();}catch(e){}
+}
+/* THE RESULT. A stabilization package is the biggest single decision most
+   terms contain, and its consequences used to be invisible until they turned
+   up spread across a dozen pages some quarters later. */
+function showAusterityResult(R){
+  const card=document.getElementById("austerityCard"), modal=document.getElementById("austerityModal");
+  if(!card||!modal)return;
+  const bal=budgetBalance();
+  const was=R.before.balance==null?GAME.lastBalance:R.before.balance;
+  const fixed=bal.balance>=0;
+  /* every statistic the package touched, netted across its lines */
+  const mAgg={}, bAgg={}, iAgg={};
+  for(const L of AUSTERITY_LINES){
+    const f=(R.lines&&R.lines[L.id])||0; if(f<=0.001)continue;
+    const sc=f/Math.max(0.01,L.maxCut);
+    for(const k in (L.metrics||{}))mAgg[k]=(mAgg[k]||0)+L.metrics[k]*sc;
+    for(const b in (L.blocs||{}))bAgg[b]=(bAgg[b]||0)+L.blocs[b]*sc;
+  }
+  for(const T of REVENUE_LINES){
+    const f=(R.rev&&R.rev[T.id])||0; if(f<=0.001)continue;
+    for(const k in (T.metrics||{}))mAgg[k]=(mAgg[k]||0)+T.metrics[k]*f;
+    for(const b in (T.blocs||{}))bAgg[b]=(bAgg[b]||0)+T.blocs[b]*f;
+    for(const ik in (T.inds||{}))iAgg[ik]=(iAgg[ik]||0)+T.inds[ik]*f;
+  }
+  iAgg.adminOverhead=(iAgg.adminOverhead||0)+2.5;
+  // adminOverhead runs the opposite way to everything else on this list —
+  // more of it is worse, not better
+  const badHigh={adminOverhead:true, taxGrievance:true};
+  const row=(key,label,v)=>{
+    const good=badHigh[key]?v<0:v>0;
+    return '<div class="ausr-row"><span class="ausr-l">'+label+'</span>'
+      +'<span class="ausr-v" style="color:'+(good?'var(--good)':'var(--clay)')+'">'
+      +(v>=0?'+':'')+v.toFixed(1)+' pts</span></div>';
+  };
+  const mKeys=Object.keys(mAgg).filter(k=>Math.abs(mAgg[k])>0.05)
+    .sort((a,b)=>Math.abs(mAgg[b])-Math.abs(mAgg[a]));
+  const iKeys=Object.keys(iAgg).filter(k=>Math.abs(iAgg[k])>0.05)
+    .sort((a,b)=>Math.abs(iAgg[b])-Math.abs(iAgg[a]));
+  const bKeys=Object.keys(bAgg).filter(k=>Math.abs(bAgg[k])>0.05&&SIMULANTS[k])
+    .sort((a,b)=>bAgg[a]-bAgg[b]);
+  let h='<div class="sectionhdr">'+ico(fixed?'check':'warning')+' The Budget You Just Signed</div>';
+  h+='<div class="ausr-head'+(fixed?' ok':'')+'">'
+    +'<div><span>The budget was</span><b style="color:var(--clay)">$'+was.toFixed(2)+'B</b></div>'
+    +'<div class="ausr-arrow">\u2192</div>'
+    +'<div><span>It is now</span><b style="color:'+(fixed?'var(--good)':'var(--clay)')+'">'
+    +(bal.balance>=0?'+':'')+'$'+bal.balance.toFixed(2)+'B</b></div></div>';
+  h+='<div class="sectionsub">'+(fixed
+    ?'Oregon is running a structural surplus again. The accumulated debt of $'+(GAME.structuralDebt||0).toFixed(1)+'B does not disappear — it comes down out of this surplus, quarter by quarter, for as long as you can hold the budget above the line.'
+    :'The budget still does not balance. The package closed part of the hole; what is left keeps accruing against the debt, and the legislature will be back.')
+    +'</div>';
+  h+='<div class="ebgroup-label">Where the money came from</div><div class="ebgroup">'
+    +'<div class="ausr-row"><span class="ausr-l">'+ico('scissors')+' Programme cuts, across '+R.touched+' line'+(R.touched===1?'':'s')+'</span>'
+    +'<span class="ausr-v">$'+R.cutTot.toFixed(2)+'B/yr</span></div>'
+    +(R.revTot>0.005?('<div class="ausr-row"><span class="ausr-l">'+ico('receipt')+' Emergency revenue, '+R.revTouched+' tax'+(R.revTouched===1?'':'es')+' — permanent</span>'
+      +'<span class="ausr-v">$'+R.revTot.toFixed(2)+'B/yr</span></div>'):'')
+    +'</div>';
+  if(mKeys.length){
+    h+='<div class="ebgroup-label">What it does to the state</div><div class="ebgroup">';
+    for(const k of mKeys){ const M=METRICS[k]; if(!M)continue;
+      h+=row(k, ico(M.icon)+' '+M.name, mAgg[k]); }
+    for(const k of iKeys){ const I=INDICATORS[k]; if(!I)continue;
+      h+=row(k, ico(I.icon)+' '+I.name, iAgg[k]); }
+    h+='</div><div class="fnote">These land as the programmes actually shrink, over the next several quarters — not tonight.</div>';
+  }
+  if(bKeys.length){
+    h+='<div class="ebgroup-label">Who you just spent</div><div class="ebgroup">';
+    for(const b of bKeys.slice(0,10)){ const S=SIMULANTS[b];
+      h+=row(b, S.name+' <span style="color:var(--muted-3)">('+Math.round(S.size*100)+'% of voters)</span>', bAgg[b]); }
+    h+='</div>';
+  }
+  h+='<button class="enactbtn" id="ausrGo" style="margin-top:14px">Back to governing ▸</button>';
+  card.innerHTML=h;
+  modal.classList.remove("hidden");
+  const go=document.getElementById("ausrGo");
+  if(go)go.onclick=()=>{ modal.classList.add("hidden"); try{render();}catch(e){} };
 }
 function fiscalCrisisThreshold(){
   const gsp=METRICS.gspLevel ? METRICS.gspLevel.value : 305;
@@ -14514,7 +14650,19 @@ function citizenSponsorWeight(cand){
     s*=mag;
     align+=(a.dir==="against"?s:-s);
   }
-  return Math.max(0.1, polar*0.35 + Math.max(0,align)*3 + Math.random()*2.2);
+  // Damped, not linear. Weight used to scale straight off the size of a
+  // policy's bloc table, so High Speed Rail — which has the biggest one in the
+  // catalog by a wide margin — won the shortlist nearly every cycle and was on
+  // what felt like every ballot.
+  let w=Math.max(0.1, Math.sqrt(Math.max(0,polar))*1.6 + Math.max(0,align)*3 + Math.random()*2.2);
+  // Nobody collects signatures for a multi-billion capital programme. Some
+  // things are a legislature's business and the petition sheet knows it.
+  if(p.citizenWeight!=null)w*=p.citizenWeight;
+  // and the same measure does not come back the moment it has been decided
+  const hist=(GAME.ballot&&GAME.ballot.history)||[];
+  for(let i=Math.max(0,hist.length-6);i<hist.length;i++)
+    if(hist[i]&&hist[i].id===cand.id){ w*=0.12; break; }
+  return w;
 }
 /* Who's behind it, named the way the rest of the ballot UI already names
    blocs — no invented organizations, just the groups the measure actually
@@ -16349,7 +16497,7 @@ function renderDetail(){
         // is whatever the floor asks on the day
         const cFloor=goesToFloor(c,"enact");
         const cMin=cFloor?minFloorCost(id,"enact"):null;
-        const afford=cFloor ? (cMin!==null&&GAME.capital>=cMin) : GAME.capital>=ec;
+        const afford=window.SANDBOX ? true : (cFloor ? (cMin!==null&&GAME.capital>=cMin) : GAME.capital>=ec);
         h+=`<div class="sectionhdr">${ico(c.icon)} ${c.name}</div><div class="sectionsub">${descHTML(c.desc)}</div>`;
         h+=`<div class="detailrow"><span class="pill dom">${(DOMAINS[c.domain]||{name:c.domain}).name}</span>
           <span class="pill">Not yet enacted — a proposal on the table</span>
@@ -16628,7 +16776,9 @@ function renderDetail(){
       <span class="pill">Active ${age+1} quarter${age?'s':''}</span></div>`;
     {
       const fm=festerMult(sid);
-      if(fm>1.005)
+      if(s.decays&&fm<0.995)
+        h+=`<div class="threshline" style="margin:6px 0 10px">${ico('chart-down')} <b>Winding down — running at ${Math.round((1-fm)*100)}% below its opening strength.</b> The firms that were going to leave are finishing leaving: this is a one-time adjustment, not a permanent bleed, and its drag keeps falling toward ${Math.round((s.decays.floor==null?0.34:s.decays.floor)*100)}% whether or not you fix what caused it. Every effect on this page is already scaled down by it.</div>`;
+      else if(fm>1.005)
         h+=`<div class="pendbanner" style="margin:6px 0 12px">${ico('warning')} <b>Festering — running at ${Math.round((fm-1)*100)}% above its base strength.</b> A crisis you merely live with gets worse: past two years active the institutions around it decay and the ground lost stops being easy to give back. Every effect on this page is already scaled up by it, and it keeps climbing to +40%. Ending it is the only thing that resets this.</div>`;
       else if(s.category!=="event"&&s.kind!=="good"&&age>=5)
         h+=`<div class="threshline" style="margin:6px 0 10px;font-style:italic">Left running past eight quarters, this will begin to <b>fester</b> — compounding up to +40% above its base strength the longer it stands.</div>`;
@@ -16950,7 +17100,7 @@ function renderPolicies(){
     // this page can honestly say is whether ANY version of it is affordable.
     const floorPol=goesToFloor(p,"enact");
     const floorMin=floorPol?minFloorCost(id,"enact"):null;
-    const afford=floorPol ? (floorMin!==null&&GAME.capital>=floorMin) : GAME.capital>=ecost;
+    const afford=window.SANDBOX ? true : (floorPol ? (floorMin!==null&&GAME.capital>=floorMin) : GAME.capital>=ecost);
     const beaten=floorBlocked(id,"enact");
     const back=beaten?(GAME.floorFail["enact"+id]-GAME.turn):0;
     return `<div class="catcard${beaten?' beaten':''}" style="--qaccent:${DOMAINS[p.domain].accent}">
@@ -19301,6 +19451,7 @@ function bootWorld(startId){
   GAME.csfCorpus=2.10; GAME.csfPayout=0.08; GAME.csfElliottMult=1; GAME.csfSaleBooked=false; GAME.esfLottoIn=0; GAME.persRisk="balanced"; GAME.csfRisk="balanced";
   GAME.execOrders={}; GAME.pendingEoEvents=[]; GAME.pendingOppBill=null; GAME.lastOppBill=-99;
   GAME.srsActive=true; GAME.srsRolled=-1; GAME.srsYears=0; GAME.capCarry=0; GAME.pendingAusterity=null; GAME.lastAusterity=-99;
+  GAME.emergencyRevenue=0;
   GAME.oppBillsSigned=0; GAME.oppBillsVetoed=0; GAME.oppBillsOverridden=0;
   GAME.floorFreeze=0; GAME.walkoutSide=null; GAME.walkoutCooldownUntil=0; GAME.walkoutIgnoredUntil=0; GAME.protestIgnoredUntil=0; GAME.splinter=null;
   // LEGIS is one mutable object, so a run that passed proportional
@@ -19341,8 +19492,17 @@ function bootWorld(startId){
   for(const id in INDICATORS)INDICATORS[id].base0=INDICATORS[id].value;   // feedback anchor
   for(const id in AGENCIES)AGENCIES[id].fundingBase=AGENCIES[id].funding; // overhead anchor — only funding CHANGES from the inherited default add coordination burden
   for(const k in METRICS)METRICS[k].calib=0;
-  for(const k in METRICS)METRICS[k].calib=METRICS[k].value-metricTarget(k);
-  for(let _i=0;_i<2;_i++)for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();
+  /* ITERATE TO A FIXED POINT. One pass is not enough: some metric targets
+     read the indicators (GDP reads Business Climate at 0.06 per point), and
+     the indicators are re-derived AFTER the anchor is set — so those metrics
+     came out anchored to indicator values that then moved, and never caught
+     up. GDP was landing 1.67 below its own starting value, which meant the
+     economy was built to start sliding on quarter one of every run. Three
+     rounds takes the worst drift in the table from 1.67 to under 0.01. */
+  for(let _c=0;_c<3;_c++){
+    for(const k in METRICS)METRICS[k].calib=(METRICS[k].calib||0)+(METRICS[k].value-metricTarget(k));
+    for(let _i=0;_i<2;_i++)for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();
+  }
   // pre-seed lastBalance so fiscal situation severity is correct during approval calibration
   GAME.lastBalance=budgetBalance().balance;
   // APPROVAL CALIBRATION: anchor every bloc so its equilibrium at the inherited
