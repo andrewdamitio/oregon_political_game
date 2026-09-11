@@ -2693,10 +2693,20 @@ const INDICATORS={
     ],
     feedback:{violentCrime:-0.025, propertyCrime:-0.022, drugUse:-0.018, homelessness:-0.010}},
   housingAffordability:{name:"Housing Affordability", icon:"house", value:40,
-    desc:"How accessible Oregon's housing market is to working residents — a composite of homelessness pressure, income inequality, housing production, and land-use supply. Oregon has one of the worst housing deficits in the nation, driven by decades of underbuilding behind urban growth boundaries and stagnant wages. High affordability attracts workers and families; low affordability accelerates homelessness, inequality, and out-migration.",
+    desc:"How accessible Oregon's housing market is to working residents — a composite of growth pressure on cost, income inequality, housing production, and land-use supply. Oregon has one of the worst housing deficits in the nation, driven by decades of underbuilding behind urban growth boundaries and stagnant wages, worsened by every wave of arrivals the state has not built room for. High affordability attracts workers and families; low affordability accelerates homelessness, inequality, and out-migration.",
     derive:()=>{
       let v=45.4;   // (0.4 folded in from the removed disposable-income term so the start value holds)
-      v-=(METRICS.homelessness.value-55)*0.55;     // homelessness is the sharpest signal
+      // COST PRESSURE: what actually raises the price of housing is demand
+      // outrunning supply — people arriving faster than homes get built,
+      // worse the more a restrictive land-use regime keeps supply from
+      // answering it. (Homelessness used to stand in here as "the sharpest
+      // signal" — but homelessness is downstream of unaffordable housing,
+      // not upstream of it, and affordability already feeds homelessness
+      // below: using homelessness as an input here let the two drive each
+      // other lower, a floor with no bottom.)
+      const growthDemand=clamp((INDICATORS.inMigration.value-38)/24,0,1);
+      const tightness=0.5+LANDUSE.index*0.25;   // the same arrivals cost more the tighter supply is held
+      v-=growthDemand*tightness*18;
       v-=(METRICS.inequality.value-50)*0.30;        // inequality squeezes lower-income renters hardest
       // (deliberately NOT driven by disposable income: affordability here is a
       //  housing-cost composite, and its EFFECT on take-home pay is the feedback
@@ -2715,7 +2725,8 @@ const INDICATORS={
     },
     drivers:()=>[
       {name:"⊕ baseline",v:45.4,base:true},
-      {name:ico(METRICS.homelessness.icon)+" Homelessness pressure",v:-(METRICS.homelessness.value-55)*0.55,link:"m_homelessness"},
+      {name:ico(INDICATORS.inMigration.icon)+" Growth demand (arrivals outrunning supply)",
+       v:-clamp((INDICATORS.inMigration.value-38)/24,0,1)*(0.5+LANDUSE.index*0.25)*18,link:"i_inMigration"},
       {name:ico(METRICS.inequality.icon)+" Inequality",v:-(METRICS.inequality.value-50)*0.30,link:"m_inequality"},
       ...(METRICS.gdp&&(1.3-METRICS.gdp.value)>0.05?[{name:ico('chart-down')+" Economic downturn (price softening)",v:Math.min(15,(1.3-METRICS.gdp.value)*6),link:"m_gdp"}]:[]),
       ...(POLICIES.affordableHousing&&effLevelOf(POLICIES.affordableHousing)>0?[{name:ico('house')+" Affordable Housing Bonds",v:effLevelOf(POLICIES.affordableHousing)*10,link:"p_affordableHousing"}]:[]),
@@ -19980,7 +19991,7 @@ function buildWebEdges(){
     businessClimate:["m_taxBurden","m_gasPrice","m_propertyCrime","m_violentCrime","i_inMigration","m_education"],
     tourism:["m_environment","i_downtown"],
     taxGrievance:["m_taxBurden","m_gasPrice"],
-    housingAffordability:["m_homelessness","m_inequality"],
+    housingAffordability:["i_inMigration","m_inequality","landuse"],
     ruralAlienation:["m_loggingRate","m_taxBurden","m_gasPrice"],
     justiceEffectiveness:["p_policing","a_judiciary","a_corrections"],
     transportFunding:["p_gasTax","p_vehicleReg","p_evFee"],
