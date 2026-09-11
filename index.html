@@ -5049,6 +5049,126 @@ function spendTotal(){let t=0;const sp=spendingByArea();for(const k in sp)t+=sp[
    16-quarter cooldown each.
    ============================================================ */
 const DILEMMAS={
+  /* ---- COALITION: the ultimatum ---- */
+  coalUltimatum:{title:"An Ultimatum From Your Own Government", icon:"handshake", cooldown:6,
+    text:()=>{
+      const pid=GAME.coalUlt||coalitionAngriest(); if(!pid)return "";
+      const p=prParty(pid), g=coalitionGrievance(pid);
+      const c=(GAME.legis&&GAME.legis.prCounts)||{};
+      const seats=c[pid]||0;
+      return "The leader of "+p.name+" asked for the meeting, brought two people, and did not sit down for long. "
+        +"They have "+seats+" votes in a chamber where you cannot reach 51 without them, and they are aware of it.\n\n"
+        +(g ? "The complaint is specific and it is one you signed: “"+g.label+"”. They read it back to you from the agreement. "
+            : "The complaint is that the agreement has stopped meaning anything in particular. ")
+        +"What they want is a demonstration this quarter — not a plan, not a working group, something their own people can see. "
+        +"Otherwise they are out, and they would rather be out early and blame you than late and share it.";
+    },
+    influence:()=>{
+      if(!prOn()||!coalitionOn())return -1;
+      const pid=coalitionAngriest(); if(!pid)return -1;
+      GAME.coalUlt=pid;
+      // the further gone they are, the more certain this is
+      return clamp((COAL_WARN-coalitionMood(pid))/16,0.15,1)*0.95;
+    },
+    options:[
+      {label:"Give them the win, and pay for it",
+       text:"You do the thing. Not a gesture at the thing — the thing, this quarter, with your name on it and their leader standing next to you when it is announced. It costs you capital you had other plans for, the other half of your coalition watches you reward a threat, and the partnership is genuinely repaired rather than patched.",
+       apply:()=>{
+         const pid=GAME.coalUlt; if(!pid)return;
+         const p=prParty(pid);
+         GAME.capital=clamp(GAME.capital-12,0,100);
+         if(GAME.coalition&&GAME.coalition.mood)GAME.coalition.mood[pid]=Math.max(coalitionMood(pid),74);
+         // re-baseline what they are measuring you against: you have just
+         // met them, so the clock starts again from here
+         if(GAME.coalition&&GAME.coalition.snap&&GAME.coalition.snap[pid])
+           for(const d of (PR_DEMANDS[pid]||[])){ try{ GAME.coalition.snap[pid][d.id]=d.snap(); }catch(e){} }
+         for(const q of coalitionPartners())if(q!==pid&&GAME.coalition.mood)
+           GAME.coalition.mood[q]=clamp(coalitionMood(q)-7,0,100);
+         createGrudge("v_moderate",-3,0.9,"Gave in to a coalition ultimatum");
+         GAME.mandateShock=(GAME.mandateShock||0)-2;
+         GAME.log.push(ico('handshake')+" Met "+p.short+"'s ultimatum — ◈ 12, and the government holds");
+       }},
+      {label:"Offer them something smaller",
+       text:"A partial payment and a date. It is less than they asked for and everyone in the room knows it, but it is real enough to take back to their caucus, and it moves the argument from this quarter to a later one. Whether that is enough depends on how angry they actually were, rather than on how angry they said they were.",
+       apply:()=>{
+         const pid=GAME.coalUlt; if(!pid)return;
+         const p=prParty(pid);
+         GAME.capital=clamp(GAME.capital-5,0,100);
+         if(GAME.coalition&&GAME.coalition.mood)
+           GAME.coalition.mood[pid]=clamp(coalitionMood(pid)+16,0,100);
+         GAME.log.push(ico('doc')+" Bought time from "+p.short+" — ◈ 5, and the commitments still stand");
+       }},
+      {label:"Tell them to go ahead",
+       text:"You decline. A party that walks out of a government still has to go home and explain why it handed the other side a free run at everything it claims to care about, and the people across the table know that better than you do. Some of them fold when the alternative is real. Some of them do not, and then you find out what a minority governor actually gets to do.",
+       apply:()=>{
+         const pid=GAME.coalUlt; if(!pid)return;
+         const p=prParty(pid);
+         // how much they would actually lose by leaving: a flank party that
+         // hates the other side more than it hates you tends to fold
+         const flank=(prMyParty()==="dem")?"left":"right";
+         const foldOdds=(pid===flank)?0.62:(pid==="centre"?0.30:0.42);
+         if(Math.random()<foldOdds){
+           if(GAME.coalition&&GAME.coalition.mood)
+             GAME.coalition.mood[pid]=clamp(coalitionMood(pid)+21,0,100);
+           GAME.mandateShock=(GAME.mandateShock||0)+4;
+           createGrudge("v_moderate",3,0.9,"Faced down a coalition threat");
+           GAME.log.push(ico('shield')+" Called "+p.short+"'s bluff — they stayed, and everyone saw it");
+         } else {
+           if(GAME.coalition&&GAME.coalition.mood)
+             GAME.coalition.mood[pid]=Math.min(coalitionMood(pid), COAL_WALK-1);
+           GAME.log.push(ico('warning')+" Called "+p.short+"'s bluff — and they were not bluffing");
+         }
+       }},
+    ]},
+  /* ---- COALITION: somebody offers to come in ---- */
+  coalOffer:{title:"An Offer To Join The Government", icon:"handshake", cooldown:8,
+    text:()=>{
+      const pid=GAME.coalOfferId; if(!pid)return "";
+      const p=prParty(pid);
+      const c=(GAME.legis&&GAME.legis.prCounts)||{};
+      const seats=c[pid]||0, now=coalitionSeats(false);
+      const reach=coalitionWouldReach(pid);
+      return "A government that cannot reach 51 is a standing invitation, and "+p.name+" has decided to accept it. "
+        +"They hold "+seats+" seats. You hold "+now+" between you and whoever is already with you"
+        +(reach ? ", and their "+seats+" is exactly what puts a majority on the board." : " — and even with them you would still be short of 51, though a great deal closer.")
+        +"\n\nThey are not doing you a favour and they have not pretended otherwise. The price is the same kind of standing commitment "
+        +"everyone else in the government signed, checked every quarter, and they want it in writing before the week is out.";
+    },
+    influence:()=>{
+      if(!prOn())return -1;
+      if(!GAME.coalition)return -1;
+      if(coalitionSeats(false)>=LEGIS.majH)return -1;   // you already have one
+      const cands=coalitionCandidates(); if(!cands.length)return -1;
+      // prefer one that actually gets you there
+      const reach=cands.filter(coalitionWouldReach);
+      const pick=(reach.length?reach:cands)[Math.floor(Math.random()*(reach.length?reach.length:cands.length))];
+      GAME.coalOfferId=pick;
+      return reach.length?0.75:0.35;
+    },
+    options:[
+      {label:"Sign them up",
+       text:"Their commitments go into the agreement alongside everyone else's and are checked from the day you sign, exactly like the rest. You get the votes. You also get another set of standing conditions on a government that was evidently already hard enough to hold together.",
+       apply:()=>{
+         const pid=GAME.coalOfferId; if(!pid||!GAME.coalition)return;
+         const p=prParty(pid);
+         GAME.coalition.partners.push(pid);
+         GAME.coalition.snap=GAME.coalition.snap||{};
+         GAME.coalition.snap[pid]={};
+         for(const d of (PR_DEMANDS[pid]||[])){ try{ GAME.coalition.snap[pid][d.id]=d.snap(); }catch(e){ GAME.coalition.snap[pid][d.id]=0; } }
+         GAME.coalition.mood=GAME.coalition.mood||{};
+         GAME.coalition.mood[pid]=64;
+         GAME.capital=clamp(GAME.capital-6,0,100);
+         GAME.log.push(ico('handshake')+" "+p.name+" joins the government — "+coalitionSeats(false)+" of "+PR_SEATS);
+       }},
+      {label:"Govern without them",
+       text:"You would rather be short of a majority than hold one on those terms. Every bill goes on costing what a bill costs when you have to find the votes for it one at a time, and you keep the one thing a minority governor still owns outright, which is the ability to say no to people.",
+       apply:()=>{
+         const pid=GAME.coalOfferId;
+         GAME.mandateShock=(GAME.mandateShock||0)+2;
+         createGrudge("v_moderate",2,0.9,"Refused to buy a majority");
+         GAME.log.push(ico('ban')+" Turned down "+(pid?prParty(pid).short:"an offer")+" — you stay a minority government");
+       }},
+    ]},
   austerityMandated:{title:"Austerity Reckoning", icon:"warning",
     text:"The structural deficit has grown beyond what reserves can cover. Oregon's balanced-budget requirement means the legislature must act — there is no option to simply borrow and wait. Every caucus wants someone else's programs cut. You must decide where the pain falls.",
     // Superseded by the Rebalance board, which is what a balanced-budget
@@ -8989,6 +9109,40 @@ function openAusterity(){
   GAME.pendingAusterity={target:austerityTarget(), cuts:{}, rev:{}, _before:{balance:GAME.lastBalance}};
   GAME.log.push(ico('warning')+" Balanced-budget emergency — the legislature is waiting on a stabilization package");
 }
+/* A partner has walked out. What that cost, before you carry on. */
+function drawCoalExit(){
+  const X=GAME.pendingCoalExit; if(!X)return;
+  const card=document.getElementById("coalitionCard"), modal=document.getElementById("coalitionModal");
+  if(!card||!modal){ GAME.pendingCoalExit=null; return; }
+  const p=prParty(X.pid);
+  const c=(GAME.legis&&GAME.legis.prCounts)||{};
+  const lost=c[X.pid]||0;
+  const now=coalitionSeats(false), live=coalitionSeats(true);
+  const st=legisStanding();
+  const broken=(PR_DEMANDS[X.pid]||[]);
+  let terms="";
+  for(const d of broken){
+    let ok=true;
+    try{ const sn=(GAME.coalition&&GAME.coalition.snap&&GAME.coalition.snap[X.pid])||{};
+         ok=!!d.met(sn[d.id]); }catch(e){ ok=true; }
+    terms+='<div class="coal-terms"><span class="'+(ok?"ok":"bad")+'">'
+      +(ok?"\u2713":"\u2717")+' '+d.label+'</span></div>';
+  }
+  card.innerHTML='<div class="sectionhdr">'+ico('ban')+' The Government Has Fallen</div>'
+    +'<div class="sectionsub"><b>'+p.name+'</b> has left the government and taken <b>'+lost+'</b> seats with them. '
+    +'They signed '+broken.length+' commitment'+(broken.length===1?'':'s')+' when they came in, and this is where those stood the day they went:</div>'
+    +'<div class="ebgroup" style="margin:8px 0">'+terms+'</div>'
+    +'<div class="ausr-head"><div><span>Your government was</span><b>'+X.before+'</b></div>'
+    +'<div class="ausr-arrow">\u2192</div>'
+    +'<div><span>It is now</span><b style="color:var(--clay)">'+now+' / '+PR_SEATS+'</b></div></div>'
+    +'<div class="lg-verdict '+st.tier+'" style="margin:12px 0"><b>'+st.label+'.</b> '+st.note+'</div>'
+    +'<div class="fnote">There is no second negotiation with them this parliament — a party that has walked out once does not come back to the same agreement. '
+    +'What is left is whoever else is in the chamber, and whether any of them want something you can still afford to give.</div>'
+    +'<button class="enactbtn" id="coalExitOk" style="margin-top:12px">Carry on \u25b8</button>';
+  modal.classList.remove("hidden");
+  const go=document.getElementById("coalExitOk");
+  if(go)go.onclick=()=>{ GAME.pendingCoalExit=null; modal.classList.add("hidden"); try{render();}catch(e){} };
+}
 /* The negotiation. You are shown every party that is not yours, what it
    would bring, and what it would charge, and you build 51 out of it. */
 function drawCoalition(next){
@@ -12592,6 +12746,9 @@ function totalPolicySpend(){
   return t;
 }
 const COAL_GOOD=55, COAL_WALK=22;
+// far enough gone that they will say so out loud, while there is still
+// something you can do about it
+const COAL_WARN=40;
 function coalitionOn(){ return prOn() && GAME.coalition && GAME.coalition.partners.length>0; }
 function coalitionPartners(){ return coalitionOn() ? GAME.coalition.partners.slice() : []; }
 function coalitionMood(pid){ return (GAME.coalition&&GAME.coalition.mood&&GAME.coalition.mood[pid])||0; }
@@ -12654,17 +12811,51 @@ function tickCoalition(){
     if(C.mood[pid]<COAL_WALK)gone.push(pid);
   }
   for(const pid of gone){
+    const before=coalitionSeats(false);
     C.partners=C.partners.filter(p=>p!==pid);
     C.walked=C.walked||[]; C.walked.push(pid);
     delete C.mood[pid];
     createGrudge("capital",-4);
     GAME.log.push(ico('ban')+" "+prParty(pid).name+" has left the government — "
       +(PR_DEMANDS[pid]||[]).length+" commitments, and you did not keep them");
+    // a government falling is not a log line
+    GAME.pendingCoalExit={pid, before, after:coalitionSeats(false)};
   }
 }
 /* What the partnership is worth in capital a quarter. A contented partner
    is worth real money; a sulking one is a standing cost you are paying for
    nothing. */
+/* The partner closest to walking, if any is close enough to say so. */
+function coalitionAngriest(){
+  if(!coalitionOn())return null;
+  let worst=null, wm=999;
+  for(const pid of coalitionPartners()){
+    const m=coalitionMood(pid);
+    if(m<wm){ wm=m; worst=pid; }
+  }
+  return (worst && wm<COAL_WARN) ? worst : null;
+}
+/* Which commitment they are angriest about — the one to quote back at you. */
+function coalitionGrievance(pid){
+  const rows=coalitionCheck(pid).filter(r=>!r.ok);
+  return rows.length ? rows[0].d : null;
+}
+/* A party outside the government that could plausibly be brought in: not
+   yours, not already a partner, holds seats, and has not already walked out
+   on you this parliament. */
+function coalitionCandidates(){
+  if(!prOn()||!GAME.legis||!GAME.legis.prCounts)return [];
+  const c=GAME.legis.prCounts, mine=prMyParty();
+  const inGov=new Set(coalitionPartners());
+  const walked=new Set((GAME.coalition&&GAME.coalition.walked)||[]);
+  return PR_PARTIES.filter(p=>p.id!==mine&&!inGov.has(p.id)&&!walked.has(p.id)&&(c[p.id]||0)>0)
+                   .map(p=>p.id);
+}
+/* Would adding this party actually build a majority? */
+function coalitionWouldReach(pid){
+  const c=(GAME.legis&&GAME.legis.prCounts)||{};
+  return coalitionSeats(false)+(c[pid]||0) >= LEGIS.majH;
+}
 function coalitionCapital(){
   if(!coalitionOn())return 0;
   const c=(GAME.legis&&GAME.legis.prCounts)||{};
@@ -15247,6 +15438,8 @@ function endTurn(){
   // until the rebalance is signed.
   // A parliament that has just been elected has no government yet, and it
   // cannot do anything until it has one.
+  // A government has just fallen. That outranks everything else on the desk.
+  if(GAME.pendingCoalExit){ drawCoalExit(); return; }
   if(GAME.pendingCoalition){ drawCoalition(); return; }
   if(GAME.pendingAusterity){ drawAusterity(); return; }
   if(GAME.pendingDilemma){GAME.log.push("❖ Resolve the dilemma before ending the quarter");render();return;}
@@ -19489,6 +19682,7 @@ function bootWorld(startId){
   // districts back.
   GAME.prMode=false; _prCompCache=null; _prCompTurn=-1;
   GAME.coalition=null; GAME.pendingCoalition=null; GAME.coalPick=null;
+  GAME.pendingCoalExit=null; GAME.coalUlt=null; GAME.coalOfferId=null;
   LEGIS.senate=30; LEGIS.house=60; LEGIS.superS=18; LEGIS.superH=36;
   LEGIS.majS=16; LEGIS.majH=31; LEGIS.quorumH=40; LEGIS.quorumS=20;
   // the band is set from the world this boot produces, so the pre-roll below
