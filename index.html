@@ -1188,6 +1188,7 @@
   .lg-verdict.majority{border-left-color:var(--gold)}
   .lg-verdict.hung,.lg-verdict.minorityPlus{border-left-color:#6b5b95}
   .lg-verdict.split,.lg-verdict.minority{border-left-color:var(--clay)}
+  .lg-verdict.stranded{border-left-color:var(--clay);background:color-mix(in srgb,var(--clay) 7%,var(--paper))}
   /* ---- the real district maps, one per chamber ---- */
   .coal-p{border:1px solid var(--rule);border-radius:6px;padding:9px 11px;margin:8px 0;cursor:pointer;
     background:var(--paper);transition:border-color .12s,background .12s}
@@ -12593,7 +12594,8 @@ function coalitionBriefHTML(){
   if(!C||!C.partners.length){
     if(GAME.pendingCoalition)
       return `<div class="rrow"><span class="rlabel" style="color:var(--gold)">${ico('handshake')} Government</span><span class="rval" style="color:var(--gold)">not yet formed</span></div>`;
-    return `<div class="rrow"><span class="rlabel">Government</span><span class="rval" style="color:var(--clay)">minority — no partners</span></div>`;
+    const left=coalitionCandidates();
+    return `<div class="rrow"><span class="rlabel">Government</span><span class="rval" style="color:var(--clay)">${left.length?"minority — no partners":"stranded — nobody left to ask"}</span></div>`;
   }
   let h="";
   for(const pid of C.partners){
@@ -13985,10 +13987,27 @@ function legisStanding(L){
         label:"A coalition that does not reach 51",
         note:"Your government is "+paper+" of "+PR_SEATS+". You will be buying the rest of every majority one member at a time."};
     }
-    if(GAME.coalition && !GAME.coalition.partners.length && (GAME.coalition.walked||[]).length)
-      return {tier:"minority", cap:-3.6,
+    /* No government. Whether that is survivable turns entirely on whether
+       there is anyone left in the chamber who would come in — the
+       offer-to-join event needs somebody to make the offer. */
+    if(GAME.coalition && !GAME.coalition.partners.length){
+      const walked=(GAME.coalition.walked||[]);
+      const left=coalitionCandidates();
+      // "A, B and C", not "A and B and C" — four parties walking out is the
+      // worst night of the term and it should not read like a list of ingredients.
+      const nm=walked.map(p=>prParty(p).name);
+      const joined=nm.length<=1 ? (nm[0]||"") : nm.slice(0,-1).join(", ")+" and "+nm[nm.length-1];
+      const who=walked.length ? joined+(walked.length===1?" walked out":" have all walked out") : "You never formed a government";
+      if(!left.length)
+        return {tier:"stranded", cap:-8.0,
+          label:"No government, and nobody left to ask",
+          note:who+", and every other party in the chamber has either gone with them or will not have you. There is no majority available at any price for the rest of this parliament. What you have left is the veto, the executive order and the budget you can write alone — and the capital to do any of it has largely stopped arriving."};
+      return {tier:"minority", cap:-4.4,
         label:"Your government collapsed",
-        note:(GAME.coalition.walked||[]).map(p=>prParty(p).name).join(" and ")+" walked out, and there is no other 51 in this chamber. You have the veto and the executive order until the next election."};
+        note:who+", and there is no 51 on the board tonight. "
+          +left.map(p=>prParty(p).short).join(" and ")+" — still "
+          +(left.length===1?"sits":"sit")+" outside the government and has not ruled you out. Until somebody comes in you are governing by veto and executive order."};
+    }
     if(own>=LEGIS.majH) return {tier:"super", cap:2.0,
       label:"An outright majority, on your own",
       note:"You hold "+own+" of "+PR_SEATS+" without a coalition partner — all but unheard of under proportional representation. Nobody has to be asked."};
