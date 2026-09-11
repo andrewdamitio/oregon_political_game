@@ -8562,6 +8562,19 @@ function approvalTarget(sid, raw){
       // per-group extra reaction (a wildfire hits rural/timber harder, etc.)
       if(s.groupMood&&s.groupMood[sid]!==undefined)sitMood+=s.groupMood[sid]*sev;
     }
+    /* OUTRAGE SATURATES. Summing every active crisis linearly meant the
+       approval cost of governing was just a count: the game opens with seven
+       inherited crises and accumulates three to five more across a term, and
+       because boot calibration only ever absorbed the opening seven, every
+       later one was a permanent uncompensated hit. Measured, this term alone
+       accounted for about 90% of the approval a governor loses — cynicism,
+       complacency and grudges were all sitting at zero.
+       Voters do not work that way. A state with ten problems is judged as
+       "things are bad", not as ten times worse than a state with one. The sum
+       is compressed so each further crisis lands harder on a quiet state than
+       on one already in trouble, which is also what makes fixing the worst of
+       them worth doing rather than hopeless. */
+    sitMood = SIT_SATURATE*Math.tanh(sitMood/SIT_SATURATE);
     // national political mood: a tide toward or away from the KIND of politics
     // you are practising — measured against your enacted record, not an assumed
     // party. Blocs close to your record ride the tide with you; distant blocs
@@ -8611,6 +8624,9 @@ function partisanFloor(sid){
   const prox=1-(Math.abs(sim.ideology.economic-g.economic)+Math.abs(sim.ideology.social-g.social))/2.4;
   return +(base*clamp(prox,0,1)).toFixed(2);
 }
+/* How much accumulated crisis a governor can be blamed for before the next
+   one stops registering. Tuned empirically — see the commit that added it. */
+const SIT_SATURATE=14;
 function tickApproval(){
   for(const sid in SIMULANTS){
     const sim=SIMULANTS[sid];
