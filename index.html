@@ -6468,11 +6468,17 @@ const SITUATIONS={
     metricEffect:{gdp:-0.1}, indicatorEffect:{downtown:-6, businessClimate:-4, tourism:-5, inMigration:-3}, moodMag:1,
     groupMood:{businessClass:-8,suburban:-5,wealthy:-4,moderate:-2,blueCollar:-2}},
   budgetShortfall:{name:"Budget Shortfall", kind:"bad", category:"condition",
-    desc:"The General Fund is running a structural deficit.",
+    desc:"The General Fund is spending more than it takes in, and Article IX §2 does not let Oregon carry that. The legislature cannot adjourn on an unbalanced budget, so a shortfall this size puts the <b>Emergency Budget Stabilization</b> board in front of you — the cuts and the revenue that close it are yours to choose, and the bill for choosing them is paid there.\n\nThis condition is the warning, not the punishment. It costs you nothing by itself; what costs you is the package you sign, and the constituency behind every line of it.",
     trigger:()=>GAME.lastBalance<-1.5, clear:()=>GAME.lastBalance>-0.5,
     watch:{metric:"balance", startAt:-1.5, clearAt:-0.5, badHigh:false},
-    metricEffect:{}, moodAxes:{economic:0.3,govSize:0.3}, moodMag:4,
-    groupMood:{wealthy:-3,businessClass:-2,rural:-2}},
+    // No standing mood cost. This used to carry the heaviest mood weight in
+    // the table and a permanent bite out of three constituencies for a
+    // decision it never actually put in front of you. The shortfall now opens
+    // the stabilization board, and the popularity is lost there — on the
+    // programmes you cut and the taxes you raise, to the people you cut them
+    // from.
+    metricEffect:{}, moodAxes:{}, moodMag:0,
+    groupMood:{}},
   inequalityUnrest:{name:"Inequality Unrest", kind:"bad", category:"condition",
     desc:"A widening gap between rich and poor is fueling resentment and protest.",
     trigger:()=>METRICS.inequality.value>74, clear:()=>METRICS.inequality.value<64, onClear:{capital:3},
@@ -8922,8 +8928,13 @@ function austerityLineCost(L){
 }
 /* The hole the rebalance has to close, in $B/yr. Big enough to hurt, and it
    grows with the debt you let accumulate. */
+/* How much has to be found. A first shortfall is a small, tractable package;
+   a decade of accumulated debt behind it is not. Both the hole in this
+   year's budget and the pile behind it count, so the board scales from a
+   half-billion nuisance to something that will define your term. */
 function austerityTarget(){
-  return +clamp(0.55 + (GAME.structuralDebt||0)*0.42, 0.55, 3.2).toFixed(2);
+  const gap=Math.max(0, -(GAME.lastBalance||0));
+  return +clamp(0.40 + (GAME.structuralDebt||0)*0.42 + gap*0.30, 0.40, 3.2).toFixed(2);
 }
 function austeritySaved(cuts){
   let v=0;
@@ -13865,9 +13876,14 @@ function _runTicks(){
   // the crisis has actually bitten, the legislature stops waiting.
   // Not in the first year: the opening slate is already a hole, and a
   // rebalance in quarter four is a reckoning for somebody else’s budget.
-  if(!GAME.pendingAusterity && GAME.turn>=8 && GAME.activeSituations.fiscalCrisis
-     && (GAME.structuralDebt||0) > fiscalCrisisThreshold()*1.15
-     && GAME.turn-(GAME.lastAusterity??-99) >= 8) openAusterity();
+  // A shortfall is what summons the board. It used to wait on the far deeper
+  // structural-debt crisis, so a governor could run shortfall after shortfall
+  // and never once be handed the screen built for fixing one.
+  if(!GAME.pendingAusterity && GAME.turn>=6
+     && (GAME.activeSituations.budgetShortfall
+         || (GAME.activeSituations.fiscalCrisis
+             && (GAME.structuralDebt||0) > fiscalCrisisThreshold()*1.15))
+     && GAME.turn-(GAME.lastAusterity??-99) >= 6) openAusterity();
   tickIndicators(); tickGrudges(); tickCynComp(); tickExpectations(); tickGroundGame(); tickCountyCamp();
   tickBallotCampaign();
   tickApproval(); tickVoterApproval(); checkActivistTriggers();
@@ -16642,7 +16658,35 @@ function renderDetail(){
       h+=situationProgressHTML(sid);
       // ---- what's improving or worsening the crisis ----
       if(isInd){
-        // contributors to an indicator: policies/agencies with indicatorEffects on it
+        // WHAT IS FEEDING IT. A derived indicator already computes its own
+        // breakdown for its detail page, and that is the actual diagnosis:
+        // Corporate Exodus watches Business Climate, which is being dragged
+        // down by the tax burden, property crime, out-migration and the state
+        // of downtown — none of which is a policy with an indicatorEffect, so
+        // none of which used to appear anywhere on this page.
+        if(wm && typeof wm.drivers==="function"){
+          let ds=[];
+          try{ ds=wm.drivers()||[]; }catch(e){ ds=[]; }
+          const live=ds.filter(d=>d&&!d.base&&Math.abs(d.v)>0.25);
+          if(live.length){
+            live.sort((a,b)=>{
+              const ag=indDeltaGood(s.watch.indicator,a.v)?1:0, bg=indDeltaGood(s.watch.indicator,b.v)?1:0;
+              return ag-bg||Math.abs(b.v)-Math.abs(a.v);
+            });
+            const base=ds.find(d=>d&&d.base);
+            h+=`<div class="ebgroup-label">What is feeding ${nm} right now</div><div class="ebgroup">`;
+            const sc=Math.max(0.5,...live.map(d=>Math.abs(d.v)));
+            for(const d of live){
+              const good=indDeltaGood(s.watch.indicator,d.v);
+              h+=effectBar(d.name+(good?" — holding it up":" — dragging it down"),d.v,sc,
+                {color:good?'var(--good)':'var(--clay)',link:d.link,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' pts'});
+            }
+            h+=`</div><div class="fnote" style="margin-top:-2px">${nm} currently reads <b>${curTxt}</b>`
+              +(base?` against a baseline of ${base.v.toFixed(0)}`:"")
+              +`. These are the standing forces on it — move any of them and this number moves with it.</div>`;
+          }
+        }
+        // and what you can do about it: the levers that name it directly
         const ik=s.watch.indicator, contribs=[];
         for(const id in POLICIES){const p=POLICIES[id];if(p.indicatorEffects&&p.indicatorEffects[ik]){const e=p.indicatorEffects[ik]*policyLevel(p);if(Math.abs(e)>0.05)contribs.push({name:ico(p.icon)+' '+p.name,e,link:"p_"+id});}}
         for(const id in AGENCIES){const a=AGENCIES[id];if(a.indicatorEffects&&a.indicatorEffects[ik]){const e=a.indicatorEffects[ik]*(a.funding??0.5);if(Math.abs(e)>0.05)contribs.push({name:ico(a.icon)+' '+a.name,e,link:"a_"+id});}
@@ -16650,7 +16694,7 @@ function renderDetail(){
         if(contribs.length){
           const iEasing=v=>indDeltaGood(ik,v);
           contribs.sort((a,b)=>{const ai=iEasing(a.e)?0:1,bi=iEasing(b.e)?0:1;return ai-bi||Math.abs(b.e)-Math.abs(a.e);});
-          h+=`<div class="ebgroup-label">${sMoveHdr}</div><div class="ebgroup">`;
+          h+=`<div class="ebgroup-label">${(wm&&typeof wm.drivers==="function")?("Levers that name "+nm+" directly"):sMoveHdr}</div><div class="ebgroup">`;
           const scale=Math.max(0.5,...contribs.map(c=>Math.abs(c.e)));
           for(const c of contribs)h+=effectBar(c.name+(iEasing(c.e)?" — easing":" — worsening"),c.e,scale,{color:iEasing(c.e)?'var(--good)':'var(--clay)',link:c.link,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' pts'});
           h+=`</div>`;
