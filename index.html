@@ -567,6 +567,10 @@
   .aus-row .aus-save.on{color:var(--clay);font-weight:700}
   .aus-row .aus-save.rev{color:var(--moss);font-weight:700}
   @media(max-width:560px){ .aus-row{grid-template-columns:1fr 92px 66px} }
+  .aus-pace{display:flex;gap:6px;flex-wrap:wrap}
+  .aus-pbtn{flex:1 1 0;min-width:96px;padding:7px 8px;border:1px solid var(--ink);background:var(--paper);color:var(--ink);
+    font-size:12px;border-radius:var(--radius);cursor:pointer}
+  .aus-pbtn.on{background:var(--ink);color:var(--paper)}
   .fcard-btn.on:hover{background:var(--ink)}
   .fcard-btn .ico{width:.95em;height:.95em;vertical-align:-.12em;margin-right:.25em}
   .fbar{position:relative;height:8px;background:var(--paper-2);border-radius:var(--radius);margin:6px 0}
@@ -9211,20 +9215,64 @@ const AUS_SURPLUS=0.45;          // the margin above zero a package has to clear
 // will not adjourn without a package. This is what the old Budget Shortfall
 // condition triggered on; it now opens the board directly.
 const AUS_TRIGGER=-1.5;
-function austerityTarget(){
-  const gap=Math.max(0, -(GAME.lastBalance||0));
+// What a package has to reach: this year's hole, a working surplus on top,
+// and the cost of carrying the debt. A surplus you already run counts toward
+// it — the board asks for a surplus, never a payoff.
+function austerityWant(){
   const carry=(GAME.structuralDebt||0)*0.05;   // debt service, not repayment
-  return +clamp(gap+AUS_SURPLUS+carry, 0.45, 4.2).toFixed(2);
+  return Math.max(0, AUS_SURPLUS+carry-(GAME.lastBalance||0));
+}
+// Everything on the board at once, measured.
+function austerityCeiling(){
+  const cuts={}; for(const L of AUSTERITY_LINES)cuts[L.id]=L.maxCut;
+  let rv=0; for(const R of REVENUE_LINES)rv+=R.yieldFull;
+  return austeritySaved(cuts)+rv*revenuePassFrac();
+}
+// Never more than the board can reach: a target nobody can hit is not a
+// choice, it is a locked screen.
+function austerityTarget(){
+  const cap=Math.max(0.45, Math.min(4.2, austerityCeiling()*0.9));
+  return +clamp(austerityWant(), 0.45, cap).toFixed(2);
+}
+/* Run fn with a set of cuts applied to the real levers, then put them back.
+   The levers are what the budget reads, so this is the only honest way to
+   price a cut: an agency's funding slider moves its variable spending and
+   never its floor, which a flat "cost × cut%" silently counted as saved. */
+function _withAusterityCuts(cuts, fn){
+  const undo=[];
+  for(const L of AUSTERITY_LINES){
+    const f=(cuts&&cuts[L.id])||0; if(f<=0.001)continue;
+    if(L.kind==="agency"){ const a=AGENCIES[L.id]; if(!a)continue;
+      undo.push([a,"funding",a.funding]); a.funding=clamp((a.funding??0.5)*(1-f),0.05,1); }
+    else { const p=POLICIES[L.id]; if(!p)continue; const k=p.mechanic==="intensity"?"intensity":"value";
+      undo.push([p,k,p[k]]); p[k]=clamp((p[k]??0.5)*(1-f),0.02,1); }
+  }
+  try{ return fn(); } finally { for(let i=undo.length-1;i>=0;i--){ const [o,k,v]=undo[i]; o[k]=v; } }
 }
 function austeritySaved(cuts){
-  let v=0;
-  for(const L of AUSTERITY_LINES)v+=austerityLineCost(L)*((cuts&&cuts[L.id])||0);
-  return v;
+  const b0=budgetBalance().balance;
+  return Math.max(0, _withAusterityCuts(cuts, ()=>budgetBalance().balance)-b0);
+}
+/* THE PACE. A package can land at once or be phased in, an equal share a
+   quarter. Phasing spreads the anger; the part of the hole it has not
+   reached yet is borrowed in the meantime. */
+const AUS_PACES=[
+  {n:1, label:"All at once"},
+  {n:4, label:"Over a year"},
+  {n:8, label:"Over two years"},
+];
+const AUS_PACE_DEFAULT=4;
+// Borrowing while a plan phases in: a share lands at signing and one more
+// each quarter, so quarter k after signing sees (k+1)/n of the package.
+function glideBorrowing(b0, S, n){
+  let d=0;
+  for(let k=2;k<=n;k++)d+=Math.max(0, -(b0+S*k/n))/4;
+  return d;
 }
 /* Open the board. Blocks the quarter until it is signed. */
 function openAusterity(){
   if(GAME.pendingAusterity)return;
-  GAME.pendingAusterity={target:austerityTarget(), cuts:{}, rev:{}, _before:{balance:GAME.lastBalance}};
+  GAME.pendingAusterity={target:austerityTarget(), want:+austerityWant().toFixed(2), ceiling:+austerityCeiling().toFixed(2), cuts:{}, rev:{}, pace:AUS_PACE_DEFAULT, _before:{balance:GAME.lastBalance}};
   GAME.log.push(ico('warning')+" Balanced-budget emergency — the legislature is waiting on a stabilization package");
 }
 /* A partner has walked out. What that cost, before you carry on. */
@@ -9333,15 +9381,18 @@ function drawAusterity(){
   const card=document.getElementById("austerityCard"), modal=document.getElementById("austerityModal");
   if(!card||!modal)return;
   if(!A.rev)A.rev={};
+  if(!A.pace)A.pace=AUS_PACE_DEFAULT;
+  // what each line can give at most, measured once per board
+  if(!A._max){ A._max={}; for(const L of AUSTERITY_LINES)A._max[L.id]=austeritySaved({[L.id]:L.maxCut}); }
   const cutTot=austeritySaved(A.cuts), revTot=austerityRaised(A.rev);
   const saved=cutTot+revTot, need=A.target;
   const pct=clamp(saved/need,0,1), done=saved>=need-0.001;
   let rows="";
   for(const L of AUSTERITY_LINES){
-    const cost=austerityLineCost(L), f=(A.cuts[L.id]||0);
-    const cut=cost*f;
+    const f=(A.cuts[L.id]||0);
+    const cut=f>0.001?austeritySaved({[L.id]:f}):0;
     rows+='<div class="aus-row"><div><div class="aus-n">'+ico(L.icon)+' <b>'+L.label+'</b> '
-      +'<span style="color:var(--muted-3)">$'+cost.toFixed(2)+'B/yr</span></div>'
+      +'<span style="color:var(--muted-3)">up to $'+A._max[L.id].toFixed(2)+'B/yr</span></div>'
       +'<div class="aus-sub">'+L.note+'</div></div>'
       +'<input type="range" min="0" max="'+Math.round(L.maxCut*100)+'" step="1" value="'+Math.round(f*100)+'" data-auscut="'+L.id+'">'
       +'<div class="aus-save'+(f>0?' on':'')+'">'+(f>0?('−'+Math.round(f*100)+'%<br><span style="font-size:10.5px">$'+cut.toFixed(2)+'B</span>'):'—')+'</div></div>';
@@ -9362,6 +9413,13 @@ function drawAusterity(){
     +'<div class="aus-target"><span>Still to find</span><b style="color:'+(done?'var(--good)':'var(--clay)')+'">$'+Math.max(0,need-saved).toFixed(2)+'B</b>'
       +'<span style="font-family:var(--font-data);font-size:12px;color:var(--muted-2)">$'+saved.toFixed(2)+'B of $'+need.toFixed(2)+'B</span></div>'
     +'<div class="aus-bar"><i class="'+(done?'done':'')+'" style="width:'+(pct*100).toFixed(1)+'%"></i></div>'
+    +((A.want||0)>A.target+0.05?'<div class="fnote" style="margin:-8px 0 12px">Closing the hole with a working surplus on top would take <b>$'+A.want.toFixed(2)+'B</b>. Everything on this board together reaches about <b>$'+(A.ceiling||0).toFixed(2)+'B</b>, so the legislature is asking for what it can actually pass. The rest has to come from growth, or from policy.</div>':'')
+    +'<div class="ebgroup-label" style="margin-top:4px">Pace</div>'
+    +'<div class="aus-pace">'+AUS_PACES.map(p=>'<button class="aus-pbtn'+(p.n===A.pace?' on':'')+'" data-auspace="'+p.n+'">'+p.label+'</button>').join('')+'</div>'
+    +'<div class="fnote" style="margin:6px 0 4px">'+(A.pace===1
+      ?'Every cut and every tax lands this quarter. The borrowing stops at once, and the whole bill arrives at once: every constituency on the list takes its full hit in the same quarter.'
+      :'A '+(A.pace===4?'quarter':'an eighth')+' of the package lands now and another each quarter after, fully in by <b>'+turnLabel(GAME.turn+A.pace-1)+'</b>. Nobody takes the whole package in one quarter, and while the plan is in force the legislature makes no forced cuts on top of it. But the part of the hole not yet closed is still borrowed: at what you have written, about <b>$'+glideBorrowing(A._before&&A._before.balance!=null?A._before.balance:(GAME.lastBalance||0), saved, A.pace).toFixed(2)+'B</b> more on the debt before it is fully in.')
+      +'</div>'
     +'<div class="ebgroup-label" style="margin-top:14px">Cuts</div>'
     +rows
     +'<div class="fnote" style="margin-top:8px">Cuts are real and they stay: each one moves that programme’s funding lever, and it stays there until you fund it back. Beyond the money, a deep package costs you the constituency for every line you touch and it costs the state <b>capacity</b> — the people who make the machine work are the first thing a cut reaches.</div>'
@@ -9370,7 +9428,7 @@ function drawAusterity(){
     +revRows
     +'<div class="fnote" style="margin-top:8px">And revenue is not free money. Every dollar raised in an emergency lands on <b>Tax Burden</b>, <b>Business Climate</b>, <b>In-Migration</b> and <b>GDP</b> — the statistics next year’s budget is built on. Closing this hole with taxes makes the next one bigger. That is the trade, and it is why nobody does this instead of governing.</div>'
     +'<button class="enactbtn" id="ausGo" style="margin-top:12px"'+(done?'':' disabled')+'>'
-      +(done?('Sign the package — $'+cutTot.toFixed(2)+'B cut'+(revTot>0.005?(', $'+revTot.toFixed(2)+'B raised'):'')+' ▸'):'Find $'+Math.max(0,need-saved).toFixed(2)+'B more')+'</button>';
+      +(done?('Sign the package — $'+cutTot.toFixed(2)+'B cut'+(revTot>0.005?(', $'+revTot.toFixed(2)+'B raised'):'')+(A.pace>1?(', over '+A.pace+' quarters'):'')+' ▸'):'Find $'+Math.max(0,need-saved).toFixed(2)+'B more')+'</button>';
   modal.classList.remove("hidden");
   card.querySelectorAll('[data-auscut]').forEach(el=>el.addEventListener('input',e=>{
     const id=e.currentTarget.dataset.auscut;
@@ -9382,6 +9440,10 @@ function drawAusterity(){
     A.rev[id]=(+e.currentTarget.value)/100;
     drawAusterity();
   }));
+  card.querySelectorAll('[data-auspace]').forEach(el=>el.addEventListener('click',e=>{
+    A.pace=+e.currentTarget.dataset.auspace||1;
+    drawAusterity();
+  }));
   const go=document.getElementById("ausGo");
   if(go&&!go.disabled)go.onclick=()=>applyAusterity();
 }
@@ -9389,69 +9451,92 @@ function drawAusterity(){
    programme you cut remembers. */
 function applyAusterity(){
   const A=GAME.pendingAusterity; if(!A)return;
+  const pace=Math.max(1, A.pace||1);
   const cutTot=austeritySaved(A.cuts), revTot=austerityRaised(A.rev||{});
-  const saved=cutTot+revTot;
-  let depth=0, touched=0;
+  const before=A._before||{};
+  // The plan. Levers are remembered as they stood tonight, so every share
+  // cuts the same slice of the same base whatever else happens meanwhile —
+  // it is law, and it keeps landing until it is fully in.
+  const plan={n:pace, k:0, cuts:{}, rev:{}, base:{}, revTot, cutTot, from:GAME.turn};
+  let depth=0, touched=0, revTouched=0;
   for(const L of AUSTERITY_LINES){
     const f=A.cuts[L.id]||0; if(f<=0.001)continue;
-    touched++; depth+=f;
-    // move the real lever, proportionally
-    if(L.kind==="agency"){
-      const a=AGENCIES[L.id];
-      if(a)a.funding=+clamp((a.funding??0.5)*(1-f), 0.05, 1).toFixed(3);
-    } else {
-      const p=POLICIES[L.id];
-      if(p){
-        if(p.mechanic==="intensity")p.intensity=+clamp((p.intensity??0.5)*(1-f),0.02,1).toFixed(3);
-        else p.value=+clamp((p.value??0.5)*(1-f), 0.02, 1).toFixed(3);
-      }
-    }
-    // the constituency, in proportion to how deep you went
-    const scale=f/Math.max(0.01,L.maxCut);
-    for(const b in (L.blocs||{}))createGrudge("v_"+b, L.blocs[b]*scale, 0.91, "Cut in the rebalance: "+L.label);
-    for(const mk in (L.metrics||{}))createGrudge("m_"+mk, L.metrics[mk]*scale, 0.9, "Cut in the rebalance: "+L.label);
+    touched++; depth+=f; plan.cuts[L.id]=f;
+    if(L.kind==="agency"){ const a=AGENCIES[L.id]; if(a)plan.base[L.id]=a.funding??0.5; }
+    else { const p=POLICIES[L.id]; if(p)plan.base[L.id]=p.mechanic==="intensity"?(p.intensity??0.5):(p.value??0.5); }
   }
-  // REVENUE. What passes closes the hole; what it does to the economy is
-  // exactly why this is not the easy way out.
-  let revDepth=0, revTouched=0;
-  for(const R of REVENUE_LINES){
-    const f=(A.rev&&A.rev[R.id])||0; if(f<=0.001)continue;
-    revTouched++; revDepth+=f;
-    for(const b in (R.blocs||{}))createGrudge("v_"+b, R.blocs[b]*f, 0.92, "Emergency revenue: "+R.label);
-    for(const mk in (R.metrics||{}))createGrudge("m_"+mk, R.metrics[mk]*f, 0.93, "Emergency revenue: "+R.label);
-    for(const ik in (R.inds||{}))createGrudge("i_"+ik, R.inds[ik]*f, 0.93, "Emergency revenue: "+R.label);
-  }
-  // THE MONEY. The cuts above already moved the real levers, so the saving is
-  // in next quarter's budget by construction; the taxes are booked here and
-  // collected every quarter from now on. What this does NOT do is retire the
-  // accumulated debt — that comes down out of the surplus you now run, which
-  // is the whole point of being asked for a surplus rather than a payoff.
-  GAME.emergencyRevenue=+((GAME.emergencyRevenue||0)+revTot).toFixed(3);
-  GAME.deficitStreak=0;
-  // STATE CAPACITY. A cut reaches the people who run the machine first, so
-  // the apparatus gets slower and more expensive per unit of service exactly
-  // when it is being asked to do the same job with less.
-  const avg=touched?depth/touched:0;
-  // Real, and painful, but not a death spiral: overhead above 95 already
-  // inflates every programme area, so a rebalance that pushed it to the
-  // ceiling would make next quarter’s hole bigger than the one you just closed.
-  createGrudge("i_adminOverhead", 2.5+avg*12, 0.92, "Stabilization — capacity cut to the bone");
-  createGrudge("i_digitization", -(1.5+avg*6), 0.92, "Stabilization — modernisation shelved");
-  // and the act itself
+  for(const R of REVENUE_LINES){ const f=(A.rev&&A.rev[R.id])||0; if(f>0.001){ revTouched++; plan.rev[R.id]=f; } }
+  plan.avg=touched?depth/touched:0;
+  // the act itself, once, the night it is signed
   createGrudge("v_moderate", -3, 0.9, "Presided over an emergency budget");
   createGrudge("v_conservative", 3, 0.9, "Balanced the budget with cuts");
   createGrudge("v_libertarian", 2, 0.9, "Balanced the budget with cuts");
   GAME.mandateShock=(GAME.mandateShock||0)-3;
   shiftCompass(0.8,0);
+  GAME.deficitStreak=0;
+  GAME.consolidation=plan;
+  consolidationShare();                 // the first share lands tonight
   GAME.log.push(ico('scissors')+" Emergency budget stabilization signed — $"+cutTot.toFixed(2)+"B cut across "
-    +touched+" programme"+(touched===1?"":"s")+(revTot>0.005?(", $"+revTot.toFixed(2)+"B raised from "+revTouched+" tax"+(revTouched===1?"":"es")):""));
+    +touched+" programme"+(touched===1?"":"s")+(revTot>0.005?(", $"+revTot.toFixed(2)+"B raised from "+revTouched+" tax"+(revTouched===1?"":"es")):"")
+    +(pace>1?(", phased over "+pace+" quarters"):""));
   GAME.lastAusterity=GAME.turn;
-  // what it did, before you go back to governing
-  const before=A._before||{};
   GAME.pendingAusterity=null;
-  try{ showAusterityResult({cutTot, revTot, touched, revTouched, lines:A.cuts, rev:A.rev, before}); }
+  try{ showAusterityResult({cutTot, revTot, touched, revTouched, lines:A.cuts, rev:A.rev, before, pace, avg:plan.avg}); }
   catch(e){ const m=document.getElementById("austerityModal"); if(m)m.classList.add("hidden"); }
   try{render();}catch(e){}
+}
+// Digitization points a package costs, before decay, by how deep it cuts.
+function austerityCapacityCost(avg){ return 0.6+(avg||0)*2.5; }
+/* One share of a signed plan: the same slice of every lever, the same slice
+   of the taxes, and the anger that goes with that slice. A plan signed "all
+   at once" is a single share of the whole thing. */
+function consolidationShare(){
+  const C=GAME.consolidation; if(!C)return;
+  const sh=1/Math.max(1,C.n);
+  C.k=(C.k||0)+1;
+  for(const L of AUSTERITY_LINES){
+    const f=(C.cuts&&C.cuts[L.id])||0; if(f<=0.001)continue;
+    const step=(C.base[L.id]??0.5)*f*sh;
+    if(L.kind==="agency"){
+      const a=AGENCIES[L.id];
+      if(a)a.funding=+clamp((a.funding??0.5)-step, 0.05, 1).toFixed(3);
+    } else {
+      const p=POLICIES[L.id];
+      if(p){ const key=p.mechanic==="intensity"?"intensity":"value";
+        p[key]=+clamp((p[key]??0.5)-step, 0.02, 1).toFixed(3); }
+    }
+    // the constituency, in proportion to how deep this share goes
+    const scale=f/Math.max(0.01,L.maxCut)*sh;
+    for(const b in (L.blocs||{}))createGrudge("v_"+b, L.blocs[b]*scale, 0.91, "Cut in the rebalance: "+L.label);
+    for(const mk in (L.metrics||{}))createGrudge("m_"+mk, L.metrics[mk]*scale, 0.9, "Cut in the rebalance: "+L.label);
+  }
+  // REVENUE. What passed closes the hole; what it does to the economy is
+  // exactly why this is not the easy way out.
+  for(const R of REVENUE_LINES){
+    const f=((C.rev&&C.rev[R.id])||0)*sh; if(f<=0.0001)continue;
+    for(const b in (R.blocs||{}))createGrudge("v_"+b, R.blocs[b]*f, 0.92, "Emergency revenue: "+R.label);
+    for(const mk in (R.metrics||{}))createGrudge("m_"+mk, R.metrics[mk]*f, 0.93, "Emergency revenue: "+R.label);
+    for(const ik in (R.inds||{}))createGrudge("i_"+ik, R.inds[ik]*f, 0.93, "Emergency revenue: "+R.label);
+  }
+  // THE MONEY. The cuts above moved the real levers, so the saving is in the
+  // budget by construction; the taxes are booked here and collected every
+  // quarter from now on. None of it retires the accumulated debt — that comes
+  // down out of the surplus the plan leaves, which is the point of asking for
+  // a surplus rather than a payoff.
+  GAME.emergencyRevenue=+((GAME.emergencyRevenue||0)+(C.revTot||0)*sh).toFixed(3);
+  // STATE CAPACITY. A cut reaches the modernisation budget first — the
+  // system upgrade that was going to happen next year does not. That is the
+  // cost, and it is kept modest on purpose: Administrative Overhead starts at
+  // the knee of the strain curve, where every point inflates every programme
+  // by 1.4%, so a package that pushed overhead up would spend its own savings.
+  // (It used to: a +7-point overhead peak clawed back most of a typical
+  // package within the year.) The cuts lower overhead by themselves, since
+  // it is derived from what the state spends.
+  if((C.avg||0)>0)createGrudge("i_digitization", -austerityCapacityCost(C.avg)*sh, 0.92, "Stabilization — modernisation shelved");
+  if(C.k>=C.n){
+    if(C.n>1)GAME.log.push(ico('scissors')+" The stabilization plan is fully in");
+    GAME.consolidation=null;
+  }
 }
 /* THE RESULT. A stabilization package is the biggest single decision most
    terms contain, and its consequences used to be invisible until they turned
@@ -9461,7 +9546,12 @@ function showAusterityResult(R){
   if(!card||!modal)return;
   const bal=budgetBalance();
   const was=R.before.balance==null?GAME.lastBalance:R.before.balance;
-  const fixed=bal.balance>=0;
+  const pace=Math.max(1,R.pace||1);
+  // where the budget lands once every share is in, holding the rest still
+  const proj=bal.balance+(R.cutTot+R.revTot)*(1-1/pace);
+  const fixed=proj>=0;
+  const glide=glideBorrowing(was, R.cutTot+R.revTot, pace);
+  const debtAt=(GAME.structuralDebt||0)+glide;
   /* every statistic the package touched, netted across its lines */
   const mAgg={}, bAgg={}, iAgg={};
   for(const L of AUSTERITY_LINES){
@@ -9476,7 +9566,7 @@ function showAusterityResult(R){
     for(const b in (T.blocs||{}))bAgg[b]=(bAgg[b]||0)+T.blocs[b]*f;
     for(const ik in (T.inds||{}))iAgg[ik]=(iAgg[ik]||0)+T.inds[ik]*f;
   }
-  iAgg.adminOverhead=(iAgg.adminOverhead||0)+2.5;
+  if((R.avg||0)>0)iAgg.digitization=(iAgg.digitization||0)-austerityCapacityCost(R.avg);
   // adminOverhead runs the opposite way to everything else on this list —
   // more of it is worse, not better
   const badHigh={adminOverhead:true, taxGrievance:true};
@@ -9496,15 +9586,24 @@ function showAusterityResult(R){
   h+='<div class="ausr-head'+(fixed?' ok':'')+'">'
     +'<div><span>The budget was</span><b style="color:var(--clay)">$'+was.toFixed(2)+'B</b></div>'
     +'<div class="ausr-arrow">\u2192</div>'
-    +'<div><span>It is now</span><b style="color:'+(fixed?'var(--good)':'var(--clay)')+'">'
-    +(bal.balance>=0?'+':'')+'$'+bal.balance.toFixed(2)+'B</b></div></div>';
-  h+='<div class="sectionsub">'+(fixed
-    ?'Oregon is running a structural surplus again. The accumulated debt of $'+(GAME.structuralDebt||0).toFixed(1)+'B does not disappear — it comes down out of this surplus, quarter by quarter, for as long as you can hold the budget above the line.'
-    :'The budget still does not balance. The package closed part of the hole; what is left keeps accruing against the debt, and the legislature will be back.')
+    +'<div><span>'+(pace>1?('Once it is fully in, '+turnLabel(GAME.turn+pace-1)):'It is now')+'</span><b style="color:'+(fixed?'var(--good)':'var(--clay)')+'">'
+    +(proj>=0?'+':'')+'$'+proj.toFixed(2)+'B</b></div></div>';
+  // years to retire the debt out of the surplus — only worth quoting when the
+  // surplus is big enough to mean something
+  const yrs=(proj>=0.1&&debtAt>0.05)?debtAt/proj:0;
+  const yrsTxt=yrs<=0?'':(yrs<1?'within a year':(Math.round(yrs)+' year'+(Math.round(yrs)===1?'':'s')));
+  h+='<div class="sectionsub">These are <b>annual</b> figures, and the package is not a one-time payment: the same cuts and the same taxes are worth the same money every year from now on. '
+    +(fixed
+      ?('That leaves a structural surplus of about <b>$'+proj.toFixed(2)+'B a year</b>'+(debtAt>0.05
+          ?(', and that surplus is what retires the debt: $'+debtAt.toFixed(1)+'B'+(glide>0.05?(', including about $'+glide.toFixed(1)+'B the phase-in borrows on the way'):'')+'. '+(yrsTxt?('At this rate that takes roughly <b>'+yrsTxt+'</b>, if you hold the line.'):'A surplus this thin barely dents it — the next package, or growth, has to do the rest.'))
+          :'. There is no accumulated debt to retire, so it goes to reserves.'))
+      :('Even fully in, the budget does not balance. The package closes part of the hole; what is left keeps accruing against the debt, and the legislature will be back.'))
+    +(pace>1?(' Until it is fully in, the part of the hole it has not reached is still borrowed.'):'')
     +'</div>';
   h+='<div class="ebgroup-label">Where the money came from</div><div class="ebgroup">'
     +'<div class="ausr-row"><span class="ausr-l">'+ico('scissors')+' Programme cuts, across '+R.touched+' line'+(R.touched===1?'':'s')+'</span>'
     +'<span class="ausr-v">$'+R.cutTot.toFixed(2)+'B/yr</span></div>'
+    +(pace>1?('<div class="ausr-row"><span class="ausr-l">'+ico('chart-down')+' Phased: 1/'+pace+' lands now, the rest over the next '+(pace-1)+' quarters</span><span class="ausr-v"></span></div>'):'')
     +(R.revTot>0.005?('<div class="ausr-row"><span class="ausr-l">'+ico('receipt')+' Emergency revenue, '+R.revTouched+' tax'+(R.revTouched===1?'':'es')+' — permanent</span>'
       +'<span class="ausr-v">$'+R.revTot.toFixed(2)+'B/yr</span></div>'):'')
     +'</div>';
@@ -9514,7 +9613,7 @@ function showAusterityResult(R){
       h+=row(k, ico(M.icon)+' '+M.name, mAgg[k]); }
     for(const k of iKeys){ const I=INDICATORS[k]; if(!I)continue;
       h+=row(k, ico(I.icon)+' '+I.name, iAgg[k]); }
-    h+='</div><div class="fnote">These land as the programmes actually shrink, over the next several quarters — not tonight.</div>';
+    h+='</div><div class="fnote">'+(pace>1?('The full effect of the plan, spread across the '+pace+' quarters it takes to land.'):'These land as the programmes actually shrink, over the next several quarters — not tonight.')+'</div>';
   }
   if(bKeys.length){
     h+='<div class="ebgroup-label">Who you just spent</div><div class="ebgroup">';
@@ -9600,22 +9699,30 @@ function settleFiscal(){
       // reserves exhausted — deficit accrues as structural debt; lighter immediate cuts
       // since the debt mechanic now carries the long-term pressure
       GAME.structuralDebt=+((GAME.structuralDebt||0)+gap).toFixed(2);
-      GAME.deficitStreak=(GAME.deficitStreak||0)+1;
-      const bite=Math.min(gap*2,2);
-      let eduCut=bite*0.4;
-      // Education Stability Fund: spent here (and only here) to shield the school
-      // fund from the forced cut — it can't close the general gap.
-      if(GAME.eduStability>0.02 && eduCut>0.05){
-        const need=eduCut*0.6;                            // ~$0.6B fully offsets one point of school cut
-        const use=Math.min(GAME.eduStability, need);
-        GAME.eduStability=+(GAME.eduStability-use).toFixed(2);
-        eduCut*=1-(use/need)*0.85;                        // up to 85% of the school hit absorbed
-        GAME.log.push(ico('cap')+" Education Stability Fund drew $"+use.toFixed(2)+"B to shield schools");
+      if(GAME.consolidation){
+        // A signed plan is still landing: this is the part of the hole it has
+        // not reached yet. It is borrowed — the price of going slowly — but the
+        // legislature has already answered the balanced-budget requirement,
+        // so nothing is cut on top of the plan's own cuts.
+        GAME.log.push(ico('scissors')+" Deficit $"+gap.toFixed(2)+"B borrowed while the stabilization plan lands (share "+GAME.consolidation.k+" of "+GAME.consolidation.n+"; debt $"+GAME.structuralDebt.toFixed(1)+"B)");
+      } else {
+        GAME.deficitStreak=(GAME.deficitStreak||0)+1;
+        const bite=Math.min(gap*2,2);
+        let eduCut=bite*0.4;
+        // Education Stability Fund: spent here (and only here) to shield the school
+        // fund from the forced cut — it can't close the general gap.
+        if(GAME.eduStability>0.02 && eduCut>0.05){
+          const need=eduCut*0.6;                            // ~$0.6B fully offsets one point of school cut
+          const use=Math.min(GAME.eduStability, need);
+          GAME.eduStability=+(GAME.eduStability-use).toFixed(2);
+          eduCut*=1-(use/need)*0.85;                        // up to 85% of the school hit absorbed
+          GAME.log.push(ico('cap')+" Education Stability Fund drew $"+use.toFixed(2)+"B to shield schools");
+        }
+        GAME.log.push(ico("siren")+" Deficit $"+gap.toFixed(2)+"B — borrowed against future budgets (structural debt: $"+GAME.structuralDebt.toFixed(1)+"B)");
+        METRICS.education.value=clamp(METRICS.education.value-eduCut,0,100);
+        METRICS.health.value=clamp(METRICS.health.value-bite*0.3,0,100);
+        GAME.capital=Math.round(clamp(GAME.capital-Math.min(gap*6,8),0,100));
       }
-      GAME.log.push(ico("siren")+" Deficit $"+gap.toFixed(2)+"B — borrowed against future budgets (structural debt: $"+GAME.structuralDebt.toFixed(1)+"B)");
-      METRICS.education.value=clamp(METRICS.education.value-eduCut,0,100);
-      METRICS.health.value=clamp(METRICS.health.value-bite*0.3,0,100);
-      GAME.capital=Math.round(clamp(GAME.capital-Math.min(gap*6,8),0,100));
     }
   }
   // Proactive nudge: carrying real structural debt with reserves still on hand and
@@ -14508,6 +14615,7 @@ function _runTicks(){
   METRICS.evAdoption.eq = Math.min(75, 13 + GAME.turn * 0.5);
   tickMetrics();
   tickExecOrders();
+  if(GAME.consolidation)consolidationShare();   // a signed plan lands its next share
   GAME.lastBalance=budgetBalance().balance;
   GAME.surplusStreak=(GAME.lastBalance>0.5)?Math.min(9,(GAME.surplusStreak||0)+1)
                                             :Math.max(0,(GAME.surplusStreak||0)-2);
@@ -14519,10 +14627,13 @@ function _runTicks(){
   // A shortfall is what summons the board. It used to wait on the far deeper
   // structural-debt crisis, so a governor could run shortfall after shortfall
   // and never once be handed the screen built for fixing one.
-  if(!GAME.pendingAusterity && GAME.turn>=6
+  // Not while a signed plan is still landing, and not over a debt the budget
+  // is already paying down at the surplus a package would ask for.
+  if(!GAME.pendingAusterity && !GAME.consolidation && GAME.turn>=6
      && ((GAME.lastBalance||0) < AUS_TRIGGER
          || (GAME.activeSituations.fiscalCrisis
-             && (GAME.structuralDebt||0) > fiscalCrisisThreshold()*1.15))
+             && (GAME.structuralDebt||0) > fiscalCrisisThreshold()*1.15
+             && austerityWant() > 0.25))
      && GAME.turn-(GAME.lastAusterity??-99) >= 6) openAusterity();
   tickIndicators(); tickGrudges(); tickCynComp(); tickExpectations(); tickGroundGame(); tickCountyCamp();
   tickBallotCampaign();
@@ -19057,6 +19168,8 @@ function renderBudget(){
     // anyone in Salem gets to argue about, so neither belongs in the number
     // people quote at each other.
     { const g=gfLotterySubtotal();
+      if(GAME.consolidation){ const C=GAME.consolidation;
+        h+='<div class="pendbanner" style="margin:-10px 0 16px">'+ico('scissors')+' <b>A stabilization plan is landing:</b> share '+C.k+' of '+C.n+' is in, fully in by '+turnLabel(C.from+C.n-1)+'. $'+((C.cutTot+C.revTot)*C.k/C.n).toFixed(2)+'B of $'+(C.cutTot+C.revTot).toFixed(2)+'B a year so far. Until the rest lands, what it has not reached is borrowed.</div>'; }
       h+='<div class="fnote" style="margin:-14px 0 20px">Of that, <b>General Fund + Lottery</b> — the discretionary budget a legislature actually appropriates — is <b>$'+g.revenue.toFixed(1)+'B</b> in against <b>$'+g.spend.toFixed(1)+'B</b> out. The rest is the federal Medicaid match (<b>$'+g.federal.toFixed(1)+'B</b>, earmarked in and straight back out) and the constitutionally dedicated highway taxes (<b>$'+g.roads.toFixed(1)+'B</b>).</div>'; }
   }
   // ---- fiscal machinery panel ----
