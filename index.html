@@ -13051,8 +13051,12 @@ function whipCount(id, dir, narrowed, cushion, skipOdds){
   // and the caucus whips it at half strength.
   if(pol && pol.reform){
     const base=ctx.ease;
-    ctx.ease=(mine)=>(base?base(mine):0)+(mine?3.2:4.6);
-    ctx.disc*=0.55;
+    // Worth a couple of votes, not a caucus. This used to hand opposition
+    // members +4.6 — most of the way through BILL_LOYALTY — and then halve
+    // discipline on top of it, which charged the same argument twice and
+    // made amending the constitution the cheapest thing on the board.
+    ctx.ease=(mine)=>(base?base(mine):0)+(mine?1.1:2.0);
+    ctx.disc*=0.86;
   }
   const cu=cushion||0;
   const H=chamberWhip("house",scaled,dir,ctx,cu), S=chamberWhip("senate",scaled,dir,ctx,cu);
@@ -13839,12 +13843,13 @@ function doEndTurn(){
   _calcCapital();
   GAME.turn++; pushHistory();
   const into=GAME.turn-(GAME.term-1)*GAME.termLengthTurns;
-  // NO MIDTERM UNDER PROPORTIONAL REPRESENTATION. A PR chamber is elected
-  // whole, on vote share, at the general — there is no half-Senate holding
-  // over and no off-year seat swing to run. The legislature you negotiated
-  // with is the legislature you have for the full four years, which is what
-  // makes the negotiation worth having.
-  if(into===GAME.midtermTurn && !prOn()){
+  // Oregon votes in November of even years whatever its legislature looks
+  // like, so the midterm night always happens: the verdict, the mandate, and
+  // any measure you referred. What PROPORTIONAL REPRESENTATION removes is
+  // the seat swing — a chamber elected whole on vote share has nothing to
+  // re-elect halfway through a term, which is what makes the coalition you
+  // negotiated at the start of it the one you are stuck with.
+  if(into===GAME.midtermTurn){
     const oa=overallApproval();
     const prevContrib=(GAME.lastMargin||0)*40;
     GAME.lastMargin=clamp((oa-50)/50,-1,1);
@@ -13852,10 +13857,16 @@ function doEndTurn(){
     const verdict = oa>=53?"A wave in your favour" : oa>=49?"A modest win" : oa>=45?"A mixed verdict" : oa>=41?"A clear rebuke" : "A rout";
     const big     = oa>=53?"A WAVE" : oa>=49?"A GOOD NIGHT" : oa>=45?"A MIXED NIGHT" : oa>=41?"A REBUKE" : "A ROUT";
     GAME.log.push(ico('ballot')+" Midterms: "+verdict.toLowerCase());
-    // every seat in the House and half the Senate are on this ballot too
-    const legis=runLegislativeElection(oa);
-    GAME.log.push(ico('columns')+" Legislature: Senate "+legis.after.senate+"/30, House "+legis.after.house+"/60"
-      +(legis.hSwing||legis.sSwing?" ("+(legis.sSwing>=0?"+":"")+legis.sSwing+" / "+(legis.hSwing>=0?"+":"")+legis.hSwing+")":""));
+    // every seat in the House and half the Senate are on this ballot too —
+    // unless the districts are gone, in which case nothing is
+    let legis=null;
+    if(prOn()){
+      GAME.log.push(ico('columns')+" The Assembly is not on this ballot — under proportional representation it is elected whole, at the general");
+    }else{
+      legis=runLegislativeElection(oa);
+      GAME.log.push(ico('columns')+" Legislature: Senate "+legis.after.senate+"/30, House "+legis.after.house+"/60"
+        +(legis.hSwing||legis.sSwing?" ("+(legis.sSwing>=0?"+":"")+legis.sSwing+" / "+(legis.hSwing>=0?"+":"")+legis.hSwing+")":""));
+    }
     // any amendments you referred are on this same ballot — voters decide them now
     const measures=resolveBallot("midterm");
     GAME.pendingMidterm={approval:oa, verdict, big, deltaPts, capPerQ:deltaPts*0.1,
@@ -14085,8 +14096,7 @@ function pendingMeasure(id){ return (GAME.ballot.pending||[]).find(m=>m.id===id)
    an election voters are already turning out for — never a special election. */
 function nextBallotInfo(){
   const L=GAME.termLengthTurns, into=GAME.turn-(GAME.term-1)*L;
-  // under PR there is no midterm, so there is nothing for a measure to ride
-  if(into<GAME.midtermTurn && !prOn())
+  if(into<GAME.midtermTurn)
     return {kind:"midterm", label:"the midterm ballot", quartersAway:GAME.midtermTurn-into};
   return {kind:"election", label:"your re-election ballot", quartersAway:Math.max(0,(L-1)-into)};
 }
