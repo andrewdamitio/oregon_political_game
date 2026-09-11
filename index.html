@@ -10040,7 +10040,9 @@ function campChance(kind, sid){
     // already-devoted; ideologically intense blocs resist persuasion
     const dist=Math.abs(s.approval-50);
     base -= dist*0.006;                         // far from 50 (love or hate) = harder
-    if(s.approval<35) base -= 0.10;             // deeply hostile: very hard
+    // Halved: the distance-from-50 term above already charges for exactly
+    // this, and stacking both put a struggling governor at one-in-four.
+    if(s.approval<35) base -= 0.05;             // deeply hostile: harder still
     // ideologically intense blocs resist persuasion
     const ideo=s.ideology||{};
     const partisan=Math.max(Math.abs(ideo.economic||0),Math.abs(ideo.social||0));
@@ -10051,7 +10053,11 @@ function campChance(kind, sid){
     base += ((s.turnout||0.5)<0.5?0.06:-0.03);  // low-turnout blocs have headroom
   }
   base -= (GAME.ground.fatigue[sid]||0)*0.08;   // fatigue from over-campaigning
-  return clamp(base, 0.12, 0.92);
+  // A floor of 0.12 meant the worse you were doing the more the ground game
+  // taxed you for using it, which is precisely backwards: campaigning is what
+  // a governor in trouble has left. It is still worse odds than a popular
+  // governor gets — it is no longer a punishment for being behind.
+  return clamp(base, 0.30, 0.92);
 }
 
 // run one push; returns {ok, chance, delta, msg}
@@ -10068,15 +10074,30 @@ function campPush(kind, sid){
     map[sid]=(map[sid]||0)+delta;
     msg=`✓ ${kind==="persuade"?"Persuasion":"Turnout"} push reached ${s.name}`;
   } else {
-    // backlash: pandering that misses irritates the bloc
-    const back = kind==="persuade" ? -(1.0+Math.random()*1.2) : -(0.5+Math.random()*0.8);
-    if(kind==="persuade"){ s.approval=clamp(s.approval+back,0,100); }
-    else { GAME.ground.perception[sid]=(GAME.ground.perception[sid]||0)+back*0.5; }
+    // Backlash: pandering that misses irritates the bloc — but it costs you
+    // the GROUND, not a permanent piece of their opinion of you. This used to
+    // write a miss straight into s.approval while a hit went into the
+    // perception pot that decays 22% a quarter, so every win evaporated and
+    // every loss was forever. At a 62% base that still came out to about a
+    // quarter-point of net damage per push, and a term of campaigning left
+    // you measurably worse off than never having bothered.
+    // Scaled to the pot it lands in: perception is carried in approval
+    // points and turnout in fractions of a percent, so a single backlash
+    // number cannot serve both — writing a persuasion-sized penalty into
+    // the turnout pot drove turnout to 3%.
+    // A push that does not land mostly just does not land. Backlash is real
+    // but it is the exception, not a coin flip for the same stake: a miss now
+    // costs about 40% of what a hit gains. Symmetric payoffs on odds that
+    // fatigue drives toward the floor made the whole subsystem negative-sum.
+    const back = kind==="persuade" ? -(0.40+Math.random()*0.50) : -(0.012+Math.random()*0.014);
+    map[sid]=(map[sid]||0)+back;
     msg=`✗ ${s.name} resented the ${kind==="persuade"?"messaging":"GOTV pressure"} — it backfired`;
     delta=back;
   }
   // fatigue is randomized: success rarely causes it, failure sometimes does
-  const fatigueAdd=ok?(Math.random()<0.12?0.25:0):(0.25+Math.random()*0.45);
+  // Softened: six pushes a quarter into the same few blocs drove the odds to
+  // the floor inside one quarter, so every later push was a 30% shot.
+  const fatigueAdd=ok?(Math.random()<0.12?0.18:0):(0.15+Math.random()*0.30);
   GAME.ground.fatigue[sid]=(GAME.ground.fatigue[sid]||0)+fatigueAdd;
   GAME.ground.fatigueAge[sid]=0;
   GAME.campLog.unshift({turn:GAME.turn, kind, sid, ok, msg});
