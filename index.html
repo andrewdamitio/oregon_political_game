@@ -6912,12 +6912,22 @@ const SITUATIONS={
   unemploymentSystemFailure:{name:"Unemployment System Meltdown", kind:"bad", category:"event", noChoice:true,
     desc:"Just as a downturn hits, Oregon's decades-old unemployment-insurance mainframe buckles under the claim surge — exactly as it did in 2020. Benefits stall for weeks, the press is brutal, and there is nothing to decide: you simply wear it. The lesson is that the time to modernize was years ago. A Government Operations budget funded past 75% blocks this outright, without waiting for Digitization's own slower build.",
     metricEffect:{}, moodMag:3, minTurns:2, onTrigger:{capital:-7,metrics:{disposableIncome:-3}},
-    indicatorEffect:{digitization:-6,businessClimate:-3},
+    indicatorEffect:{businessClimate:-3},
     groupMood:{blueCollar:-9,poor:-9,publicUnions:-5,suburban:-4}},
-  benefitsBacklog:{name:"Benefits Eligibility Backlog", kind:"bad", category:"event", noChoice:true,
-    desc:"Understaffed, paper-bound eligibility systems leave Medicaid and SNAP renewals languishing. Thousands lose coverage to administrative churn rather than policy — a quiet failure of state capacity with no clean fix once it's underway.",
-    metricEffect:{health:-2}, moodMag:1, minTurns:2, onTrigger:{capital:-3},
-    indicatorEffect:{digitization:-4},
+  // A queue grows when work arrives faster than the office can clear it, so
+  // this is driven by the balance of the two (eligibilityStrain) and nothing
+  // else. It used to be a random roll that knocked Digitization down while it
+  // ran — a backlog making the systems older, which made the next backlog
+  // likelier. A pile of unprocessed renewals does not age the state's IT.
+  benefitsBacklog:{name:"Benefits Eligibility Backlog", kind:"bad", category:"condition",
+    desc:"Understaffed, paper-bound eligibility systems leave Medicaid and SNAP renewals languishing. Thousands lose coverage to administrative churn rather than policy — a quiet failure of state capacity.\n\nIt is a queue, and a queue grows when work arrives faster than the office can clear it. How fast it arrives is mostly unemployment: every lost job is an application. How fast it clears is how modern the eligibility systems are, how many caseworkers Human Services can pay for, and how well the state funds its own operations. A recession on paper systems is the classic recipe. So is a cut to Human Services in a stabilization package.\n\n→ TO FIX IT: bring the strain below 18. Fund Human Services or the Government Operations budget, build Gov. Digitization (Digital Government Modernization is the direct route), or let unemployment come down. Each force and its current size is listed below.",
+    trigger:()=>eligibilityStrain().score>BACKLOG_START,
+    clear:()=>eligibilityStrain().score<BACKLOG_CLEAR,
+    sev01:()=>sitNear(eligibilityStrain().score, BACKLOG_START, BACKLOG_CLEAR),
+    feeds:()=>{ const E=eligibilityStrain();
+      return {score:E.score, start:BACKLOG_START, clear:BACKLOG_CLEAR, label:"eligibility strain", parts:E.parts,
+        note:"Caseload arrives, capacity clears it. The strain is the gap between the two, and each line is one side of it."}; },
+    metricEffect:{health:-2}, moodMag:1, minTurns:2, onTrigger:{capital:-3}, onClear:{capital:1},
     groupMood:{poor:-8,blueCollar:-5,liberal:-3}},
   doomLoop:{name:"Portland Doom Loop", kind:"bad", category:"condition",
     desc:"Empty offices, closed storefronts, and a battered reputation feed on each other — businesses leave because downtown is dying, and downtown dies because businesses leave. Crime, the addiction crisis and visible homelessness are what tip it over: with any of those running, downtown does not have to fall as far before the loop takes hold.\n\n→ TO FIX IT: get Downtown Perception back above 50. That is the only test — clearing the crime or addiction crises helps because downtown recovers when they end, not because the loop checks for them separately.",
@@ -7069,6 +7079,29 @@ const SITUATIONS={
   // national political mood is handled specially (see NATIONAL_MOOD), not here
 };
 
+/* ELIGIBILITY STRAIN — the Benefits Eligibility Backlog's cause. Work arriving
+   (unemployment) against capacity to clear it (systems, caseworkers, the
+   state's own operations, how strained the apparatus already is). Points,
+   centred so an ordinary starting Oregon reads about 18: just inside the line.
+   Each part is returned separately so the situation page can show it. */
+const BACKLOG_START=24, BACKLOG_CLEAR=18;
+function eligibilityStrain(){
+  const dig=INDICATORS.digitization.value;
+  const dhs=AGENCIES.dhs?(AGENCIES.dhs.funding??0.5):0.5;
+  const ops=POLICIES.govOps?policyLevel(POLICIES.govOps):0.3;
+  const u=METRICS.unemployment.value;
+  const oh=INDICATORS.adminOverhead.value;
+  const parts=[
+    {name:ico(INDICATORS.digitization.icon)+" Paper-bound systems (Gov. Digitization "+Math.round(dig)+")", v:(55-dig)*0.8, link:"i_digitization"},
+    {name:ico('handshake')+" Caseworkers (Human Services funded at "+Math.round(dhs*100)+"%)", v:(0.55-dhs)*24, link:"a_dhs"},
+    {name:ico('folder')+" Government Operations budget ("+Math.round(ops*100)+"%)", v:(0.55-ops)*14, link:"p_govOps"},
+    {name:ico(METRICS.unemployment.icon)+" Applications arriving (unemployment "+u.toFixed(1)+"%)", v:(u-4.5)*2.6, link:"m_unemployment"},
+    {name:ico(INDICATORS.adminOverhead.icon)+" Administrative Overhead ("+Math.round(oh)+")", v:Math.max(0,oh-80)*0.25, link:"i_adminOverhead"},
+  ];
+  if(GAME.activeSituations.cyberattack)parts.push({name:ico('warning')+" Cyberattack — the portals are down", v:9, link:"s_cyberattack"});
+  let score=0; for(const p of parts)score+=p.v;
+  return {score, parts};
+}
 /* EVENT_POOL — random events that can fire. Each has a base per-quarter
    probability and an optional `gate` (only eligible if true). Severity of
    the world nudges some up. */
@@ -7107,7 +7140,6 @@ const EVENT_POOL=[
   {id:"unemploymentSystemFailure", prob:0.06, gate:()=>INDICATORS.digitization.value<48
     && policyLevel(POLICIES.govOps||{value:0.3})<0.75
     && (GAME.activeSituations.recession||METRICS.unemployment.value>7)},
-  {id:"benefitsBacklog", prob:0.045, gate:()=>INDICATORS.digitization.value<45},
   {id:"gridEmergency", prob:0.05, seasonal:[2],
    gate:()=>INDICATORS.infraStrain.value>=66 && (GAME.activeSituations.heatDome||GAME.activeSituations.techBoom||GAME.activeSituations.gdpBoom||METRICS.evAdoption.value>40),
    probMult:()=>1+clamp((INDICATORS.infraStrain.value-66)/24,0,1)*1.1},
@@ -17287,6 +17319,24 @@ function renderDetail(){
         +(f.idx<0.98?`, which puts it within two points of full in roughly <b>${q} quarters</b>`:`, and it is already close to full`)+`. `
         +`The Medicaid share scales with the caseload, so a recession on top of this makes it worse. `
         +`<span data-detail="budget" style="color:var(--slate-blue);cursor:pointer">State Budget →</span></div>`;
+    }
+    // A condition with no single gauge can declare the forces behind it, so its
+    // page says what is feeding it and not only what it does.
+    if(typeof s.feeds==="function"){
+      let F=null; try{ F=s.feeds(); }catch(e){ F=null; }
+      if(F){
+        h+=`<div class="ebgroup-label">Trigger thresholds</div><div class="ebgroup"><div class="threshline">Begins when ${F.label} passes ${F.start}. Clears when it falls below ${F.clear}. Currently <b>${F.score.toFixed(1)}</b>.</div></div>`;
+        const live=(F.parts||[]).filter(d=>Math.abs(d.v)>0.05).sort((a,b)=>b.v-a.v);
+        if(live.length){
+          h+=`<div class="ebgroup-label">What is feeding it right now</div><div class="ebgroup">`;
+          const sc=Math.max(0.5,...live.map(d=>Math.abs(d.v)));
+          for(const d of live){ const good=d.v<0;
+            h+=effectBar(d.name+(good?" — holding it down":" — pushing it up"),d.v,sc,
+              {color:good?'var(--good)':'var(--clay)',link:d.link,fmt:v=>(v>=0?'+':'')+v.toFixed(1)}); }
+          h+=`</div>`;
+          if(F.note)h+=`<div class="fnote" style="margin-top:-2px">${F.note}</div>`;
+        }
+      }
     }
     if(s.watch){
       const isInd=!!s.watch.indicator;
