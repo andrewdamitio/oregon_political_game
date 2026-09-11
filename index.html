@@ -538,7 +538,12 @@
   .fiscal-title{font-family:var(--font-display);font-size:14px;font-weight:600;margin-bottom:12px}
   .fiscal-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
   .fcard{background:var(--paper);border:1px solid var(--line);border-left:3px solid var(--slate-blue);border-radius:var(--radius);padding:10px 12px}
-  .fname{font-size:11px;color:var(--muted-2);margin-bottom:4px}
+  /* mark on its own line, then the label, then the number — so the labels
+     all start at the same place whatever the glyph is, and the one card
+     without an icon still lines up with the rest. */
+  .fname{font-size:11px;color:var(--muted-2);margin-bottom:4px;
+    display:flex;flex-direction:column;align-items:flex-start;gap:5px}
+  .fname .ico{width:17px;height:17px;color:var(--slate-blue);flex:0 0 auto}
   .fval{font-family:var(--font-data);font-size:19px;font-weight:600;margin-bottom:4px}
   .fnote{font-size:10.5px;color:var(--muted-3);line-height:1.4}
   .fcard-btn{margin-top:8px;display:inline-block;background:var(--slate-blue);color:var(--paper);border:var(--rule) solid var(--ink);font-family:var(--font-display);font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:5px 10px;cursor:pointer}
@@ -1170,6 +1175,12 @@
   .lg-bar i.lg-yes{animation:lgFill .9s ease both}
   @keyframes lgFill{from{opacity:.35}to{opacity:1}}
   .lg-bar .lg-super{position:absolute;top:0;bottom:0;border-left:3px dashed var(--gold);pointer-events:none}
+  /* halfway — the line that actually decides who runs the chamber */
+  .lg-bar .lg-half{position:absolute;top:-3px;bottom:-3px;border-left:2px solid var(--ink);opacity:.55;pointer-events:none}
+  .lg-keys{display:flex;gap:14px;flex-wrap:wrap;margin-top:4px;font-size:10.5px;color:var(--muted-3)}
+  .lg-keys i{display:inline-block;width:16px;height:0;vertical-align:middle;margin-right:5px}
+  .lg-keys i.k-half{border-top:2px solid var(--ink);opacity:.55}
+  .lg-keys i.k-super{border-top:2px dashed var(--gold)}
   .lg-foot{display:flex;justify-content:space-between;font-family:var(--font-data);font-size:10.5px;color:var(--muted-1);margin-top:4px}
   .lg-verdict{font-size:12.5px;line-height:1.55;border:1px solid var(--line);background:var(--paper);
     padding:9px 12px;margin:14px 0 10px;border-left:4px solid var(--line-em)}
@@ -3063,7 +3074,7 @@ function eoFiscalCard(){
     +'<div class="fval" style="color:'+(net>0?"var(--good)":"var(--clay)")+'">'
     +(net>=0?"−$":"+$")+Math.abs(net).toFixed(2)+'B/yr</div>'
     +rows.join("")
-    +'<div class="fnote">Standing orders, '+word+' money across every payroll-bearing line in the budget without a vote. It is real money and it is not appropriated — which is exactly why an allotment holdback is the most legally exposed thing on the list. Rescind one and its share of this comes straight back. Amounts phase in with the order.</div></div>';
+    +'<div class="fnote">Standing orders, '+word+' money across every payroll-bearing line without a vote — real money, unappropriated, which is why an allotment holdback is the most legally exposed thing here. Rescind one and its share comes back.</div></div>';
 }
 function eoSavings(){
   let v=0;
@@ -4663,8 +4674,8 @@ const AGENCIES={
     effects:{homelessness:{b:-4,c:-10,i:3},inequality:-2}, indicatorEffects:{downtown:3,inMigration:2}, ideology:{economic:-0.5,govSize:-0.5}},
   deq:{name:"Dept. of Environmental Quality", domain:"envInfra", icon:"flask",
     funding:0.5, costMin:0.12, costFull:0.32, capital:4,
-    desc:"Air, water, and land quality regulation; cleanup of contaminated sites; permitting. Stronger enforcement lifts environmental quality but adds business friction.",
-    effects:{environment:9,gdp:-0.05}, ideology:{environment:-0.5,govSize:-0.3}},
+    desc:"Air, water, and land quality regulation; cleanup of contaminated sites; permitting. Stronger enforcement lifts environmental quality but adds business friction.\n\nIt is also a public-health agency in everything but name. Particulates, drinking-water contamination and the sites it cleans up are measured in asthma and cancer rates, not only in river miles, so what DEQ does shows up in the health statistic as well as the environmental one.",
+    effects:{environment:9, health:3, gdp:-0.05}, ideology:{environment:-0.5,govSize:-0.3}},
   oprd:{name:"Parks & Recreation (OPRD)", domain:"envInfra", icon:"mountain",
     funding:0.5, costMin:0.08, costFull:0.26, capital:4,
     desc:"State parks system — Silver Falls, Smith Rock, the coast (all of it public, by law). Lottery-funded since 1998. A direct driver of tourism appeal.",
@@ -5100,81 +5111,10 @@ const DILEMMAS={
          GAME.log.push(ico('cash-fly')+" Austerity: income & corporate taxes raised — $1.6B off the deficit");
        }}
     ]},
-  surplusSpend:{title:"What the Surplus Is For", icon:"dollar", cooldown:16,
-    text:"The forecast came in above the last one again and the balance is real money now. Every caucus has arrived with a plan for it and a deadline: the revenue committee wants a rate cut written before the short session, the co-chairs want it in the capital budget where it buys something permanent, the advocates want the waitlists cleared, and your budget office keeps repeating that the last three Oregon surpluses were all gone within two years. You cannot do all of it and the choice is going to define what people think this administration is for.",
-    influence:()=>((GAME.surplusStreak||0)>=3&&GAME.lastBalance>0.5)?0.9:-1,
-    options:[
-      {label:"Cut the income tax rate", text:"Take the top rate down and let people keep it. The cleanest possible answer to \u201cgive it back\u201d, it defuses the tax grievance for years — and it is permanent in a way the surplus is not, so the next downturn arrives with a smaller base to fall from.",
-       apply:()=>{
-         if(POLICIES.incomeTax)POLICIES.incomeTax.value=clamp((POLICIES.incomeTax.value||0)-0.07,0,1);
-         createGrudge("i_taxGrievance",-12,0.92,"Surplus returned as a rate cut");
-         createGrudge("i_businessClimate",5,0.9,"Rate cut out of the surplus");
-         createGrudge("v_wealthy",7,0.9,"Rate cut");
-         createGrudge("v_businessClass",6,0.9,"Rate cut");
-         createGrudge("v_moderate",4,0.9,"Gave the surplus back");
-         createGrudge("v_conservative",5,0.9,"Gave the surplus back");
-         createGrudge("v_libertarian",4,0.9,"Gave the surplus back");
-         createGrudge("v_middleIncome",3,0.9,"Rate cut");
-         createGrudge("v_publicUnions",-7,0.9,"Surplus refunded, not spent");
-         createGrudge("v_socialist",-6,0.9,"Surplus refunded, not spent");
-         createGrudge("v_liberal",-4,0.9,"Surplus refunded, not spent");
-         shiftCompass(0.6,0.4);
-         GAME.log.push(ico('dollar')+" Surplus: top income-tax rate cut");
-       }},
-      {label:"Put it in the ground", text:"Into the capital budget — substations, trunk lines, bridges and the connection costs holding up housing. It is the one use of a one-time surplus that leaves something behind, and it lands hardest in the places the boom has strained. Nobody gets a cheque.",
-       apply:()=>{
-         if(!POLICIES.infraBank && CATALOG.infraBank) _applyEnact("infraBank", 0.5);
-         if(POLICIES.infraBank)POLICIES.infraBank.value=clamp((POLICIES.infraBank.value||0)+0.22,0,1);
-         createGrudge("i_infraStrain",-12,0.92,"Surplus into capital");
-         createGrudge("i_businessClimate",4,0.9,"Surplus into capital");
-         createGrudge("i_housingAffordability",3,0.9,"Connection costs funded");
-         createGrudge("m_unemployment",-0.35,0.9,"Capital programme hiring");
-         createGrudge("v_blueCollar",7,0.9,"Capital programme jobs");
-         createGrudge("v_businessClass",4,0.9,"Surplus into capital");
-         createGrudge("v_motorists",4,0.9,"Roads and bridges funded");
-         createGrudge("v_rural",3,0.9,"Capital spending outside Portland");
-         createGrudge("v_wealthy",-3,0.9,"Surplus spent, not refunded");
-         createGrudge("v_conservative",-3,0.9,"Surplus spent, not refunded");
-         createGrudge("capital",2,undefined,"Something to cut a ribbon on");
-         shiftCompass(-0.2,-0.3);
-         GAME.log.push(ico('road')+" Surplus: swept into the capital budget");
-       }},
-      {label:"Clear the service backlog", text:"Waitlists, provider rates, caseworker vacancies, the deferred asks that have been rolled forward for three biennia. It is the most people helped per dollar and the least durable thing you can do with it: these are recurring costs funded from a one-time surge, and the cliff arrives on schedule.",
-       apply:()=>{
-         createGrudge("m_health",2.5,0.9,"Backlog cleared");
-         createGrudge("m_behavioralHealth",2.5,0.9,"Backlog cleared");
-         createGrudge("m_homelessness",-1.1,0.9,"Backlog cleared");
-         createGrudge("m_povertyRate",-0.5,0.9,"Backlog cleared");
-         createGrudge("v_publicUnions",8,0.9,"Surplus into services");
-         createGrudge("v_poor",7,0.9,"Waitlists cleared");
-         createGrudge("v_socialist",6,0.9,"Surplus into services");
-         createGrudge("v_liberal",5,0.9,"Surplus into services");
-         createGrudge("v_parents",3,0.9,"Waitlists cleared");
-         createGrudge("v_wealthy",-6,0.9,"Surplus spent, not refunded");
-         createGrudge("v_conservative",-6,0.9,"Surplus spent, not refunded");
-         createGrudge("v_libertarian",-5,0.9,"Surplus spent, not refunded");
-         createGrudge("i_taxGrievance",5,0.9,"Surplus spent, not refunded");
-         // a recurring obligation stood up on one-time money
-         GAME.structuralDebt=(GAME.structuralDebt||0)+0.35;
-         shiftCompass(-0.7,-0.6);
-         GAME.log.push(ico('heart')+" Surplus: service backlog cleared");
-       }},
-      {label:"Bank it and say nothing", text:"Into the Rainy Day Fund, on the theory that the next recession is the only certainty in the forecast. Defensible, unanswerable, and completely unsatisfying to everyone who came to Salem with a plan — including the ones who wanted it refunded.",
-       apply:()=>{
-         GAME.rainyDay=(GAME.rainyDay||0)+1.2;
-         createGrudge("i_taxGrievance",4,0.9,"Surplus banked, not returned");
-         createGrudge("v_moderate",2,0.9,"Prudent");
-         createGrudge("v_retirees",3,0.9,"Prudent");
-         createGrudge("v_wealthy",-4,0.9,"Not returned");
-         createGrudge("v_conservative",-4,0.9,"Not returned");
-         createGrudge("v_libertarian",-4,0.9,"Not returned");
-         createGrudge("v_publicUnions",-4,0.9,"Not spent");
-         createGrudge("v_socialist",-4,0.9,"Not spent");
-         createGrudge("v_poor",-3,0.9,"Not spent");
-         createGrudge("capital",-2,undefined,"Satisfied nobody");
-         GAME.log.push(ico('dollar')+" Surplus: $1.2B banked in reserves");
-       }}
-    ]},
+  // "What the Surplus Is For" was removed. Deciding what a surplus is for is
+  // already a standing mechanic — the kicker line, the reserve split and the
+  // dedication controls on the Fiscal Machinery board — and a dilemma asking
+  // the same question in prose was a second, worse interface to it.
   boomDividend:{title:"The Boom Dividend", icon:"dollar", cooldown:900,
     text:"The boom is filling the treasury faster than the forecasters can revise their numbers — capital-gains and corporate receipts are pouring in ahead of every projection. Every advocate in Salem has a claim on the surge, and the window to shape what the boom does to Oregon is now, while the money is still on the table.",
     influence:()=>(GAME.activeSituations.gdpBoom||GAME.activeSituations.brainGain)?0.95:-1,
@@ -6672,6 +6612,9 @@ const SITUATIONS={
     desc:"Oregon has built a highly credentialed workforce faster than its economy can absorb one. Degree‑holders are stuck in jobs that don't require the degree, the wage premium for education is eroding, and the sharpest young graduates are leaving for Seattle, the Bay, and Denver where the matching jobs are. Voters who took on debt — or paid taxes — for that education see a broken bargain. Resolves when growth catches up to the credential base (GDP Index within 10 of Educational Attainment) or attainment slips back below 68.",
     trigger:()=>GAME.turn>8 && METRICS.attainAll.value>=74 && (METRICS.attainAll.value-effective("gdp"))>=18,
     clear:()=>(METRICS.attainAll.value-effective("gdp"))<=10 || METRICS.attainAll.value<68,
+    sev01:()=>sitBest(
+      sitNear(METRICS.attainAll.value-effective("gdp"), 18, 10),
+      sitNear(METRICS.attainAll.value, 74, 68)),
     minTurns:4, onTrigger:{capital:-2},
     metricEffect:{inequality:0.3, gdp:-0.05, education:-0.08},
     indicatorEffect:{inMigration:-3, businessClimate:-2, ruralAlienation:2},
@@ -6681,6 +6624,9 @@ const SITUATIONS={
     desc:"Tom McCall told the country to visit Oregon but \u201cfor heaven's sake, don't come here to live\u201d \u2014 and the sentiment is roaring back. Years of heavy in-migration have made growth itself the wedge issue: newcomers with out-of-state money, out-of-state plates keyed in parking lots, town-hall crowds demanding the urban growth boundary stay put and the boom be capped. It is almost entirely a political wound \u2014 no metric is bleeding \u2014 but it plays statewide, it puts every pro-growth thing you do on the defensive, and the movement wins enough restrictive fights to visibly cool the inflow. Established residents, rural Oregon and older homeowners nod along; the newcomers, the universities and business hear a state that no longer wants them.\n\n\u2192 TO END IT: let in-migration settle to a level the state has digested (below ~52), or build enough housing that the pressure comes off (affordability back above 58).",
     trigger:()=>GAME.turn>8 && INDICATORS.inMigration.value>=64 && GAME.econCycle>-0.1 && INDICATORS.housingAffordability.value<50,
     clear:()=>INDICATORS.inMigration.value<52 || INDICATORS.housingAffordability.value>=58,
+    sev01:()=>sitBest(
+      sitNear(INDICATORS.inMigration.value, 64, 52),
+      sitNear(58-INDICATORS.housingAffordability.value, 8, 0)),
     minTurns:4, onTrigger:{capital:-2},
     metricEffect:{},
     indicatorEffect:{inMigration:-4, businessClimate:-3, ruralAlienation:-2, mandate:-2},
@@ -6694,6 +6640,10 @@ const SITUATIONS={
       && (INDICATORS.housingAffordability.value<=44 || INDICATORS.inMigration.value>=60),
     clear:()=>INDICATORS.housingAffordability.value>=54 || INDICATORS.downtown.value<48
       || effective("gdp")<62 || GAME.econCycle<-0.15,
+    sev01:()=>sitBest(
+      sitNear(54-INDICATORS.housingAffordability.value, 12, 0),
+      sitNear(INDICATORS.downtown.value, 58, 48),
+      sitNear(effective("gdp"), 66, 62)),
     minTurns:3, onTrigger:{capital:-2},
     metricEffect:{}, indicatorEffect:{tourism:-3},
     moodMag:2, moodAxes:{economic:-0.15},
@@ -6703,6 +6653,10 @@ const SITUATIONS={
     desc:"Growth has outrun the roads. The newcomers a booming economy attracts all drive, the freeways were never widened, and transit share never got high enough to matter — so the region has seized up. Commutes have doubled, freight is stuck on I-5, and every driver in a 68%-motorist electorate spends an hour a day furious at your administration. It costs a little growth (delayed goods) and fouls the air with idling exhaust. It clears when transit and active-transport share climbs enough to take cars off the road, or when in-migration and growth ease.",
     trigger:()=>GAME.turn>6 && effective("gdp")>=64 && GAME.econCycle>-0.05 && INDICATORS.inMigration.value>=58 && METRICS.transitShare.value<14,
     clear:()=>METRICS.transitShare.value>=18 || INDICATORS.inMigration.value<48 || effective("gdp")<60 || GAME.econCycle<-0.2,
+    sev01:()=>sitBest(
+      sitNear(18-METRICS.transitShare.value, 6, 0),
+      sitNear(INDICATORS.inMigration.value, 58, 48),
+      sitNear(effective("gdp"), 64, 60)),
     minTurns:3, onTrigger:{capital:-2},
     metricEffect:{gdp:-0.08, environment:-0.3},
     indicatorEffect:{businessClimate:-3, tourism:-2},
@@ -6716,6 +6670,10 @@ const SITUATIONS={
       && (!POLICIES.waterRights || policyLevel(POLICIES.waterRights)<0.5),
     clear:()=>effective("gdp")<58 || INDICATORS.inMigration.value<48
       || (POLICIES.waterRights && policyLevel(POLICIES.waterRights)>=0.6 && METRICS.environment.value>=58),
+    sev01:()=>sitBest(
+      sitNear(effective("gdp"), 64, 58),
+      sitNear(INDICATORS.inMigration.value, 58, 48),
+      sitNear(0.6-(POLICIES.waterRights?policyLevel(POLICIES.waterRights):0), 0.6, 0)),
     minTurns:4, capitalDrain:-1,
     onTrigger:{capital:-2, countyMood:{spec:COUNTY_GROUPS.irrigatedEast, value:-6, decay:0.9, label:"Irrigated east \u2014 curtailed for cities and data centers"}},
     metricEffect:{gdp:-0.12, environment:-0.4},
@@ -6790,10 +6748,16 @@ const SITUATIONS={
     groupMood:{publicUnions:-4,poor:-6,moderate:-4,blueCollar:-2}},
   bedOvercrowding:{name:"Psychiatric System Overcrowding", kind:"bad", category:"condition",
     desc:"You've made civil commitment easy, but the psychiatric beds to hold those committed don't exist. The beds you have are full and stay full: people are boarded in emergency rooms for days, held in jail cells, or cycled right back to the street untreated. The Oregon State Hospital is over capacity and under a federal contempt order. The fix is not less commitment — it is more beds.",
-    metricEffect:{behavioralHealth:-6, homelessness:3, incarcerationRate:2}, moodMag:2, minTurns:3, onClear:{capital:2},
+    // The overflow model in metricTarget already docks behavioural health by
+    // up to 16 points for exactly this, so a second -6 here was charging the
+    // crisis's central harm twice and making it read as self-feeding. What it
+    // adds instead is the thing its own description is about: people in
+    // crisis going to a cell instead of a bed, which is a justice-pipeline
+    // failure — and it makes people angrier than it did.
+    metricEffect:{homelessness:3, incarcerationRate:2}, moodMag:3, minTurns:3, onClear:{capital:2},
     watch:{metric:"psychBeds", startAt:28, clearAt:48, badHigh:false},
-    indicatorEffect:{},
-    groupMood:{liberal:-7, socialist:-7, libertarian:-5, publicUnions:-3, moderate:-2},
+    indicatorEffect:{justiceEffectiveness:-9, mentalHealth:-6},
+    groupMood:{liberal:-9, socialist:-9, libertarian:-6, publicUnions:-5, moderate:-4, urban:-4},
     custom:true,
     trigger:()=>{const ease=POLICIES.civilCommitment?policyLevel(POLICIES.civilCommitment):0; return ease>(METRICS.psychBeds.value/100)*1.1+0.15;},
     clear:()=>{const ease=POLICIES.civilCommitment?policyLevel(POLICIES.civilCommitment):0; return ease<=(METRICS.psychBeds.value/100)*1.1+0.05;}},
@@ -7269,12 +7233,31 @@ function festerMult(sid){
   const age=(GAME.situationAge&&GAME.situationAge[sid])||0;
   return 1+clamp((age-8)/40,0,0.40);
 }
+/* How far one route out has been travelled: 1 where the crisis began, 0 at
+   the line where it lifts. Works in either direction. */
+function sitNear(cur, from, to){
+  const span=(from-to)||1;
+  return clamp((cur-to)/span, 0, 1);
+}
+/* The closest way out of a multi-route condition. */
+function sitBest(){ let m=1; for(let i=0;i<arguments.length;i++)m=Math.min(m,arguments[i]); return m; }
 function sitSeverity(sid){
   const st=SITUATIONS[sid];
   if(!st||!GAME.activeSituations[sid])return 0;
   if(sid==="nonprofitComplex")return nonprofitSeverity()*festerMult(sid);   // spend-driven, can exceed 1
   const w=st.watch;
-  if(!w)return festerMult(sid);                      // no gauge to read — age is the only scale
+  // A condition with no gauge used to sit at a flat 1.0 for its whole life:
+  // full anger the quarter it triggered, the same full anger the quarter
+  // before it cleared, and no credit for anything in between. sev01 lets a
+  // condition declare its own 0..1 progress so the anger falls as the
+  // problem does, while never dropping to nothing until it actually clears.
+  if(!w){
+    if(typeof st.sev01==="function"){
+      let x=1; try{ x=st.sev01(); }catch(e){ x=1; }
+      return clamp(x,0.12,1)*festerMult(sid);
+    }
+    return festerMult(sid);                          // age is the only scale
+  }
   const cur=w.metric==="balance"?GAME.lastBalance
     :(w.metric&&METRICS[w.metric]?METRICS[w.metric].value
     :(w.indicator&&INDICATORS[w.indicator]?INDICATORS[w.indicator].value:50));
@@ -9388,7 +9371,14 @@ function runElection(){
   const g=govIdeologyPoint();
   const govLeft=(g.economic+g.social)<0;
   // per-county tallies: the SAME voters, re-summed by county affinity (v.cw)
-  const byC=OR_COUNTIES.map(()=>({y:0,n:0,l:0,r:0,tot:0,elig:0,pl:0}));
+  // hy/hn are the HEAD-TO-HEAD preference — who this voter preferred before
+  // the question of whether a purer party was also on the ballot. y/n/l/r are
+  // the ballot as actually cast. Keeping them apart is what stops an
+  // ideologically concentrated county reading as hostile: Portland's
+  // progressives defect to a left party at a far higher rate than a suburban
+  // moderate does, and scoring those defections as lost head-to-head votes
+  // had Multnomah landing below the statewide share.
+  const byC=OR_COUNTIES.map(()=>({y:0,n:0,l:0,r:0,hy:0,hn:0,tot:0,elig:0,pl:0}));
   // per-interest-group tallies: membership-weighted, so a voter counts toward
   // every group they belong to (fractionally). Models turnout + first-preference
   // vote for each group.
@@ -9454,7 +9444,8 @@ function runElection(){
     }
     // fan this voter's ballot out across the counties they belong to
     const cw=v.cw;
-    if(cw)for(let ci=0;ci<cw.length;ci++){ const wq=cw[ci]; if(wq<=0)continue; const b=byC[ci]; b.elig+=wq; b.pl+=wq*partisanLean; const wt=wq*t; b.tot+=wt; b[bucket]+=wt; }
+    if(cw)for(let ci=0;ci<cw.length;ci++){ const wq=cw[ci]; if(wq<=0)continue; const b=byC[ci]; b.elig+=wq; b.pl+=wq*partisanLean; const wt=wq*t; b.tot+=wt; b[bucket]+=wt;
+      if(leanGov)b.hy+=wt; else b.hn+=wt; }
     // and across every interest group they belong to
     for(const sid of blocIds){ const w=v.m[sid]||0; if(w<=0)continue; const B=blocAgg[sid]; B.m+=w; const wt=w*t; B.turn+=wt;
       if(bucket==="y")B.y+=wt; else if(bucket==="n")B.n+=wt; else if(bucket==="l")B.thL+=wt; else B.thR+=wt; }
@@ -9510,15 +9501,21 @@ function runElection(){
     const backL = rcv ? b.l*(govLeft?0.55:0.16) : 0;
     const backR = rcv ? b.r*(govLeft?0.16:0.55) : 0;
     const y=b.y+backL+backR, thl=Math.max(0,b.l-backL), thr=Math.max(0,b.r-backR);
-    const major=y+b.n, ctot=y+b.n+thl+thr;
+    const ctot=y+b.n+thl+thr;
+    // the two-way split, taken from the preference rather than from the ballot
+    const major=b.hy+b.hn;
     // base consolidation: a county whose actual voters sit closer to the governor
     // than the statewide average breaks a little harder toward the incumbent than
     // runElection's deliberately flat coin-flip captures (and vice versa)
     const plGap = b.elig>0 ? (b.pl/b.elig - plMean) : 0;
     // third-party share: mostly the statewide rate, with some geographic texture
     // (a sorted county over-concentrates intense voters, overstating its splinter)
+    // What kind of place this is, regardless of how it feels this quarter.
+    // c[5] runs negative for progressive counties, so flip it to read as
+    // "agrees with a progressive governor" and mirror it for a conservative one.
+    const cAnchor=(-(c[5]||0))*(govLeft?1:-1)*COUNTY_ANCHOR;
     return { name:c[0], abbr:c[1], popK:c[6],
-             _h2h: (major>0 ? y/major : 0.5) + clamp(plGap*0.06,-0.16,0.16),
+             _h2h: (major>0 ? b.hy/major : 0.5) + clamp(plGap*0.06,-0.16,0.16) + cAnchor,
              _thL: 0.45*(ctot>0?thl/ctot:0) + 0.55*swThL,
              _thR: 0.45*(ctot>0?thr/ctot:0) + 0.55*swThR,
              turnout: b.elig>0 ? b.tot/b.elig : turnoutPct };
@@ -9530,7 +9527,12 @@ function runElection(){
   // real share rather than a couple of points under it
   const cadj = shareH2H - (csp>0 ? csw/csp : shareH2H);
   for(const c of counties){
-    const h=clamp(c._h2h+cadj,0.02,0.98);
+    // No county is unanimous. The ballot model already gives every individual
+    // voter a hard floor and ceiling on the grounds that a partisan bloc never
+    // votes for the other side whatever happens; the same is true of a place.
+    // Without this the anchor above pushes the reddest counties to one or two
+    // per cent in a collapse, which no real county has ever returned.
+    const h=clamp(c._h2h+cadj,0.08,0.92);
     const thd=clamp(c._thL+c._thR,0,0.6);
     c.share=h*(1-thd); c.opp=(1-h)*(1-thd);
     c.thL=c._thL; c.thR=c._thR;
@@ -12673,6 +12675,13 @@ function coalitionCapital(){
   }
   return +v.toFixed(2);
 }
+/* How much of a county's historical politics survives the current mood. The
+   district model has carried this since the beginning as LEG_ANCHOR; the
+   county map had no equivalent, so a bad term could hand Portland to the
+   other side because Portland was angry about Portland. Applied before the
+   reconciliation to the statewide share, so it widens the map's spread
+   without moving the headline. */
+const COUNTY_ANCHOR=0.14;
 const LEG_SPREAD=1.05;    // pts of district swing per pt of coalition differential
 const LEG_UNIFORM=0.45;   // pts of uniform swing per pt of statewide standing
 const LEG_ANCHOR=0.40;    // how much of the historical partisan baseline still holds
@@ -14303,7 +14312,8 @@ function legisBarHTML(name,total,seats,superLine,change,splinter,heldOver){
       <span class="lg-name">${name} — ${total} seats</span>
       <span class="lg-num">${seats-change} → <b>${seats}</b> · <span class="lg-chg ${dir}">${change>0?"▲ +"+change+" seats":change<0?"▼ "+change+" seats":"no change"}</span></span>
     </div>
-    <div class="lg-bar">${yourSeg}${splSeg}${oppSeg}<span class="lg-super" style="left:${sp}%" title="Three-fifths — ${superLine} seats"></span></div>
+    <div class="lg-bar">${yourSeg}${splSeg}${oppSeg}<span class="lg-super" style="left:${sp}%" title="Three-fifths — ${superLine} seats"></span><span class="lg-half" style="left:50%" title="Half the chamber — ${Math.floor(total/2)+1} seats is control"></span></div>
+    <div class="lg-keys"><span><i class="k-half"></i>${Math.floor(total/2)+1} — control of the chamber</span><span><i class="k-super"></i>${superLine} — three-fifths, the line to raise revenue</span></div>
     <div class="lg-foot"><span>${seats} yours${hoMine?` (${hoMine} held over)`:""}</span>${spl>0?`<span>${spl} splinter</span>`:`<span>three-fifths = ${superLine}</span>`}<span>${oppN} opposition${hoOpp?` (${hoOpp} held over)`:""}</span></div>
   </div>`;
 }
@@ -18523,20 +18533,20 @@ function renderBudget(){
     const rdCol=GAME.rainyDay>1?'var(--good)':GAME.rainyDay>0.3?'var(--warn)':'var(--bad)';
     const persPct=(GAME.persRate-5.26)/(9.35-5.26)*100;
     h+=`<div class="fiscal-panel"><div class="fiscal-title">Fiscal Machinery</div>
-      <div class="fnote" style="margin:-2px 0 12px">How the budget balances between quarters: <b>reserves</b> absorb a shortfall, then it becomes <b>structural debt</b>; <b>revenue</b> swings with the economy and the kicker; <b>costs</b> grind upward on their own. Two pots are <b>dedicated to schools and cannot be spent on anything else</b> — the Common School Fund pays into the school budget every year before the General Fund does, and the Education Stability Fund is held back to cushion a forced cut to it.</div>
+      <div class="fnote" style="margin:-2px 0 12px">How the money moves between quarters. A shortfall hits <b>reserves</b> first, then becomes <b>structural debt</b>. Two pots are <b>dedicated to schools</b> and cannot be spent on anything else.</div>
       <div class="fiscal-grid">`;
     // --- reserves cluster ---
     {
       const totRes=(GAME.rainyDay||0)+(GAME.eduStability||0);
       const trCol=totRes>2?'var(--good)':totRes>0.6?'var(--warn)':'var(--bad)';
       h+=`<div class="fcard"><div class="fname">${ico('bank')} Total Reserves</div><div class="fval" style="color:${trCol}">$${totRes.toFixed(2)}B</div>
-        <div class="fnote">Rainy Day Fund + Education Stability Fund — the cushion that absorbs a deficit before it becomes structural debt. Breakdown in the two cards that follow.</div></div>`;
+        <div class="fnote">The cushion a deficit hits before it turns into debt. Broken down in the next two cards.</div></div>`;
     }
     {
       const cd=GAME.turn-(GAME.lastReserveDraw??-99);
       let rdCtl=`<div class="fnote">${POLICIES.kickerReform
-        ? `With the kicker repealed, <b>every</b> above-forecast surplus accumulates here (60%) and in the Education Stability Fund (40%) — this balance is your running surplus.`
-        : `Refilled by budget surpluses under the 2% kicker line.`} <b>Auto-drawn</b> to cover any quarter's deficit before it turns into structural debt — that costs nothing and needs no decision from you. A <b>deliberate draw</b> does the one thing the automatic one cannot: retire structural debt that is already on the books.</div>`;
+        ? `Kicker repealed, so <b>every</b> above-forecast surplus lands here (60%) and in the ESF (40%).`
+        : `Refilled by surpluses under the 2% kicker line.`} <b>Auto-drawn</b> against any quarter's deficit, free and automatic. A <b>deliberate draw</b> does the one thing that cannot: retire debt already on the books.</div>`;
       if(GAME.reserveInfusion>0)
         rdCtl+=`<div class="fnote" style="color:var(--slate-blue)">↳ $${GAME.reserveInfusion.toFixed(2)}B drawn, lands in the budget at quarter's end.</div>`;
       if(reserveDrawAvailable())
@@ -18552,12 +18562,12 @@ function renderBudget(){
     }
     { const sold=csfLandsSold(), pay=(GAME.csfPayout||0);
       h+=`<div class="fcard"><div class="fname">${ico('bank')} Common School Fund</div><div class="fval">${(GAME.csfCorpus||0).toFixed(2)}B</div>
-        <div class="fnote"><b>How it works.</b> The corpus is the statehood land grant, held by the State Land Board. Money goes IN from ${sold?'investment returns alone':'grazing leases and harvest on the trust lands, plus investment returns'}; money comes OUT as a fixed <b>${(CSF_PAYOUT_RATE*100).toFixed(1)}%</b> of the corpus every year — <b>$${(pay*1000).toFixed(0)}M</b> right now — paid straight to the school budget <b>before</b> any General Fund appropriation. Spending it on anything else is not an option the state has, and it cannot be raided to close a deficit. Grow the corpus and the General Fund's share of schools shrinks. ${sold
-          ? 'The trust lands are sold: the corpus is a diversified portfolio now, earning more and swinging harder with the market, and the lease deposits are gone for good.'
-          : 'Because the deposits ride on the cut and the leases, the logging rate feeds this number — and the Elliott settlement set how much of the base survived.'}</div><button class="fcard-btn" data-fund="csf">${ico('wrench')} Manage →</button></div>`; }
+        <div class="fnote">The statehood land grant, held by the State Land Board. IN: ${sold?'investment returns':'grazing leases, harvest on the trust lands, and investment returns'}. OUT: a fixed <b>${(CSF_PAYOUT_RATE*100).toFixed(1)}%</b> a year — <b>$${(pay*1000).toFixed(0)}M</b> — paid to schools <b>before</b> the General Fund is. It cannot be raided, and growing it shrinks what the General Fund owes schools. ${sold
+          ? 'The lands are sold: a diversified portfolio now, earning more and swinging harder, with the lease deposits gone for good.'
+          : 'The deposits ride on the cut and the leases, so the logging rate feeds this number.'}</div><button class="fcard-btn" data-fund="csf">${ico('wrench')} Manage →</button></div>`; }
     h+=`<div class="fcard"><div class="fname">${ico('cap')} Education Stability Fund</div><div class="fval">${GAME.eduStability.toFixed(2)}B</div>
-      <div class="fnote"><b>How it works.</b> IN: ${(LOTTERY_ESF_SHARE*100).toFixed(0)}% of net lottery proceeds are constitutionally dedicated to this fund — <b>$${((GAME.esfLottoIn||0)*1000).toFixed(0)}M/yr</b> at your current lottery setting${GAME.eduStability>=+(budgetBalance().spend*0.055).toFixed(2)?' (at the cap, so the dedication is idle)':''} — plus 40% of any surplus that escapes the kicker. Capped at ~5.5% of the budget.
-      OUT: one purpose only. When a deficit exhausts the Rainy Day Fund and forces a cut, this fund is spent to absorb up to <b>85%</b> of the hit to the school budget, and nothing else. It cannot close the general gap, and you cannot draw on it deliberately.</div><button class="fcard-btn" data-fund="esf">${ico('search')} Inputs &amp; outputs →</button></div>`;
+      <div class="fnote">IN: ${(LOTTERY_ESF_SHARE*100).toFixed(0)}% of net lottery proceeds, constitutionally dedicated — <b>$${((GAME.esfLottoIn||0)*1000).toFixed(0)}M/yr</b>${GAME.eduStability>=+(budgetBalance().spend*0.055).toFixed(2)?' (at the cap, so the dedication is idle)':''} — plus 40% of any surplus that escapes the kicker. Capped near 5.5% of the budget.
+      OUT: one purpose. When a deficit drains the Rainy Day Fund and forces a cut, this absorbs up to <b>85%</b> of the hit to schools. Nothing else, and never on your say-so.</div><button class="fcard-btn" data-fund="esf">${ico('search')} Inputs &amp; outputs →</button></div>`;
     // --- shortfall / crisis ---
     {
       const debt=GAME.structuralDebt||0, ds=GAME.deficitStreak||0;
@@ -18579,7 +18589,7 @@ function renderBudget(){
       const swTxt = Math.abs(sw)<0.05 ? "flat this year"
         : sw<0 ? `<b style="color:var(--good)">−${(-sw).toFixed(2)}B this year</b> (fund gaining on the market)`
         : `<b style="color:var(--bad)">+${sw.toFixed(2)}B this year</b> (market losses)`;
-      h+=`<div class="fcard"><div class="fname">PERS — Unfunded Liability</div>
+      h+=`<div class="fcard"><div class="fname">${ico('bank')} PERS — Unfunded Liability</div>
         <div class="fval" style="color:${funded>=0.8?'var(--warn)':'var(--clay)'}">${Math.round(ual)}B <span style="font-size:12px;color:var(--muted-3)">· ${Math.round(funded*100)}% funded</span></div>
         <div class="fbar2"><i style="width:${clamp((1-funded)/0.5*100,0,100)}%;background:var(--clay)"></i></div>
         <div class="fnote">The hole between what PERS owes and what it holds. It moves with investment returns — ${swTxt} — and new benefits accrue every quarter. Sets the employer contribution rate (<b>${GAME.persRate.toFixed(2)}B</b>), of which <b>${growth>=0?'+':''}${growth.toFixed(2)}B</b> above the starting rate is fresh pressure on the General Fund. ${POLICIES.persReform?'PERS Reform is bending the accrual curve.':'PERS Reform can bend the accrual curve.'} New service cost is accruing at <b>${Math.round((GAME.persWave!=null?GAME.persWave:1)*100)}%</b> of its starting pace as the pre-1996 tiers retire out.</div><button class="fcard-btn" data-fund="pers">${ico('wrench')} Manage →</button></div>`;
