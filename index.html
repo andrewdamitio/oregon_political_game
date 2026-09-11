@@ -4244,6 +4244,9 @@ const CATALOG={
     desc:"Require manufacturers to provide parts and manuals (Oregon's 2024 law bans parts-pairing). Consumer win; mild business friction.",
     enabled:true, costFull:0.05, capital:5, enactCapital:7,
     effects:{disposableIncome:1.5,gdp:-0.05}, indicatorEffects:{businessClimate:-1}, ideology:{economic:-0.3,govSize:-0.3}},
+  // Its legislative effect is in memberLean(): under RCV a seat sends
+  // somebody closer to its own middle, because a plurality of your own side
+  // stops being enough to win it.
   rankedChoice:{name:"Ranked-Choice Voting", domain:"social", icon:"ballot", mechanic:"law", niche:true,
     desc:"Adopt RCV for state elections (Oregon voters narrowly rejected Measure 117 in 2024). Cheap to run; lifts turnout and civic trust over time, eases the spoiler effect — and crucially makes third-party and independent candidacies viable, reshaping who can splinter the vote at election time.",
     enabled:true, costFull:0.08, capital:7, enactCapital:10,
@@ -12875,6 +12878,20 @@ function coalitionCapital(){
    reconciliation to the statewide share, so it widens the map's spread
    without moving the headline. */
 const COUNTY_ANCHOR=0.14;
+function rcvOn(){ return !!(POLICIES.rankedChoice && POLICIES.rankedChoice.enabled); }
+/* How far toward their district's middle a member is pulled once they need
+   a majority rather than a plurality, and how much less their caucus can
+   lean on them for it. */
+const RCV_MODERATION=0.30, RCV_DISCIPLINE=0.85;
+/* A member's own position. Under FPTP it is the seat's partisan baseline,
+   because a primary electorate picks the nominee and a safe seat sends
+   somebody from its own flank. Under RCV they have to be somebody's second
+   choice too, so they sit closer to the district than the district's party
+   registration does. The seat's lean is untouched — elections still run on
+   it — this is only who it sends. */
+function memberLean(lean){
+  return rcvOn() ? 50+(lean-50)*(1-RCV_MODERATION) : lean;
+}
 const LEG_SPREAD=1.05;    // pts of district swing per pt of coalition differential
 const LEG_UNIFORM=0.45;   // pts of uniform swing per pt of statewide standing
 const LEG_ANCHOR=0.40;    // how much of the historical partisan baseline still holds
@@ -13295,7 +13312,8 @@ function floorMembers(chamber, pol, dir, ctx){
   const out=[];
   const spl=GAME.splinter ? new Set((chamber==="senate"?GAME.splinter.senate:GAME.splinter.house)||[]) : null;
   for(const row of rows){
-    const id=row[0], comp=row[1], lean=row[3];
+    // the seat's own lean decides its elections; memberLean is who it sent
+    const id=row[0], comp=row[1], lean=memberLean(row[3]);
     const verdict=billVerdict(comp,lean,pol,dir);
     const support=districtSupport(row,ctx.sf,ctx.align);
     if(spl && spl.has(id)){
@@ -13318,7 +13336,9 @@ function floorMembers(chamber, pol, dir, ctx){
     // is what a concession buys. They whip a party marker; they do not whip a
     // narrow technical change, and once a bill stops being the kind of thing
     // that shows up in a mailer their members are free to vote the district.
-    const disc=BILL_LOYALTY*(ctx.disc==null?1:ctx.disc);
+    // A member who reached a majority on transfers owes part of their seat to
+    // people outside their own party, and the whip knows it.
+    const disc=BILL_LOYALTY*(ctx.disc==null?1:ctx.disc)*(rcvOn()?RCV_DISCIPLINE:1);
     // THE CENTRE BENCH, under proportional representation. Elected on not
     // being either of you, so there is no caucus to whip them and nothing to
     // be loyal to. They vote the bill, and they are the votes you have to find.
