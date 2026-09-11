@@ -1991,6 +1991,12 @@ function saveGame(btn){
 function applySave(sv){
   try{
     for(const k in sv.game) GAME[k]=sv.game[k];
+    // A save can hold situations that have since been removed from the game
+    // (Corporate Exodus, Budget Shortfall). approvalTarget dereferences
+    // SITUATIONS[id] for every active key, so one stale entry throws on the
+    // first tick. Drop them.
+    for(const k in (GAME.activeSituations||{}))if(!SITUATIONS[k])delete GAME.activeSituations[k];
+    for(const k in (GAME.situationAge||{}))if(!SITUATIONS[k])delete GAME.situationAge[k];
     GAME.fading={};
     NATIONAL_MOOD.value=sv.nm.value; NATIONAL_MOOD.drift=sv.nm.drift;
     if(sv.landuse!=null)LANDUSE.index=sv.landuse;
@@ -2347,11 +2353,15 @@ const INDICATORS={
     ],
     feedback:{gdp:0.018}}, // at starting downtown~18: GDP drag reduced (was 0.030 — too strong). Downtown's lift to business climate lives in that indicator's own derive.
   inMigration:{name:"In-Migration Rate", icon:"truck", value:40,
-    desc:"Net flow of people and talent into Oregon. Driven by jobs, affordability, environment, and downtown vitality. Feeds the labor force and growth.",
+    desc:"Net flow of people and talent into Oregon. Driven by jobs, affordability, environment, and downtown vitality — a downtown that feels unsafe is one of the strongest things that turns people away. Feeds the labor force and growth, and pushes on homelessness in return: every arrival needs somewhere to live, and a tight housing market squeezes out the people at the bottom of it first.",
     derive:()=>{
-      let v=38;                                                      // Oregon has net out-migration in recent years
+      // Baseline moved 38 -> 31.4 when the direct homelessness term and the
+      // Homelessness Emergency's push were removed, so the opening value is
+      // unchanged. Homelessness still repels arrivals — through Downtown
+      // Perception, which is how it actually reaches someone deciding where
+      // to move.
+      let v=31.4;                                                    // Oregon has net out-migration in recent years
       v+=(55-METRICS.unemployment.value*6.5)*0.20;                  // strong job market draws people
-      v-=(METRICS.homelessness.value-50)*0.30;                      // visible crisis repels
       v+=(METRICS.environment.value-60)*0.20;
       v+=(INDICATORS.downtown.value-50)*0.30;                       // downtown vitality attracts
       v-=(50-INDICATORS.housingAffordability.value)*0.22;           // unaffordable housing is the #1 driver of out-migration
@@ -2361,16 +2371,25 @@ const INDICATORS={
       return clamp(v,0,100);
     },
     drivers:()=>[
-      {name:"⊕ baseline (net negative — recent Oregon out-migration)",v:38,base:true},
+      {name:"⊕ baseline (net negative — recent Oregon out-migration)",v:31.4,base:true},
       {name:ico(METRICS.unemployment.icon)+" Job Market (unemployment)",v:(55-METRICS.unemployment.value*6.5)*0.20,link:"m_unemployment"},
-      {name:ico(METRICS.homelessness.icon)+" Homelessness / visible crisis",v:-(METRICS.homelessness.value-50)*0.30,link:"m_homelessness"},
       {name:ico(METRICS.environment.icon)+" Environment",v:(METRICS.environment.value-60)*0.20,link:"m_environment"},
       {name:ico(INDICATORS.downtown.icon)+" Downtown Vitality",v:(INDICATORS.downtown.value-50)*0.30,link:"i_downtown"},
       {name:ico(INDICATORS.housingAffordability.icon)+" Housing Affordability",v:-(50-INDICATORS.housingAffordability.value)*0.22,link:"i_housingAffordability"},
       {name:ico(METRICS.taxBurden.icon)+" Tax / Cost-of-Living Burden",v:-(METRICS.taxBurden.value-52)*0.08,link:"m_taxBurden"},
       {name:ico('globe')+" National Mood",v:NATIONAL_MOOD.value*0.4,link:"nationalMood"},
     ],
-    feedback:{gdp:0.015, unemployment:0.01}},          // newcomers grow economy, slight labor-supply effect
+    // Newcomers grow the economy and add a little labour supply — and every
+    // one of them needs somewhere to live. Arrivals above the opening level
+    // tighten the housing market at the bottom first, which is where it
+    // shows up as homelessness. Below it, pressure eases. This closes a
+    // stabilising loop: a boom draws people, the pressure reaches the street,
+    // downtown sours, and the draw falls back.
+    // Indicator feedback is divided by the metric's inertia, so the coefficient
+    // is the intended effect times homelessness's 0.18: about 0.18 points of
+    // homelessness per point of in-migration — a strong boom (+15) adds
+    // roughly 2.7, a real exodus relieves about the same.
+    feedback:{gdp:0.015, unemployment:0.01, homelessness:0.032}},
   businessClimate:{name:"Business Climate", icon:"chart-up", value:44,
     desc:"How attractive Oregon is to employers and investment. Shaped by taxes, crime, talent inflow, and downtown perception. Drives GDP and hiring.",
     derive:()=>{
@@ -6510,7 +6529,11 @@ const SITUATIONS={
     trigger:()=>METRICS.homelessness.value>60, clear:()=>METRICS.homelessness.value<50, onClear:{capital:3},
     costEffect:{humanServices:0.40},
     watch:{metric:"homelessness", startAt:60, clearAt:50, badHigh:true},
-    metricEffect:{health:-1.5, gdp:-0.12}, indicatorEffect:{inMigration:-5},
+    // No direct push on in-migration: homelessness reaches arrivals through
+    // Downtown Perception, which this emergency already hits (-6 while it runs,
+    // on top of the -0.75/pt the metric carries). A second, direct -5 here was
+    // counting the same thing twice.
+    metricEffect:{health:-1.5, gdp:-0.12}, indicatorEffect:{},
     moodAxes:{economic:-0.2,social:-0.2}, moodMag:2,
     groupMood:{urban:-8,poor:-8,liberal:-6,suburban:-4,conservative:1}},
   addictionCrisis:{name:"Addiction & Overdose Crisis", kind:"bad", category:"chronic",
@@ -6549,18 +6572,10 @@ const SITUATIONS={
     costEffect:{publicSafety:0.15},
     metricEffect:{gdp:-0.1}, indicatorEffect:{downtown:-6, businessClimate:-4, tourism:-5, inMigration:-3}, moodMag:1,
     groupMood:{businessClass:-8,suburban:-5,wealthy:-4,moderate:-2,blueCollar:-2}},
-  budgetShortfall:{name:"Budget Shortfall", kind:"bad", category:"condition",
-    desc:"The General Fund is spending more than it takes in, and Article IX §2 does not let Oregon carry that. The legislature cannot adjourn on an unbalanced budget, so a shortfall this size puts the <b>Emergency Budget Stabilization</b> board in front of you — the cuts and the revenue that close it are yours to choose, and the bill for choosing them is paid there.\n\nThis condition is the warning, not the punishment. It costs you nothing by itself; what costs you is the package you sign, and the constituency behind every line of it.",
-    trigger:()=>GAME.lastBalance<-1.5, clear:()=>GAME.lastBalance>-0.5,
-    watch:{metric:"balance", startAt:-1.5, clearAt:-0.5, badHigh:false},
-    // No standing mood cost. This used to carry the heaviest mood weight in
-    // the table and a permanent bite out of three constituencies for a
-    // decision it never actually put in front of you. The shortfall now opens
-    // the stabilization board, and the popularity is lost there — on the
-    // programmes you cut and the taxes you raise, to the people you cut them
-    // from.
-    metricEffect:{}, moodAxes:{}, moodMag:0,
-    groupMood:{}},
+  // Budget Shortfall was removed as a situation. A hole in the year's budget is
+  // not a crisis you live under; it is the thing that makes the legislature put
+  // the Emergency Budget Stabilization board in front of you, and the cost is
+  // paid there — see the trigger in _runTicks.
   inequalityUnrest:{name:"Inequality Unrest", kind:"bad", category:"condition",
     desc:"A widening gap between rich and poor is fueling resentment and protest.",
     trigger:()=>METRICS.inequality.value>74, clear:()=>METRICS.inequality.value<64, onClear:{capital:3},
@@ -6696,7 +6711,7 @@ const SITUATIONS={
     indicatorEffect:{businessClimate:-5,inMigration:-2},
     groupMood:{motorists:-9,rural:-8,businessClass:-5,timber:-5,publicUnions:-4,blueCollar:-2}},
   federalShock:{name:"Federal Tax-Law Shock", kind:"bad", category:"event",
-    desc:"Congress rewrites the tax code (echoing 2025's H.R. 1). Because Oregon auto-conforms, hundreds of millions in General Fund revenue vanish almost overnight, and federal Medicaid match tightens — a fiscal hit you didn't choose and can't easily undo.",
+    desc:"Congress rewrites the tax code and the rules on what it sends the states (echoing 2025's H.R. 1). Oregon's federal funds are cut and the Medicaid match tightens, so a share of the Oregon Health Plan the federal government was paying for lands on the General Fund instead. It is a hit to the budget you did not choose and cannot vote your way out of — and the money comes back slowly, over years, not quarters.",
     metricEffect:{}, moodMag:0, minTurns:2,
     onTrigger:{fedHit:true},
     groupMood:{}},
@@ -8793,7 +8808,9 @@ function tickEconomy(){
   // (the +/- band below), not immunity — you cannot boom through a US recession.
   GAME.natCycle = clamp((GAME.natCycle||0)*0.90 + (Math.random()-0.5)*0.20, -1, 1);
   if(GAME.activeSituations.recession) GAME.natCycle = clamp(GAME.natCycle - 0.13, -1, 1);   // a live national recession holds it down
-  if(GAME.activeSituations.federalTaxShock) GAME.natCycle = clamp(GAME.natCycle - 0.05, -1, 1);
+  // This checked for "federalTaxShock", which is not a situation that exists,
+  // so the drag it was meant to apply had never once fired.
+  if(GAME.activeSituations.federalShock) GAME.natCycle = clamp(GAME.natCycle - 0.05, -1, 1);
   const natPull = (GAME.natCycle - GAME.econCycle) * 0.34;   // reversion toward the national cycle
   // how far Oregon is allowed to sit above the nation, earned by policy:
   // a strong business climate, in-migration and low unemployment widen the band.
@@ -8888,6 +8905,21 @@ function tickEconomy(){
    Medicaid match, held flat and scaled only by the federal index. */
 const FED_MEDICAID_BASE = 8.0*(0.78+0.44*0.55)*(1-0.34);   // ≈$5.40B match at the inherited caseload
 const FED_OTHER = 6.5 - FED_MEDICAID_BASE;                 // ≈$1.10B of everything else
+/* What a federal pullback is costing the General Fund right now, against a
+   fully-funded federal index: general federal funds lost, plus the share of
+   the Medicaid match that has shifted onto the state. Computed by asking
+   ohpFiscal() the same question at an index of 1.0, so it is exact rather
+   than an estimate, and reflects the live caseload and coverage level. */
+function fedShortfall(){
+  const idx=GAME.fedIndex==null?1:GAME.fedIndex;
+  const now=ohpFiscal();
+  const save=GAME.fedIndex; GAME.fedIndex=Math.max(1,idx);
+  const full=ohpFiscal();
+  GAME.fedIndex=save;
+  const general=FED_OTHER*Math.max(0,1-idx);
+  const medicaid=Math.max(0,now.stateShare-full.stateShare);
+  return {idx, general, medicaid, total:general+medicaid};
+}
 function ohpFiscal(){
   const cov = POLICIES.ohpCoverage ? policyLevel(POLICIES.ohpCoverage) : 0.55;   // 0..1, status quo 0.55
   const covMult = 0.78 + 0.44*cov;                                               // 0.78 gutted .. 1.22 max
@@ -9137,6 +9169,10 @@ function austerityLineCost(L){
    the rating agencies are watching for. A big pile behind you raises the bar
    only through what it costs to carry. */
 const AUS_SURPLUS=0.45;          // the margin above zero a package has to clear
+// How far under water the year's budget has to be before the legislature
+// will not adjourn without a package. This is what the old Budget Shortfall
+// condition triggered on; it now opens the board directly.
+const AUS_TRIGGER=-1.5;
 function austerityTarget(){
   const gap=Math.max(0, -(GAME.lastBalance||0));
   const carry=(GAME.structuralDebt||0)*0.05;   // debt service, not repayment
@@ -14446,7 +14482,7 @@ function _runTicks(){
   // structural-debt crisis, so a governor could run shortfall after shortfall
   // and never once be handed the screen built for fixing one.
   if(!GAME.pendingAusterity && GAME.turn>=6
-     && (GAME.activeSituations.budgetShortfall
+     && ((GAME.lastBalance||0) < AUS_TRIGGER
          || (GAME.activeSituations.fiscalCrisis
              && (GAME.structuralDebt||0) > fiscalCrisisThreshold()*1.15))
      && GAME.turn-(GAME.lastAusterity??-99) >= 6) openAusterity();
@@ -17220,6 +17256,29 @@ function renderDetail(){
       else if(s.category!=="event"&&s.kind!=="good"&&age>=5)
         h+=`<div class="threshline" style="margin:6px 0 10px;font-style:italic">Left running past eight quarters, this will begin to <b>fester</b> — compounding up to +40% above its base strength the longer it stands.</div>`;
     }
+    // The federal shock is a budget event and nothing else, so its page leads
+    // with what it is costing you rather than with a list of levers it has
+    // no relationship to.
+    if(sid==="federalShock"){
+      const f=fedShortfall();
+      const bal=budgetBalance();
+      const q=Math.max(0,Math.round(Math.log(Math.max(0.001,0.02/Math.max(0.001,1-f.idx)))/Math.log(0.97)));
+      h+=`<div class="ebgroup-label">What it is costing the budget</div><div class="ebgroup">`
+        +'<div class="ausr-row"><span class="ausr-l">'+ico('globe')+' Federal Funds Index</span>'
+        +'<span class="ausr-v" style="color:'+(f.idx<0.98?'var(--clay)':'var(--good)')+'">'+Math.round(f.idx*100)+'%</span></div>'
+        +'<div class="ausr-row"><span class="ausr-l">'+ico('bank')+' General federal funds lost</span>'
+        +'<span class="ausr-v" style="color:var(--clay)">−$'+f.general.toFixed(2)+'B/yr</span></div>'
+        +'<div class="ausr-row"><span class="ausr-l">'+ico('hospital')+' Medicaid match shifted onto the state</span>'
+        +'<span class="ausr-v" style="color:var(--clay)">−$'+f.medicaid.toFixed(2)+'B/yr</span></div>'
+        +'<div class="ausr-row" style="border-top:1px solid var(--rule);margin-top:4px;padding-top:6px"><span class="ausr-l"><b>Total hit to the General Fund</b></span>'
+        +'<span class="ausr-v" style="color:var(--clay)"><b>−$'+f.total.toFixed(2)+'B/yr</b></span></div>'
+        +`</div>`
+        +`<div class="ebnote">Your budget is ${bal.balance>=0?'running a <b>$'+bal.balance.toFixed(2)+'B</b> surplus':'running a <b>$'+(-bal.balance).toFixed(2)+'B</b> deficit'} with this hit included. `
+        +`The event itself passes in a couple of quarters; the money does not come back with it. The federal index recovers about <b>3% of the gap a quarter</b>`
+        +(f.idx<0.98?`, which puts it within two points of full in roughly <b>${q} quarters</b>`:`, and it is already close to full`)+`. `
+        +`The Medicaid share scales with the caseload, so a recession on top of this makes it worse. `
+        +`<span data-detail="budget" style="color:var(--slate-blue);cursor:pointer">State Budget →</span></div>`;
+    }
     if(s.watch){
       const isInd=!!s.watch.indicator;
       const wm=isInd?INDICATORS[s.watch.indicator]:METRICS[s.watch.metric];
@@ -17378,7 +17437,12 @@ function renderDetail(){
     }
     // overall + per-group opinion impact — only if this situation actually
     // moves approval (a standing baseline condition may not touch it at all)
-    if(s.moodMag||s.moodAxes||s.groupMood){
+    // groupMood:{} is truthy, so a situation with no approval effect at all
+    // (the heat dome, the federal shock) used to draw fifty-five bars at zero.
+    const _bloc=(()=>{ if(s.moodMag) return true;
+      if(s.moodAxes && Object.values(s.moodAxes).some(v=>v)) return true;
+      return !!(s.groupMood && Object.values(s.groupMood).some(v=>v)); })();
+    if(_bloc){
       h+=`<div class="ebgroup-label">Effect on voter blocs</div><div class="ebgroup">`;
       const rows=[];
       for(const vid in SIMULANTS){
@@ -17395,7 +17459,7 @@ function renderDetail(){
         h+=effectBar(r.name,r.m,scale,{color:r.m>=0?'var(--good)':'var(--clay)',link:"v_"+r.vid,fmt:v=>(v>=0?'+':'')+v.toFixed(1)});
       h+=`</div>`;
     } else {
-      h+=`<div class="ebgroup-label">Effect on voter blocs</div><div class="ebnote">None directly — this ${s.kind==="good"?"condition":"situation"} doesn't hand you (or cost you) approval on its own. It reaches voters only through the metrics above.</div>`;
+      if(sid!=="federalShock")h+=`<div class="ebgroup-label">Effect on voter blocs</div><div class="ebnote">None directly — this ${s.kind==="good"?"condition":"situation"} doesn't hand you (or cost you) approval on its own. It reaches voters only through the metrics above.</div>`;
     }
     if(s.minTurns)h+=`<div class="sectionsub" style="margin-top:12px">This ${s.category==="event"?"event":"situation"} persists at least ${s.minTurns} quarters before it can subside.</div>`;
   } else if(key==="nationalMood"){
