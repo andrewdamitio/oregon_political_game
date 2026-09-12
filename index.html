@@ -468,7 +468,11 @@
   .welcome-grand .welcome-body p{margin:0 0 11px}
   .welcome-grand .welcome-go{margin-top:22px;padding:15px 28px;font-size:16px;letter-spacing:1.5px;min-width:280px}
   /* CASCADIA. The map is line art in the page's own ink, like the seal. */
-  .quake-grand{gap:8px}
+  /* .egrand centres its content inside a 100vh box and scrolls itself, which
+     on a page taller than the viewport means two scroll containers fighting
+     and an end you cannot reach. This one flows from the top and lets the
+     card scroll it. */
+  .quake-grand{gap:8px;min-height:auto;justify-content:flex-start;overflow:visible;padding-bottom:46px}
   .quake-grand .quake-title{letter-spacing:6px}
   .quake-sub{font-size:15px;color:var(--muted-1);max-width:46ch;text-align:center;line-height:1.5;margin-bottom:2px}
   .quake-map{width:min(430px,88vw);height:auto;display:block;color:var(--ink);margin:6px 0 4px}
@@ -541,6 +545,12 @@
   .crisis-age{font-family:var(--font-data);font-size:9px;color:var(--muted-3)}
   .crisis-name{font-family:var(--font-display);font-size:14px;font-weight:600;margin-bottom:3px}
   .crisis-desc{font-size:11px;color:var(--muted-2);line-height:1.3;display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  /* A magnitude-9 rupture is not one card in a row of five: it takes the full
+     width and two rows' height, and it gets to finish its sentences. */
+  .crisis-card.crisis-major{grid-column:1/-1;grid-row:span 2;border-left-width:7px;padding:15px 18px}
+  .crisis-card.crisis-major .crisis-name{font-size:20px;letter-spacing:0.4px}
+  .crisis-card.crisis-major .crisis-tag{font-size:10px;letter-spacing:1.6px}
+  .crisis-card.crisis-major .crisis-desc{font-size:12.5px;line-height:1.5;-webkit-line-clamp:8;line-clamp:8}
   .threshline{font-size:11px;color:var(--muted-2);line-height:1.4}
   /* State of the State indicator panel */
   .sos-panel{background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:13px 15px;margin-bottom:20px}
@@ -15024,15 +15034,29 @@ function cascadiaMapSVG(){
   // the ocean is off the west edge of the county map, so the frame is widened
   // to the left to make room for the fault and the epicentre
   const VB='-78 -8 486 326';
-  const Z=COUNTY_GROUPS.cascadiaZone;
-  let outline='', shade='';
+  // The state outline, as the union of its counties: everything below is
+  // clipped to it, so the shaking can be drawn as the ground actually shakes
+  // and still stop at the Oregon line.
+  let outline='', clip='';
   OR_COUNTIES.forEach(function(c){
-    const nm=c[0], d=c[2];
-    const w=Z[nm]||Z[nm.replace(/ /g,'_')]||0;
-    outline+='<path'+A('d',d)+A('fill','none')+A('stroke','currentColor')+A('stroke-width','0.6')+A('opacity','0.5')+'/>';
-    // shaded by the same weights the quake uses to decide whose county it wrecks
-    if(w>0.01)shade+='<path'+A('d',d)+A('fill','url(#qkHatch)')+A('stroke','none')+A('opacity',(0.16+w*0.84).toFixed(2))+'/>';
+    clip+='<path'+A('d',c[2])+'/>';
+    outline+='<path'+A('d',c[2])+A('fill','none')+A('stroke','currentColor')+A('stroke-width','0.6')+A('opacity','0.5')+'/>';
   });
+  // ISOSEISMALS: ribbons parallel to the fault, not to anybody's county line.
+  // The coast, traced off the western edge of the coastal counties.
+  const coastLine=[[38,-8],[37,40],[33,85],[30,115],[27,150],[25,180],[14,205],[8,228],[2,258],[0,300]];
+  const offCoast=(dx)=>coastLine.map(function(p){ return [p[0]+dx, p[1]]; });
+  const ribbon=(inner,outer)=>{
+    const A2=offCoast(inner), B2=offCoast(outer).slice().reverse();
+    return _smoothPath(A2,false)+'L'+B2[0][0].toFixed(1)+' '+B2[0][1].toFixed(1)
+      +_smoothPath(B2,false).replace(/^M[-0-9. ]+/,'')+'Z';
+  };
+  const BANDS=[[-40,44,0.95],[44,92,0.66],[92,156,0.42],[156,250,0.22]];
+  let shade='';
+  BANDS.forEach(function(B3){
+    shade+='<path'+A('d',ribbon(B3[0],B3[1]))+A('fill','url(#qkHatch)')+A('stroke','none')+A('opacity',B3[2])+'/>';
+  });
+
   // THE TRENCH, offshore and parallel to the coast, teeth on the overriding plate
   const trench=[[2,-6],[-10,52],[-22,112],[-32,170],[-40,224],[-46,286]];
   const trenchD=_smoothPath(trench,false);
@@ -15066,19 +15090,13 @@ function cascadiaMapSVG(){
   }).join('');
   return '<svg'+A('class','quake-map')+A('viewBox',VB)+A('role','img')
     +A('aria-label','Modelled shaking across Oregon from a full-margin Cascadia rupture: violent on the coast, severe through the Willamette Valley, easing east')+'>'
-    +'<defs><pattern'+A('id','qkHatch')+A('width','5')+A('height','5')+A('patternUnits','userSpaceOnUse')+A('patternTransform','rotate(38)')+'>'
+    +'<defs><clipPath'+A('id','orClip')+'>'+clip+'</clipPath><pattern'+A('id','qkHatch')+A('width','5')+A('height','5')+A('patternUnits','userSpaceOnUse')+A('patternTransform','rotate(38)')+'>'
     +'<line'+A('x1','0')+A('y1','0')+A('x2','0')+A('y2','5')+A('stroke','currentColor')+A('stroke-width','1.35')+A('opacity','0.8')+'/></pattern></defs>'
-    +shade+outline
+    +'<g'+A('clip-path','url(#orClip)')+'>'+shade+'</g>'+outline
     +'<path'+A('d',trenchD)+A('fill','none')+A('stroke','currentColor')+A('stroke-width','1.5')+A('opacity','0.85')+'/>'+teeth
     +'<text'+A('x','-64')+A('y','150')+A('font-size','8')+A('font-family','var(--font-data)')+A('fill','currentColor')
       +A('opacity','0.75')+A('transform','rotate(-90 -64 150)')+A('text-anchor','middle')+A('letter-spacing','1.6')+'>CASCADIA SUBDUCTION ZONE</text>'
-    // the wave, and where it lands
-    +'<g'+A('stroke','currentColor')+A('stroke-width','1')+A('opacity','0.75')+A('fill','none')+'>'
-      +[60,120,190,240].map(function(y){ return '<path'+A('d','M'+(-8)+' '+y+' L 16 '+y)+A('marker-end','')+'/>'
-        +'<path'+A('d','M 16 '+y+' l -5 -3 M 16 '+y+' l -5 3')+'/>'; }).join('')
-    +'</g>'
-    +'<text'+A('x','-4')+A('y','268')+A('font-size','7.5')+A('font-family','var(--font-data)')+A('fill','currentColor')
-      +A('opacity','0.8')+A('text-anchor','middle')+A('letter-spacing','1.2')+'>TSUNAMI</text>'
+    
     +'<g'+A('opacity','0.92')+'>'
       +'<circle'+A('cx',ex)+A('cy',ey)+A('r','17')+A('fill','none')+A('stroke','currentColor')+A('stroke-width','0.8')+A('opacity','0.4')+'/>'
       +'<circle'+A('cx',ex)+A('cy',ey)+A('r','27')+A('fill','none')+A('stroke','currentColor')+A('stroke-width','0.6')+A('opacity','0.22')+'/>'
@@ -15106,7 +15124,7 @@ function showQuakeScreen(next){
     +'<div class="eg-kicker">'+turnLabel(GAME.turn)+' \u00b7 CASCADIA SUBDUCTION ZONE \u00b7 MAGNITUDE 9.0</div>'
     +'<div class="eg-result lose quake-title">THE BIG ONE</div>'
     +'<div class="wm-rule"></div>'
-    +'<div class="quake-sub">The fault that runs the length of the Oregon coast let go at last \u2014 and it let go along all of it.</div>'
+    +'<div class="quake-sub">The Juan de Fuca plate slipped beneath North America along the whole margin \u2014 Vancouver Island to Cape Mendocino, roughly a thousand kilometres of fault in a single rupture. The last one was the evening of 26 January 1700.</div>'
     +cascadiaMapSVG()
     +'<div class="quake-body">'
       +'<p>The shaking ran four and a half minutes. Tens of thousands of Oregonians are dead, most of them west of Interstate 5, and the number will not be settled for months, because the offices that would settle it are gone.</p>'
@@ -17420,7 +17438,8 @@ function renderBoard(){
   }
   // ---- active crises at the top ----
   const crises=Object.keys(GAME.activeSituations).sort((a,b)=>{
-    const rank=s=>SITUATIONS[s].category==="chronic"?0:(SITUATIONS[s].kind==="bad"?1:2);
+    // the Big One leads the board for as long as it is running
+    const rank=s=>s==="cascadiaQuake"?-1:(SITUATIONS[s].category==="chronic"?0:(SITUATIONS[s].kind==="bad"?1:2));
     return rank(a)-rank(b);
   });
   if(crises.length){
@@ -17431,7 +17450,7 @@ function renderBoard(){
       const tag = s.category==="chronic" ? "CHRONIC"
         : s.kind==="good" ? (s.category==="event" ? "WINDFALL" : "BRIGHT SPOT")
         : (s.category==="event" ? "EVENT" : "FLARE-UP");
-      h+=`<div class="crisis-card ${s.kind} ${s.category}${isNew?' crisis-new':''}" data-detail="s_${sid}" style="animation-delay:${ci*45}ms">
+      h+=`<div class="crisis-card ${s.kind} ${s.category}${isNew?' crisis-new':''}${sid==="cascadiaQuake"?' crisis-major':''}" data-detail="s_${sid}" style="animation-delay:${ci*45}ms">
         <div class="crisis-top"><span class="crisis-tag">${tag}</span><span class="crisis-age">${age}q</span></div>
         <div class="crisis-name">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div>
         <div class="crisis-desc">${descHTML(s.desc)}</div>
