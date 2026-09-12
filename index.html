@@ -467,6 +467,17 @@
   .welcome-grand .welcome-body{max-width:600px;text-align:left;font-size:13.5px;line-height:1.7;color:var(--muted-1);margin-top:14px;border-top:1px solid var(--line);padding-top:18px}
   .welcome-grand .welcome-body p{margin:0 0 11px}
   .welcome-grand .welcome-go{margin-top:22px;padding:15px 28px;font-size:16px;letter-spacing:1.5px;min-width:280px}
+  /* CASCADIA. The map is line art in the page's own ink, like the seal. */
+  .quake-grand{gap:8px}
+  .quake-grand .quake-title{letter-spacing:6px}
+  .quake-sub{font-size:15px;color:var(--muted-1);max-width:46ch;text-align:center;line-height:1.5;margin-bottom:2px}
+  .quake-map{width:min(300px,62vw);height:auto;display:block;color:var(--ink);margin:4px 0 2px}
+  .quake-body{max-width:58ch;font-size:13.5px;line-height:1.62;color:var(--muted-1);text-align:left}
+  .quake-body p{margin:0 0 9px}
+  .quake-body p:last-child{margin-bottom:0}
+  .quake-body b{color:var(--ink)}
+  .quake-go{margin-top:8px;min-width:230px}
+  @media(max-width:560px){ .quake-map{width:min(240px,74vw)} .quake-body{font-size:12.5px} }
   .egrand .eg-bar{width:min(560px,92vw);height:30px;display:flex;border:var(--rule) solid var(--ink);background:var(--paper-2);overflow:hidden}
   .egrand .eg-bar i{height:100%;transition:width 1.2s steps(20,end)}
   .egrand .eg-legend{display:flex;gap:16px;font-size:11px;color:var(--muted-2)}
@@ -8586,6 +8597,9 @@ function startSituation(sid){
     GAME.log.push(ico('coffin')+" The market slump adds ~$"+persHit.toFixed(0)+"B to the PERS unfunded liability");
     GAME.overheat=Math.max(0,(GAME.overheat||0)-0.6); // a bust bleeds off the pressure
   }
+  // The Big One does not get a toast. It gets the whole screen, at the end of
+  // the quarter, ahead of everything else that happened in it.
+  if(sid==="cascadiaQuake")GAME.pendingQuake={year:GAME.startYear+Math.floor(GAME.turn/4)};
   // no-choice events surface a notification splash so the player sees the hit
   if(s.noChoice){
     const fx=[];
@@ -14942,6 +14956,152 @@ function prForecastHTML(){
     +'<div class="prf-head"><span>'+ico('columns')+' Outside it</span><span>share</span><span>seats</span></div>'
     +'<div class="prc-rows">'+outCo.map(row).join("")+'</div>';
 }
+/* ============================================================
+   CASCADIA — THE MAP, AND THE PAGE IT SITS ON
+   ============================================================ */
+/* Catmull-Rom through the points, emitted as cubic beziers. Coastlines and
+   isoseismals are both smooth curves through known places, and hand-writing
+   control points for five of them is how they stop nesting properly. */
+function _smoothPath(pts, closed){
+  if(pts.length<2)return '';
+  const p=closed?[pts[pts.length-1]].concat(pts,[pts[0],pts[1]]):[pts[0]].concat(pts,[pts[pts.length-1]]);
+  let d='M'+pts[0][0].toFixed(1)+' '+pts[0][1].toFixed(1);
+  for(let i=1;i<p.length-2;i++){
+    const a=p[i-1],b=p[i],c=p[i+1],e=p[i+2];
+    d+='C'+(b[0]+(c[0]-a[0])/6).toFixed(1)+' '+(b[1]+(c[1]-a[1])/6).toFixed(1)
+      +' '+(c[0]-(e[0]-b[0])/6).toFixed(1)+' '+(c[1]-(e[1]-b[1])/6).toFixed(1)
+      +' '+c[0].toFixed(1)+' '+c[1].toFixed(1);
+  }
+  return d+(closed?'Z':'');
+}
+/* The Cascadia shaking model as line art, in the page's own ink. */
+function cascadiaMapSVG(){
+  const W=300, H=400;
+  const Q=String.fromCharCode(34);   // attribute quotes, without escaping every one
+  const A=(k,v)=>' '+k+'='+Q+v+Q;
+  // THE COAST, Puget Sound down to Cape Mendocino. Oregon occupies the middle
+  // two-thirds on purpose — this is the map of a state, not of a subduction zone.
+  const coast=[[137,2],[141,26],[133,50],[126,78],[123,104],[125,132],[127,166],
+               [129,200],[126,232],[118,262],[108,292],[122,330],[141,366],[152,400]];
+  const yTop=coast[0][1], yBot=coast[coast.length-1][1];
+  // ISOSEISMALS: offset inland, widest opposite the middle of the rupture and
+  // tapering at both ends, where the fault runs out and the shaking with it.
+  const band=(dx)=>coast.map(function(pt){
+    const f=(pt[1]-yTop)/(yBot-yTop);
+    const taper=0.40+0.60*Math.sin(Math.PI*clamp(f,0,1));
+    return [pt[0]+dx*taper, pt[1]+dx*taper*0.08];
+  });
+  const coastD=_smoothPath(coast,false);
+  // the violently shaken strip, hatched: the coast and back up the first contour
+  const b1=band(30), b1r=b1.slice().reverse();
+  const fillD=coastD+'L'+b1r[0][0].toFixed(1)+' '+b1r[0][1].toFixed(1)
+    +_smoothPath(b1r,false).replace(/^M[-0-9. ]+/,'')+'Z';
+  // THE TRENCH, offshore and parallel: a line with teeth on the landward side,
+  // which is how a subduction zone is drawn on any map that means it.
+  const trench=[[74,14],[64,60],[60,116],[62,176],[68,236],[78,292],[90,340],[100,378]];
+  const trenchD=_smoothPath(trench,false);
+  let teeth='';
+  for(let i=0;i<trench.length-1;i++){
+    const p=trench[i], q2=trench[i+1];
+    const mx=(p[0]+q2[0])/2, my=(p[1]+q2[1])/2;
+    const dx=q2[0]-p[0], dy=q2[1]-p[1], len=Math.hypot(dx,dy)||1;
+    // the teeth sit on the overriding plate — landward, which here is east
+    const nx=-dy/len, ny=dx/len;
+    const t=7, base=4.4;
+    teeth+='<path'+A('d','M'+(mx+(-dx/len)*base).toFixed(1)+' '+(my+(-dy/len)*base).toFixed(1)
+      +'L'+(mx+nx*t).toFixed(1)+' '+(my+ny*t).toFixed(1)
+      +'L'+(mx+(dx/len)*base).toFixed(1)+' '+(my+(dy/len)*base).toFixed(1)+'Z')
+      +A('fill','currentColor')+A('opacity','0.8')+'/>';
+  }
+  const cities=[['Seattle',152,34],['Portland',150,128],['Salem',144,148],['Bend',196,168],
+                ['Eugene',140,180],['Coos Bay',122,238],['Medford',148,272],['Eureka',112,318]];
+  const ex=104, ey=208;   // the epicentre, offshore of the central Oregon coast
+  let star='';
+  for(let i=0;i<10;i++){
+    const r=i%2?3.6:8.6, ang=-Math.PI/2+i*Math.PI/5;
+    star+=(i?'L':'M')+(ex+r*Math.cos(ang)).toFixed(1)+' '+(ey+r*Math.sin(ang)).toFixed(1);
+  }
+  star+='Z';
+  const RINGS=[[30,'VIOLENT',7],[62,'SEVERE',10],[100,'STRONG',12]];
+  // band names down the right, each against its own contour and clear of the towns
+  const bandLabels=RINGS.map(function(R,i){
+    const pts=band(R[0]), at=pts[R[2]];
+    return '<text'+A('x',(at[0]+4).toFixed(1))+A('y',(at[1]+3).toFixed(1))
+      +A('font-size','6.8')+A('font-family','var(--font-data)')+A('fill','currentColor')
+      +A('opacity',(0.70-i*0.14).toFixed(2))+A('letter-spacing','1')+'>'+R[1]+'</text>';
+  }).join('');
+  return '<svg'+A('class','quake-map')+A('viewBox','0 0 '+W+' '+H)+A('role','img')
+    +A('aria-label','Modelled shaking from a full-margin Cascadia rupture: violent along the Oregon coast, easing inland')+'>'
+    +'<defs><pattern'+A('id','qkHatch')+A('width','5')+A('height','5')+A('patternUnits','userSpaceOnUse')+A('patternTransform','rotate(38)')+'>'
+    +'<line'+A('x1','0')+A('y1','0')+A('x2','0')+A('y2','5')+A('stroke','currentColor')+A('stroke-width','1.3')+A('opacity','0.5')+'/></pattern></defs>'
+    +'<path'+A('d',fillD)+A('fill','url(#qkHatch)')+A('stroke','none')+'/>'
+    // the Washington and California lines, so Oregon is legible as Oregon
+    +'<g'+A('stroke','currentColor')+A('stroke-width','0.6')+A('opacity','0.28')+A('stroke-dasharray','3 3')+A('fill','none')+'>'
+      +'<path'+A('d','M124 108 H300')+'/><path'+A('d','M113 286 H300')+'/></g>'
+    +'<text'+A('x','296')+A('y','118')+A('text-anchor','end')+A('font-size','6.6')+A('font-family','var(--font-data)')
+      +A('fill','currentColor')+A('opacity','0.45')+A('letter-spacing','1.4')+'>WASHINGTON</text>'
+    +'<text'+A('x','296')+A('y','298')+A('text-anchor','end')+A('font-size','6.6')+A('font-family','var(--font-data)')
+      +A('fill','currentColor')+A('opacity','0.45')+A('letter-spacing','1.4')+'>CALIFORNIA</text>'
+    +'<g'+A('fill','none')+A('stroke','currentColor')+A('stroke-linecap','round')+'>'
+      +RINGS.map(function(R,i){ return '<path'+A('d',_smoothPath(band(R[0]),false))
+        +A('stroke-width',(1.15-i*0.2).toFixed(2))+A('opacity',(0.75-i*0.16).toFixed(2))+'/>'; }).join('')
+    +'</g>'
+    +bandLabels
+    +'<path'+A('d',coastD)+A('fill','none')+A('stroke','currentColor')+A('stroke-width','1.7')+A('stroke-linejoin','round')+A('stroke-linecap','round')+'/>'
+    +'<path'+A('d',trenchD)+A('fill','none')+A('stroke','currentColor')+A('stroke-width','1.4')+A('opacity','0.85')+'/>'+teeth
+    +'<text'+A('x','40')+A('y','200')+A('font-size','7')+A('font-family','var(--font-data)')+A('fill','currentColor')
+      +A('opacity','0.72')+A('transform','rotate(-90 40 200)')+A('text-anchor','middle')+A('letter-spacing','1.6')+'>CASCADIA SUBDUCTION ZONE</text>'
+    +'<g'+A('opacity','0.92')+'>'
+      +'<circle'+A('cx',ex)+A('cy',ey)+A('r','16')+A('fill','none')+A('stroke','currentColor')+A('stroke-width','0.7')+A('opacity','0.4')+'/>'
+      +'<circle'+A('cx',ex)+A('cy',ey)+A('r','25')+A('fill','none')+A('stroke','currentColor')+A('stroke-width','0.5')+A('opacity','0.22')+'/>'
+      +'<path'+A('d',star)+A('fill','currentColor')+A('stroke','none')+'/></g>'
+    +'<g'+A('font-family','var(--font-data)')+A('font-size','8')+A('fill','currentColor')+'>'
+      +cities.map(function(c){ return '<circle'+A('cx',c[1])+A('cy',c[2])+A('r','1.9')+A('opacity','0.9')+'/>'
+        +'<text'+A('x',c[1]+4.5)+A('y',c[2]+2.8)+A('opacity','0.9')+'>'+c[0]+'</text>'; }).join('')
+    +'</g>'
+    +'<text'+A('x','6')+A('y',H-13)+A('font-size','6.8')+A('font-family','var(--font-data)')
+      +A('fill','currentColor')+A('opacity','0.55')+A('letter-spacing','1.1')+'>MODELLED PEAK SHAKING</text>'
+    +'<text'+A('x','6')+A('y',H-4)+A('font-size','6.8')+A('font-family','var(--font-data)')
+      +A('fill','currentColor')+A('opacity','0.55')+A('letter-spacing','1.1')+'>M9.0 FULL-MARGIN RUPTURE</text>'
+    +'</svg>';
+}
+/* The page itself. The same full-bleed treatment as a midterm, because the
+   state has just had the worst day in its history and a line in the quarterly
+   log will not carry it. */
+function showQuakeScreen(next){
+  const q=GAME.pendingQuake||{}; GAME.pendingQuake=null;
+  const card=document.getElementById('midtermCard');
+  const modal=document.getElementById('midtermModal');
+  if(!card||!modal){ if(next)next(); return; }
+  card.innerHTML='<div class="egrand quake-grand">'
+    +'<div class="eg-kicker">'+turnLabel(GAME.turn)+' \u00b7 CASCADIA SUBDUCTION ZONE \u00b7 MAGNITUDE 9.0</div>'
+    +'<div class="eg-result lose quake-title">THE BIG ONE</div>'
+    +'<div class="wm-rule"></div>'
+    +'<div class="quake-sub">The fault that runs the length of the Oregon coast let go at last \u2014 and it let go along all of it.</div>'
+    +cascadiaMapSVG()
+    +'<div class="quake-body">'
+      +'<p>The shaking ran four and a half minutes. Tens of thousands of Oregonians are dead, most of them west of Interstate 5, and the number will not be settled for months, because the offices that would settle it are gone. The coast had between fifteen and thirty minutes before the water came. Some of those towns are not there any more.</p>'
+      +'<p>Every bridge over the Willamette is shut pending inspection and the engineers already know what the inspections will say. The Port of Portland cannot take a ship. Highway 101 is severed in more places than the state has crews to reach. Water, power and fuel are out west of the Cascades \u2014 weeks in the cities, months in the small towns \u2014 and the fuel terminals that supply the whole state were built on liquefiable ground on the bank of the Willamette. They are in the Willamette now.</p>'
+      +'<p>Oregon does not come back from this in your term. It comes back over years, and in places over decades, and how much of it comes back is the only question your governorship is about now. <b>Everything you had planned is the second thing you are doing.</b></p>'
+    +'</div>'
+    +'<button class="enactbtn quake-go" id="quakeContinue">Begin the response \u25b8</button>'
+    +'</div>';
+  modal.classList.add('grand');
+  modal.classList.remove('hidden');
+  const _top=()=>{ card.scrollTop=0; const g=card.querySelector('.egrand'); if(g)g.scrollTop=0; };
+  _top(); requestAnimationFrame(_top);
+  const done=()=>{
+    modal.classList.add('hidden'); modal.classList.remove('grand');
+    document.removeEventListener('keydown',onKey,true);
+    if(next)next();
+  };
+  const onKey=(e)=>{ if(modal.classList.contains('hidden'))return;
+    if(e.key==='Enter'||e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); done(); } };
+  const btn=document.getElementById('quakeContinue');
+  if(btn)btn.onclick=done;
+  document.addEventListener('keydown',onKey,true);
+  setTimeout(()=>{ try{ btn&&btn.focus({preventScroll:true}); }catch(e){} },30);
+}
 /* Campaign HQ's third surface: the legislature as polling. */
 function legForecastHTML(){
   // no districts to forecast once the Assembly is elected off vote share
@@ -15387,7 +15547,9 @@ function doEndTurn(){
     if(GAME.pendingOppBill) showOppBill(afterEo);
     else afterEo();
   };
-  drainEoEvents(afterOpp);
+  // nothing else that happened this quarter outranks the state falling down
+  if(GAME.pendingQuake) showQuakeScreen(()=>drainEoEvents(afterOpp));
+  else drainEoEvents(afterOpp);
 }
 /* election quarter — ticks run for the campaign quarter, then the election fires */
 function doElectionTurn(){
