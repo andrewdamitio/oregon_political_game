@@ -1257,9 +1257,7 @@
   .prchamber{margin:10px 0}
   .prc-h{font-family:var(--font-display);font-size:12px;letter-spacing:.05em;text-transform:uppercase;
     color:var(--muted-1);margin-bottom:8px;display:flex;align-items:center;gap:6px}
-  .prc-seatgrid{display:flex;flex-wrap:wrap;gap:2px;margin-bottom:10px;max-width:430px}
-  .prc-seatgrid i{width:12px;height:12px;border-radius:50%;display:block}
-  .prc-seatgrid i.me{box-shadow:0 0 0 1.5px var(--ink)}
+  .prc-arc{display:block;width:100%;max-width:560px;height:auto;margin:2px auto 12px}
   .prc-bar{position:relative;display:flex;height:14px;border-radius:3px;overflow:hidden;background:var(--paper-2)}
   .prc-bar i{display:block;height:100%}
   .prc-maj{position:absolute;left:51%;top:-3px;bottom:-3px;width:2px;background:var(--ink)}
@@ -2715,7 +2713,7 @@ const INDICATORS={
       if(POLICIES.affordableHousing)v+=effLevelOf(POLICIES.affordableHousing)*10;
       v+=rentCapAfford();
       if(POLICIES.officeConversion)v+=effLevelOf(POLICIES.officeConversion)*5;
-      if(POLICIES.middleHousing)v+=effLevelOf(POLICIES.middleHousing)*8;
+      v+=middleHousingAfford();
       if(POLICIES.singleStair)v+=effLevelOf(POLICIES.singleStair)*6;
       if(POLICIES.housingPackage)v+=effLevelOf(POLICIES.housingPackage)*5;
       v+=(2-LANDUSE.index)*4;                       // looser land use = more supply = more affordable
@@ -2732,7 +2730,7 @@ const INDICATORS={
       ...(POLICIES.affordableHousing&&effLevelOf(POLICIES.affordableHousing)>0?[{name:ico('house')+" Affordable Housing Bonds",v:effLevelOf(POLICIES.affordableHousing)*10,link:"p_affordableHousing"}]:[]),
       ...(rentCapAfford()!==0?[{name:ico('houses')+" Rent Stabilization",v:rentCapAfford(),link:"p_rentStabilization"}]:[]),
       ...(POLICIES.officeConversion&&effLevelOf(POLICIES.officeConversion)>0?[{name:ico('factory')+" Office Conversion",v:effLevelOf(POLICIES.officeConversion)*5,link:"p_officeConversion"}]:[]),
-      ...(POLICIES.middleHousing&&effLevelOf(POLICIES.middleHousing)>0?[{name:ico('house')+" Middle Housing",v:effLevelOf(POLICIES.middleHousing)*8,link:"p_middleHousing"}]:[]),
+      ...(POLICIES.middleHousing?[{name:ico('houses')+" Middle Housing — "+middleHousingTierName(),v:middleHousingAfford(),link:"p_middleHousing"}]:[]),
       ...(POLICIES.singleStair&&effLevelOf(POLICIES.singleStair)>0?[{name:ico('house')+" Single Stair Reform",v:effLevelOf(POLICIES.singleStair)*6,link:"p_singleStair"}]:[]),
       ...(POLICIES.housingPackage&&effLevelOf(POLICIES.housingPackage)>0?[{name:ico('houses')+" Housing Production Package",v:effLevelOf(POLICIES.housingPackage)*5,link:"p_housingPackage"}]:[]),
       {name:ico(LANDUSE.icon)+" Land Use (supply constraint)",v:(2-LANDUSE.index)*4,link:"landuse"},
@@ -2836,6 +2834,24 @@ function indDeltaGood(k,v){return indHigherIsBad(k)?v<0:v>0;}
 function indLevelGood(k,val){return indHigherIsBad(k)?val<=45:val>=50;}
 /* sum of indicatorEffects[id] across all enacted policies (scaled by level)
    AND agencies (scaled by funding) */
+/* WHAT MIDDLE HOUSING IS WORTH TO AFFORDABILITY, by how much of the zoning
+   decision the state has taken off the city. Declared once and read by both
+   the indicator's formula and its breakdown, so the page cannot show a
+   different number from the one the model used. It lerps across the tiers the
+   way policyEffect does, because the supply arrives over the ten quarters the
+   policy phases in and not on the day the tier changes. */
+const MIDDLE_HOUSING_AFFORD=[2, 14, 19, 23, 28];
+function middleHousingAfford(){
+  const p=POLICIES.middleHousing; if(!p)return 0;
+  const n=MIDDLE_HOUSING_AFFORD.length-1;
+  const lv=clamp(effLevelOf(p),0,1)*n, lo=Math.floor(lv), hi=Math.min(n,lo+1), f=lv-lo;
+  return MIDDLE_HOUSING_AFFORD[lo]+(MIDDLE_HOUSING_AFFORD[hi]-MIDDLE_HOUSING_AFFORD[lo])*f;
+}
+function middleHousingTierName(){
+  const p=POLICIES.middleHousing;
+  if(!p||!p.tiers)return "";
+  return String(p.tiers[clamp(p.tierIndex||0,0,p.tiers.length-1)]).replace(/&amp;/g,"&");
+}
 function indPolicyBoost(indId){
   let b=0;
   for(const fid in GAME.fading){
@@ -3935,12 +3951,48 @@ const POLICIES={
       {rural:2, timber:2, businessClass:1, poor:-2, socialist:-2, liberal:-1},
       {rural:4, timber:3, businessClass:2, poor:-3, socialist:-3, liberal:-2}],
     tierIdeology:[{},{economic:0.2,social:0.1},{economic:0.4,social:0.2}]},
-  middleHousing:{name:"Middle Housing (HB 2001)", domain:"social", icon:"houses", enacted:true, mechanic:"law", repealCost:10, phaseIn:10,
-    desc:"2019 — the first state to end single-family-only zoning: duplexes-to-quadplexes legal in larger cities. Oregon is ~111,000 homes short; the law is working but slowly — transformation depends on local markets and small builders who need financing and time to retool. The supply effects compound over years as more infill projects complete, gradually pulling down rents and expanding where working families can live.",
+  middleHousing:{name:"Middle Housing (HB 2001)", domain:"social", icon:"houses", enacted:true, mechanic:"tier", repealCost:10, phaseIn:10,
+    desc:"2019 — the first state to end single-family-only zoning: duplexes-to-quadplexes legal in larger cities. Oregon is ~111,000 homes short; the law is working but slowly — transformation depends on local markets and small builders who need financing and time to retool. The supply effects compound over years as more infill projects complete, gradually pulling down rents and expanding where working families can live.\n\nThe tiers are how much of the zoning decision the state takes off the city. A legal allowance is not a building: a city that must permit a fourplex can still require two parking spaces, a discretionary design hearing and a system development charge that makes it pencil at a loss, and that is the difference between the law on the books and the homes on the ground. Each step up takes one of those levers away from the council — and hands it to Salem, which is the whole argument against it.\n\nAt the top the state stops asking. It sets a zoning-capacity target for every city and lets a conforming project proceed where the local code cannot meet it, which is how California's builder's remedy works. It builds the most housing and it is the furthest a governor can go in telling a town what it must allow — the local-control backlash is not a side effect, it is the price.",
     enabled:true, costFull:0.02, capital:9,
-    effects:{homelessness:-8,inequality:-2}, indicatorEffects:{inMigration:2, housingAffordability:6},
-    blocEffect:{suburban:-4, wealthy:-3, renters:3, blueCollar:2},
-    ideology:{economic:-0.3,govSize:0.1}},
+    tiers:["Cities may opt out","Duplexes in larger cities (HB 2001)","Fourplexes statewide, by right","Parking &amp; design preempted","State capacity targets"],
+    tierIndex:1,
+    costByTier:[0.005, 0.02, 0.03, 0.05, 0.07],
+    effects:{},
+    // Tier 1 is HB 2001 as it actually stands, so the opening state is
+    // unchanged. Below it the cities buy their way out and the allowance stops
+    // meaning much; above it the state takes the parking minimum, the design
+    // hearing and finally the zoning capacity itself.
+    tierEffects:[
+      {homelessness:2, inequality:1},
+      {homelessness:-8, inequality:-2},
+      {homelessness:-11, inequality:-2.6},
+      {homelessness:-14, inequality:-3.2},
+      {homelessness:-17, inequality:-4}
+    ],
+    // Affordability is declared once, in MIDDLE_HOUSING_AFFORD, because the
+    // indicator's own formula names this policy and its breakdown has to show
+    // the same number the formula used.
+    tierIndicatorEffects:[
+      {localAutonomy:7, inMigration:0},
+      {inMigration:2},
+      {localAutonomy:-5, inMigration:3},
+      {localAutonomy:-11, inMigration:4},
+      {localAutonomy:-18, inMigration:5}
+    ],
+    tierBlocEffects:[
+      {suburban:5, homeowners:6, wealthy:4, rural:3, conservative:3, libertarian:2, renters:-5, urban:-3, liberal:-2},
+      {suburban:-4, wealthy:-3, renters:3, blueCollar:2},
+      {renters:6, urban:4, blueCollar:3, liberal:2, suburban:-7, homeowners:-7, wealthy:-5, rural:-3, conservative:-3},
+      {renters:9, urban:6, blueCollar:4, liberal:3, socialist:2, suburban:-11, homeowners:-11, wealthy:-7, rural:-5, conservative:-5, libertarian:-3},
+      {renters:12, urban:8, blueCollar:5, liberal:4, socialist:3, students:3, suburban:-15, homeowners:-15, wealthy:-9, rural:-8, conservative:-8, libertarian:-6}
+    ],
+    tierIdeology:[
+      {economic:0.2, govSize:-0.3},
+      {economic:-0.3, govSize:0.1},
+      {economic:-0.35, govSize:0.25},
+      {economic:-0.4, govSize:0.4},
+      {economic:-0.45, govSize:0.6}
+    ]},
   deathWithDignity:{name:"Death with Dignity", domain:"social", icon:"heart", binary:true, enacted:true, mechanic:"law", repealCost:13, niche:true,
     desc:"Measure 16 (1994), reaffirmed 1997 — the first U.S. physician-assisted-dying law. Usage is small but steady (400 deaths in 2025, ~65 per 10,000 deaths). Voters reaffirmed it once already; repeal would be a culture-war earthquake for little budget effect.",
     enabled:true, costFull:0.005, capital:6,
@@ -4412,9 +4464,14 @@ const CATALOG={
     blocEffect:{conservative:5, businessClass:3, rural:3, libertarian:2, poor:-8, blueCollar:-4, liberal:-5, publicUnions:-3, students:-2},
     ideology:{economic:0.4,social:0.3,govSize:0.3}},
   deregulation:{name:"Business Deregulation Package", domain:"economy", icon:"scissors", mechanic:"slider",
-    desc:"A standing programme of regulatory rollback across four specific areas, dialled by how far you take it.\n\nPERMITTING: statutory shot-clocks on land-use and building review, deemed-approved defaults when an agency misses the deadline, and consolidated review for projects touching more than one agency. This is where the growth comes from — projects that pencil get built years sooner.\n\nENVIRONMENTAL REVIEW: narrower DEQ permit conditions, fewer categories requiring full review, self-certification for mid-sized emitters. Cheap and fast, and it is most of the environmental cost: the monitoring you stop doing is monitoring that was catching something.\n\nOCCUPATIONAL LICENSING: fewer licensed trades, lower hour requirements, reciprocity with other states. Opens closed occupations to people without the time or money to clear an artificial bar — which is why it cuts unemployment — and thins the wage premium those licences protected, which is why inequality rises.\n\nWORKPLACE AND CONSUMER ENFORCEMENT: fewer Oregon OSHA inspectors, longer intervals between visits, more complaint-driven rather than scheduled enforcement. Shows up as injuries and as air and water quality near the operations nobody is visiting any more, and it is the reason the health line moves.\n\nThe collection-rate cost is the same story on the revenue side: an agency that is not looking is not finding underpayment either.",
+    desc:"A standing programme of regulatory rollback across four specific areas, dialled by how far you take it.\n\nPERMITTING AND THE BUILDING CODE: statutory shot-clocks on land-use and building review, deemed-approved defaults when an agency misses the deadline, consolidated review for projects touching more than one agency, and a Building Codes Division told to clear the path rather than guard it — third-party plan review and inspection wherever the queue is long, statewide master-plan approval so the same apartment building is not re-reviewed in nine jurisdictions, and an end to code amendment cycles that add cost between them. This is where the growth comes from, and it is most of what this package does for HOUSING: the thing standing between a project that pencils and a building people live in is usually the queue, and the years in it are the cost.\n\nENVIRONMENTAL REVIEW: narrower DEQ permit conditions, fewer categories requiring full review, self-certification for mid-sized emitters. Cheap and fast, and it is most of the environmental cost: the monitoring you stop doing is monitoring that was catching something.\n\nOCCUPATIONAL LICENSING: fewer licensed trades, lower hour requirements, reciprocity with other states. Opens closed occupations to people without the time or money to clear an artificial bar — which is why it cuts unemployment — and thins the wage premium those licences protected, which is why inequality rises.\n\nWORKPLACE AND CONSUMER ENFORCEMENT: fewer Oregon OSHA inspectors, longer intervals between visits, more complaint-driven rather than scheduled enforcement. Shows up as injuries and as air and water quality near the operations nobody is visiting any more, and it is the reason the health line moves.\n\nThe collection-rate cost is the same story on the revenue side: an agency that is not looking is not finding underpayment either.",
     value:0.5, costFull:0, capital:8, enactCapital:11,
-    effects:{gdp:0.4,environment:-6,unemployment:-0.3,inequality:2,health:-2}, indicatorEffects:{businessClimate:8, adminOverhead:-18, digitization:4},
+    effects:{gdp:0.4,environment:-6,unemployment:-0.3,inequality:2,health:-2},
+    // Housing is the permitting half of this package cashing out. A shot-clock
+    // and a Building Codes Division that clears rather than guards is worth
+    // real supply — less than rewriting the zoning itself, and it applies to
+    // every project rather than to one housing type.
+    indicatorEffects:{businessClimate:8, adminOverhead:-18, digitization:4, housingAffordability:7},
     blocEffect:{businessClass:8, libertarian:7, conservative:5, rural:3, wealthy:3, moderate:1, socialist:-7, liberal:-5, publicUnions:-5, collegeEducated:-3, urban:-2},
     sizeEffect:{businessClass:0.03, blueCollar:-0.02},
     ideology:{economic:0.7,environment:0.5,govSize:0.6}},
@@ -13229,6 +13286,52 @@ function coalitionStatusHTML(){
     h+='<div class="coal-row gone"><b>'+prParty(pid).name+'</b> walked out of the government.</div>';
   return h+'</div>';
 }
+/* THE CHAMBER, SEATED. A proportional assembly is not a grid — it is a
+   half-disc, and where a member sits is the whole point: the left of the
+   chamber on the left, the right on the right, every party one contiguous
+   wedge. Drawn that way you can see the coalition arithmetic before you read
+   a number — where your own bench ends, who is next to it, and how far you
+   have to reach across the floor to get to fifty-one.
+   Seats are spread across five benches in proportion to the length of each
+   arc, so the spacing between members is even rather than crowded on the
+   inside rail, and then dealt out in order of angle from the far left round
+   to the far right. */
+function prHemicycleSVG(layout, mine){
+  const N=layout.length||PR_SEATS;
+  const ROWS=5, W=560, rOut=248, rIn=110, cx=W/2, cy=rOut+16;
+  const radii=[], weights=[];
+  for(let i=0;i<ROWS;i++){
+    const r=rIn+(rOut-rIn)*(ROWS===1?0:i/(ROWS-1));
+    radii.push(r); weights.push(r);
+  }
+  const tot=weights.reduce((a,b)=>a+b,0);
+  const counts=weights.map(w=>Math.max(1,Math.round(N*w/tot)));
+  let diff=N-counts.reduce((a,b)=>a+b,0);
+  for(let i=ROWS-1; diff!==0; i=(i-1+ROWS)%ROWS){
+    const step=Math.sign(diff);
+    if(counts[i]+step>=1){ counts[i]+=step; diff-=step; }
+  }
+  const pts=[];
+  for(let i=0;i<ROWS;i++){
+    const k=counts[i], r=radii[i];
+    for(let j=0;j<k;j++){
+      const a=Math.PI-(j+0.5)*(Math.PI/k);
+      pts.push({a, r, x:cx+r*Math.cos(a), y:cy-r*Math.sin(a)});
+    }
+  }
+  // far left first, round to far right; ties on the same angle sit outward
+  pts.sort((p,q)=>(q.a-p.a)||(p.r-q.r));
+  const rad=Math.max(5, Math.min(9.5, ((rOut-rIn)/Math.max(1,ROWS-1))*0.33));
+  let s="";
+  pts.slice(0,N).forEach((p,i)=>{
+    const pid=layout[i]||"centre", party=prParty(pid);
+    s+='<circle cx="'+p.x.toFixed(1)+'" cy="'+p.y.toFixed(1)+'" r="'+rad.toFixed(1)+'"'
+      +' style="fill:'+party.col+(pid===mine?';stroke:var(--ink);stroke-width:1.7':'')+'">'
+      +'<title>Seat '+(i+1)+' — '+party.name+'</title></circle>';
+  });
+  return '<svg class="prc-arc" viewBox="0 0 '+W+' '+(cy+8)+'" role="img" aria-label="'
+    +N+' seats, seated left to right by party">'+s+'</svg>';
+}
 function prChamberHTML(){
   const L=GAME.legis||{}, seats=L.prCounts||{}, shares=L.prShares||{};
   const layout=L.prSeats||[];
@@ -13243,12 +13346,10 @@ function prChamberHTML(){
       +'<span class="prp-share">'+((shares[p.id]||0)*100).toFixed(1)+'%</span>'
       +'<span class="prp-seats">'+nS+'</span></div>';
   }
-  const dots=layout.map((pid,i)=>'<i style="background:'+prParty(pid).col+'"'
-    +(pid===mine?' class="me"':'')+' title="Seat '+(i+1)+' — '+prParty(pid).name+'"></i>').join("");
   const ctr=seats.centre||0;
   return '<div class="prchamber">'
     +'<div class="prc-h">'+ico('columns')+' The Legislative Assembly — '+PR_SEATS+' seats, elected statewide</div>'
-    +'<div class="prc-seatgrid">'+dots+'</div>'
+    +prHemicycleSVG(layout, mine)
     +'<div class="prc-bar">'+bar+'<span class="prc-maj" title="51 — a majority"></span></div>'
     +'<div class="prc-rows">'+rows+'</div>'+coalitionStatusHTML()
     +'<div class="prc-note">Every seat answers to the whole state, so there is no safe district left to hide a vote in. '
