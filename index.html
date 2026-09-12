@@ -6016,21 +6016,37 @@ function maybeFireDilemma(){
   let best=null,bestScore=0;
   for(const id in DILEMMAS){
     if(GAME.dilemmaCooldown[id]!=null&&GAME.turn-GAME.dilemmaCooldown[id]<(DILEMMAS[id].cooldown||16))continue;
+    // A DILEMMA THAT DECLARES ITSELF IMPOSSIBLE IS IMPOSSIBLE. influence()
+    // returns a negative number to say there is no coalition to issue an
+    // ultimatum, no boom to hand out, no ransom on the table — and the ambient
+    // floor below used to overrule it: a dilemma never seen in recent games is
+    // weighted x1.6 for novelty, which put a vetoed one at 0.72 on a lucky roll
+    // against a 0.70 bar. That is how "An Ultimatum From Your Own Government"
+    // turned up in a game with no coalition and no proportional representation,
+    // as a headline over a completely empty card.
+    let inf=0; try{ inf=DILEMMAS[id].influence(); }catch(e){ inf=-1; }
+    if(inf<0)continue;
     // every dilemma carries a small ambient chance (D4's _random_ floor)
     // on top of its condition-driven influence — scaled down if it has come
     // up in recent playthroughs, up if it's fresh
-    const sc=(clamp(0.18+DILEMMAS[id].influence(),0,1)+Math.random()*0.45)*RUN_HISTORY.weight(id);
+    const sc=(clamp(0.18+inf,0,1)+Math.random()*0.45)*RUN_HISTORY.weight(id);
     if(sc>bestScore){bestScore=sc;best=id;}
   }
   if(best&&bestScore>0.7){
-    GAME.pendingDilemma=best;
-    GAME.dilemmaCooldown[best]=GAME.turn;
-    GAME.lastDilemmaTurn=GAME.turn;
-    RUN_HISTORY.note(best);
     // per-fire context (e.g. which county a data center lands in) — read by the
     // dilemma's text() and its option apply()s
     GAME.dilemmaCtx={};
     if(DILEMMAS[best].onFire)DILEMMAS[best].onFire(GAME.dilemmaCtx);
+    // And one that cannot say what is happening does not happen. A text() that
+    // comes back empty means its subject has gone — the party it was about is
+    // no longer in the government — and a title with nothing under it is worse
+    // than no dilemma at all, so it stands down without burning its cooldown.
+    let body=""; try{ const t=DILEMMAS[best].text; body=(typeof t==="function")?t():t; }catch(e){ body=""; }
+    if(!body||!String(body).trim())return;
+    GAME.pendingDilemma=best;
+    GAME.dilemmaCooldown[best]=GAME.turn;
+    GAME.lastDilemmaTurn=GAME.turn;
+    RUN_HISTORY.note(best);
     GAME.log.push("❖ Dilemma: "+DILEMMAS[best].title);
   }
 }
@@ -18403,12 +18419,18 @@ function passBill(id, dir, narrowed, cushion){
       if(q.mechanic==="tier"&&q.tiers)
         q.tierIndex=Math.max(q.tierMin||0,Math.round(nw*(q.tiers.length-1)));
       else if(q.mechanic==="intensity")q.intensity=nw;
-      // a dial at full strength keeps the level the bill was written at;
-      // only a narrowed one is rewritten downward
-      else if(nw<1){
-        if(q.mechanic==="slider"||q.mechanic==="allocation")q.value=nw;
-        else q.narrowed=nw;
-      }
+      // A DIAL COMES IN AT THE STRENGTH IT PASSED AT — full strength included.
+      // This used to write the level back only when the bill had been narrowed,
+      // so "At full strength" left the policy sitting on the catalog's opening
+      // number: 0.5 for most of them, 0.3 for the infrastructure programme,
+      // 0.0 for high-speed rail, which passed and then did nothing at all. It
+      // also meant deliberately narrowing a bill to 60% delivered MORE than
+      // passing it whole, on 25 of the 26 dialled bills that reach the floor —
+      // and you could not correct it that quarter, because the floor does not
+      // take the same law up twice.
+      else if(q.mechanic==="slider"||q.mechanic==="allocation")
+        q.value=Math.max(q.sliderFloor||0, nw);
+      else if(nw<1)q.narrowed=nw;
     }
   }
   showVoteResult({ok:true, name:nm, res, w, narrowed});
@@ -20236,8 +20258,19 @@ function renderDilemma(){
   }
   if(!GAME.pendingDilemma){modal.classList.add("hidden");return;}
   const d=DILEMMAS[GAME.pendingDilemma];
+  // A dilemma whose subject has gone — the coalition partner that was issuing
+  // the ultimatum is no longer in the government, the crisis it was about has
+  // cleared — writes no text. Never put a headline over an empty card: drop it
+  // and let the quarter carry on. (A save written before this was checked at
+  // all can still be carrying one.)
+  let _body=""; try{ _body=(typeof d.text==="function")?d.text():d.text; }catch(e){ _body=""; }
+  if(!_body||!String(_body).trim()){
+    GAME.pendingDilemma=null;
+    modal.classList.add("hidden");
+    return;
+  }
   let h=`<div class="dilemma-icon">${ico(d.icon)}</div><h2>${d.title}</h2>
-    <div class="dilemma-text">${typeof d.text==="function"?d.text():d.text}</div><div class="dilemma-opts">`;
+    <div class="dilemma-text">${_body}</div><div class="dilemma-opts">`;
   d.options.forEach((o,i)=>{
     if(o.avail && !o.avail())return;   // hide options that would be a no-op (e.g. concession already made / policy already passed)
     const otext=(typeof o.text==="function")?o.text():o.text;
