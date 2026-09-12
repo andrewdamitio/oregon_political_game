@@ -1923,6 +1923,10 @@
   // "sandbox" typed into the seed box. A normal, reproducible run in every
   // respect except that nothing is allowed to stop you.
   window.SANDBOX=(seed==="SANDBOX");
+  // A full-margin rupture is a 0.23% roll a quarter — about one run in a
+  // hundred ever sees it. This seed exists to look at it: same reproducible
+  // world as any other, except the Big One lands in the second quarter.
+  window.QUAKE_SEED=(seed==="CASCADIA");
   /* Re-point Math.random at a named stream derived from the same seed. The
      world can be built more than once — switching coalitions on the opening
      screen rebuilds it — and every build must draw the same numbers, so the
@@ -7034,12 +7038,36 @@ const SITUATIONS={
     desc:"An ethics scandal involving the Governor's office dominates the press — your authority in Salem takes a real hit.",
     metricEffect:{}, moodMag:4, minTurns:2, onTrigger:{capital:-6}, mandateShock:-14,
     groupMood:{moderate:-3,liberal:-2,conservative:-2}},
+  // THE BIG ONE. It gets its own full-screen page (showQuakeScreen), and the
+  // numbers below are what that page tells the player has happened: tens of
+  // thousands dead, the coastal towns gone, every Willamette bridge shut, the
+  // port unusable, the fuel terminals in the river, and a recovery measured in
+  // years. Nothing else in the game is allowed to be this large, because
+  // nothing else in Oregon's future is.
   cascadiaQuake:{name:"Cascadia Earthquake", kind:"bad", category:"event",
-    desc:"A major Cascadia Subduction Zone quake strikes — the Big One Oregonians have dreaded for decades. Infrastructure, ports, and bridges are damaged; recovery dominates everything.",
-    costEffect:{debtAdmin:1.2,natResources:0.4},
-    metricEffect:{gdp:-0.8,health:-4,environment:-2}, moodMag:3, minTurns:4,
-    onTrigger:{capital:-8, metrics:{gdp:-3.5,environment:-8,health:-3}, countyMood:{spec:COUNTY_GROUPS.cascadiaZone, value:-6, decay:0.88, label:"Coast & Willamette Valley — quake damage & recovery"}}, mandateShock:-8,
-    indicatorEffect:{tourism:-16,businessClimate:-12,inMigration:-12,downtown:-8},
+    desc:"The Cascadia Subduction Zone ruptured along its full length — the magnitude-9 event Oregon has been warned about for forty years. Tens of thousands are dead, the coastal towns took a tsunami within half an hour, and the bridges, the port, the grid and the fuel terminals that supply the state are gone or shut. Recovery is not a programme you run alongside your agenda; for the rest of your time in office it IS the agenda, and the state does not come back to what it was for years.",
+    // the response, and it is the entire budget's problem for years
+    costEffect:{debtAdmin:1.3, publicSafety:0.6, housing:0.8, natResources:0.4, humanServices:0.3},
+    // The standing damage, and it eases: the dead are counted, the shelters
+    // empty, the detours open, the grid comes back up. It never reaches zero
+    // while the emergency is running — that is the floor — but a state two
+    // years into reconstruction is not a state in the week after.
+    decays:{half:9, floor:0.42},
+    metricEffect:{gdp:-0.9, health:-2.8, homelessness:3.5, unemployment:1.4, environment:-3,
+                  disposableIncome:-3, propertyCrime:2, eduOutcomes:-2.5, electricRate:0.7},
+    moodMag:4, minTurns:8,
+    onTrigger:{capital:-14,
+      metrics:{gdp:-4.5, health:-7.5, homelessness:10, unemployment:3.2, environment:-9, disposableIncome:-7},
+      // the part that does not fade when the event does: the dead, the
+      // displaced, and a physical plant that has to be rebuilt from the ground
+      grudges:[
+        {target:"m_health", value:-2.2, decay:0.93, label:"Casualties, and a health system that lost its buildings"},
+        {target:"m_homelessness", value:2.2, decay:0.93, label:"Displacement — the housing that came down"},
+        {target:"i_infraStrain", value:5, decay:0.95, label:"Rebuilding the roads, the bridges and the grid"},
+        {target:"m_gdp", value:-0.7, decay:0.93, label:"The ports, the payroll and the fuel terminals"}
+      ],
+      countyMood:{spec:COUNTY_GROUPS.cascadiaZone, value:-6, decay:0.88, label:"Coast & Willamette Valley — quake damage & recovery"}}, mandateShock:-10,
+    indicatorEffect:{tourism:-22, businessClimate:-16, inMigration:-18, downtown:-15, infraStrain:22, digitization:-6},
     groupMood:{}},
   klamathCrisis:{name:"Klamath Water Crisis", kind:"bad", category:"event", cooldown:5,
     desc:"Drought collides with prior-appropriation rights — irrigation shutoffs, dead salmon, armed standoffs at the headgates. The 2001 shutoff cost farms $27–46M; the 2002 fish kill left 34,000–70,000 Chinook rotting on the banks.",
@@ -8589,6 +8617,18 @@ function startSituation(sid){
     GAME.mandateShock=(GAME.mandateShock||0)-Math.round(o*2.5);
     GAME.log.push(ico('chart-down')+" The downturn is amplified by the preceding boom — the correction runs deeper than usual");
   }
+  if(sid==="cascadiaQuake"){
+    // The reserves exist for a bad quarter. This is not a bad quarter: the
+    // Rainy Day Fund goes in its entirety on the first weekend, the schools'
+    // own cushion goes with it, and the rest of the response is borrowed
+    // against a future the state will spend a decade paying for.
+    const res=(GAME.rainyDay||0)+(GAME.eduStability||0)*0.6;
+    GAME.rainyDay=0;
+    GAME.eduStability=+((GAME.eduStability||0)*0.4).toFixed(2);
+    GAME.structuralDebt=+((GAME.structuralDebt||0)+3.5).toFixed(2);
+    GAME.deficitStreak=(GAME.deficitStreak||0)+1;
+    GAME.log.push(ico('siren')+" Emergency response: $"+res.toFixed(1)+"B of reserves gone in a weekend and $3.5B borrowed — the state will be paying for this quake for a decade");
+  }
   if(sid==="recession"){
     // the market drop blows a hole in the pension fund — bigger after a frothy boom
     const persHit = 3 + (GAME.overheat||0)*4;
@@ -8634,6 +8674,11 @@ function endSituation(sid,solved){
   }
 }
 function rollEvents(){
+  // the CASCADIA seed, which exists so the Big One can be looked at without
+  // waiting out a one-in-a-hundred run
+  if(window.QUAKE_SEED && GAME.turn===1 && !GAME._quakeShown && !GAME.activeSituations.cascadiaQuake){
+    GAME._quakeShown=true; startSituation("cascadiaQuake"); return;
+  }
   const q=GAME.turn%4; // 0=Q1(winter)..3=Q4(fall) roughly
   // build eligible list
   const eligible=[];
