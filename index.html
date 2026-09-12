@@ -2722,7 +2722,7 @@ const INDICATORS={
   housingAffordability:{name:"Housing Affordability", icon:"house", value:40,
     desc:"How accessible Oregon's housing market is to working residents — a composite of growth pressure on cost, income inequality, housing production, and land-use supply. Oregon has one of the worst housing deficits in the nation, driven by decades of underbuilding behind urban growth boundaries and stagnant wages, worsened by every wave of arrivals the state has not built room for. High affordability attracts workers and families; low affordability accelerates homelessness, inequality, and out-migration.",
     derive:()=>{
-      let v=45.4;   // (0.4 folded in from the removed disposable-income term so the start value holds)
+      let v=48.07;  // (0.4 for the removed disposable-income term, 2.67 for the builders' term below — both folded in so the opening state is unchanged)
       // COST PRESSURE: what actually raises the price of housing is demand
       // outrunning supply — people arriving faster than homes get built,
       // worse the more a restrictive land-use regime keeps supply from
@@ -2734,6 +2734,12 @@ const INDICATORS={
       const growthDemand=clamp((INDICATORS.inMigration.value-38)/24,0,1);
       const tightness=0.5+LANDUSE.index*0.25;   // the same arrivals cost more the tighter supply is held
       v-=growthDemand*tightness*18;
+      // BUILDERS ARE BUSINESSES. Housing is built by firms that need
+      // financing, permits, subcontractors and confidence that a project
+      // started now still pencils in three years. A hostile business climate
+      // slows starts as surely as a restrictive code does — the supply side
+      // of this number is an industry, not a policy setting.
+      v+=(INDICATORS.businessClimate.value-50)*0.10;
       v-=(METRICS.inequality.value-50)*0.30;        // inequality squeezes lower-income renters hardest
       // (deliberately NOT driven by disposable income: affordability here is a
       //  housing-cost composite, and its EFFECT on take-home pay is the feedback
@@ -2751,10 +2757,12 @@ const INDICATORS={
       return clamp(v,0,100);
     },
     drivers:()=>[
-      {name:"⊕ baseline",v:45.4,base:true},
+      {name:"⊕ baseline",v:48.07,base:true},
       {name:ico(INDICATORS.inMigration.icon)+" Growth demand (arrivals outrunning supply)",
        v:-clamp((INDICATORS.inMigration.value-38)/24,0,1)*(0.5+LANDUSE.index*0.25)*18,link:"i_inMigration"},
       {name:ico(METRICS.inequality.icon)+" Inequality",v:-(METRICS.inequality.value-50)*0.30,link:"m_inequality"},
+      {name:ico(INDICATORS.businessClimate.icon)+" Business Climate (the builders' own)",
+       v:(INDICATORS.businessClimate.value-50)*0.10,link:"i_businessClimate"},
       ...(METRICS.gdp&&(1.3-METRICS.gdp.value)>0.05?[{name:ico('chart-down')+" Economic downturn (price softening)",v:Math.min(15,(1.3-METRICS.gdp.value)*6),link:"m_gdp"}]:[]),
       ...(POLICIES.affordableHousing&&effLevelOf(POLICIES.affordableHousing)>0?[{name:ico('house')+" Affordable Housing Bonds",v:effLevelOf(POLICIES.affordableHousing)*10,link:"p_affordableHousing"}]:[]),
       ...(rentCapAfford()!==0?[{name:ico('houses')+" Rent Stabilization",v:rentCapAfford(),link:"p_rentStabilization"}]:[]),
@@ -7159,7 +7167,7 @@ const SITUATIONS={
     metricEffect:{health:-2}, moodMag:1, minTurns:2, onTrigger:{capital:-3}, onClear:{capital:1},
     groupMood:{poor:-8,blueCollar:-5,liberal:-3}},
   doomLoop:{name:"Portland Doom Loop", kind:"bad", category:"condition",
-    desc:"Empty offices, closed storefronts, and a battered reputation feed on each other — businesses leave because downtown is dying, and downtown dies because businesses leave. Crime, the addiction crisis and visible homelessness are what tip it over: with any of those running, downtown does not have to fall as far before the loop takes hold.\n\n→ TO FIX IT: get Downtown Perception back above 50. That is the only test — clearing the crime or addiction crises helps because downtown recovers when they end, not because the loop checks for them separately.",
+    desc:"Portland's core has not come back. The towers are half let and the leases that are up are not being renewed, the ground-floor retail that depended on the footfall has gone with it, and the city's name now does work in a national argument it never volunteered for. What visitors and tenants actually react to is what they can see on the street: tents, open use, broken glass, and how safe the walk from the garage feels after six.\n\n→ TO FIX IT: get Downtown Perception back above 50. It is built from homelessness, property crime, violent crime, public health and psychiatric capacity — move those and downtown follows. A crime wave, the addiction crisis or a homelessness emergency running at the same time will tip the city in from a higher starting point, so ending one of those buys back the margin as well as the number.",
     trigger:()=>INDICATORS.downtown.value<40 || (INDICATORS.downtown.value<46 && (GAME.activeSituations.crimeWave||GAME.activeSituations.addictionCrisis||GAME.activeSituations.homelessEmergency)),
     // Downtown perception is the whole test, and it is the one on the gauge
     // above. Crime and the addiction crisis make the loop easier to FALL
@@ -7513,16 +7521,6 @@ function _sitAge(sid){ return (GAME.situationAge&&GAME.situationAge[sid])||0; }
     begin:[[ fc("A surplus above $2.2B", "$"+(GAME.lastBalance||0).toFixed(2)+"B", (GAME.lastBalance||0)>2.2, "budget"),
              fc("The kicker is still law", POLICIES.kickerReform?"reformed":"in force", !POLICIES.kickerReform) ]],
     end:[[ fc("The surplus falls below $1.2B", "$"+(GAME.lastBalance||0).toFixed(2)+"B", (GAME.lastBalance||0)<1.2, "budget") ]]});
-
-  S.doomLoop.feeds=()=>{
-    const crises=["crimeWave","addictionCrisis","homelessEmergency"].filter(k=>GAME.activeSituations[k]);
-    return {
-      begin:[[ fc("Downtown Perception below 40", _sn(iv("downtown")), iv("downtown")<40, "i_downtown") ],
-             [ fc("Downtown Perception below 46", _sn(iv("downtown")), iv("downtown")<46, "i_downtown"),
-               fc("AND a crime wave, addiction crisis or homelessness emergency running", crises.length?crises.map(k=>SITUATIONS[k].name).join(", "):"none running", crises.length>0) ]],
-      end:[[ fc("Downtown Perception back above 50", _sn(iv("downtown")), iv("downtown")>50, "i_downtown") ]],
-      note:"Those crises make the loop easier to fall into. They get no second vote on climbing out: Downtown Perception is the whole test."};
-  };
 
   S.transportCliff.feeds=()=>{
     const g=policyLevel(POLICIES.gasTax), r=policyLevel(POLICIES.vehicleReg);
@@ -20551,7 +20549,7 @@ function buildWebEdges(){
     businessClimate:["m_taxBurden","m_gasPrice","m_propertyCrime","m_violentCrime","i_inMigration","m_education"],
     tourism:["m_environment","i_downtown"],
     taxGrievance:["m_taxBurden","m_gasPrice"],
-    housingAffordability:["i_inMigration","m_inequality","landuse"],
+    housingAffordability:["i_inMigration","m_inequality","landuse","i_businessClimate"],
     ruralAlienation:["m_loggingRate","m_taxBurden","m_gasPrice"],
     justiceEffectiveness:["p_policing","a_judiciary","a_corrections"],
     transportFunding:["p_gasTax","p_vehicleReg","p_evFee"],
