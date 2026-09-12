@@ -9113,9 +9113,17 @@ function approvalTarget(sid, raw){
     // diminishing returns near the extremes — even a bloc that loves you has a
     // realistic ceiling (you can't govern a group to unanimous adoration), and even
     // one that loathes you keeps a small floor of "eh, could be worse".
-    if(a>68) a=68+(a-68)*0.6;
+    //
+    // The old top end was a straight 40% haircut on everything above 68, which
+    // is not a ceiling at all: perfect the statistics and the excess was large
+    // enough that every bloc in the state still arrived at 100, the opposition
+    // included. It only never showed up because the self-feeding crises used to
+    // make good statistics unreachable — take that accidental brake away and the
+    // model hands out a 95% approval rating. This saturates instead: the same
+    // curve for the first few points over the line, an asymptote after it.
+    if(a>APPR_KNEE) a=APPR_KNEE+APPR_SPAN*Math.tanh((a-APPR_KNEE)*0.6/APPR_SPAN);
     if(a<24) a=24-(24-a)*0.8;
-    return clamp(a,partisanFloor(sid),100);
+    return clamp(a,partisanFloor(sid),partisanCeiling(sid));
 }
 /* THE FLOOR UNDER YOUR OWN SIDE, and why it is not fixed.
    Under first-past-the-post a partisan has nowhere to go. However badly you
@@ -9130,6 +9138,28 @@ function approvalTarget(sid, raw){
    being protected by the fact that nobody has anywhere else to go.
    The floor is scaled by how close a bloc is to the way you actually govern,
    so it holds your own coalition up and does nothing for the other side. */
+/* THE CEILING OVER THE OTHER SIDE, and why there has to be one.
+   partisanFloor says a partisan with nowhere else to go keeps backing you
+   however badly it goes. This is the same fact from the other end: a bloc
+   that is ideologically against what you are doing does not come to adore
+   you because the statistics improved. Oregon Republicans did not approve of
+   Kate Brown at 90% in a good quarter and they never will — the best a
+   governor gets out of the other side is grudging, and grudging has a number.
+   Same proximity measure as the floor, so the two are one mechanic: the
+   closer a bloc is to your enacted record, the higher it can go. Ranked
+   choice softens it (you are not only the party label any more) and under
+   proportional representation it lifts entirely, because there is no single
+   opposition left to belong to. */
+const APPR_KNEE=64, APPR_SPAN=20;   // saturation above the knee, asymptote at 84
+function partisanCeiling(sid){
+  if(typeof prOn==="function" && prOn())return 100;
+  const sim=SIMULANTS[sid]; if(!sim||!sim.ideology)return 100;
+  const rcv=!!(POLICIES.rankedChoice&&POLICIES.rankedChoice.enabled);
+  const base=rcv?18:30;
+  const g=govIdeologyPoint();
+  const prox=1-(Math.abs(sim.ideology.economic-g.economic)+Math.abs(sim.ideology.social-g.social))/2.4;
+  return +(100-base*clamp(1-prox,0,1)).toFixed(2);
+}
 function partisanFloor(sid){
   if(typeof prOn==="function" && prOn())return 0;
   const sim=SIMULANTS[sid]; if(!sim||!sim.ideology)return 0;
