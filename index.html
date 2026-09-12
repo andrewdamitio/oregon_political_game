@@ -8276,6 +8276,39 @@ function govIdeologyPoint(){
    weakest value that lets good policy separate from neglect — see the
    commit that introduced it. */
 const GDP_RECOVERY=0.55;
+/* CIVIL COMMITMENT x PSYCHIATRIC BEDS, computed once.
+   Commitment only works if a bed exists to receive the person. Its effect
+   scales with bed availability and is a strong, direct lever — more per unit
+   than diffuse spending. Push the dial past capacity and the overflow
+   OVERCROWDS the system instead: ER boarding, hallway holds, people cycled to
+   a cell rather than a bed. Overcrowding does not un-build beds — capacity is
+   beds per capita and only policy moves that — what overflow wrecks is care.
+   This returns the itemised rows rather than a total, because metricTarget
+   needs the numbers and the statistic's own page needs to name them. They
+   used to be separate pieces of arithmetic, which is how four metrics came to
+   be moved by a lever that appeared on none of their pages. */
+function psychCommitmentTerms(){
+  if(!POLICIES.civilCommitment)return null;
+  const ease=policyLevel(POLICIES.civilCommitment);            // 0..1, how many we try to commit
+  const beds=clamp((METRICS.psychBeds.value)/100,0,1);          // capacity 0..1
+  const served=Math.min(ease,beds*1.1);                        // commitment with a bed behind it
+  const overflow=Math.max(0,ease-beds*1.1);                    // commitment with nowhere to go
+  const HELD=ico('bed')+" Civil commitment, with a bed behind it";
+  const OVER=ico('warning')+" Commitment past bed capacity — nowhere to put them";
+  const mk=(name,v)=>({name, v, link:"p_civilCommitment"});
+  const parts={};
+  if(served>0.001||overflow>0.001){
+    parts.homelessness=[mk(HELD,-served*14), mk(OVER, overflow*11)];
+    parts.drugUse=[mk(HELD,-served*7), mk(OVER, overflow*4)];
+    parts.behavioralHealth=[mk(HELD, served*6), mk(OVER,-overflow*16)];
+    parts.incarcerationRate=[mk(OVER, overflow*7)];
+  }
+  return {ease, beds, served, overflow, parts};
+}
+/* How much of the last push on crime the floor gave back. Recorded when
+   metricTarget runs so the statistic's page can show it without re-deriving
+   the whole sum. */
+const _CRIME_FLOOR_GIVEBACK={};
 function metricTarget(k, noRecovery){
   const m=METRICS[k];
   let t=m.eq;
@@ -8366,28 +8399,8 @@ function metricTarget(k, noRecovery){
     t = share*pub + (1-share)*(pub+PRIVATE_ATTAIN_PREMIUM) + cal;
   }
   // --- Civil commitment × psychiatric beds interaction ---------------------
-  // Commitment only works if beds exist to receive people. Its effect on
-  // homelessness/drug-use/disorder SCALES with bed availability, and is a
-  // strong, direct lever (more effective per unit than diffuse spending).
-  // When commitment ease outruns bed capacity, the overflow OVERCROWDS the
-  // system: beds degrade, behavioral health suffers, and disorder rebounds.
-  if(POLICIES.civilCommitment){
-    const ease=policyLevel(POLICIES.civilCommitment);          // 0..1
-    const beds=clamp((METRICS.psychBeds.value)/100,0,1);        // capacity 0..1
-    const demand=ease;                                         // how many we're trying to commit
-    const served=Math.min(demand,beds*1.1);                   // capacity actually available
-    const overflow=Math.max(0,demand-beds*1.1);               // commitment with nowhere to go
-    if(k==="homelessness"){
-      t-=served*14;                                            // effective commitment clears the street
-      t+=overflow*11;                                          // overflow dumps people back onto it, worse
-    }
-    if(k==="drugUse"){ t-=served*7; t+=overflow*4; }           // committed with nowhere to go = untreated
-    // Overcrowding does not un-build beds — the capacity metric is beds
-    // per capita and only policy moves it. What overflow wrecks is the CARE:
-    // ER boarding, hallway holds, people cycled to jail instead of treatment.
-    if(k==="behavioralHealth"){ t+=served*6; t-=overflow*16; }
-    if(k==="incarcerationRate") t+=overflow*7;                 // crisis diverted to a cell, not a bed
-  }
+  { const P2=psychCommitmentTerms();
+    if(P2&&P2.parts[k])for(const row of P2.parts[k])t+=row.v; }
   // Cascadia/emergency-preparedness investment doubles as heat-wave readiness —
   // cooling centers and emergency comms funded by cascadiaPrep blunt heat dome's health toll
   if(k==="health"&&GAME.activeSituations.heatDome&&POLICIES.cascadiaPrep)
@@ -8435,6 +8448,8 @@ function metricTarget(k, noRecovery){
   // point of effort delivers only a fraction — you can make Oregon safe, not crimeless.
   if(k==="violentCrime"||k==="propertyCrime"){
     const floor=k==="violentCrime"?15:36;
+    // what the floor hands back, recorded so the page can say so out loud
+    _CRIME_FLOOR_GIVEBACK[k] = t<floor ? (floor+(t-floor)*0.4)-t : 0;
     if(t<floor)t=floor+(t-floor)*0.4;
   }
   /* THE RECOVERY. Only ever upward, only ever from below equilibrium, and
@@ -8544,6 +8559,23 @@ function metricContributors(k){
     if(k==="behavioralHealth"&&Math.abs(f*sc)>0.05) out.push({name:ico('handshake')+" Outcome-Based Contracting "+(f<0?"(provider disruption)":"(delivering)"), v:f*2.5*sc, link:"p_outcomeContracting"});
   }
   if(k==="evAdoption"){const g=(METRICS.gasPrice.value-3.6)*7; if(Math.abs(g)>0.05)out.push({name:ico('fuel')+" Gas prices at the pump", v:g, link:"m_gasPrice"});}
+  // COMMITMENT AND BEDS. The same rows the model just added, from the same
+  // computation — homelessness, drug use, behavioural health and incarceration
+  // are all moved by this pair and none of them used to admit it.
+  { const P3=psychCommitmentTerms();
+    if(P3&&P3.parts[k])for(const row of P3.parts[k])if(Math.abs(row.v)>0.05)out.push(row); }
+  // THE FLOOR UNDER CRIME. Past a point each further push delivers a fraction:
+  // you can make Oregon safe, not crimeless. Silent until it starts biting.
+  if((k==="violentCrime"||k==="propertyCrime")&&(_CRIME_FLOOR_GIVEBACK[k]||0)>0.05){
+    out.push({name:ico('shield')+" Hard floor at "+(k==="violentCrime"?15:36)+" — past it, further effort delivers 40%",
+      v:_CRIME_FLOOR_GIVEBACK[k]});
+  }
+  // PREPAREDNESS AGAINST THE HEAT. Cooling centres and emergency comms bought
+  // for the earthquake are what a heat dome actually needs.
+  if(k==="health"&&GAME.activeSituations.heatDome&&POLICIES.cascadiaPrep){
+    const v=policyLevel(POLICIES.cascadiaPrep)*1.5;
+    if(v>0.05)out.push({name:ico('shield')+" Cascadia Prep — cooling centres against the heat dome", v, link:"p_cascadiaPrep"});
+  }
   return out;
 }
 function tickMetrics(){
