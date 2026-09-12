@@ -2021,6 +2021,18 @@ function newGame(){
    One localStorage slot. Voters and everything else deterministic are rebuilt
    from the seed at init; the save only carries the drifting state, then
    applySave() overlays it on the freshly-seeded world. */
+/* Two base-36 characters per 0..1 value: 1296 steps, which is finer than any
+   use these numbers are put to and about a seventh of the bytes the old
+   object form spent on repeating trait names. */
+const _V36="0123456789abcdefghijklmnopqrstuvwxyz";
+function _vEnc(x){
+  const v=Math.round(clamp(+x||0,0,1)*1295);
+  return _V36[(v/36)|0]+_V36[v%36];
+}
+function _vDec(str,i){
+  const a=_V36.indexOf(str[i]), b=_V36.indexOf(str[i+1]);
+  return (a<0||b<0) ? 0 : (a*36+b)/1295;
+}
 function saveGame(btn){
   try{
     const mSnap={}; for(const k in METRICS)mSnap[k]={v:METRICS[k].value,c:METRICS[k].calib,eq:METRICS[k].eq};
@@ -2030,13 +2042,22 @@ function saveGame(btn){
     const pSnap={};
     for(const id in POLICIES)pSnap[id]={on:1,v:POLICIES[id].value,eff:POLICIES[id].eff,ti:POLICIES[id].tierIndex,en:POLICIES[id].enabled};
     for(const id in CATALOG)pSnap[id]={on:0,v:CATALOG[id].value,ti:CATALOG[id].tierIndex,en:CATALOG[id].enabled};
-    const vSnap=VOTERS.map(v=>{ const m={}; for(const k in v.m)m[k]=+(+v.m[k]).toFixed(4); return [m,+(+v.approval).toFixed(2),+(+(v.adjIncome??v.innateIncome??0.5)).toFixed(4)]; });
+    // every voter has the same trait keys, so they are written once and each
+    // voter is a flat string in that order, then approval, then income
+    const vKeys=VOTERS.length?Object.keys(VOTERS[0].m):[];
+    const vSnap=VOTERS.map(v=>{
+      let out="";
+      for(const k of vKeys)out+=_vEnc(v.m[k]);
+      out+=_vEnc((+v.approval||50)/100);
+      out+=_vEnc(v.adjIncome??v.innateIncome??0.5);
+      return out;
+    });
     const gClone=JSON.parse(JSON.stringify(GAME)); delete gClone.fading;
     localStorage.setItem("sc_save", JSON.stringify({
-      v:1, seed:window.RUN_SEED||"", savedAt:Date.now(),
+      v:2, seed:window.RUN_SEED||"", savedAt:Date.now(),
       turn:GAME.turn, term:GAME.term, year:GAME.startYear+Math.floor(GAME.turn/4), q:(GAME.turn%4)+1,
       game:gClone, nm:{value:NATIONAL_MOOD.value,drift:NATIONAL_MOOD.drift}, landuse:LANDUSE.index,
-      metrics:mSnap, indicators:iSnap, agencies:aSnap, sims:sSnap, policies:pSnap, voters:vSnap
+      metrics:mSnap, indicators:iSnap, agencies:aSnap, sims:sSnap, policies:pSnap, vKeys, voters:vSnap
     }));
     if(btn){ const t=btn.innerHTML; btn.innerHTML='<span style="font-size:10px;letter-spacing:.5px">SAVED</span>'; setTimeout(()=>{btn.innerHTML=t;},1100); }
   }catch(e){ if(btn)btn.title="Save failed: "+(e&&e.message); }
@@ -2069,8 +2090,22 @@ function applySave(sv){
     }
     for(const id in POLICIES)POLICIES[id]._id=id;
     for(const id in CATALOG)CATALOG[id]._id=id;
-    if(sv.voters&&sv.voters.length===VOTERS.length)
-      VOTERS.forEach((v,i)=>{ const r=sv.voters[i]; if(!r)return; v.m=Object.assign({},r[0]); v.approval=r[1]; v.adjIncome=r[2]; });
+    if(sv.voters&&sv.voters.length===VOTERS.length){
+      if(sv.vKeys&&sv.vKeys.length){
+        // v2: one key list, one packed string per voter
+        VOTERS.forEach((v,i)=>{
+          const r=sv.voters[i]; if(typeof r!=="string")return;
+          const m={}; let p=0;
+          for(const k of sv.vKeys){ m[k]=_vDec(r,p); p+=2; }
+          v.m=m;
+          v.approval=_vDec(r,p)*100; p+=2;
+          v.adjIncome=_vDec(r,p);
+        });
+      } else {
+        // v1: [membershipObject, approval, adjIncome]
+        VOTERS.forEach((v,i)=>{ const r=sv.voters[i]; if(!r)return; v.m=Object.assign({},r[0]); v.approval=r[1]; v.adjIncome=r[2]; });
+      }
+    }
     assignVoterCounties();
   }catch(e){ try{console.warn("applySave failed",e);}catch(_){} }
 }
@@ -3535,8 +3570,6 @@ function allStats(){
   for(const k in INDICATORS)out.push({key:k, stat:INDICATORS[k], ind:true});
   return out;
 }
-function statByKey(k){return METRICS[k]?{stat:METRICS[k],ind:false}:(INDICATORS[k]?{stat:INDICATORS[k],ind:true}:null);}
-
 /* LANDUSE — a preset slider (5 stops). Oregon's UGB / land-use system is
    iconic; tightening it protects farmland & environment but constrains
    housing supply (raises homelessness/rents); loosening boosts GDP &
@@ -6649,18 +6682,6 @@ function motorVoterTurnoutBoost(sid){
 /* a bloc's effective turnout this cycle: its baseline civic propensity, lifted
    when the bloc is enthusiastic or angry (mobilized) and damped when it's
    demoralized or cynical. This makes turnout per-bloc and policy-responsive. */
-function blocTurnout(sid){
-  const s=SIMULANTS[sid];
-  const intensity=Math.abs(s.approval-50)/50;                        // fired up (for or against)
-  let t=s.turnout*(0.8+intensity*0.5)+turnoutMobilization()+motorVoterTurnoutBoost(sid);
-  t*=electionAccessFactor();                                         // ballot-access regime
-  t-=clamp((s.cynicism||0)*0.015,0,0.12);                            // cynics stay home
-  if(GAME.activists){for(const act of Object.values(GAME.activists)){
-    if(act.ownGroup===sid)t+=act.ownBoost;
-    else if(act.alliedGroups&&act.alliedGroups.includes(sid))t+=act.alliedBoost;
-  }}
-  return clamp(t,0.05,0.98);
-}
 /* voting intention: turnout-weighted expected vote share.
    Uses a soft probability (approval≈50 = coin flip) so the gauge tracks
    actual approval instead of collapsing at the binary 50-point cliff. */
@@ -7978,12 +7999,6 @@ function tickEffSm(){
 /* Truancy pull on Public School Enrolment along its tier axis: soft tiers
    cost enrolment, the middle holds children in seats, the top drives some
    families to withdraw. Lerped and phase-in-aware. */
-function truancyEnrollPull(){
-  const p=POLICIES.truancy; if(!p)return 0;
-  const arr=[-1.5, 0, 1.2, -1.0], n=p.tiers.length-1;
-  const lv=clamp(effLevelOf(p),0,1)*n, lo=Math.floor(lv), hi=Math.min(n,lo+1), f=lv-lo;
-  return arr[lo]+(arr[hi]-arr[lo])*f;
-}
 function policyEffect(p,k){
   let raw;
   const eff=effLevelOf(p);
@@ -9751,10 +9766,6 @@ function austerityRaised(rev){
   return v;
 }
 /* What one line currently costs the state, in $B/yr. */
-function austerityLineCost(L){
-  if(L.kind==="agency"){ const a=AGENCIES[L.id]; return a?agencySpend(a):0; }
-  const p=POLICIES[L.id]; return p?Math.max(0,policyNetCost(p)):0;
-}
 /* The hole the rebalance has to close, in $B/yr. Big enough to hurt, and it
    grows with the debt you let accumulate. */
 /* What the legislature has to find. NOT the accumulated debt — no budget in
@@ -11283,7 +11294,6 @@ function platformProgressHTML(){
    runs once at load — so switching reloads with the choice stored, the same
    way choosing a seed or resuming a save already does. Picking the coalition
    that is already loaded costs nothing and goes straight through. */
-function showStartPicker(onDone){ return showWelcome(onDone); }
 function showWelcome(onDone){
   const modal=document.getElementById("welcomeModal"), card=document.getElementById("welcomeCard");
   if(!modal||!card){ if(onDone)onDone(); return; }
@@ -17031,19 +17041,6 @@ function directEffects(kind,obj){
 /* downstream ripples: for each directly-affected metric, find METRIC_LINKS
    it feeds and estimate the per-turn nudge on the target metric.
    Returns [{from,to,delta}] approximations. */
-function downstreamRipples(direct){
-  const ripples=[];
-  for(const L of METRIC_LINKS){
-    if(direct[L.from]!==undefined){
-      // a change in source metric of ~direct[from] eventually shifts it;
-      // per-turn link nudge ≈ (sourceDelta) * coef * 0.25 (engine multiplier)
-      const delta=direct[L.from]*L.coef*0.25;
-      if(Math.abs(delta)>1e-4)ripples.push({from:L.from,to:L.to,delta});
-    }
-  }
-  return ripples;
-}
-
 /* marginal approval reaction of one bloc to this item, reusing tickApproval math.
    Returns a signed score, or null if the group isn't genuinely affected.
    "Affected" requires real engagement: the item hits a metric the group
@@ -17909,14 +17906,6 @@ function renderBoard(){
   }
 }
 /* trend arrow for indicators (mirrors trendArrow for metrics) */
-function indTrend(key){
-  const prev=GAME.prevIndicators?GAME.prevIndicators[key]:undefined;
-  if(prev===undefined)return '';
-  const d=INDICATORS[key].value-prev;
-  if(Math.abs(d)<0.4)return '';
-  return ` <span class="trend ${d>0?'up':'down'}">${d>0?'▲':'▼'}</span>`;
-}
-
 /* ---------- DETAIL PAGE ---------- */
 let detailKey=null;
 /* Which tab you were on when you opened a detail page, so "back" goes where
@@ -19464,12 +19453,6 @@ function pendingWhip(key, origSnap, curSnap, cushion){
   return w;
 }
 /* Roll a pending change's vote on a whip count you have already paid for. */
-function pendingVote(key, origSnap, curSnap, cushion){
-  const w=pendingWhip(key,origSnap,curSnap,cushion); if(!w)return null;
-  const res=runFloorVote(w);
-  return {kind:w.kind, spec:w.spec, w, passed:res.passed,
-          chambers:{house:res.house, senate:res.senate}};
-}
 /* The same thing without rolling dice, for the preview banner. */
 function pendingVoteOdds(key, origSnap, curSnap){
   const w=pendingWhip(key,origSnap,curSnap,0); if(!w)return null;
