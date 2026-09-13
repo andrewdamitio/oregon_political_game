@@ -7201,18 +7201,6 @@ const SITUATIONS={
     indicatorEffect:{tourism:-3, ruralAlienation:3},
     moodAxes:{environment:0.3}, moodMag:2,
     groupMood:{liberal:-5, students:-5, socialist:-3, timber:-4, rural:-3, moderate:-2}},
-  pumpRevolt:{name:"Truckers Roll on Salem", kind:"bad", category:"condition",
-    desc:"Gas has gone past what rural Oregon will pay quietly, and rural Oregon has stopped being quiet. Log trucks, cattle haulers and pickups circle the Capitol for days, horns going, the way Timber Unity's convoys did in 2019 and again in 2020 against cap-and-trade. The people in them drive sixty miles to work and a hundred to a hospital, and to them a price at the pump is not a climate policy, it is a pay cut with the governor's name on it.\n\nIt hardens everything around it: rural alienation climbs, the tax grievance sharpens, and every carbon measure afterward has to get past a convoy's worth of resentment. It ends when the price comes down — the gas tax, a carbon price and the clean-fuels standard are the parts of it that are yours — or when a falling oil market does it for you.",
-    trigger:()=>GAME.turn>2 && METRICS.gasPrice.value>=4.65,
-    clear:()=>METRICS.gasPrice.value<4.35, onClear:{capital:2},
-    watch:{metric:"gasPrice", startAt:4.65, clearAt:4.35, badHigh:true},
-    // a convoy is a moment, not a residence: the trucks go home even while the
-    // price stays high, leaving the grievance and a third of the anger behind
-    decays:{half:4, floor:0.35},
-    minTurns:2,
-    indicatorEffect:{ruralAlienation:4, taxGrievance:3},
-    moodAxes:{economic:0.3, environment:0.2}, moodMag:2,
-    groupMood:{motorists:-6, rural:-5, timber:-5, blueCollar:-4, suburban:-2}},
   layoffWave:{name:"Layoffs Spread", kind:"bad", category:"condition",
     desc:"Unemployment has passed the point where it is a statistic and become a street-by-street fact. Mills and plants announce cuts in the same week, WorkSource offices run out of appointments, and the people who kept their jobs stop spending as though they might not keep them. Oregon has been here before, and badly: 11.6% in 2009, among the worst in the country, and more than 13% in the spring of 2020.\n\nLong unemployment does not stay in the labour market. It turns up in the homelessness count, in the overdose figures, in a treatment system suddenly carrying people who used to have insurance through work. None of that feeds back into the jobs number itself, so this is a crisis you climb out of from the jobs side: growth, and the programmes that put people back into it.",
     trigger:()=>GAME.turn>2 && METRICS.unemployment.value>=8.6,
@@ -7224,11 +7212,18 @@ const SITUATIONS={
     indicatorEffect:{},
     moodAxes:{economic:-0.3}, moodMag:2,
     groupMood:{blueCollar:-6, middleIncome:-4, poor:-4, moderate:-3, parents:-2}},
+  /* Prison capacity is what the Department of Corrections is funded to run:
+     50 at the inherited 50%, 85 fully funded, the closed institutions reopened
+     and staffed. The crisis is the population measured against that, so it
+     can end by locking fewer people up or by paying for the room. */
   prisonCapacity:{name:"Prisons Past Capacity", kind:"bad", category:"condition",
-    desc:"The prison population has outrun the prisons. Oregon closed three institutions between 2021 and 2024 on the strength of a falling count — Mill Creek, Shutter Creek and Warner Creek — and what was sensible then is a problem now: beds in gyms, double-bunked units built for one, and a corrections workforce on mandatory overtime that is already the thing the Department of Corrections struggles to hire.\n\nOvercrowded prisons are more violent, sicker and worse at the only part of the job that lowers crime later, which is sending people out able to stay out. The count comes down through sentencing — Measure 11's mandatory minimums are the largest single lever on it — and through the treatment beds that keep people in crisis out of a cell in the first place.",
-    trigger:()=>GAME.turn>2 && METRICS.incarcerationRate.value>=70,
-    clear:()=>METRICS.incarcerationRate.value<60, onClear:{capital:2},
-    watch:{metric:"incarcerationRate", startAt:70, clearAt:60, badHigh:true},
+    desc:"The prison population has outrun the prisons. Oregon closed three institutions between 2021 and 2024 on the strength of a falling count — Mill Creek, Shutter Creek and Warner Creek — and what was sensible then is a problem now: beds in gyms, double-bunked units built for one, and a corrections workforce on mandatory overtime that is already the thing the Department of Corrections struggles to hire.\n\nOvercrowded prisons are more violent, sicker and worse at the only part of the job that lowers crime later, which is sending people out able to stay out. The count comes down through sentencing — Measure 11's mandatory minimums are the largest single lever on it — and through the treatment beds that keep people in crisis out of a cell in the first place.\n\nOr the state builds the room. Fund the Department of Corrections deeply enough and the closed institutions reopen and fill their posts, and the crisis ends with the count exactly where it is. It is the expensive answer — hundreds of millions a biennium — and it holds only as long as the money does.",
+    trigger:()=>GAME.turn>2 && METRICS.incarcerationRate.value>=prisonBeds()+20,
+    clear:()=>METRICS.incarcerationRate.value<prisonBeds()+10, onClear:{capital:2},
+    // the lines move with the funding, so the gauge, the early warning and the
+    // progress chart all read against the capacity you are actually paying for
+    watch:{metric:"incarcerationRate", get startAt(){ return +(prisonBeds()+20).toFixed(1); },
+           get clearAt(){ return +(prisonBeds()+10).toFixed(1); }, badHigh:true},
     minTurns:3,
     metricEffect:{health:-0.6, inequality:0.8, violentCrime:0.8},
     indicatorEffect:{},
@@ -7236,9 +7231,9 @@ const SITUATIONS={
     groupMood:{socialist:-5, liberal:-4, poor:-3, publicUnions:-3, moderate:-2}},
   defenderCrisis:{name:"No Lawyer, No Trial", kind:"bad", category:"condition",
     desc:"The justice pipeline has run so thin that the Sixth Amendment has become a waiting list. People are arraigned and then sit, jailed or released, with no lawyer appointed; cases that cannot be tried within the time the law allows are dismissed, including cases with victims waiting on them. This is not hypothetical in Oregon: in 2023 thousands of defendants had no appointed counsel, and a federal judge ordered the release of people held more than seven days without one — an order the Ninth Circuit upheld.\n\nIt costs everyone. Victims watch charges dropped, people who may be innocent sit in jail untried, and police stop spending shifts on arrests that will not reach a courtroom. The pipeline is police, prosecution and the courts, and corrections, together; funding the weakest of them is what moves it fastest.",
-    trigger:()=>GAME.turn>2 && INDICATORS.justiceEffectiveness.value<=24,
-    clear:()=>INDICATORS.justiceEffectiveness.value>=34, onClear:{capital:2},
-    watch:{indicator:"justiceEffectiveness", startAt:24, clearAt:34, badHigh:false},
+    trigger:()=>GAME.turn>2 && INDICATORS.justiceEffectiveness.value<=30,
+    clear:()=>INDICATORS.justiceEffectiveness.value>=40, onClear:{capital:2},
+    watch:{indicator:"justiceEffectiveness", startAt:30, clearAt:40, badHigh:false},
     minTurns:3,
     metricEffect:{propertyCrime:2.0, violentCrime:0.9},
     indicatorEffect:{downtown:-2},
@@ -7293,18 +7288,6 @@ const SITUATIONS={
     indicatorEffect:{businessClimate:-2, inMigration:-2},
     moodAxes:{}, moodMag:2,
     groupMood:{parents:-6, suburban:-3, collegeEducated:-3, moderate:-2}},
-  youthMentalHealth:{name:"Youth Mental Health Emergency", kind:"bad", category:"condition",
-    desc:"The state's mental health has deteriorated to the point where pediatric emergency departments are the front line. Children in crisis wait days in ER rooms for a psychiatric bed that does not exist, school counsellors carry caseloads of several hundred, and the suicide-attempt figures among teenagers become the thing school boards talk about first. National rankings have already put Oregon at or near the bottom of the country for youth mental health.\n\nIt reaches everywhere a child goes — attendance, learning, the emergency department, the family that has to stay home — and it is the crisis parents feel most directly. The way out is capacity: treatment and crisis beds, the behavioural health workforce, and bringing down the addiction and instability that are driving the demand.",
-    trigger:()=>GAME.turn>2 && INDICATORS.mentalHealth.value<=17,
-    clear:()=>INDICATORS.mentalHealth.value>=23, onClear:{capital:2},
-    watch:{indicator:"mentalHealth", startAt:17, clearAt:23, badHigh:false},
-    minTurns:3,
-    // mentalHealth derives from beds, capacity, drugs, alcohol, inequality and
-    // homelessness — so this touches none of them
-    metricEffect:{health:-0.8, eduOutcomes:-0.8},
-    indicatorEffect:{},
-    moodAxes:{}, moodMag:2,
-    groupMood:{parents:-5, students:-4, moderate:-2, liberal:-2}},
   laborUprising:{name:"The Capitol Is Occupied", kind:"bad", category:"condition",
     desc:"You took on organised labour directly, and organised labour came to the building. Teachers, nurses, corrections officers and state workers fill the Capitol rotunda and do not leave; sick-outs close schools for days, the marble floors fill with sleeping bags, and SEIU 503 and the Oregon Education Association run the building's public spaces as a standing rally. Wisconsin did this in 2011 over Act 10, with tens of thousands in and around the Capitol for weeks.\n\nIt costs you capital every quarter it runs and it disrupts public services while it does, but occupations end: they are exhausting, and a governor who waits out one will usually outlast it. The alternative is to put back what started it.",
     trigger:()=>{
@@ -7798,18 +7781,23 @@ function _sitAge(sid){ return (GAME.situationAge&&GAME.situationAge[sid])||0; }
   S.timberWars.feeds=()=>({
     begin:[[ fc("Harvest at 55 or more — back to the levels the old fights were over", _sn(mv("loggingRate")), mv("loggingRate")>=55, "m_loggingRate") ]],
     end:[[ fc("Harvest back under 46 — Forest Practices and the Dept. of Forestry are the dials", _sn(mv("loggingRate")), mv("loggingRate")<46, plink("forestPractices")||"m_loggingRate") ]]});
-  S.pumpRevolt.feeds=()=>({
-    begin:[[ fc("Gas at $4.65 or more", "$"+mv("gasPrice").toFixed(2), mv("gasPrice")>=4.65, "m_gasPrice") ]],
-    end:[[ fc("Gas back under $4.35 — the gas tax, a carbon price and clean fuels are yours; the oil market is not", "$"+mv("gasPrice").toFixed(2), mv("gasPrice")<4.35, plink("gasTax")||"m_gasPrice") ]]});
   S.layoffWave.feeds=()=>({
     begin:[[ fc("Unemployment at 8.6% or more", pct1(mv("unemployment")), mv("unemployment")>=8.6, "m_unemployment") ]],
     end:[[ fc("Unemployment back under 7.0% — growth does most of it", pct1(mv("unemployment")), mv("unemployment")<7.0, "m_unemployment") ]]});
-  S.prisonCapacity.feeds=()=>({
-    begin:[[ fc("Incarceration rate at 70 or more", _sn(mv("incarcerationRate")), mv("incarcerationRate")>=70, "m_incarcerationRate") ]],
-    end:[[ fc("Incarceration back under 60 — sentencing and treatment beds bring it down", _sn(mv("incarcerationRate")), mv("incarcerationRate")<60, plink("measure11")||"m_incarcerationRate") ]]});
+  S.prisonCapacity.feeds=()=>{
+    const beds=prisonBeds(), inc=mv("incarcerationRate");
+    const fund=Math.round(((AGENCIES.corrections&&AGENCIES.corrections.funding)??0.5)*100);
+    // the Corrections funding at which capacity reaches the clearing line
+    const need=clamp(0.5+(inc-10-50)/70,0,1);
+    return {
+      begin:[[ fc("Prison population 20 over what Corrections is funded to hold", _sn(inc)+" against room for "+_sn(beds), inc>=beds+20, "m_incarcerationRate") ]],
+      end:[[ fc("Bring the count down to within 10 of capacity — sentencing and treatment beds", _sn(inc)+", needs under "+_sn(beds+10), inc<beds+10, plink("measure11")||"m_incarcerationRate") ],
+           [ fc("Build the room — fund the Dept. of Corrections to "+Math.ceil(need*100)+"% and reopen the closed prisons",
+                "funded "+fund+"%", inc<beds+10, "a_corrections") ]]};
+  };
   S.defenderCrisis.feeds=()=>({
-    begin:[[ fc("Justice pipeline at 24 or below", _sn(iv("justiceEffectiveness")), iv("justiceEffectiveness")<=24, "i_justiceEffectiveness") ]],
-    end:[[ fc("Pipeline back to 34 — fund the weakest of police, the courts and corrections", _sn(iv("justiceEffectiveness")), iv("justiceEffectiveness")>=34, "a_judiciary") ]]});
+    begin:[[ fc("Justice pipeline at 30 or below", _sn(iv("justiceEffectiveness")), iv("justiceEffectiveness")<=30, "i_justiceEffectiveness") ]],
+    end:[[ fc("Pipeline back to 40 — fund the weakest of police, the courts and corrections", _sn(iv("justiceEffectiveness")), iv("justiceEffectiveness")>=40, "a_judiciary") ]]});
   S.gamblingSurge.feeds=()=>({
     begin:[[ fc("Gambling rate at 72 or more", _sn(mv("gamblingRate")), mv("gamblingRate")>=72, "m_gamblingRate") ]],
     end:[[ fc("Gambling back under 64 — the Lottery's dial, casinos and sports betting set it", _sn(mv("gamblingRate")), mv("gamblingRate")<64, plink("stateLottery")||"m_gamblingRate") ]]});
@@ -7824,9 +7812,6 @@ function _sitAge(sid){ return (GAME.situationAge&&GAME.situationAge[sid])||0; }
   S.readingCrisis.feeds=()=>({
     begin:[[ fc("K-12 proficiency at 30 or below", _sn(mv("eduOutcomes")), mv("eduOutcomes")<=30, "m_eduOutcomes") ]],
     end:[[ fc("Proficiency back to 36 — instruction, and the school fund that pays for it", _sn(mv("eduOutcomes")), mv("eduOutcomes")>=36, plink("readingCurriculum")||"m_eduOutcomes") ]]});
-  S.youthMentalHealth.feeds=()=>({
-    begin:[[ fc("Mental health at 17 or below", _sn(iv("mentalHealth")), iv("mentalHealth")<=17, "i_mentalHealth") ]],
-    end:[[ fc("Mental health back to 23 — treatment capacity, beds, and less addiction driving demand", _sn(iv("mentalHealth")), iv("mentalHealth")>=23, plink("behavioralHealth")||"i_mentalHealth") ]]});
   S.laborUprising.feeds=()=>{
     const rtw=!!(POLICIES.rightToWork&&POLICIES.rightToWork.enacted);
     const ban=!!(POLICIES.collectiveBargaining&&POLICIES.collectiveBargaining.tierIndex===0);
@@ -14240,6 +14225,12 @@ function walkoutTrigger(side){
   if(w.provoke < 0.12) return false;
   if(w.heat < 0.34) return false;                                // this costs them half a year too
   return Math.random() < clamp((w.heat-0.34)*0.55, 0, 0.30);
+}
+/* The prison population the Department of Corrections is funded to hold, on
+   the incarceration-rate scale: 50 at the inherited 50% funding, 85 at full. */
+function prisonBeds(){
+  const f=AGENCIES.corrections?(AGENCIES.corrections.funding??0.5):0.5;
+  return 50+(f-0.5)*70;
 }
 /* Which caucus is gone, if either. */
 function walkoutOn(){
