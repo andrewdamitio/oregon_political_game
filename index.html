@@ -21228,13 +21228,76 @@ const WORLD_SEED={
   lu:LANDUSE.index,
   legis:{house:GAME.legis.house, senate:GAME.legis.senate}
 };
+/* THE PRISTINE WORLD. WORLD_SEED holds the handful of numbers calibration
+   starts from; this holds everything play can change, so a boot can put the
+   world back rather than resetting a list of the fields someone remembered.
+   Measured, six tables change in play and the rest are static data. Functions
+   and non-plain objects are kept by reference; everything else is copied, and
+   copied again on every restore so the snapshot itself is never handed out. */
+function _worldClone(v, seen){
+  if(v===null||typeof v!=="object")return v;
+  if(seen.has(v))return seen.get(v);
+  if(v instanceof Set){ const o=new Set(); seen.set(v,o); v.forEach(x=>o.add(_worldClone(x,seen))); return o; }
+  if(Array.isArray(v)){ const o=[]; seen.set(v,o); for(const x of v)o.push(_worldClone(x,seen)); return o; }
+  if(Object.getPrototypeOf(v)!==Object.prototype)return v;
+  const o={}; seen.set(v,o);
+  for(const k of Object.keys(v))o[k]=_worldClone(v[k],seen);
+  return o;
+}
+/* Put one object back the way the snapshot has it, keeping its identity —
+   other code holds references to these. */
+function _worldRestore(obj, snap){
+  for(const k of Object.keys(obj))if(!(k in snap))delete obj[k];
+  const seen=new Map();
+  for(const k of Object.keys(snap))obj[k]=_worldClone(snap[k],seen);
+}
+const WORLD_PRISTINE=(()=>{
+  const c=v=>_worldClone(v,new Map());
+  const table=T=>{ const o={}; for(const id in T)o[id]={ref:T[id], data:c(T[id])}; return o; };
+  return {
+    GAME:c(GAME), LEGIS:c(LEGIS), LANDUSE:c(LANDUSE), NATIONAL_MOOD:c(NATIONAL_MOOD),
+    METRICS:table(METRICS), INDICATORS:table(INDICATORS), SIMULANTS:table(SIMULANTS),
+    AGENCIES:table(AGENCIES), POLICIES:table(POLICIES), CATALOG:table(CATALOG)
+  };
+})();
+/* Choices the player makes on the welcome screen before the coalition switch
+   reboots the world. They belong to the player, not to the world. */
+const WORLD_CARRY=["enforceTermLimit","_coalitionChosen"];
+function restorePristineWorld(){
+  const W=WORLD_PRISTINE;
+  // GAME: every field play added goes, every field the literal had comes back
+  const carried={}; for(const k of WORLD_CARRY)if(k in GAME)carried[k]=GAME[k];
+  _worldRestore(GAME, W.GAME);
+  Object.assign(GAME, carried);
+  _worldRestore(LEGIS, W.LEGIS); _worldRestore(LANDUSE, W.LANDUSE); _worldRestore(NATIONAL_MOOD, W.NATIONAL_MOOD);
+  // tables keyed by id: entries play added are dropped, entries play removed
+  // come back, and each is the ORIGINAL object restored in place
+  const table=(T,snap)=>{
+    for(const id of Object.keys(T))if(!(id in snap))delete T[id];
+    for(const id in snap){ _worldRestore(snap[id].ref, snap[id].data); T[id]=snap[id].ref; }
+  };
+  table(METRICS,W.METRICS); table(INDICATORS,W.INDICATORS); table(SIMULANTS,W.SIMULANTS); table(AGENCIES,W.AGENCIES);
+  // a law moves between the two collections as it is enacted and repealed,
+  // and enacting makes a new object — so clear both and put every original
+  // back where it began
+  for(const id of Object.keys(POLICIES))delete POLICIES[id];
+  for(const id of Object.keys(CATALOG))delete CATALOG[id];
+  table(POLICIES,W.POLICIES); table(CATALOG,W.CATALOG);
+  // caches stamped with a turn number: the turn is about to be zero again
+  _minCostCache={turn:-1, map:{}};
+  _ctyData=null; _ctyDataTurn=-1;
+}
 function bootWorld(startId){
   // ---- deterministic streams. The opening crises are drawn from one stream
   // and gameplay from another, both keyed off the run seed, so booting the
   // world twice (which is what switching coalitions does) gives exactly the
   // world a single boot would have — and the seed still means what it says.
   if(window.reseedRNG)window.reseedRNG("boot");
-  // ---- run state that boot-time code reads, back to its turn-zero value
+  // ---- the whole mutable world, back to the authored data. A no-op on the
+  // first load; after play it is the difference between a new world and
+  // this one with the numbers painted over.
+  restorePristineWorld();
+  // ---- fields the GAME literal never declared, given their turn-zero value
   GAME.agendaBaseline=0; GAME.compassStart={ec:0,so:0}; GAME.compassEvents={ec:0,so:0};
   GAME.mandateShock=0; GAME.changeAppetite=0; GAME.uturnCount=0; GAME.protestCrackdowns=0;
   GAME.floorFail={}; GAME.enactedAt={}; GAME.senateClass=0; GAME.serviceDisrupt=0;
