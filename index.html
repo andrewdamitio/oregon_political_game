@@ -5827,10 +5827,10 @@ const DILEMMAS={
     text:()=>{
       const left=(GAME.walkoutSide==="left");
       return left
-        ? "The Democratic caucus is in Vancouver and your floor staff cannot move a single bill. They are not coming back for a list of grievances — they are coming back for a price, and they have circulated it: undo a piece of the rightward turn. Until then there is no quorum, and no quorum means no legislation of any kind, at any price."
+        ? "The Democratic caucus is across the river in Vancouver and your floor staff cannot move a single bill. They are not coming back for a list of grievances — they are coming back for a price, and they have circulated it: undo a piece of the rightward turn. Until then there is no quorum, and no quorum means no legislation of any kind, at any price — including the bills they want."
         : "The Republican caucus is in Idaho and your floor staff cannot move a single bill. They are not coming back for a list of grievances — they are coming back for a price, and they have circulated it. Until then there is no quorum, and no quorum means no legislation of any kind, at any price.";
     },
-    influence:()=>GAME.activeSituations.gopWalkout?0.95:0,
+    influence:()=>walkoutOn()?0.95:0,
     options:[
       /* ---------- the right caucus walked (a progressive governor) ---------- */
       {label:"Roll back the Forest Practices Act",
@@ -5887,6 +5887,47 @@ const DILEMMAS={
          createGrudge("v_conservative",-8,0.90,"Rolled over for the caucus");
          endWalkout();
          GAME.log.push(ico("people")+" Collective bargaining restored — the caucus comes home, the floor reopens");
+       }},
+      {label:"Put abortion access back where you found it",
+       avail:()=>GAME.walkoutSide==="left" && POLICIES.abortion && POLICIES.abortion.tierIndex<3,
+       text:"Access goes back to the tier you inherited. The caucus has said from the first day that this was the one thing they would spend a session on, and they were telling the truth; they are in the chamber the morning after you sign. Your own coalition understands exactly what it just watched.",
+       apply:()=>{
+         const ab=POLICIES.abortion;
+         if(ab&&ab.tiers){ ab.tierIndex=ab.tiers.length-1; ab.eff=undefined; }
+         createGrudge("v_liberal",13,0.88,"Abortion access restored");
+         createGrudge("v_urban",10,0.88,"Caucus demands met");
+         createGrudge("v_students",9,0.88,"Access restored");
+         createGrudge("v_socialist",9,0.88,"Governor backed down");
+         createGrudge("v_conservative",-14,0.90,"Surrendered on abortion");
+         createGrudge("v_rural",-9,0.90,"Folded to a hostage tactic");
+         endWalkout();
+         GAME.log.push(ico("heart")+" Abortion access restored — the caucus comes home, the floor reopens");
+       }},
+      {label:"Repeal the right-to-work law",
+       avail:()=>GAME.walkoutSide==="left" && POLICIES.rightToWork && POLICIES.rightToWork.enacted,
+       text:"The law comes off the books and the dues come back. Every public-sector local in the state treats it as the moment the walkout paid for itself, because it is; business reads the same fact and draws the opposite conclusion about your word.",
+       apply:()=>{
+         if(POLICIES.rightToWork)_applyRepeal("rightToWork",{});
+         createGrudge("v_publicUnions",17,0.88,"Right-to-work repealed");
+         createGrudge("v_blueCollar",10,0.88,"Dues restored");
+         createGrudge("v_socialist",11,0.88,"Labour wins the standoff");
+         createGrudge("v_businessClass",-13,0.90,"Repealed right-to-work under pressure");
+         createGrudge("v_libertarian",-9,0.90,"Folded to the unions");
+         endWalkout();
+         GAME.log.push(ico("ban")+" Right-to-work repealed — the caucus comes home, the floor reopens");
+       }},
+      {label:"Fund Paid Leave Oregon properly again",
+       avail:()=>GAME.walkoutSide==="left" && POLICIES.paidLeave && policyLevel(POLICIES.paidLeave)<0.5,
+       text:"The benefit goes back to the schedule in statute rather than the one you were funding. It is the cheapest of the prices on the table and the caucus takes it, which tells you something about what the rest of the list was worth to them.",
+       apply:()=>{
+         if(POLICIES.paidLeave){POLICIES.paidLeave.value=Math.max(POLICIES.paidLeave.value,0.5);POLICIES.paidLeave.eff=undefined;}
+         createGrudge("v_parents",11,0.88,"Paid leave restored");
+         createGrudge("v_poor",8,0.88,"Benefit restored");
+         createGrudge("v_publicUnions",7,0.88,"Caucus demands met");
+         createGrudge("v_businessClass",-7,0.90,"Payroll costs back up");
+         createGrudge("v_conservative",-6,0.90,"Paid the ransom");
+         endWalkout();
+         GAME.log.push(ico("teddy")+" Paid Leave Oregon funded to statute — the caucus comes home, the floor reopens");
        }},
       /* ---------- available to either side ---------- */
       {label:"Buy them off in the budget",
@@ -7121,27 +7162,30 @@ const SITUATIONS={
     metricEffect:{health:-2.5}, moodMag:1, minTurns:1, onTrigger:{capital:-3},
     groupMood:{suburban:-5,blueCollar:-3,parents:-5}},
   gopWalkout:{name:"Legislative Walkout", kind:"bad", category:"condition",
-    desc:"Article IV §12 sets the legislative quorum at two-thirds, which in Oregon means the minority can end the session by leaving the state. It killed cap-and-trade twice (HB 2020, SB 1530). Whoever is out of power does the walking: a progressive governor faces the Republican caucus in Idaho over taxes, carbon and guns; a Republican governor faces the Democratic caucus over the rollbacks, and the buses go to Washington instead. Either way the building stops — no bill of yours reaches a floor for two full quarters, and no amount of political capital changes that, because there is nobody there to spend it on. You can meet their price and end it early, or wait them out and let your own coalition watch you refuse to blink. A Simple-Majority Quorum amendment ends the tactic for good, and so does holding two-thirds of both chambers, because a caucus that small has nobody left to walk out with.",
-    trigger:()=>{
-      if(POLICIES.quorumReform) return false;                       // amendment ended denial-of-quorum
-      if(quorumProof()) return false;                               // two-thirds in both chambers: there is no quorum to deny
-      if(GAME.turn < (GAME.walkoutIgnoredUntil||0)) return false;    // you already chose to ignore this round
-      if(GAME.turn < (GAME.walkoutCooldownUntil||0)) return false;   // a caucus cannot do this twice in two years
-      if(GAME.turn < 4) return false;                                // not before you have a record to walk out over
-      const w=walkoutPressure();
-      if(w.heat < 0.38) return false;                                // a high bar: this costs you half a year
-      return Math.random() < clamp((w.heat-0.38)*0.34, 0, 0.22);
-    },
+    desc:"Article IV §12 sets the legislative quorum at two-thirds, which in Oregon means the minority can end the session by leaving the state. It killed cap-and-trade twice (HB 2020, SB 1530). Whoever is out of power does the walking: a progressive governor faces the Republican caucus in Idaho over taxes, carbon and guns; a Republican governor faces the Democratic caucus over the rollbacks, and the buses go to Washington instead. Either way the building stops — no bill of yours reaches a floor for two full quarters, and no amount of political capital changes that, because there is nobody there to spend it on. You can meet their price and end it early, or wait them out and let your own coalition watch you refuse to blink. What brings it on is your programme, not your polling: there has to be something on the books to walk out ABOUT, and the further past the settlement you inherited you drive the agenda the closer the caucus gets to the buses. Their own voters' anger at you sharpens it but cannot start it — a governor who has provoked nobody is safe however badly they poll in those districts. A Simple-Majority Quorum amendment ends the tactic for good, and so does holding two-thirds of both chambers — or, under proportional representation, a governing coalition holding two-thirds of the Assembly — because a minority that small has nobody left to walk out with.",
+    trigger:()=>walkoutTrigger("right"),
     // exactly two quarters, then they come home — the escape hatches end it early
     clear:()=>POLICIES.quorumReform || quorumProof() || (GAME.situationAge.gopWalkout||0) >= 2,
     onStart:()=>{
-      GAME.walkoutSide=walkoutPressure().side;                       // which caucus left, fixed for the duration
+      GAME.walkoutSide="right";                                      // which caucus left, fixed for the duration
       GAME.floorFreeze=Math.max(GAME.floorFreeze||0, 2);             // the building is shut for two quarters
     },
     onEnd:()=>{ GAME.walkoutCooldownUntil=GAME.turn+8; },            // two years before anyone tries it again
     metricEffect:{}, moodMag:3, minTurns:2, onClear:{capital:2},
     indicatorEffect:{}, moodAxes:{economic:0.1,govSize:0.1},
     groupMood:{moderate:-3, businessClass:-3}},
+  demWalkout:{name:"Legislative Walkout", kind:"bad", category:"condition",
+    desc:"Article IV section 12 does not name a party. The two-thirds quorum that Oregon Republicans used to kill cap-and-trade twice is the same rule read from the other side of the aisle, and it belongs to whoever is out of power — so a Republican governor faces the Democratic caucus, and the buses go north to Vancouver and Olympia rather than east to Idaho. Democrats have done exactly this elsewhere when they had nothing else: Wisconsin in 2011 over Act 10, Texas in 2021 over the voting bill, and Oregon's own Senate Democrats over redistricting in 2001.\n\nWhat they leave over is a bill, not a poll — the corporate tax cut, bargaining rights narrowed, abortion access rolled back, right-to-work, paid leave gutted. The building stops for two full quarters and no amount of political capital changes that, because there is nobody there to spend it on. You can meet their price and end it early, or wait them out and let your own coalition watch you refuse to blink. A Simple-Majority Quorum amendment ends the tactic for good, and so does holding two-thirds of both chambers — or, under proportional representation, a governing coalition holding two-thirds of the Assembly.",
+    trigger:()=>walkoutTrigger("left"),
+    clear:()=>POLICIES.quorumReform || quorumProof() || (GAME.situationAge.demWalkout||0) >= 2,
+    onStart:()=>{
+      GAME.walkoutSide="left";
+      GAME.floorFreeze=Math.max(GAME.floorFreeze||0, 2);
+    },
+    onEnd:()=>{ GAME.walkoutCooldownUntil=GAME.turn+8; },
+    metricEffect:{}, moodMag:3, minTurns:2, onClear:{capital:2},
+    indicatorEffect:{}, moodAxes:{economic:0.1,govSize:0.1},
+    groupMood:{moderate:-3, publicUnions:-3}},
   oilShock:{name:"Oil Price Shock", kind:"bad", category:"event",
     desc:"Global crude prices spike — every gas station marquee in Oregon becomes a referendum on your administration.",
     metricEffect:{gasPrice:0.25,gdp:-0.15}, moodMag:1, minTurns:2,
@@ -7585,17 +7629,28 @@ function _sitAge(sid){ return (GAME.situationAge&&GAME.situationAge[sid])||0; }
       note:"Past the drift line this is a roll each quarter, not a certainty — likelier the further you have moved and the angrier the blocs above are. Cracking down raises it again."};
   };
 
-  S.gopWalkout.feeds=()=>{
+  /* The same panel for whichever caucus is gone. Provocation is listed first
+     because it is the gate: no bill they organised against, no walkout. */
+  const walkoutFeeds=(sid,side)=>()=>{
     const w=walkoutPressure(), L=GAME.legis||{};
-    const quorumTxt="House "+(L.house||0)+"/"+LEGIS.quorumH+(LEGIS.quorumS?(", Senate "+(L.senate||0)+"/"+LEGIS.quorumS):"");
+    const quorumTxt = prOn()
+      ? ("coalition "+coalitionSeats()+"/"+PR_SEATS+", two-thirds is "+Math.ceil(PR_SEATS*2/3))
+      : ("House "+(L.house||0)+"/"+LEGIS.quorumH+(LEGIS.quorumS?(", Senate "+(L.senate||0)+"/"+LEGIS.quorumS):""));
+    const ours = w.side===side;
     return {
-      begin:[[ fc("Walkout pressure past 38% — "+w.label+", and a caucus angry enough to spend half a year on it", Math.round(w.heat*100)+"%", w.heat>=0.38),
+      begin:[[ fc("A programme they organised against — you have driven the agenda past what you inherited",
+                  Math.round((ours?(w.provoke||0):0)*100)+"%", ours && (w.provoke||0)>=0.12),
+               fc("Walkout pressure past 34% — "+w.label+", and a caucus angry enough to spend half a year on it",
+                  Math.round((ours?w.heat:0)*100)+"%", ours && w.heat>=0.34),
                fc("You do not hold a two-thirds quorum on your own", quorumTxt, !quorumProof()),
                fc("Simple-Majority Quorum is not in the constitution", POLICIES.quorumReform?"passed":"not passed", !POLICIES.quorumReform) ]],
       end:[[ fc("Pass Simple-Majority Quorum — the permanent answer", POLICIES.quorumReform?"passed":"not passed", !!POLICIES.quorumReform) ],
-           [ fc("Hold two-thirds of both chambers — then there is no quorum to deny", quorumTxt, quorumProof()) ],
-           [ fc("Wait: it ends after two quarters", "quarter "+(_sitAge("gopWalkout")+1), _sitAge("gopWalkout")>=2) ]]};
+           [ fc("Hold two-thirds — then there is no quorum to deny", quorumTxt, quorumProof()) ],
+           [ fc("Meet their price in the dilemma — they come home the same week", "on the desk", false) ],
+           [ fc("Wait: it ends after two quarters", "quarter "+(_sitAge(sid)+1), _sitAge(sid)>=2) ]]};
   };
+  S.gopWalkout.feeds=walkoutFeeds("gopWalkout","right");
+  S.demWalkout.feeds=walkoutFeeds("demWalkout","left");
 })();
 /* EVENT_POOL — random events that can fire. Each has a base per-quarter
    probability and an optional `gate` (only eligible if true). `mult` is the
@@ -10612,10 +10667,10 @@ const PROMISES={
     check:()=>METRICS.environment.value>=66 && METRICS.evAdoption.value>=22},
   publicSafety:{label:"Restore public safety", bloc:["suburban","conservative","retirees","homeowners"],
     criteria:[
-      {label:"Violent crime rate ≤ 42", check:()=>METRICS.violentCrime.value<=42},
+      {label:"Violent crime rate ≤ 33", check:()=>METRICS.violentCrime.value<=33},
       {label:"Property crime rate ≤ 46", check:()=>METRICS.propertyCrime.value<=46}
     ],
-    check:()=>METRICS.violentCrime.value<=42 && METRICS.propertyCrime.value<=46},
+    check:()=>METRICS.violentCrime.value<=33 && METRICS.propertyCrime.value<=46},
   ruralRevival:{label:"Stand up for rural Oregon", bloc:["rural","timber"],
     criteria:[
       {label:"Rural alienation eased (≤ 47)", check:()=>INDICATORS.ruralAlienation.value<=47},
@@ -10636,10 +10691,10 @@ const PROMISES={
     check:()=>METRICS.unemployment.value<=4.5 && effective("gdp")>=60},
   buildHousing:{label:"Make housing affordable", bloc:["renters","poor","urban"],
     criteria:[
-      {label:"Housing affordability index ≥ 48", check:()=>INDICATORS.housingAffordability&&INDICATORS.housingAffordability.value>=48},
-      {label:"Housing affordability index ≥ 58 (strong delivery)", check:()=>INDICATORS.housingAffordability&&INDICATORS.housingAffordability.value>=58}
+      {label:"Housing affordability index ≥ 58", check:()=>INDICATORS.housingAffordability&&INDICATORS.housingAffordability.value>=58},
+      {label:"Housing affordability index ≥ 66 (strong delivery)", check:()=>INDICATORS.housingAffordability&&INDICATORS.housingAffordability.value>=66}
     ],
-    check:()=>INDICATORS.housingAffordability&&INDICATORS.housingAffordability.value>=58},
+    check:()=>INDICATORS.housingAffordability&&INDICATORS.housingAffordability.value>=66},
   fightWildfires:{label:"Protect Oregon from wildfires", bloc:["rural","homeowners","timber","liberal"],
     criteria:[
       {label:"Environment index ≥ 60 (healthy forests, fire-resilient landscape)", check:()=>METRICS.environment.value>=60},
@@ -10655,9 +10710,9 @@ const PROMISES={
   strengthenHealth:{label:"Build a stronger public health system", bloc:["moderate","parents","retirees","publicUnions"],
     criteria:[
       {label:"Public health index ≥ 62", check:()=>METRICS.health.value>=62},
-      {label:"Behavioral health capacity ≥ 42", check:()=>METRICS.behavioralHealth.value>=42}
+      {label:"Behavioral health capacity ≥ 54", check:()=>METRICS.behavioralHealth.value>=54}
     ],
-    check:()=>METRICS.health.value>=62 && METRICS.behavioralHealth.value>=42},
+    check:()=>METRICS.health.value>=62 && METRICS.behavioralHealth.value>=54},
   techHub:{label:"Make Oregon a tech & talent magnet", bloc:["collegeEducated","businessClass","urban","transitCommuters"],
     criteria:[
       {label:"Digital government index ≥ 55", check:()=>INDICATORS.digitization.value>=55},
@@ -10684,10 +10739,10 @@ const PROMISES={
     check:()=>METRICS.loggingRate.value>=45 && INDICATORS.ruralAlienation.value<=44},
   localControl:{label:"Return power to local communities", bloc:["conservative","rural","moderate","homeowners"],
     criteria:[
-      {label:"Local autonomy index ≥ 55 (districts retain control)", check:()=>INDICATORS.localAutonomy.value>=55},
+      {label:"Local autonomy index ≥ 71 (districts win back control)", check:()=>INDICATORS.localAutonomy.value>=71},
       {label:"Rural alienation resolved (≤ 42)", check:()=>INDICATORS.ruralAlienation.value<=42}
     ],
-    check:()=>INDICATORS.localAutonomy.value>=55 && INDICATORS.ruralAlienation.value<=42},
+    check:()=>INDICATORS.localAutonomy.value>=71 && INDICATORS.ruralAlienation.value<=42},
 
   // ---- lower-bar pledges: single levers, modest targets — safer wins ----
   expandParks:{label:"Expand parks & the outdoors", bloc:["rural","moderate","collegeEducated","urban"],
@@ -10754,13 +10809,13 @@ const PROMISES={
     check:()=>policyLevel(POLICIES.charterSchools||{})>=0.6 && !!(POLICIES.schoolChoice&&POLICIES.schoolChoice.enacted) && policyLevel(POLICIES.schoolChoice||{})>=0.5},
   realSentences:{label:"Real sentences for violent crime", bloc:["conservative","rural","retirees","suburban"],
     criteria:[
-      {label:"Violent crime rate ≤ 46", check:()=>METRICS.violentCrime.value<=46},
-      {label:"Truth in Sentencing enacted and violent crime ≤ 42", check:()=>!!(POLICIES.truthInSentencing&&POLICIES.truthInSentencing.enacted) && METRICS.violentCrime.value<=42}
+      {label:"Violent crime rate ≤ 34", check:()=>METRICS.violentCrime.value<=34},
+      {label:"Truth in Sentencing enacted and violent crime ≤ 29", check:()=>!!(POLICIES.truthInSentencing&&POLICIES.truthInSentencing.enacted) && METRICS.violentCrime.value<=29}
     ],
-    check:()=>!!(POLICIES.truthInSentencing&&POLICIES.truthInSentencing.enacted) && METRICS.violentCrime.value<=42},
+    check:()=>!!(POLICIES.truthInSentencing&&POLICIES.truthInSentencing.enacted) && METRICS.violentCrime.value<=29},
   fixPERS:{label:"Fix PERS before it eats the budget", bloc:["conservative","moderate","businessClass","homeowners"],
     criteria:[
-      {label:"Pension burden easing (≤ 53)", check:()=>INDICATORS.pensionBurden.value<=53},
+      {label:"Pension burden held below its drift (≤ 57)", check:()=>INDICATORS.pensionBurden.value<=57},
       {label:"PERS Benefit Reform enacted and pension burden ≤ 49", check:()=>!!(POLICIES.persReform&&POLICIES.persReform.enacted) && INDICATORS.pensionBurden.value<=49}
     ],
     check:()=>!!(POLICIES.persReform&&POLICIES.persReform.enacted) && INDICATORS.pensionBurden.value<=49},
@@ -13935,31 +13990,93 @@ const LEGIS={senate:30, house:60, superS:18, superH:36, majS:16, majH:31,
 
    Returns a heat in roughly 0..1. The bar to actually walk is high, because
    two quarters with no legislature is the most expensive thing in the game. */
+/* WHICH CAUCUS IS GONE, AND HOW CLOSE THEY ARE TO GOING.
+
+   Heat is two things in equal-ish measure: how angry the caucus's own voters
+   are with you, and how far you have driven the programme past the settlement
+   you inherited. The second is the one that matters, and the right-hand caucus
+   used not to have it at all — which is why a popular governor could pass
+   everything the caucus exists to stop and never see the building shut. A
+   walkout is a response to a bill, not to a poll.
+
+   Provocation is measured against the agenda BASELINE taken at inauguration,
+   so it is the distance you have moved the state, not the state you were
+   handed. Governing a left-wing Oregon as a Democrat provokes nobody; ratch-
+   eting it further left quarter after quarter does. */
 function walkoutPressure(){
   const angry=sid=>{const s=SIMULANTS[sid]; if(!s)return 0;
     return clamp((46-(s.approval??50))/40,0,1) + clamp((s.cynicism||0)*0.02,0,0.4);};
-  const side = coalitionAlignment()>=0 ? "right" : "left";
+  // The party out of power is the one that walks — a Republican governor
+  // faces the Democratic caucus, and the buses go to Washington rather than
+  // Idaho. The exception is a governor who has crossed the floor far enough
+  // to become the thing their OWN base organised against.
+  const mine   = GAME.startId==="conservative" ? "right" : "left";
+  const theirs = mine==="right" ? "left" : "right";
+  const side   = agendaBaseDrift() > 10 ? mine : theirs;
+  const shift  = agendaRightwardShift();
   if(side==="right"){
     const ra=INDICATORS.ruralAlienation.value;
-    const caucus = angry("rural")*0.45 + angry("conservative")*0.40 + angry("timber")*0.15;
-    return {side, heat: clamp((ra-58)/22,0,1)*0.55 + caucus*0.55,
-            label:"rural alienation", level:ra};
+    // rural alienation is itself anchored on these blocs' approval, so it
+    // rides WITH the anger term rather than counting for half on its own
+    const caucus = angry("rural")*0.34 + angry("conservative")*0.30
+                 + angry("timber")*0.12 + clamp((ra-62)/22,0,1)*0.24;
+    // How far left of the settlement you were handed. The divisor is what a
+    // provocative programme is worth: at 9, a governor who has driven every
+    // left-coded dial to its stop scores about 0.35 here, which is the
+    // difference between a caucus that is furious and one that is on a bus.
+    const provoke = clamp((-shift-3)/9, 0, 1);
+    return {side, heat: caucus*0.45 + provoke*0.55,
+            label:"rural alienation", level:ra, caucusHeat:caucus, provoke};
   }
   // the left caucus walks over how far the agenda has been dragged right
-  const shift=agendaRightwardShift();
   const caucus = angry("liberal")*0.35 + angry("socialist")*0.30 + angry("publicUnions")*0.20 + angry("urban")*0.15;
-  return {side, heat: clamp((shift-6)/12,0,1)*0.55 + caucus*0.55,
-          label:"progressive alienation", level:50+shift*2.2};
+  const provoke = clamp((shift-3)/9, 0, 1);
+  return {side, heat: caucus*0.45 + provoke*0.55,
+          label:"progressive alienation", level:50+shift*2.2, caucusHeat:caucus, provoke};
+}
+/* Everything that has to be true before anybody gets on a bus, asked by the
+   side doing the asking. Both walkouts route through this, so the two cannot
+   drift apart the way they did when the left-hand one was a flag set on the
+   right-hand one. */
+function walkoutTrigger(side){
+  if(POLICIES.quorumReform) return false;                        // amendment ended denial-of-quorum
+  if(quorumProof()) return false;                                // nobody left to walk out with
+  if(walkoutOn()) return false;                                  // one caucus is already gone
+  if(GAME.turn < (GAME.walkoutIgnoredUntil||0)) return false;    // you already chose to ignore this round
+  if(GAME.turn < (GAME.walkoutCooldownUntil||0)) return false;   // a caucus cannot do this twice in two years
+  if(GAME.turn < 4) return false;                                // not before you have a record to walk out over
+  const w=walkoutPressure();
+  if(w.side !== side) return false;                              // this is not their fight
+  // A caucus does not leave the state because its voters have gone off you.
+  // It leaves over a bill. Without a real provocation on the books there is
+  // nothing to walk out ABOUT, however badly you are polling out there.
+  if(w.provoke < 0.12) return false;
+  if(w.heat < 0.34) return false;                                // this costs them half a year too
+  return Math.random() < clamp((w.heat-0.34)*0.55, 0, 0.30);
+}
+/* Which caucus is gone, if either. */
+function walkoutOn(){
+  return GAME.activeSituations.demWalkout ? "demWalkout"
+       : GAME.activeSituations.gopWalkout ? "gopWalkout" : null;
 }
 /* End a walkout by agreement rather than by waiting it out. */
 function endWalkout(){
   GAME.floorFreeze=0;
   GAME.walkoutCooldownUntil=GAME.turn+8;
-  if(GAME.activeSituations.gopWalkout)endSituation("gopWalkout");
+  const id=walkoutOn();
+  if(id)endSituation(id);
 }
 /* Is the chamber shut? Returns quarters remaining, 0 if the floor is open. */
 function floorFrozen(){ return Math.max(0, GAME.floorFreeze||0); }
+/* Can the walkout be denied you? Under districts, by holding two-thirds of
+   both chambers: a minority that small has nobody left to walk out with.
+   Under proportional representation the question is the same one but asked of
+   the GOVERNMENT — a coalition holding two-thirds of the Assembly makes its
+   own quorum, and a coalition short of it can be locked out of the building by
+   the parties outside it. (The old test read GAME.legis.house, which under PR
+   is a leftover count from the chamber that was dissolved and means nothing.) */
 function quorumProof(){
+  if(prOn())return coalitionSeats() >= Math.ceil(PR_SEATS*2/3);
   const L=GAME.legis||{senate:0,house:0};
   return (L.house>=LEGIS.quorumH) && (L.senate>=LEGIS.quorumS);
 }
