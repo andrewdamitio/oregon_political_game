@@ -2076,6 +2076,10 @@ function applySave(sv){
     // first tick. Drop them.
     for(const k in (GAME.activeSituations||{}))if(!SITUATIONS[k])delete GAME.activeSituations[k];
     for(const k in (GAME.situationAge||{}))if(!SITUATIONS[k])delete GAME.situationAge[k];
+    // likewise a dilemma that was removed while a save was waiting on it. The
+    // dilemma screen would also drop it for having no text; this just clears it
+    // before anything else reads the id.
+    if(GAME.pendingDilemma&&!DILEMMAS[GAME.pendingDilemma])GAME.pendingDilemma=null;
     GAME.fading={};
     NATIONAL_MOOD.value=sv.nm.value; NATIONAL_MOOD.drift=sv.nm.drift;
     if(sv.landuse!=null)LANDUSE.index=sv.landuse;
@@ -5415,68 +5419,6 @@ const DILEMMAS={
          GAME.log.push(ico('ban')+" Turned down "+(pid?prParty(pid).short:"an offer")+" — you stay a minority government");
        }},
     ]},
-  austerityMandated:{title:"Austerity Reckoning", icon:"warning",
-    text:"The structural deficit has grown beyond what reserves can cover. Oregon's balanced-budget requirement means the legislature must act — there is no option to simply borrow and wait. Every caucus wants someone else's programs cut. You must decide where the pain falls.",
-    // Superseded by the Rebalance board, which is what a balanced-budget
-    // emergency actually looks like. Kept out of the rotation rather than
-    // deleted so a saved game mid-dilemma still resolves.
-    influence:()=>-1,
-    options:[
-      {label:"Cut social services", text:"DHS and OHA budgets are cut; homeless services intensity is reduced. Real ongoing savings of ~$1.2B — but health, behavioral health, and homelessness will worsen.",
-       apply:()=>{
-         // real spending cuts — ongoing structural effect
-         if(AGENCIES.dhs) AGENCIES.dhs.funding=+(Math.max(0.10,(AGENCIES.dhs.funding||0.5)-0.18)).toFixed(2);
-         if(AGENCIES.oha) AGENCIES.oha.funding=+(Math.max(0.10,(AGENCIES.oha.funding||0.6)-0.15)).toFixed(2);
-         if(POLICIES.homelessServices) POLICIES.homelessServices.value=+(Math.max(0.0,(POLICIES.homelessServices.value||0.45)-0.20)).toFixed(2);
-         // voter and metric perception shocks
-         createGrudge("m_homelessness",2.5,0.9,"Social service cuts");
-         createGrudge("m_health",-1.5,0.9,"Health program cuts");
-         createGrudge("m_behavioralHealth",-2.0,0.9,"Behavioral health cuts");
-         createGrudge("v_poor",-6,0.9,"Social services gutted");
-         createGrudge("v_publicUnions",-4,0.9,"Social services gutted");
-         createGrudge("v_liberal",-3,0.9,"Social services gutted");
-         createGrudge("v_conservative",2,0.9,"Fiscal discipline");
-         GAME.structuralDebt=+(Math.max(0,(GAME.structuralDebt||0)-1.2)).toFixed(2);
-         shiftCompass(0.9,0);
-         GAME.log.push(ico("scissors")+" Austerity: DHS/OHA budgets cut, homeless services reduced — $1.2B off the deficit");
-       }},
-      {label:"Cut infrastructure & education", text:"ODOT funding drops; the State School Fund and university budgets are trimmed. Real ongoing savings of ~$1.0B — roads and schools will suffer.",
-       apply:()=>{
-         // real spending cuts — ongoing structural effect
-         if(AGENCIES.odot) AGENCIES.odot.funding=+(Math.max(0.10,(AGENCIES.odot.funding||0.5)-0.20)).toFixed(2);
-         if(POLICIES.stateSchoolFund) POLICIES.stateSchoolFund.value=+(Math.max(0.10,(POLICIES.stateSchoolFund.value||0.55)-0.18)).toFixed(2);
-         if(POLICIES.universities) POLICIES.universities.value=+(Math.max(0.10,(POLICIES.universities.value||0.45)-0.12)).toFixed(2);
-         // voter and metric perception shocks
-         createGrudge("m_education",-2.0,0.9,"Education cuts");
-         createGrudge("m_gdp",-0.18,0.9,"Infrastructure cuts drag growth");
-         createGrudge("i_businessClimate",-4,0.9,"Infrastructure neglect");
-         createGrudge("v_parents",-5,0.9,"Education gutted");
-         createGrudge("v_collegeEducated",-3,0.9,"Education gutted");
-         createGrudge("v_suburban",-3,0.9,"Infrastructure cut");
-         createGrudge("v_conservative",2,0.9,"Fiscal discipline");
-         GAME.structuralDebt=+(Math.max(0,(GAME.structuralDebt||0)-1.0)).toFixed(2);
-         shiftCompass(0.6,0);
-         GAME.log.push(ico("scissors")+" Austerity: ODOT, school fund, universities cut — $1.0B off the deficit");
-       }},
-      {label:"Emergency tax surcharge", text:"Income and corporate tax rates are raised to close the gap. Generates ~$1.6B but inflames business and the right.",
-       apply:()=>{
-         // real tax rate increases — ongoing structural effect
-         if(POLICIES.incomeTax) POLICIES.incomeTax.value=+(Math.min(1.0,(POLICIES.incomeTax.value||0.6)+0.12)).toFixed(2);
-         if(POLICIES.corpTax) POLICIES.corpTax.value=+(Math.min(1.0,(POLICIES.corpTax.value||0.5)+0.10)).toFixed(2);
-         // voter and metric perception shocks
-         createGrudge("m_taxBurden",3.5,0.9,"Emergency tax surcharge");
-         createGrudge("m_gdp",-0.12,0.9,"Tax drag on growth");
-         createGrudge("v_businessClass",-5,0.9,"Emergency tax hike");
-         createGrudge("v_conservative",-5,0.9,"Emergency tax hike");
-         createGrudge("v_wealthy",-4,0.9,"Emergency tax hike");
-         createGrudge("v_liberal",2,0.9,"Made the wealthy pay first");
-         createGrudge("v_poor",1,0.9,"Made the wealthy pay first");
-         GAME.structuralDebt=+(Math.max(0,(GAME.structuralDebt||0)-1.6)).toFixed(2);
-         GAME.deficitStreak=0;
-         shiftCompass(-0.7,0);
-         GAME.log.push(ico('cash-fly')+" Austerity: income & corporate taxes raised — $1.6B off the deficit");
-       }}
-    ]},
   // "What the Surplus Is For" was removed. Deciding what a surplus is for is
   // already a standing mechanic — the kicker line, the reserve split and the
   // dedication controls on the Fiscal Machinery board — and a dilemma asking
@@ -5687,7 +5629,16 @@ const DILEMMAS={
   dataCenter:{title:"The Data Center Deal", icon:"monitor",
     onFire:(ctx)=>{ ctx.county=pick(COUNTY_GROUPS.dataCenter); },
     text:()=>`A hyperscaler wants enterprise-zone tax breaks for a campus in <b>${GAME.dilemmaCtx.county||"a dry"} County</b>, east of the mountains: hundreds of construction jobs, dozens permanent — and an enormous claim on the county's water and power. Neighbors are already organizing against the draw.`,
-    influence:()=>(INDICATORS.businessClimate.value>55?0.35:0.1)+(GAME.activeSituations.techBoom?0.2:0),
+    // The pipeline does not wait for a good business climate. The Dalles,
+    // Prineville and the Umatilla/Morrow corridor kept filling through years
+    // when Oregon was rated badly, because a hyperscaler is buying cheap
+    // hydropower, cheap land and cool air. A strict Data-Center Energy
+    // Framework is what actually slows the applications.
+    influence:()=>{
+      const climate=clamp((INDICATORS.businessClimate.value-25)/35,0,1);
+      const strict=POLICIES.dataCenterEnergy?policyLevel(POLICIES.dataCenterEnergy):0;
+      return 0.28 + climate*0.22 + (GAME.activeSituations.techBoom?0.15:0) - strict*0.25;
+    },
     options:[
       {label:"Approve the deal", text:"The data center is approved.",
        apply:()=>{const cty=GAME.dilemmaCtx.county||"Wasco";createGrudge("m_gdp",0.15,0.9,"Data center investment");createGrudge("v_businessClass",4,0.9,"Open for business");createGrudge("v_blueCollar",2,0.9,"Construction jobs");createGrudge("m_environment",-0.5,0.9,"Water & power strain");createGrudge("v_liberal",-3,0.9,"Corporate giveaway");createCountyMood([cty],-6,0.9,cty+" County — water & power draw");shiftCompass(0.8,0);GAME.log.push(ico('monitor')+" Data center approved in "+cty+" County — locals furious over the water draw");}},
