@@ -4994,9 +4994,23 @@ const APPT_POSTS={
   ohcs:{name:"Housing & Community Services", icon:"houses", agency:"ohcs", body:"department",
     seat:"Housing and Community Services", metrics:["homelessness"],
     pool:["renters","poor","urban","homeowners"], foes:["homeowners","libertarian"]},
-  puc:{name:"Public Utility Commission", icon:"plug", agency:null, body:"commission",
+  /* THREE COMMISSIONERS, STAGGERED — which is what the PUC actually is, and
+     what makes it worth composing rather than filling. Each seat draws from a
+     different world, so a commission stacked with utility people and one
+     stacked with ratepayer advocates are different bodies deciding the same
+     rate cases. `bench` is what marks them as one body. */
+  puc1:{name:"Public Utility Commission", icon:"plug", agency:null, body:"commission",
+    bench:"puc", benchSeat:"Chair",
     seat:"Public Utility Commission", metrics:["electricRate"],
-    pool:["businessClass","wealthy","retirees","liberal"], foes:["poor","renters"]},
+    pool:["businessClass","wealthy","moderate","suburban"], foes:["poor","renters"]},
+  puc2:{name:"Public Utility Commission", icon:"plug", agency:null, body:"commission",
+    bench:"puc", benchSeat:"Ratepayer seat",
+    seat:"Public Utility Commission", metrics:["electricRate"],
+    pool:["retirees","renters","poor","blueCollar"], foes:["businessClass","wealthy"]},
+  puc3:{name:"Public Utility Commission", icon:"plug", agency:null, body:"commission",
+    bench:"puc", benchSeat:"Energy seat",
+    seat:"Public Utility Commission", metrics:["electricRate"],
+    pool:["liberal","collegeEducated","urban","students"], foes:["rural","timber"]},
   bizOregon:{name:"Business Oregon", icon:"factory", agency:null, body:"department",
     seat:"Business Oregon", metrics:["gdp","unemployment"],
     pool:["businessClass","wealthy","blueCollar","moderate"], foes:["socialist","publicUnions"]},
@@ -5009,16 +5023,79 @@ const APPT_FIRST=["Marisol","Dale","Renata","Hollis","Imani","Gordon","Priya","W
 const APPT_LAST=["Okonkwo","Vasquez","Ferriday","Stroud","Batiste","Nakagawa","Oyelaran","Hjelm","Castellanos",
   "Duvall","Whitlock","Amador","Ptaszek","Redfeather","Calloway","Sanderlin","Moreau","Krivosheev","Bexar","Ocampo"];
 function apptName(){ return APPT_FIRST[Math.floor(Math.random()*APPT_FIRST.length)]+" "+APPT_LAST[Math.floor(Math.random()*APPT_LAST.length)]; }
+/* The department each PR party expects to be handed for joining a government,
+   and the bloc their appointee comes from. */
+const APPT_PARTY_POST={
+  left:{post:"deq", group:"liberal",
+    label:"The Environmental Quality chair is ours",
+    why:"You will sign what we negotiated. Our person will be the one enforcing it."},
+  dem:{post:"oha", group:"publicUnions",
+    label:"The Health Authority is ours",
+    why:"The biggest thing the state does with a budget, run by somebody we trust with it."},
+  centre:{post:"bizOregon", group:"businessClass",
+    label:"Business Oregon is ours",
+    why:"Somebody in this government has to be able to talk to an employer."},
+  gop:{post:"corrections", group:"conservative",
+    label:"Corrections is ours",
+    why:"You may run the rest of it. Public safety answers to somebody we chose."},
+  right:{post:"puc1", group:"libertarian",
+    label:"The Public Utility Commission is ours",
+    why:"Every rate case in this state, decided by somebody who reads the bill like a ratepayer."}
+};
 function apptHolder(id){ return (GAME.appointments||{})[id]||null; }
+/* Signing a coalition agreement hands over the departments it promised. The
+   sitting appointee steps down the same day — that is what the agreement is. */
+function apptInstallPartners(partners){
+  for(const pid of (partners||[])){
+    const deal=APPT_PARTY_POST[pid]; if(!deal||!APPT_POSTS[deal.post])continue;
+    const c=apptMakeCandidate(deal.post,"partner");
+    const out=apptHolder(deal.post);
+    GAME.appointments=GAME.appointments||{};
+    GAME.appointments[deal.post]={name:c.name, trait:c.trait, group:deal.group, foe:c.foe,
+      side:"partner", party:pid, loyalty:0.25, since:GAME.turn, term:GAME.turn+999};
+    if(GAME.apptVacancies)delete GAME.apptVacancies[deal.post];
+    GAME.log.push(ico('handshake')+" "+APPT_POSTS[deal.post].name+" goes to "+prParty(pid).short
+      +" under the agreement — "+c.name+" takes the chair"+(out?", "+out.name+" steps down":""));
+  }
+}
+/* A party that leaves the government takes its appointee with it. */
+function apptPartnerWalked(pid){
+  for(const id in APPT_POSTS){
+    const h=apptHolder(id);
+    if(h&&h.party===pid){
+      delete GAME.appointments[id];
+      GAME.log.push(ico('ban')+" "+h.name+" resigns from "+APPT_POSTS[id].name+" with "+prParty(pid).short);
+    }
+  }
+}
 function apptVacant(id){ return !apptHolder(id); }
+/* What to call one chair. On a multi-member commission the body's name is
+   shared, so the seat is what tells them apart. */
+function apptPostLabel(id){
+  const p=APPT_POSTS[id];
+  return p.benchSeat ? p.name+" \u2014 "+p.benchSeat : p.name;
+}
 /* An empty chair is an acting director: the department keeps running and
    nothing it does lands quite as hard. */
 const APPT_VACANT_EFF=-0.06, APPT_VACANT_OVERHEAD=0.8, APPT_VACANT_CAPITAL=-0.2;
 const APPT_ACTING_AFTER=4;                 // quarters an empty chair waits before a deputy steps up
 /* What the floor has to say about a nominee, in one place so it can be
    calibrated against measured odds. */
-const APPT_CONFIRM={ disc:0.8, group:8, foe:-7, cross:3, betray:-3,
-                     pop:1.1, loyalty:0.7, trait:0.6, crossOwn:-1.6, crossOpp:2.0, base:2 };
+const APPT_CONFIRM={
+  disc:0.55,                 // a confirmation is not a party marker: whipped softer than a bill
+  // WHERE A MEMBER SITS, which is most of a confirmation. A governing caucus
+  // confirms the government's people; a coalition partner confirms them too,
+  // at rather less than your own bench, because the agreement says so; the
+  // centre treats it as routine business; the opposition is against it for
+  // the same reason you are for it.
+  own:4.6, ally:3.2, centre:1.0, opp:-0.7,
+  group:4, foe:-3.5,         // and the interest group, lobbying at the margin
+  // Under PR that same figure lands on all hundred seats at once, in the same
+  // direction, with no district variation anywhere to absorb it. Damped to
+  // what it is actually worth in a chamber that has districts.
+  prGroup:0.42,
+  cross:3, betray:-3,
+  pop:1.1, loyalty:0.7, trait:0.6, crossOwn:-1.6, crossOpp:2.0, base:2 };
 function apptEffFor(id){
   const h=apptHolder(id);
   if(!h)return APPT_VACANT_EFF;
@@ -5030,15 +5107,29 @@ function apptEffFor(id){
 }
 /* How hard policy aimed at one statistic actually lands, given who runs the
    department that delivers it. */
+/* Which body a chair belongs to. A post with no bench is its own. */
+function apptBenchOf(id){ return APPT_POSTS[id].bench||id; }
+function apptBenchSeats(bench){
+  const out=[]; for(const id in APPT_POSTS)if(apptBenchOf(id)===bench)out.push(id);
+  return out;
+}
+/* A COMMISSION DECIDES AS A BODY. Three commissioners do not deliver three
+   times what one does — they argue, and the average of them is what comes out
+   the other end. So a bench contributes the mean of its members, which is
+   also what makes composing one a real choice: one reformer among three
+   caretakers moves the body by a third of a reformer. */
+function apptBenchEff(ids){ let v=0; for(const id of ids)v+=apptEffFor(id); return v/ids.length; }
 function apptMetricMult(k){
-  let m=1;
-  for(const id in APPT_POSTS)if(APPT_POSTS[id].metrics.includes(k))m+=apptEffFor(id);
+  let m=1; const benches={};
+  for(const id in APPT_POSTS)if(APPT_POSTS[id].metrics.includes(k))
+    (benches[apptBenchOf(id)]=benches[apptBenchOf(id)]||[]).push(id);
+  for(const b in benches)m+=apptBenchEff(benches[b]);
   return clamp(m,0.75,1.25);
 }
 /* The same, for an agency's own budget line. */
 function apptAgencyMult(agencyId){
-  for(const id in APPT_POSTS)if(APPT_POSTS[id].agency===agencyId)return clamp(1+apptEffFor(id),0.75,1.25);
-  return 1;
+  const ids=[]; for(const id in APPT_POSTS)if(APPT_POSTS[id].agency===agencyId)ids.push(id);
+  return ids.length ? clamp(1+apptBenchEff(ids),0.75,1.25) : 1;
 }
 function apptOverheadRaw(){
   let v=0;
@@ -5056,9 +5147,10 @@ function apptCapitalRaw(){
   }
   return v;
 }
-/* MEASURED FROM WHAT YOU INHERITED. The eleven holdovers are the status quo
-   the whole model is calibrated against, so they are worth nothing either way
-   until you change one. Everything below is the difference you have made. */
+/* MEASURED FROM THE DAY YOU ARRIVED. The people already in the chairs are the
+   status quo the whole model is calibrated against, so they are worth nothing
+   either way until you change one. Everything below is the difference you
+   have made. */
 function apptOverhead(){ return +(apptOverheadRaw()-((GAME.apptBase&&GAME.apptBase.overhead)||0)).toFixed(2); }
 function apptCapital(){ return +(apptCapitalRaw()-((GAME.apptBase&&GAME.apptBase.capital)||0)).toFixed(2); }
 /* THE STANDING APPROVAL OF A CHAIR. The group an appointee came from is
@@ -5085,6 +5177,12 @@ function apptMoodRows(sid){
 function apptBaseBlocs(){ return GAME.startId==="conservative" ? ["conservative","rural","timber","libertarian"] : ["liberal","socialist","urban","publicUnions"]; }
 function apptMood(sid){ let v=0; for(const r of apptMoodRows(sid))v+=r.v; return v; }
 /* ---- filling a chair ---- */
+function apptNameTaken(nm){
+  for(const id in (GAME.appointments||{}))if(GAME.appointments[id].name===nm)return true;
+  for(const id in (GAME.apptVacancies||{}))
+    for(const c of (GAME.apptVacancies[id].slate||[]))if(c.name===nm)return true;
+  return false;
+}
 function apptMakeCandidate(postId, side){
   const post=APPT_POSTS[postId];
   const traits=Object.keys(APPT_TRAITS);
@@ -5092,7 +5190,8 @@ function apptMakeCandidate(postId, side){
   const group=post.pool[Math.floor(Math.random()*post.pool.length)];
   let foe=post.foes[Math.floor(Math.random()*post.foes.length)];
   if(foe===group)foe=post.foes.find(f=>f!==group)||null;
-  return {name:apptName(), trait, group, foe, side:side||"yours",
+  let nm=apptName(); for(let i=0;i<12&&apptNameTaken(nm);i++)nm=apptName();
+  return {name:nm, trait, group, foe, side:side||"yours",
           loyalty:+(side==="opposition"?0.15+Math.random()*0.3:(trait==="loyalist"?0.75+Math.random()*0.25:0.35+Math.random()*0.4)).toFixed(2)};
 }
 /* Three names for an empty chair: two of your own, and one from the other
@@ -5106,11 +5205,13 @@ function apptSlate(postId){
    group that fought them is who loses, and the chamber votes on that. */
 function apptPseudoBill(postId, cand){
   const be={}, K=APPT_CONFIRM;
-  if(cand.group)be[cand.group]=(be[cand.group]||0)+K.group;
-  if(cand.foe)be[cand.foe]=(be[cand.foe]||0)+K.foe;
+  // one statewide roll means one undiluted push, a hundred times over
+  const g=prOn()?K.prGroup:1;
+  if(cand.group)be[cand.group]=(be[cand.group]||0)+K.group*g;
+  if(cand.foe)be[cand.foe]=(be[cand.foe]||0)+K.foe*g;
   if(cand.side==="opposition"){
-    be.moderate=(be.moderate||0)+K.cross;
-    for(const b of apptBaseBlocs())be[b]=(be[b]||0)+K.betray;
+    be.moderate=(be.moderate||0)+K.cross*g;
+    for(const b of apptBaseBlocs())be[b]=(be[b]||0)+K.betray*g;
   }
   return {name:"Confirmation: "+cand.name, blocEffect:be, ideology:{}, _super:false, niche:true, _appt:true};
 }
@@ -5135,13 +5236,23 @@ function apptWhip(postId, cand, cushion){
   const standing=pop*K.pop + (cand.loyalty-0.5)*K.loyalty + (trait.confirm||0)*K.trait;
   // An appointee from the other party inverts the room: their caucus is being
   // handed a department and yours is being asked to watch it happen.
-  ctx.ease=(mine)=> (cand.side==="opposition" ? (mine?K.crossOwn:K.crossOpp) : 0) + (mine?standing:standing*0.45);
+  ctx.ease=(mine,m)=>{
+    const ally=!!(m&&m.ally), ctr=!!(m&&m.ctr);
+    const bench = mine?K.own : ally?K.ally : ctr?K.centre : K.opp;
+    const cross = cand.side==="opposition"
+      ? (mine?K.crossOwn : ally?K.crossOwn*0.5 : ctr?0 : K.crossOpp) : 0;
+    return bench + cross + ((mine||ally)?standing:standing*0.45);
+  };
   const chamber=prOn()?"house":"senate";
   const C=chamberWhip(chamber,pol,"enact",ctx,cushion||0);
   const empty={chamber:chamber==="senate"?"house":"senate", members:[], total:0, need:0, yes:0, firm:0, expect:0, short:0, buy:[], cost:0, possible:true, unbuyable:0};
   const w={house:chamber==="house"?C:empty, senate:chamber==="senate"?C:empty, narrowed:1, cushion:cushion||0,
            needsSuper:false, base:Math.round(BILL_FLOOR_COST*oppositionCapitalMult()*APPT_CONFIRM.base)};
-  w.cost=C.cost+w.base;
+  // SENDING A NAME UP IS FREE. A governor spends capital on a fight, not on
+  // the act of nominating: if the chamber carries the name as it stands and
+  // you are buying nobody, a confirmation hearing costs you nothing at all.
+  // Everything below is what the argument costs.
+  w.cost=(C.buy.length||(cushion||0)) ? C.cost+w.base : 0;
   w.possible=C.possible&&w.cost<=CAPITAL_MAX;
   w.chamberName=chamber==="house"?(prOn()?"the Assembly":"the House"):"the Senate";
   w.odds=votePassOdds(w);
@@ -5218,21 +5329,23 @@ function tickAppointments(){
     }
   }
 }
-/* THE PEOPLE YOU INHERIT. Every chair is filled on the day you take office by
-   somebody the last governor put there: caretakers and insiders, on terms that
-   run out at staggered points across your first term and into your second. */
-function apptSeedHoldovers(){
+/* THE PEOPLE ALREADY DOING THESE JOBS. Every chair has somebody in it on the
+   day you take office — mostly caretakers and agency insiders, which is what
+   these jobs attract when nobody is paying attention to them, on terms that
+   run out at staggered points across your first term and into your second.
+   Their loyalty to you is low because they have never met you. */
+function apptSeedSittingMembers(){
   GAME.appointments={}; GAME.apptVacancies={};
   const ids=Object.keys(APPT_POSTS);
   ids.forEach((id,i)=>{
     const c=apptMakeCandidate(id,"yours");
-    // a holdover is somebody else's appointee: rarely a reformer, never yours
+    // rarely a reformer: nobody put these people here to change anything
     c.trait = Math.random()<0.55 ? "caretaker" : (Math.random()<0.7 ? "insider" : "reformer");
     c.loyalty=+(0.1+Math.random()*0.25).toFixed(2);
-    GAME.appointments[id]={name:c.name, trait:c.trait, group:c.group, foe:c.foe, side:"holdover",
+    GAME.appointments[id]={name:c.name, trait:c.trait, group:c.group, foe:c.foe, side:"sitting",
       loyalty:c.loyalty, since:0, term:3+Math.floor(Math.random()*16)+ (i%3)};
   });
-  // the inherited slate is the zero point for overhead and capital
+  // the chairs as you found them are the zero point for overhead and capital
   GAME.apptBase={overhead:apptOverheadRaw(), capital:apptCapitalRaw()};
 }
 const SIMULANTS={
@@ -12055,6 +12168,16 @@ function showQuarterReport(){
           +coalitionBriefHTML();
       }
       return `<div class="rrow"><span class="rlabel">Legislature</span><span class="rval">Senate ${L.senate}/${LEGIS.senate} · House ${L.house}/${LEGIS.house} ${capTag}</span></div>`; })()}</div>`;
+  // EMPTY CHAIRS, ON THE PAGE YOU ACTUALLY READ. A vacancy is a standing
+  // drag, and one that is easy to forget about when it lives somewhere else.
+  const _vac=Object.keys(APPT_POSTS).filter(id=>apptVacant(id));
+  const apptBlock=_vac.length?`<div class="rsection"><div class="rsec-h">${ico('people')} Appointments</div>`
+    +_vac.map(id=>{ const v=(GAME.apptVacancies||{})[id], open=v?Math.max(0,GAME.turn-(v.opened||0)):0;
+      const due=Math.max(0,APPT_ACTING_AFTER-open);
+      return `<div class="rrow"><span class="rlabel" style="color:var(--gold)">${ico(APPT_POSTS[id].icon)} ${apptPostLabel(id)}</span>`
+        +`<span class="rval" style="color:var(--gold)">vacant ${open}q${due?` \u00b7 a deputy takes over in ${due}`:``}</span></div>`;
+    }).join("")
+    +`<div class="rforecast">An empty chair costs you ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter and softens everything that department delivers. Nominations are on the Appointments page.</div></div>`:"";
   const events=(GAME.log||[]).slice(-6).filter(l=>/began|RESOLVED|Midterms|kicker|Kicker|Reserves|Promise|Scandal|boom|Windfall|Federal|Deficit|debt|Austerity/i.test(l));
   const eventBlock=events.length?`<div class="rsection"><div class="rsec-h">${ico('doc')} This Quarter</div>${events.map(e=>`<div class="revent">${e}</div>`).join("")}</div>`:"";
   const cyc=GAME.econCycle;
@@ -12093,6 +12216,7 @@ function showQuarterReport(){
   const body=`<div class="rgrid">${rows}</div>
     ${climateBlock}
     <div class="rcols">${budgetBlock}${forecastBlock}</div>
+    ${apptBlock}
     ${eventBlock}
     ${emergBlock}`;
   GAME.lastReportBody=body;
@@ -14061,6 +14185,10 @@ function prChamberHTML(){
    signature; met() is the question they ask afterwards. */
 const PR_DEMANDS={
   left:[
+    {id:"post", label:APPT_PARTY_POST.left.label,
+     why:APPT_PARTY_POST.left.why,
+     snap:()=>1,
+     met:()=>{ const h=apptHolder(APPT_PARTY_POST.left.post); return !!(h&&h.party==="left"); }},
     {id:"corpTax", label:"The corporate tax stays where we found it",
      why:"The Corporate Activity Tax funds the schools. It is the whole reason we exist.",
      snap:()=>POLICIES.corpTax?policyLevel(POLICIES.corpTax):0,
@@ -14075,6 +14203,10 @@ const PR_DEMANDS={
      met:v=>METRICS.environment.value>=v-2.5},
   ],
   dem:[
+    {id:"post", label:APPT_PARTY_POST.dem.label,
+     why:APPT_PARTY_POST.dem.why,
+     snap:()=>1,
+     met:()=>{ const h=apptHolder(APPT_PARTY_POST.dem.post); return !!(h&&h.party==="dem"); }},
     {id:"schools", label:"Not one dollar off the State School Fund",
      why:"It is the largest thing the state does and the first thing a shortfall reaches.",
      snap:()=>POLICIES.stateSchoolFund?policyLevel(POLICIES.stateSchoolFund):1,
@@ -14089,6 +14221,10 @@ const PR_DEMANDS={
      met:v=>METRICS.taxBurden.value>=v-4},
   ],
   centre:[
+    {id:"post", label:APPT_PARTY_POST.centre.label,
+     why:APPT_PARTY_POST.centre.why,
+     snap:()=>1,
+     met:()=>{ const h=apptHolder(APPT_PARTY_POST.centre.post); return !!(h&&h.party==="centre"); }},
     {id:"balance", label:"Balance the budget and keep it balanced",
      why:"We were elected by people who think both of you are unserious about money.",
      snap:()=>0,
@@ -14103,6 +14239,10 @@ const PR_DEMANDS={
      met:v=>INDICATORS.businessClimate.value>=v-6},
   ],
   gop:[
+    {id:"post", label:APPT_PARTY_POST.gop.label,
+     why:APPT_PARTY_POST.gop.why,
+     snap:()=>1,
+     met:()=>{ const h=apptHolder(APPT_PARTY_POST.gop.post); return !!(h&&h.party==="gop"); }},
     {id:"taxCap", label:"The tax burden goes no higher than it is today",
      why:"Not one point. We will be watching the number, not the speech.",
      snap:()=>METRICS.taxBurden.value,
@@ -14117,6 +14257,10 @@ const PR_DEMANDS={
      met:v=>((AGENCIES.corrections?AGENCIES.corrections.funding:0.5)+(AGENCIES.judiciary?AGENCIES.judiciary.funding:0.5))>=v-0.04},
   ],
   right:[
+    {id:"post", label:APPT_PARTY_POST.right.label,
+     why:APPT_PARTY_POST.right.why,
+     snap:()=>1,
+     met:()=>{ const h=apptHolder(APPT_PARTY_POST.right.post); return !!(h&&h.party==="right"); }},
     {id:"cutTax", label:"The tax burden comes DOWN, not sideways",
      why:"We did not join a government to hold the line. Hold it and we leave.",
      snap:()=>METRICS.taxBurden.value,
@@ -14175,6 +14319,7 @@ function formCoalition(partners){
   }
   const mood={}; for(const pid of partners)mood[pid]=68;
   GAME.coalition={partners:partners.slice(), snap, mood, formedTurn:GAME.turn, walked:[]};
+  apptInstallPartners(partners);   // the departments the agreement promised
   GAME.pendingCoalition=null;
   if(partners.length)
     GAME.log.push(ico('handshake')+" Government formed with "
@@ -14207,6 +14352,7 @@ function tickCoalition(){
     const before=coalitionSeats(false);
     C.partners=C.partners.filter(p=>p!==pid);
     C.walked=C.walked||[]; C.walked.push(pid);
+    apptPartnerWalked(pid);          // their person goes with them
     delete C.mood[pid];
     createGrudge("capital",-4);
     GAME.log.push(ico('ban')+" "+prParty(pid).name+" has left the government — "
@@ -14766,13 +14912,22 @@ function floorMembers(chamber, pol, dir, ctx){
   const rows=legCompRows(chamber);
   const held=chamber==="senate"?ctx.sHeld:ctx.hHeld;
   const out=[];
-  const spl=GAME.splinter ? new Set((chamber==="senate"?GAME.splinter.senate:GAME.splinter.house)||[]) : null;
+  // THE SPLINTER RECORD IS NOT FOR THIS CHAMBER. Under PR it marks your
+  // flank party, which exists so the standing tiers keep working — but a PR
+  // flank is a party with its own bench, not a breakaway hiding inside
+  // somebody's caucus, and it votes like one: against you when it is out of
+  // the government, with you when it has signed to be in it.
+  const spl=(GAME.splinter && !prOn())
+    ? new Set((chamber==="senate"?GAME.splinter.senate:GAME.splinter.house)||[]) : null;
   for(const row of rows){
     // the seat's own lean decides its elections; memberLean is who it sent
     const id=row[0], comp=row[1], lean=memberLean(row[3]);
     const verdict=billVerdict(comp,lean,pol,dir);
     const support=districtSupport(row,ctx.sf,ctx.align);
-    if(spl && spl.has(id)){
+    // A member sitting in your coalition cannot also be a defector from it.
+    // Whatever they broke away from, the agreement is what settles how they
+    // vote, so a partner is read as a partner first.
+    if(spl && spl.has(id) && !(ctx.prAllies && ctx.prAllies.has(id))){
       // a flank defector: owes nothing to you or to the mainstream opposition,
       // votes the bill's ideological direction against their flank, unbuyable
       const io=pol.ideology||{};
@@ -14823,8 +14978,12 @@ function floorMembers(chamber, pol, dir, ctx){
     // list from another on a bill with no ideological charge, and it is what
     // the whip is counting when it counts the centre.
     const deal=(GAME.legis&&GAME.legis.prDeal)?(GAME.legis.prDeal[id-1]||0):0;
+    // ctx.ease is told WHICH bench, not merely whether it is yours. A bill
+    // does not care — routine is routine on both sides — but a confirmation
+    // is decided almost entirely by where a member sits, and a coalition
+    // partner is neither your caucus nor the opposition.
     const incl=verdict+loyal-owed*3.2+deal
-      +(ctx.ease?ctx.ease(mine):0)
+      +(ctx.ease?ctx.ease(mine,{ally,ctr,id}):0)
       +(ctx.supportW||0)*(support-50)*(mine?1:0.35);
     const marginal=1-clamp(Math.abs(support-50)/22,0,1);       // 1 = knife-edge
     const resist=Math.max(0.4,VOTE_PROMISE-incl)*(0.55+0.95*marginal)*0.42;
@@ -15232,6 +15391,83 @@ function whipChamberHTML(w, pol, dir){
     }).join(", ")}</div>`:``}
     ${(!w.possible)?`<div class="whip-dead">There are not enough members who could vote for this and survive. It cannot pass this chamber at any price.</div>`:``}
   </div>`;
+}
+/* THE CONFIRMATION FLOOR. The bill screen, minus everything a nomination
+   does not have: there is no strength dial on a person, no three-fifths
+   threshold, and no second chamber. What is left is the count, the room, and
+   how big a margin you want to pay for. */
+function showApptFloor(postId, idx){
+  const slate=apptSlate(postId), cand=slate&&slate[idx];
+  if(!cand)return;
+  if(floorFrozen()){ showFloorShut("the nomination of "+cand.name); return; }
+  GAME.pendingAppt={postId, idx, cushion:0};
+  drawApptFloor();
+}
+function drawApptFloor(){
+  const A=GAME.pendingAppt; if(!A)return;
+  const slate=apptSlate(A.postId), cand=slate&&slate[A.idx];
+  if(!cand){ GAME.pendingAppt=null; return; }
+  const post=APPT_POSTS[A.postId];
+  const card=document.getElementById("floorCard"), modal=document.getElementById("floorModal");
+  const w=apptWhip(A.postId,cand,A.cushion||0);
+  const pol=apptPseudoBill(A.postId,cand);
+  const afford=GAME.capital>=w.cost||!!window.SANDBOX;
+  const raw=Math.round(w.rawOdds*100), odds=Math.round(w.odds*100);
+  const oddsWord=w.odds>=0.95?"near-certain":w.odds>=0.8?"likely":w.odds>=0.55?"probable":w.odds>=0.4?"a coin flip":w.odds>=0.15?"an outside chance":"almost hopeless";
+  const trait=APPT_TRAITS[cand.trait]||APPT_TRAITS.caretaker;
+  const g=SIMULANTS[cand.group], f=cand.foe?SIMULANTS[cand.foe]:null;
+  const cush=[0,2,4,6].map(cv=>{
+    const q=apptWhip(A.postId,cand,cv);
+    const on=cv===(A.cushion||0);
+    return `<button class="conc ${on?'on':''}${(GAME.capital>=q.cost&&q.possible)?'':' broke'}" data-acush="${cv}">
+      <span class="conc-l">${cv===0?"Send it as it stands":"+"+cv+" spare votes"}</span>
+      <span class="conc-c">${q.cost?"\u25c8"+q.cost:"free"} \u00b7 ${Math.round(q.odds*100)}%</span></button>`;
+  }).join("");
+  card.innerHTML=`<div class="sectionhdr">${ico(post.icon)} Confirmation \u2014 ${cand.name}</div>
+    <div class="sectionsub">${apptPostLabel(A.postId)}. ${prOn()
+      ? `Under proportional representation there is no Senate: the <b>Assembly</b> confirms, and a government that cannot carry its own nominee is being told something about its coalition.`
+      : `The <b>Senate</b> confirms, alone \u2014 the House has no part in it.`}
+      A confirmation is not a bill. Members vote it on where they sit far more than on who the nominee is: your own bench confirms the government's people, a coalition partner confirms them because the government is theirs too, and the other side is against for the same reason you are for. The interest group the nominee came from moves it at the margin.</div>
+    <div class="ebgroup" style="margin-bottom:10px"><div class="rrow"><span class="rlabel">
+      <b>${cand.name}</b> ${apptTraitChip(cand.trait)} ${cand.side==="opposition"?`<span class="pill" style="background:var(--clay);color:var(--paper)">from the other party</span>`:""}
+      <div class="fnote" style="margin-top:3px">${trait.blurb||""}</div>
+      <div class="fnote" style="margin-top:4px">${apptEffectLine(A.postId,cand.trait)}</div>
+      <div class="fnote" style="margin-top:4px">${g?g.name+" gain":""}${f?", "+f.name+" lose":""} for as long as they hold the post</div>
+      </span><span class="rval"></span></div></div>
+    <div class="odds-box ${w.odds>=0.8?'good':w.odds>=0.5?'mid':'bad'}">
+      <span class="odds-n">${odds}%</span>
+      <span class="odds-t">to be confirmed \u2014 <b>${oddsWord}</b>.${raw!==odds?` Sent up as it stands, with nobody whipped, it is <b>${raw}%</b>.`:``} A confirmation vote wobbles the same way any other does: members are absent, members reconsider, and a member you whipped is committed rather than owned.</span>
+    </div>
+    <div class="whip-cost">
+      <span>${w.floor.buy.length?"Whipping "+w.floor.buy.length+" vote"+(w.floor.buy.length===1?"":"s")+" plus floor time":"The chamber carries it \u2014 sending a name up costs nothing"}</span>
+      <span class="wc-num ${afford?'':'broke'}">${w.cost?`\u25c8 ${w.cost}`:"free"} <span class="wc-have">of \u25c8 ${GAME.capital}</span></span></div>
+    <div style="display:flex;gap:10px;margin:6px 0 4px;flex-wrap:wrap">
+      <button class="enactbtn" id="apptGo" ${((w.possible||window.SANDBOX)&&afford)?'':'disabled'}>${
+        !w.possible?"There are not the votes, at any price"
+        :!afford?"Not enough capital"
+        :"Send the name up"+(w.floor.buy.length?", whipping "+w.floor.buy.length:"")}</button>
+      <button class="enactbtn ghost" id="apptNo">Not this one</button>
+    </div>
+    <div class="floor-roll">${ico('columns')} The count, seat by seat</div>
+    ${whipChamberHTML(w.floor,pol,"enact")}
+    <div class="whip-legend"><span><i class="wp y own"></i>your members, yes</span><span><i class="wp y cross"></i>crossover yes</span><span><i class="wp buy"></i>whipped</span><span><i class="wp n"></i>no</span><span><i class="wp n hard"></i>not for sale</span></div>
+    <div class="conc-h" style="margin-top:14px">${ico('shield')} How big a margin \u2014 spare votes are insurance, not waste</div>
+    <div class="conc-row">${cush}</div>`;
+  modal.classList.remove("hidden");
+  card.querySelectorAll('[data-acush]').forEach(el=>el.addEventListener('click',()=>{
+    GAME.pendingAppt.cushion=+el.dataset.acush; drawApptFloor(); }));
+  const close=()=>{ modal.classList.add("hidden"); GAME.pendingAppt=null;
+    document.removeEventListener("keydown",onKey,true); };
+  const onKey=e=>{ if(modal.classList.contains("hidden"))return;
+    if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); render(); } };
+  document.getElementById("apptNo").onclick=()=>{ close(); render(); };
+  const go=document.getElementById("apptGo");
+  if(go)go.onclick=()=>{
+    const {postId,idx,cushion}=GAME.pendingAppt;
+    close();
+    apptNominate(postId,idx,cushion||0);
+  };
+  document.addEventListener("keydown",onKey,true);
 }
 /* The floor screen: the whip count, what concessions would buy, and the bill. */
 function showFloor(id, dir){
@@ -20678,7 +20914,16 @@ function renderAppointments(){
   h+= cab
     ? ` You passed Cabinet Government: directors serve at your pleasure and you can replace any of them.`
     : ` Commissioners hold fixed terms. Until you pass <b>Cabinet Government</b> you cannot remove one — you wait for the term to end.`;
-  h+=` Nominees are confirmed by ${prOn()?"the Assembly":"the Senate"}.</div>`;
+  h+=` Nominees are confirmed by ${prOn()?"the Assembly":"the Senate"}, on the floor, like anything else \u2014 and a name the chamber already carries costs you nothing to send up.`;
+  h+=` The Public Utility Commission is three commissioners rather than one, drawn from three different worlds, and it decides as a body: what the commission does to rates is the <b>average</b> of the people on it, so one reformer among three caretakers moves it by a third of a reformer.`;
+  // what the chamber you actually have means for what you can appoint
+  if(prOn()&&coalitionPartners().length){
+    const deals=coalitionPartners().filter(p=>APPT_PARTY_POST[p]).map(p=>prParty(p).short+" holds "+APPT_POSTS[APPT_PARTY_POST[p].post].name);
+    if(deals.length)h+=` <b>Your coalition agreement gave departments away:</b> ${deals.join("; ")}. Take one back and the commitment is broken from that quarter on.`;
+  } else if(!prOn() && (GAME.legis.senate||0)<LEGIS.majS){
+    h+=` <b>You do not hold the Senate.</b> Your own nominees need votes from across the aisle — expect to whip for them, or to hand a chair to somebody the other side will confirm without an argument.`;
+  }
+  h+=`</div>`;
   const vac=Object.keys(APPT_POSTS).filter(id=>apptVacant(id)).length;
   h+=`<div class="detailrow"><span class="pill">${ico('doc')} ${Object.keys(APPT_POSTS).length-vac} of ${Object.keys(APPT_POSTS).length} chairs filled</span>`;
   h+=`<span class="pill">${ico('scales')} Appointees are worth <b>${apptCapital()>=0?"+":""}${apptCapital().toFixed(1)}</b> capital a quarter</span>`;
@@ -20688,17 +20933,16 @@ function renderAppointments(){
     h+=`<div class="ebgroup" style="margin-bottom:10px">`;
     if(holder){
       const left=Math.max(0,(holder.term||0)-GAME.turn);
-      const sideChip = holder.side==="holdover" ? `<span class="pill">inherited</span>`
-        : holder.side==="opposition" ? `<span class="pill" style="background:var(--clay);color:var(--paper)">from the other party</span>` : "";
+      const sideChip = holder.side==="opposition" ? `<span class="pill" style="background:var(--clay);color:var(--paper)">from the other party</span>` : "";
       const canRm=apptCanRemove(id), rmCost=cab?3:6;
-      h+=`<div class="rrow"><span class="rlabel"><b>${ico(post.icon)} ${post.name}</b> ${sideChip}
+      h+=`<div class="rrow"><span class="rlabel"><b>${ico(post.icon)} ${apptPostLabel(id)}</b> ${sideChip}
         <div class="fnote" style="margin-top:3px"><b>${holder.name}</b> ${apptTraitChip(holder.trait)} &middot; ${(APPT_TRAITS[holder.trait]||{}).blurb||""}</div>
         <div class="fnote" style="margin-top:4px">${apptEffectLine(id,holder.trait)}</div>
         <div class="fnote" style="margin-top:4px">${apptGroupLine(holder)}</div>
         <div class="fnote" style="margin-top:4px;opacity:.85">${post.body==="commission"?post.seat:"Serves at the governor's pleasure"} &middot; term ends in ${left} quarter${left===1?"":"s"}</div>
         </span><span class="rval">${canRm?`<button class="fcard-btn" data-apptrm="${id}" ${(GAME.capital>=rmCost||window.SANDBOX)?"":"disabled"}>\u25c8${rmCost} Replace</button>`:`<span class="fnote">fixed term</span>`}</span></div>`;
     } else {
-      h+=`<div class="rrow"><span class="rlabel"><b>${ico(post.icon)} ${post.name}</b> <span class="pill" style="background:var(--gold);color:var(--ink)">vacant</span>
+      h+=`<div class="rrow"><span class="rlabel"><b>${ico(post.icon)} ${apptPostLabel(id)}</b> <span class="pill" style="background:var(--gold);color:var(--ink)">vacant</span>
         <div class="fnote" style="margin-top:3px">An acting director is running it: everything the department delivers lands ${Math.abs(Math.round(APPT_VACANT_EFF*100))}% softer, overhead is up ${APPT_VACANT_OVERHEAD.toFixed(1)}, and it costs you ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter until you fill it.</div>
         </span><span class="rval"></span></div>`;
       const slate=apptSlate(id);
@@ -20714,8 +20958,8 @@ function renderAppointments(){
           <div class="fnote" style="margin-top:4px">${apptEffectLine(id,c.trait)}</div>
           <div class="fnote" style="margin-top:4px">${g?g.name+" gain":""}${f?", "+f.name+" lose":""} while they serve</div>
           <div class="fnote" style="margin-top:4px">${w.chamberName.replace("the ","").replace(/^./,x=>x.toUpperCase())}: <b>${w.floor.expect.toFixed(0)}</b> of ${w.floor.total} expected, needs ${w.floor.need}
-            &middot; <b style="color:${col}">${raw}%</b> as it stands${w.floor.short?` &middot; ${w.floor.short} vote${w.floor.short===1?"":"s"} to whip and it is safe`:" — it carries"}</div>
-          </span><span class="rval"><button class="fcard-btn" data-apptnom="${id}:${i}" ${afford?"":"disabled"}>\u25c8${w.cost} Nominate</button></span></div>`;
+            &middot; <b style="color:${col}">${raw}%</b> as it stands${w.floor.short?` &middot; ${w.floor.short} vote${w.floor.short===1?"":"s"} to whip and it is safe`:" — it carries, and costs you nothing"}</div>
+          </span><span class="rval"><button class="fcard-btn" data-apptnom="${id}:${i}" ${afford?"":"disabled"}>${w.cost?`\u25c8${w.cost} `:``}Nominate</button></span></div>`;
       });
     }
     h+=`</div>`;
@@ -20723,7 +20967,7 @@ function renderAppointments(){
   main.innerHTML=h;
   main.querySelectorAll('[data-apptnom]').forEach(el=>el.addEventListener('click',e=>{
     const [pid,idx]=e.currentTarget.dataset.apptnom.split(":");
-    apptNominate(pid,+idx,0);
+    showApptFloor(pid,+idx);        // the room, before the name goes up
   }));
   main.querySelectorAll('[data-apptrm]').forEach(el=>el.addEventListener('click',e=>{
     apptRemove(e.currentTarget.dataset.apptrm);
@@ -21833,6 +22077,7 @@ function bootWorld(startId){
   GAME.srsActive=true; GAME.srsRolled=-1; GAME.srsYears=0; GAME.capCarry=0; GAME.pendingAusterity=null; GAME.lastAusterity=-99;
   GAME.emergencyRevenue=0;
   GAME.oppBillsSigned=0; GAME.oppBillsVetoed=0; GAME.oppBillsOverridden=0;
+  GAME.pendingAppt=null;
   GAME.floorFreeze=0; GAME.walkoutSide=null; GAME.walkoutCooldownUntil=0; GAME.walkoutIgnoredUntil=0; GAME.protestIgnoredUntil=0; GAME.splinter=null;
   // LEGIS is one mutable object, so a run that passed proportional
   // representation would hand the next one a unicameral 100. Put the
@@ -21850,7 +22095,7 @@ function bootWorld(startId){
     if(SITUATIONS[sid].startActive){GAME.activeSituations[sid]=true;GAME.situationAge[sid]=0;}
 
   applyStart(startId);
-  apptSeedHoldovers();     // every chair filled by the last governor's people
+  apptSeedSittingMembers();   // somebody is already sitting in every chair
 
   // build the simulated electorate and pre-roll to equilibrium
   buildVoters();
