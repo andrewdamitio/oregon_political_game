@@ -5185,6 +5185,22 @@ function apptCapital(){ return +(apptCapitalRaw()-((GAME.apptBase&&GAME.apptBase
    their own. An appointee from the other party is read differently again —
    the middle credits the reach across the aisle, your own base does not. */
 const APPT_GROUP_MOOD=3.4, APPT_FOE_MOOD=-2.6, APPT_CROSS_MOOD=2.2, APPT_BASE_BETRAYAL=-2.4;
+/* WHO YOU STAFF THE STATE WITH IS PART OF YOUR RECORD. Between sessions it is
+   most of what an administration does, so a confirmation moves the compass
+   the same way an enacted law does — the same axes, and the same combination
+   of ideology dimensions agendaVector uses, so the two are measured alike.
+   Small on purpose: one appointment is a rounding error on the grid and a
+   government staffed entirely from one direction is plainly visible. */
+const APPT_COMPASS=0.2;
+function apptCompassShift(cand){
+  const S=cand&&cand.group?SIMULANTS[cand.group]:null;
+  const io=(S&&S.ideology)||null; if(!io)return;
+  // economic + govSize + environment describe the state's economic role (X);
+  // social is personal liberty against state authority (Y)
+  const ec=((io.economic||0)+(io.govSize||0)+(io.environment||0))*APPT_COMPASS;
+  const so=(io.social||0)*APPT_COMPASS;
+  shiftCompass(+ec.toFixed(3), +so.toFixed(3));
+}
 function apptMoodRows(sid){
   const rows=[];
   for(const id in APPT_POSTS){
@@ -5313,7 +5329,8 @@ function apptNominate(postId, idx, cushion){
     since:(cand.side==="incumbent"&&cand.since!=null)?cand.since:GAME.turn,
     term:GAME.turn+12+Math.floor(Math.random()*8)};
   delete GAME.apptVacancies[postId];
-  GAME.log.push(ico(post.icon)+" "+cand.name+" confirmed to "+post.name+" ("+(APPT_TRAITS[cand.trait]||{}).label+")");
+  apptCompassShift(cand);          // staffing the state is part of the record
+  GAME.log.push(ico(post.icon)+" "+cand.name+" confirmed to "+apptPostLabel(postId)+" ("+(APPT_TRAITS[cand.trait]||{}).label+")");
   render(); return true;
 }
 /* Only a governor with a cabinet can clear a chair at will. Under the boards
@@ -5956,7 +5973,7 @@ const DILEMMAS={
        apply:()=>{createGrudge("v_rural",-6,0.9,"Wildfire map published");createGrudge("v_timber",-5,0.9,"Wildfire map published");createGrudge("v_homeowners",-3,0.9,"Insurance repricing");createGrudge("m_environment",0.5,0.85,"Risk-informed planning");createGrudge("v_liberal",2,0.9,"Followed the science");createCountyMood(COUNTY_GROUPS.fireCountry,-6,0.9,"Fire-country counties — insurance shock");shiftCompass(-0.3,0);}},
       {label:"Withdraw the map", text:"The map is shelved.",
        apply:()=>{createGrudge("v_rural",3,0.9,"Map withdrawn");createGrudge("v_liberal",-3,0.9,"Caved on wildfire science");createGrudge("m_environment",-0.3,0.9,"Risk data shelved");createCountyMood(COUNTY_GROUPS.fireCountry,2.5,0.9,"Fire-country counties — map shelved");shiftCompass(0.2,0);}}]},
-  elliottForest:{title:"The Elliott State Forest", icon:"tree", cooldown:24,
+  elliottForest:{title:"The Elliott State Forest", icon:"tree", once:true,
     text:"The Elliott — 82,500 acres of Coast Range rainforest in Coos and Douglas counties — has belonged to the Common School Fund since statehood, its timber revenue pledged to K-12. Three decades of endangered-species litigation over the spotted owl, marbled murrelet, and coho salmon have collapsed the cut, and the forest now costs the fund more to hold than it returns. The State Land Board has to decide what the Elliott becomes.",
     influence:()=>GAME.elliottResolved?-1:(0.24 + (GAME.turn>3?0.12:0) + (((GAME.structuralDebt||0)>0)?0.15:0) + (METRICS.education.value<58?0.10:0)),
     options:[
@@ -6123,12 +6140,13 @@ const DILEMMAS={
        apply:()=>{const cty=GAME.dilemmaCtx.county||"Wasco";createGrudge("m_gdp",0.15,0.9,"Data center investment");createGrudge("v_businessClass",4,0.9,"Open for business");createGrudge("v_blueCollar",2,0.9,"Construction jobs");createGrudge("m_environment",-0.5,0.9,"Water & power strain");createGrudge("v_liberal",-3,0.9,"Corporate giveaway");createCountyMood([cty],-6,0.9,cty+" County — water & power draw");shiftCompass(0.8,0);GAME.log.push(ico('monitor')+" Data center approved in "+cty+" County — locals furious over the water draw");}},
       {label:"Reject it", text:"The data center is rejected.",
        apply:()=>{const cty=GAME.dilemmaCtx.county||"Wasco";createGrudge("v_liberal",4,0.9,"Held the line on water");createGrudge("v_socialist",3,0.9,"No corporate subsidy");createGrudge("m_environment",0.3,0.9,"Water & grid protected");createGrudge("v_businessClass",-4,0.9,"Hostile to investment");createGrudge("i_businessClimate",-3,0.9,"Deal rejected");createCountyMood([cty],2,0.9,cty+" County — water draw averted");shiftCompass(-0.4,0);}}]},
-  offshoreWind:{title:"Offshore Wind Leases", icon:"wind",
+  offshoreWind:{title:"Offshore Wind Leases", icon:"wind", once:true,
     text:"The federal Bureau of Ocean Energy Management is offering Oregon offshore wind leases on the Southern Oregon Bight — potential gigawatts of carbon-free power along the most exposed stretch of the Pacific coast. Clean energy advocates and climate groups see a generational opportunity. The Oregon fishing industry — Dungeness crab fishers, trawlers, tribal harvesters — says turbines will snarl gear, block migration corridors, and end livelihoods that go back generations. Environmental groups are split: it's clean energy, but the marine ecosystem costs are real.",
     influence:()=>(METRICS.environment.value<65?0.22:0.06)+(POLICIES.renewablePortfolio&&policyLevel(POLICIES.renewablePortfolio)>0.5?0.15:0)+(GAME.activeSituations.droughtWater?0.10:0),
     options:[
       {label:"Accept the leases", text:"Oregon moves forward with offshore wind development. Clean energy capacity expands; coastal fishing communities face displacement.",
        apply:()=>{
+         GAME.offshoreLeased=true;   // without this there is no array to come online later
          createGrudge("m_environment",1.0,0.9,"Offshore wind approved");
          createGrudge("i_businessClimate",3,0.92,"Major clean energy investment");
          createGrudge("v_liberal",5,0.9,"Climate leadership");
@@ -6261,9 +6279,17 @@ const DILEMMAS={
     icon:"columns",
     text:()=>{
       const left=(GAME.walkoutSide==="left");
-      return left
-        ? "The Democratic caucus is across the river in Vancouver and your floor staff cannot move a single bill. They are not coming back for a list of grievances — they are coming back for a price, and they have circulated it: undo a piece of the rightward turn. Until then there is no quorum, and no quorum means no legislation of any kind, at any price — including the bills they want."
-        : "The Republican caucus is in Idaho and your floor staff cannot move a single bill. They are not coming back for a list of grievances — they are coming back for a price, and they have circulated it. Until then there is no quorum, and no quorum means no legislation of any kind, at any price.";
+      const q=floorFrozen();
+      // THE ALTERNATIVE HAS TO BE ON THE PAGE. The whole decision is whether
+      // a price is worth less to you than a shut floor, and the player could
+      // not weigh that while only one side of it was written down.
+      const clock=` <b>You do not have to pay.</b> A walkout ends on its own: the floor reopens in `
+        +`<b>${q||3} more quarter${(q||3)===1?"":"s"}</b> whatever you do, and until then nothing can be voted on — `
+        +`not their bills, not yours. Take a price and the caucus is back and the floor is open <b>this quarter</b>.`;
+      return (left
+        ? "The Democratic caucus is across the river in Vancouver and your floor staff cannot move a single bill. They are not coming back for a list of grievances — they are coming back for a price, and they have circulated it: undo a piece of the rightward turn."
+        : "The Republican caucus is in Idaho and your floor staff cannot move a single bill. They are not coming back for a list of grievances — they are coming back for a price, and they have circulated it.")
+        + clock;
     },
     influence:()=>walkoutOn()?0.95:0,
     options:[
@@ -6395,7 +6421,7 @@ const DILEMMAS={
            +" watch you refuse to be held up. When the caucus finally comes home they come home with nothing, and everyone knows it.";
        },
        apply:()=>{
-         GAME.floorFreeze=Math.max(GAME.floorFreeze||0,2);
+         GAME.floorFreeze=Math.max(GAME.floorFreeze||0,3);
          const left=(GAME.walkoutSide==="left");
          // standing firm is the thing your own coalition most wants to see
          const mine = left ? ["conservative","businessClass","rural","libertarian","timber"]
@@ -6461,48 +6487,6 @@ const DILEMMAS={
          createGrudge("v_conservative",-2,0.88,"A commission is not an answer");
          createCountyMood(COUNTY_GROUPS.greaterIdaho,3,0.86,"Eastern counties — a commission, at least");
          GAME.log.push(ico('doc')+" Stood up a state–county commission — ◈ 4, and the story moves on");
-       }},
-    ]},
-  protestResponse:{title:"Portland in the Streets", icon:"muscle",
-    text:"For six straight weekends downtown Portland has belonged to the marchers — Pioneer Courthouse Square to City Hall and back, a standing camp in Waterfront Park, Broadway closed on Saturdays. The grievance is specific and it is your record: the rules you've rolled back, the tax cuts, the harder line on enforcement — your left flank reads the whole rightward turn as a betrayal and wants it reversed. Organizers have permits, a press operation, and your switchboard. You can meet them partway and give ground on the agenda, send Oregon State Police in to clear downtown, or say nothing and let the wave burn itself out.",
-    influence:()=>GAME.activeSituations.leftProtests?0.9:0,
-    options:[
-      {label:"Cut a deal — give ground on the agenda",
-       text:"You hand organizers enough to declare victory: a task force, a rule restored, a line item put back. Most of the rightward drift is conceded and the marches thin out within two weeks. Conservatives and business say you folded to a Portland mob; your base is relieved, if not impressed.",
-       apply:()=>{
-         const V=protestSide();
-         GAME.capital=clamp(GAME.capital-8,0,100);
-         // walking the drift back means moving the baseline TOWARD where you
-         // are, whichever direction you drifted
-         GAME.agendaBaseline+=agendaRightwardShift()*0.6;
-         endSituation("leftProtests");
-         protestGrudges(V.dealUp); protestGrudges(V.dealDown);
-         shiftCompass(V.dealCompass[0],V.dealCompass[1]);
-         GAME.log.push(ico('handshake')+" "+V.dealLog);
-       }},
-      {label:"Send in the State Police",
-       text:"Oregon State Police move into downtown Portland and clear the square and the park within 48 hours. The city reopens and the news cycle turns — but the footage of troopers hauling demonstrators off Broadway does not, and the left will remember which governor sent them. Each time you do this the base comes back angrier.",
-       apply:()=>{
-         const V=protestSide();
-         GAME.capital=clamp(GAME.capital-4,0,100);
-         GAME.protestCrackdowns=(GAME.protestCrackdowns||0)+1;
-         GAME.protestIgnoredUntil=GAME.turn+3;
-         endSituation("leftProtests");
-         GAME.mandateShock=(GAME.mandateShock||0)+3;
-         for(const c of V.forceCynics)
-           if(SIMULANTS[c])SIMULANTS[c].cynicism=(SIMULANTS[c].cynicism||0)+3;
-         protestGrudges(V.forceUp);
-         (V.forceDown||[]).forEach(g=>createGrudge("v_"+g[0], g[1], 0.92, g[2]));
-         (V.forceInds||[]).forEach(g=>createGrudge(g[0], g[1], 0.83, g[2]));
-         shiftCompass(V.forceCompass[0],V.forceCompass[1]);
-         GAME.log.push(ico('shield')+" "+V.forceLog);
-       }},
-      {label:"Say nothing — let it burn out",
-       text:"No deal, no troopers. You keep governing and let the wave lose energy on its own. It keeps costing you capital and keeps downtown Portland tense for weeks, but nobody gets dragged off Broadway on camera, and the left grudgingly notes you didn't send anyone after them.",
-       apply:()=>{
-         const V=protestSide();
-         protestGrudges(V.quietUp); protestGrudges(V.quietDown);
-         GAME.log.push(ico('doc')+" "+V.quietLog);
        }},
     ]},
   pucRateCase:{title:"The PUC Rate Case", icon:"plug", cooldown:10,
@@ -6672,7 +6656,13 @@ function maybeFireDilemma(){
   if(GAME.pendingDilemma)return;
   if(GAME.turn-(GAME.lastDilemmaTurn??-9)<3)return;
   let best=null,bestScore=0;
+  GAME.dilemmaDone=GAME.dilemmaDone||{};
   for(const id in DILEMMAS){
+    // ONCE MEANS ONCE, and it is spent by ASKING, not by answering. A
+    // question the player closed without choosing is still a question that
+    // was put to them; bringing it back because they ignored it is how the
+    // Elliott got decided twice in one administration.
+    if(DILEMMAS[id].once && GAME.dilemmaDone[id])continue;
     if(GAME.dilemmaCooldown[id]!=null&&GAME.turn-GAME.dilemmaCooldown[id]<(DILEMMAS[id].cooldown||16))continue;
     // A DILEMMA THAT DECLARES ITSELF IMPOSSIBLE IS IMPOSSIBLE. influence()
     // returns a negative number to say there is no coalition to issue an
@@ -6702,6 +6692,7 @@ function maybeFireDilemma(){
     let body=""; try{ const t=DILEMMAS[best].text; body=(typeof t==="function")?t():t; }catch(e){ body=""; }
     if(!body||!String(body).trim())return;
     GAME.pendingDilemma=best;
+    if(DILEMMAS[best].once)(GAME.dilemmaDone=GAME.dilemmaDone||{})[best]=GAME.turn;
     GAME.dilemmaCooldown[best]=GAME.turn;
     GAME.lastDilemmaTurn=GAME.turn;
     RUN_HISTORY.note(best);
@@ -7603,7 +7594,7 @@ const SITUATIONS={
     clear:()=>POLICIES.quorumReform || quorumProof() || (GAME.situationAge.gopWalkout||0) >= 2,
     onStart:()=>{
       GAME.walkoutSide="right";                                      // which caucus left, fixed for the duration
-      GAME.floorFreeze=Math.max(GAME.floorFreeze||0, 2);             // the building is shut for two quarters
+      GAME.floorFreeze=Math.max(GAME.floorFreeze||0, 3);             // the building is shut for three quarters
     },
     onEnd:()=>{ GAME.walkoutCooldownUntil=GAME.turn+8; },            // two years before anyone tries it again
     metricEffect:{}, moodMag:3, minTurns:2, onClear:{capital:2},
@@ -7615,7 +7606,7 @@ const SITUATIONS={
     clear:()=>POLICIES.quorumReform || quorumProof() || (GAME.situationAge.demWalkout||0) >= 2,
     onStart:()=>{
       GAME.walkoutSide="left";
-      GAME.floorFreeze=Math.max(GAME.floorFreeze||0, 2);
+      GAME.floorFreeze=Math.max(GAME.floorFreeze||0, 3);
     },
     onEnd:()=>{ GAME.walkoutCooldownUntil=GAME.turn+8; },
     metricEffect:{}, moodMag:3, minTurns:2, onClear:{capital:2},
@@ -8269,9 +8260,10 @@ function _sitAge(sid){ return (GAME.situationAge&&GAME.situationAge[sid])||0; }
 const EVENT_POOL=[
   // the first floating array off Coos Bay — likelier once the clean-power mandate
   // is actually pushing, and once the state has the capacity to permit it
-  {id:"offshoreWind", prob:0.05, gate:()=>GAME.turn>10 && METRICS.electricRate.value>13.6
+  {id:"offshoreWind", prob:0.05, gate:()=>GAME.turn>10 && GAME.offshoreLeased && METRICS.electricRate.value>13.6
      && (POLICIES.renewablePortfolio?POLICIES.renewablePortfolio.tierIndex:0)>=3,
    why:()=>[[ fc("Past the first two and a half years", turnLabel(GAME.turn), GAME.turn>10),
+              fc("You took the federal lease offer", GAME.offshoreLeased?"leases accepted":"never leased", !!GAME.offshoreLeased),
               fc("Electricity above 13.6¢ — the price that makes offshore pencil", METRICS.electricRate.value.toFixed(1)+"¢", METRICS.electricRate.value>13.6, "m_electricRate"),
               fc("Renewable Portfolio Standard at 80% Clean or higher", POLICIES.renewablePortfolio?("tier "+POLICIES.renewablePortfolio.tierIndex):"not enacted", (POLICIES.renewablePortfolio?POLICIES.renewablePortfolio.tierIndex:0)>=3, plink("renewablePortfolio")) ]],
    mult:()=>[{name:"Business Climate "+_sn(INDICATORS.businessClimate.value)+" — developers price the politics too", x:1+clamp((INDICATORS.businessClimate.value-48)/40,0,0.8), link:"i_businessClimate"}]},
@@ -8370,7 +8362,7 @@ const GAME={
   // the real 2025 numbers, which sit exactly on that line in both chambers.
   legis:{senate:18, house:36, favors:{}},   // sHeld / senateClass are filled in at the first legislative election
   senateClass:0, pendingFloor:null,
-  activeSituations:{}, situationAge:{}, eventCooldown:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, lawLock:{}, pendingDilemma:null, dilemmaCooldown:{}, lastDilemmaTurn:-9, lastDilemmaResult:null, dilemmaCtx:{}, compassEvents:{ec:0,so:0}, floorFreeze:0, walkoutSide:null, walkoutCooldownUntil:0, walkoutIgnoredUntil:0, agendaBaseline:0, protestCrackdowns:0, protestIgnoredUntil:0, compassStart:{ec:0,so:0}, serviceDisrupt:0, elliottResolved:false,
+  activeSituations:{}, situationAge:{}, eventCooldown:{}, log:[], prevMetrics:{}, lastBalance:0, gameOver:false, pending:null, pendingLog:null, fading:{}, effSm:{}, grudges:[], enactedAt:{}, lawLock:{}, pendingDilemma:null, dilemmaCooldown:{}, dilemmaDone:{}, lastDilemmaTurn:-9, lastDilemmaResult:null, dilemmaCtx:{}, compassEvents:{ec:0,so:0}, floorFreeze:0, walkoutSide:null, walkoutCooldownUntil:0, walkoutIgnoredUntil:0, agendaBaseline:0, protestCrackdowns:0, protestIgnoredUntil:0, compassStart:{ec:0,so:0}, serviceDisrupt:0, elliottResolved:false,
   // ---- FISCAL MODEL (research: income-tax dependence + kicker + reserves) ----
   rainyDay:1.87,        // Rainy Day Fund ($B) — real 2023-25 end balance
   eduStability:1.0,     // Education Stability Fund ($B)
@@ -8874,14 +8866,15 @@ const PROTEST_SIDES={
   }
 };
 function protestSide(){ return PROTEST_SIDES[GAME.startId==="conservative"?"right":"left"]; }
-/* Copy the side's wording onto the situation and the dilemma. Called from
-   applyStart, so it is settled before anything renders. */
+/* Copy the side's wording onto the protest situation. Called from applyStart,
+   so it is settled before anything renders. (There was a dilemma on top of
+   this that asked the player to pick a response; it duplicated the situation
+   and never fired, and it is gone. The unused label and text fields on
+   PROTEST_SIDES are left in place — they are the writing for whatever
+   replaces it.) */
 function applyProtestSide(){
-  const V=protestSide(), S=SITUATIONS.leftProtests, E=DILEMMAS.protestResponse;
+  const V=protestSide(), S=SITUATIONS.leftProtests;
   if(S){ S.name=V.situation; S.desc=V.sitDesc; S.indicatorEffect=V.indicatorEffect; S.groupMood=V.groupMood; }
-  if(E){ E.title=V.title; E.text=V.text;
-    const lab=[V.dealLabel,V.forceLabel,V.quietLabel], txt=[V.dealText,V.forceText,V.quietText];
-    (E.options||[]).forEach((o,i)=>{ if(lab[i]){o.label=lab[i]; o.text=txt[i];} }); }
 }
 /* Apply a list of [bloc, points, reason] grudges. */
 function protestGrudges(list){ (list||[]).forEach(g=>createGrudge("v_"+g[0], g[1], 0.9, g[2])); }
@@ -22139,7 +22132,7 @@ function bootWorld(startId){
   GAME.agendaBaseline=0; GAME.compassStart={ec:0,so:0}; GAME.compassEvents={ec:0,so:0};
   GAME.mandateShock=0; GAME.changeAppetite=0; GAME.uturnCount=0; GAME.protestCrackdowns=0;
   GAME.floorFail={}; GAME.enactedAt={}; GAME.senateClass=0; GAME.serviceDisrupt=0;
-  GAME.pendingKicker=0; GAME.corpKickerToK12=0; GAME.pendingSurplus=null; GAME.elliottResolved=false; GAME.sportsBook=null;
+  GAME.pendingKicker=0; GAME.corpKickerToK12=0; GAME.pendingSurplus=null; GAME.elliottResolved=false; GAME.sportsBook=null; GAME.dilemmaDone={}; GAME.offshoreLeased=false;
   GAME.legisElections=0;
   // ---- back to the authored data
   for(const k in METRICS){ METRICS[k].value=WORLD_SEED.m[k]; METRICS[k].calib=0; }
