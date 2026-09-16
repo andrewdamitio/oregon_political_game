@@ -5093,10 +5093,39 @@ function apptPostLabel(id){
 }
 /* The body itself, for lines that are about the agency rather than the job. */
 function apptBodyName(id){ return APPT_POSTS[id].name; }
-/* An empty chair is an acting director: the department keeps running and
-   nothing it does lands quite as hard. */
+/* AN EMPTY CHAIR STILL HAS SOMEBODY IN THE BUILDING. A deputy steps up the
+   day it empties, so the department keeps running — but a deputy is not an
+   appointee. Nothing they do lands as hard, no interest group is pleased that
+   they are there, and the seat stays vacant until you confirm somebody,
+   because a department run by a deputy is a department with nobody in charge
+   of it. These three numbers are that cost. */
 const APPT_VACANT_EFF=-0.06, APPT_VACANT_OVERHEAD=0.8, APPT_VACANT_CAPITAL=-0.2;
-const APPT_ACTING_AFTER=4;                 // quarters an empty chair waits before a deputy steps up
+/* PEOPLE LEAVE ON THEIR OWN. Very rarely in a first year, and a little more
+   each quarter they stay: tiredness, a better offer, a spouse with a job in
+   another state. It never becomes likely — the cap is about one chance in
+   eighteen a quarter — but across thirteen chairs and eight years it means a
+   long-serving government is quietly less settled than a new one, and no
+   chair is a clock you can read to the quarter. */
+const APPT_QUIT_BASE=0.004, APPT_QUIT_RAMP=0.0016, APPT_QUIT_CAP=0.055;
+function apptQuitChance(id){
+  const h=apptHolder(id); if(!h)return 0;
+  if(h.side==="partner")return 0;        // they hold it for their party, and leave when the party does
+  const served=Math.max(0, GAME.turn-(h.since||0));
+  // a reformer is burning themselves out; a loyalist is here for you
+  const t=h.trait==="reformer"?1.5 : h.trait==="loyalist"?0.6 : h.trait==="insider"?0.9 : 1;
+  return Math.min(APPT_QUIT_CAP, (APPT_QUIT_BASE + served*APPT_QUIT_RAMP)*t);
+}
+/* Why somebody walked away from a job like this. */
+const APPT_QUIT_REASONS=[
+  "returns to private practice",
+  "resigns citing the commute and a family in Bend",
+  "leaves for a federal appointment",
+  "steps down after a health scare",
+  "resigns to run a foundation in Seattle",
+  "quits, telling a reporter the job was not what was described",
+  "retires, and does not say much about it",
+  "resigns to take a university post"
+];
 /* A REFORMER IS WORSE BEFORE THEY ARE BETTER. Four quarters of tearing the
    place apart, starting below where the department was, and only then the
    gain they were hired for. The page reads these same two numbers, so what a
@@ -5239,8 +5268,20 @@ function apptMakeCandidate(postId, side){
    side who is easier to confirm and costs you with your base. */
 function apptSlate(postId){
   const v=(GAME.apptVacancies=GAME.apptVacancies||{});
-  if(!v[postId])v[postId]={opened:GAME.turn, slate:[apptMakeCandidate(postId,"yours"),apptMakeCandidate(postId,"yours"),apptMakeCandidate(postId,"opposition")]};
+  if(!v[postId])v[postId]={opened:GAME.turn, deputy:apptMakeCandidate(postId,"deputy").name,
+    slate:[apptMakeCandidate(postId,"yours"),apptMakeCandidate(postId,"yours"),apptMakeCandidate(postId,"opposition")]};
+  if(!v[postId].deputy)v[postId].deputy=apptMakeCandidate(postId,"deputy").name;
   return v[postId].slate;
+}
+/* Who is actually keeping the lights on in a vacant department. Naming them
+   creates the vacancy record if nothing has yet, which is what makes every
+   route to an empty chair — a term ending, a resignation, a removal, the
+   cabinet amendment — produce a staffed building without four separate
+   places having to remember to do it. */
+function apptDeputy(postId){
+  if(!apptVacant(postId))return null;
+  apptSlate(postId);
+  return (GAME.apptVacancies[postId]||{}).deputy||null;
 }
 /* A nominee scored like a bill: the group they came from is who gains, the
    group that fought them is who loses, and the chamber votes on that. */
@@ -5335,10 +5376,14 @@ function apptNominate(postId, idx, cushion){
 }
 /* Only a governor with a cabinet can clear a chair at will. Under the boards
    and commissions Oregon actually has, you wait for the term to end. */
-function apptCanRemove(postId){ const h=apptHolder(postId); return !!(h&&h.acting) || !!POLICIES.cabinetGovernment || APPT_POSTS[postId].body==="department"; }
+/* What ending somebody's tenure early costs. Read by apptRemove AND by the
+   button, which used to carry its own copy of the number and went on quoting
+   the old one after the price changed. */
+function apptRemoveCost(){ return POLICIES.cabinetGovernment?2:3; }
+function apptCanRemove(postId){ return !!POLICIES.cabinetGovernment || APPT_POSTS[postId].body==="department"; }
 function apptRemove(postId){
   const h=apptHolder(postId); if(!h||!apptCanRemove(postId))return false;
-  const cost=POLICIES.cabinetGovernment?2:3;   // a removal is a phone call, not a campaign
+  const cost=apptRemoveCost();
   if(!window.SANDBOX && GAME.capital<cost)return false;
   GAME.capital=clamp(GAME.capital-cost,0,CAPITAL_MAX);
   delete GAME.appointments[postId];
@@ -5370,7 +5415,7 @@ function apptCabinetReorg(){
     // the sitting director may be sent straight back up, like any term ending
     // — a partner's person may not, because that chair is theirs to fill
     // again only by forming the government again
-    if(!h.acting && h.side!=="partner")
+    if(h.side!=="partner")
       slate.unshift({name:h.name, trait:h.trait, group:h.group, foe:h.foe,
         side:"incumbent", loyalty:h.loyalty, since:h.since, served:GAME.turn-(h.since||0)});
     GAME.apptVacancies[id].opened=GAME.turn;
@@ -5388,6 +5433,18 @@ function tickAppointments(){
   for(const id in APPT_POSTS){
     const h=GAME.appointments[id];
     if(h){
+      // SOMEBODY SIMPLY LEAVES. Not a term ending and not your doing, so
+      // they are not offered back: they went.
+      if(GAME.turn>(h.since||0) && Math.random()<apptQuitChance(id)){
+        delete GAME.appointments[id];
+        delete GAME.apptVacancies[id];
+        apptSlate(id);
+        GAME.apptVacancies[id].opened=GAME.turn;
+        GAME.log.push(ico('ban')+" "+h.name+" "
+          +APPT_QUIT_REASONS[Math.floor(Math.random()*APPT_QUIT_REASONS.length)]
+          +" — "+apptPostLabel(id)+" is vacant");
+        continue;
+      }
       if(GAME.turn>=(h.term||0)){
         delete GAME.appointments[id];
         delete GAME.apptVacancies[id];
@@ -5397,7 +5454,7 @@ function tickAppointments(){
         // choice to keep somebody was the one place the page took a decision
         // away from you. They keep the clock they already ran, so a reformer
         // four years in is not furious about the filing system all over again.
-        if(!h.acting && h.side!=="partner")
+        if(h.side!=="partner")
           slate.unshift({name:h.name, trait:h.trait, group:h.group, foe:h.foe,
             side:"incumbent", loyalty:h.loyalty, since:h.since, served:GAME.turn-(h.since||0)});
         GAME.apptVacancies[id].opened=GAME.turn;
@@ -5406,17 +5463,10 @@ function tickAppointments(){
       }
       continue;
     }
-    // nobody confirmed: the deputy steps up. The department runs, a little
-    // worse and without a confirmed director's authority, and no interest
-    // group gets anything out of it.
-    const v=GAME.apptVacancies[id];
-    if(v && GAME.turn-(v.opened||0)>=APPT_ACTING_AFTER){
-      const c=apptMakeCandidate(id,"acting");
-      GAME.appointments[id]={name:c.name, trait:"caretaker", group:null, foe:null, side:"acting",
-        loyalty:0.3, since:GAME.turn, term:GAME.turn+999, acting:true};
-      delete GAME.apptVacancies[id];
-      GAME.log.push(ico(APPT_POSTS[id].icon)+" "+c.name+" is acting director at "+APPT_POSTS[id].name+" — nobody has been confirmed");
-    }
+    // An empty chair has a deputy in it from the day it empties — named here
+    // if some route to a vacancy has not already done it — and the seat goes
+    // on counting as vacant for as long as nobody is confirmed to it.
+    apptDeputy(id);
   }
 }
 /* THE PEOPLE ALREADY DOING THESE JOBS. Every chair has somebody in it on the
@@ -8180,7 +8230,7 @@ function _sitAge(sid){ return (GAME.situationAge&&GAME.situationAge[sid])||0; }
         return fc((sim?sim.name:hb[0])+" angry (under 48 approval)", _sn(a), a<48, "v_"+hb[0]); })},
       end:[[ fc("Agenda drift back under 2.5 points", d.toFixed(1)+" points", d<2.5) ],
            [ fc("It burns out after ten quarters", "quarter "+(_sitAge("leftProtests")+1), _sitAge("leftProtests")>9) ]],
-      note:"Past the drift line this is a roll each quarter, not a certainty — likelier the further you have moved and the angrier the blocs above are. Cracking down raises it again."};
+      note:"Past the drift line this is a roll each quarter, not a certainty — likelier the further you have moved, the more alone the other side is, and the weaker you are polling. A popular governor can be a great deal more partisan than an unpopular one and never see a bus."};
   };
 
   /* The same panel for whichever caucus is gone. Provocation is listed first
@@ -8194,6 +8244,10 @@ function _sitAge(sid){ return (GAME.situationAge&&GAME.situationAge[sid])||0; }
     return {
       begin:[[ fc("A program they organized against — you have driven the agenda past what you inherited",
                   Math.round((ours?(w.provoke||0):0)*100)+"%", ours && (w.provoke||0)>=0.12),
+               fc("Their voters are the ones losing — how far their blocs have fallen behind everybody else's",
+                  Math.round((ours?(w.isolation||0):0)*100)+"%", ours && (w.isolation||0)>0.2),
+               fc("You are not popular enough to make this suicide — a caucus will not shut the building on a governor the state likes",
+                  overallApproval().toFixed(0)+"% approval", (w.nerve||0)>0.55),
                fc("Walkout pressure past 34% — "+w.label+", and a caucus angry enough to spend half a year on it",
                   Math.round((ours?w.heat:0)*100)+"%", ours && w.heat>=0.34),
                fc("You do not hold a two-thirds quorum on your own", quorumTxt, !quorumProof()),
@@ -12239,11 +12293,10 @@ function showQuarterReport(){
   const _vac=Object.keys(APPT_POSTS).filter(id=>apptVacant(id));
   const apptBlock=_vac.length?`<div class="rsection"><div class="rsec-h">${ico('people')} Appointments</div>`
     +_vac.map(id=>{ const v=(GAME.apptVacancies||{})[id], open=v?Math.max(0,GAME.turn-(v.opened||0)):0;
-      const due=Math.max(0,APPT_ACTING_AFTER-open);
       return `<div class="rrow"><span class="rlabel" style="color:var(--gold)">${ico(APPT_POSTS[id].icon)} ${apptPostLabel(id)}</span>`
-        +`<span class="rval" style="color:var(--gold)">vacant ${open}q${due?` \u00b7 a deputy takes over in ${due}`:``}</span></div>`;
+        +`<span class="rval" style="color:var(--gold)">vacant ${open}q \u00b7 Deputy ${apptDeputy(id)||"—"} minding it</span></div>`;
     }).join("")
-    +`<div class="rforecast">An empty chair costs you ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter and softens everything that department delivers. Nominations are on the Appointments page.</div></div>`:"";
+    +`<div class="rforecast">A deputy keeps each of these running and brings nothing to it. An empty chair costs you ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter and softens everything that department delivers, for as long as it stays empty. Nominations are on the Appointments page.</div></div>`:"";
   const events=(GAME.log||[]).slice(-6).filter(l=>/began|RESOLVED|Midterms|kicker|Kicker|Reserves|Promise|Scandal|boom|Windfall|Federal|Deficit|debt|Austerity/i.test(l));
   const eventBlock=events.length?`<div class="rsection"><div class="rsec-h">${ico('doc')} This Quarter</div>${events.map(e=>`<div class="revent">${e}</div>`).join("")}</div>`:"";
   const cyc=GAME.econCycle;
@@ -14640,6 +14693,34 @@ const LEGIS={senate:30, house:60, superS:18, superH:36, majS:16, majH:31,
    so it is the distance you have moved the state, not the state you were
    handed. Governing a left-wing Oregon as a Democrat provokes nobody; ratch-
    eting it further left quarter after quarter does. */
+/* HOW ALONE THE OTHER SIDE IS. Not how angry — how alone. A caucus whose
+   voters are miserable in a year when everybody is miserable has no case for
+   emptying the building; a caucus whose voters are the ONLY ones losing has
+   the case it needs. So this is the GAP between the governing coalition's
+   blocs and the opposition's, which is exactly what a programme aimed at one
+   half of the state produces and what nothing here was measuring. */
+function walkoutIsolation(side){
+  const mineIs = GAME.startId==="conservative" ? "right" : "left";
+  const base = apptBaseBlocs();
+  const opp  = GAME.startId==="conservative"
+    ? ["liberal","socialist","urban","publicUnions"]
+    : ["conservative","rural","timber","libertarian"];
+  // whoever is doing the walking is the side being measured as isolated
+  const theirs = (side===mineIs) ? base : opp;
+  const others = (side===mineIs) ? opp  : base;
+  const mean=ids=>{ let v=0,k=0; for(const id of ids){ const S=SIMULANTS[id];
+    if(!S)continue; v+=(S.approval??50); k++; } return k?v/k:50; };
+  // 18 points of gap is a thoroughly polarised state; below 4 there is no
+  // story to tell the voters at home about why the session stopped
+  return clamp((mean(others)-mean(theirs)-4)/18, 0, 1);
+}
+/* WHETHER THEY DARE. A walkout against a popular governor is how a caucus
+   loses its own marginals; against an unpopular one it is how it wins them.
+   Approval was not an input to any of this, so a governor at 65% could be
+   shut down exactly as easily as one at 30%. */
+function walkoutNerve(){
+  return clamp(1 + (48-overallApproval())/20, 0.15, 1.75);
+}
 function walkoutPressure(){
   const angry=sid=>{const s=SIMULANTS[sid]; if(!s)return 0;
     return clamp((46-(s.approval??50))/40,0,1) + clamp((s.cynicism||0)*0.02,0,0.4);};
@@ -14662,14 +14743,18 @@ function walkoutPressure(){
     // left-coded dial to its stop scores about 0.35 here, which is the
     // difference between a caucus that is furious and one that is on a bus.
     const provoke = clamp((-shift-3)/9, 0, 1);
-    return {side, heat: caucus*0.45 + provoke*0.55,
-            label:"rural alienation", level:ra, caucusHeat:caucus, provoke};
+    const alone = walkoutIsolation("right");
+    return {side, heat: caucus*0.38 + provoke*0.44 + alone*0.18,
+            label:"rural alienation", level:ra, caucusHeat:caucus, provoke,
+            isolation:alone, nerve:walkoutNerve()};
   }
   // the left caucus walks over how far the agenda has been dragged right
   const caucus = angry("liberal")*0.35 + angry("socialist")*0.30 + angry("publicUnions")*0.20 + angry("urban")*0.15;
   const provoke = clamp((shift-3)/9, 0, 1);
-  return {side, heat: caucus*0.45 + provoke*0.55,
-          label:"progressive alienation", level:50+shift*2.2, caucusHeat:caucus, provoke};
+  const alone = walkoutIsolation("left");
+  return {side, heat: caucus*0.38 + provoke*0.44 + alone*0.18,
+          label:"progressive alienation", level:50+shift*2.2, caucusHeat:caucus, provoke,
+          isolation:alone, nerve:walkoutNerve()};
 }
 /* Everything that has to be true before anybody gets on a bus, asked by the
    side doing the asking. Both walkouts route through this, so the two cannot
@@ -14689,7 +14774,11 @@ function walkoutTrigger(side){
   // nothing to walk out ABOUT, however badly you are polling out there.
   if(w.provoke < 0.12) return false;
   if(w.heat < 0.34) return false;                                // this costs them half a year too
-  return Math.random() < clamp((w.heat-0.34)*0.55, 0, 0.30);
+  // A REASON, AND THE NERVE TO ACT ON IT. The heat is the reason; your
+  // approval is what decides whether shutting the building is worth doing to
+  // somebody as popular as you are. At 38% a caucus with a grievance goes;
+  // at 62% the same grievance stays a press release.
+  return Math.random() < clamp((w.heat-0.34)*0.62*walkoutNerve(), 0, 0.38);
 }
 /* The prison population the Department of Corrections is funded to hold, on
    the incarceration-rate scale: 50 at the inherited 50% funding, 85 at full. */
@@ -21000,25 +21089,20 @@ function renderAppointments(){
       const sideChip = holder.side==="opposition" ? `<span class="pill" style="background:var(--clay);color:var(--paper)">from the other party</span>` : "";
       // the clock that decides when you next get a choice here
       const termChip = left==null
-        ? `<span class="pill">${holder.acting?"acting \u2014 replace at will":"no fixed term"}</span>`
+        ? `<span class="pill">no fixed term</span>`
         : `<span class="pill"${left<=4?` style="background:var(--gold);color:var(--ink)"`:``}>${left===0?"term ends this quarter":`${left} quarter${left===1?"":"s"} left in the term`}</span>`;
       const settleChip = settling
         ? `<span class="pill" style="background:var(--clay);color:var(--paper)">tearing it up \u2014 delivering less for ${settling} more quarter${settling===1?"":"s"}</span>` : "";
-      const canRm=apptCanRemove(id), rmCost=cab?3:6;
+      const canRm=apptCanRemove(id), rmCost=apptRemoveCost();
       h+=`<div class="rrow"><span class="rlabel"><b>${ico(post.icon)} ${apptPostLabel(id)}</b> ${sideChip} ${termChip} ${settleChip}
         <div class="fnote" style="margin-top:3px"><b>${holder.name}</b> ${apptTraitChip(holder.trait)} &middot; ${(APPT_TRAITS[holder.trait]||{}).blurb||""}</div>
         <div class="fnote" style="margin-top:4px">${apptEffectLine(id,holder.trait,true)}</div>
         <div class="fnote" style="margin-top:4px">${apptGroupLine(holder)}</div>
         <div class="fnote" style="margin-top:4px;opacity:.85">${post.body==="commission"?`One seat on the ${post.seat} \u2014 a fixed term you cannot cut short`:`${post.name} \u2014 serves at the governor's pleasure`}</div>
-        </span><span class="rval">${canRm?`<button class="fcard-btn" data-apptrm="${id}" ${(GAME.capital>=rmCost||window.SANDBOX)?"":"disabled"}>\u25c8${rmCost} Replace</button>`:`<span class="fnote">fixed term</span>`}</span></div>`;
+        </span><span class="rval">${canRm?`<button class="fcard-btn" data-apptrm="${id}" ${(GAME.capital>=rmCost||window.SANDBOX)?"":"disabled"}>\u25c8${rmCost} Remove</button>`:`<span class="fnote">fixed term</span>`}</span></div>`;
     } else {
       h+=`<div class="rrow"><span class="rlabel"><b>${ico(post.icon)} ${apptPostLabel(id)}</b> <span class="pill" style="background:var(--gold);color:var(--ink)">vacant</span>
-        <div class="fnote" style="margin-top:3px">Nobody is confirmed: everything the department delivers lands ${Math.abs(Math.round(APPT_VACANT_EFF*100))}% softer, overhead is up ${APPT_VACANT_OVERHEAD.toFixed(1)}, and it costs you ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter until you fill it.${(()=>{
-          const v=(GAME.apptVacancies||{})[id]; if(!v)return "";
-          const due=Math.max(0,APPT_ACTING_AFTER-(GAME.turn-(v.opened||0)));
-          return due?` A deputy takes the chair in <b>${due} quarter${due===1?"":"s"}</b>, and the names below go with them.`
-                    :" A deputy is running it now.";
-        })()}</div>
+        <div class="fnote" style="margin-top:3px"><b>Deputy ${apptDeputy(id)||"—"}</b> is keeping it running, and brings nothing: no interest group, no gain, no authority. The seat is vacant until somebody is confirmed, so everything the department delivers lands ${Math.abs(Math.round(APPT_VACANT_EFF*100))}% softer, overhead is up ${APPT_VACANT_OVERHEAD.toFixed(1)}, and it costs you ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter for as long as you leave it.</div>
         </span><span class="rval"></span></div>`;
       const slate=apptSlate(id);
       slate.forEach((c,i)=>{
