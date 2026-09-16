@@ -4969,17 +4969,17 @@ const APPT_TRAITS={
    lands harder or softer with the person in the chair. `pool` is who the
    plausible candidates come from, and `foes` who resents the appointment. */
 const APPT_POSTS={
-  oha:{name:"Oregon Health Authority", icon:"hospital", agency:"oha", body:"commission",
-    seat:"Oregon Health Policy Board", metrics:["health","behavioralHealth","psychBeds","drugUse","alcoholUse","obesity"],
+  oha:{name:"Oregon Health Authority", icon:"hospital", agency:"oha", body:"department",
+    seat:"the Health Authority", metrics:["health","behavioralHealth","psychBeds","drugUse","alcoholUse","obesity"],
     pool:["publicUnions","parents","poor","collegeEducated"], foes:["libertarian","conservative"]},
   dhs:{name:"Dept. of Human Services", icon:"people", agency:"dhs", body:"department",
     seat:"Human Services", metrics:["povertyRate","inequality"],
     pool:["poor","socialist","publicUnions","parents"], foes:["conservative","libertarian"]},
-  ode:{name:"Dept. of Education", icon:"cap", agency:null, body:"commission",
-    seat:"State Board of Education", metrics:["education","eduOutcomes","attainAll","publicEnrollment"],
+  ode:{name:"Dept. of Education", icon:"cap", agency:null, body:"department",
+    seat:"Education", metrics:["education","eduOutcomes","attainAll","publicEnrollment"],
     pool:["publicUnions","parents","collegeEducated","students"], foes:["conservative","rural"]},
-  odot:{name:"Dept. of Transportation", icon:"road", agency:"odot", body:"commission",
-    seat:"Oregon Transportation Commission", metrics:["transitShare"],
+  odot:{name:"Dept. of Transportation", icon:"road", agency:"odot", body:"department",
+    seat:"Transportation", metrics:["transitShare"],
     pool:["motorists","suburban","blueCollar","transitCommuters"], foes:["rural","urban"]},
   deq:{name:"Dept. of Environmental Quality", icon:"leaf", agency:"deq", body:"commission",
     seat:"Environmental Quality Commission", metrics:["environment"],
@@ -5268,19 +5268,18 @@ function apptWhip(postId, cand, cushion){
   const empty={chamber:chamber==="senate"?"house":"senate", members:[], total:0, need:0, yes:0, firm:0, expect:0, short:0, buy:[], cost:0, possible:true, unbuyable:0};
   const w={house:chamber==="house"?C:empty, senate:chamber==="senate"?C:empty, narrowed:1, cushion:cushion||0,
            needsSuper:false, base:Math.round(BILL_FLOOR_COST*oppositionCapitalMult()*APPT_CONFIRM.base)};
-  // SENDING A NAME UP IS FREE. A governor spends capital on a fight, not on
-  // the act of nominating: if the chamber carries the name as it stands and
-  // you are buying nobody, a confirmation hearing costs you nothing at all.
-  // Everything below is what the argument costs.
-  w.cost=(C.buy.length||(cushion||0)) ? C.cost+w.base : 0;
+  // A CONFIRMATION IS NOT BOUGHT. You do not whip senators one at a time to
+  // seat a department head — you have the chamber or you do not, and if you
+  // do not, the answer is a different name rather than a bigger cheque. So a
+  // nomination costs nothing, always, and the odds are the bare odds.
+  w.cost=0;
   w.possible=C.possible&&w.cost<=CAPITAL_MAX;
   w.chamberName=chamber==="house"?(prOn()?"the Assembly":"the House"):"the Senate";
-  w.odds=votePassOdds(w);
-  // and what it does on its own, before you buy anybody — which is how a
-  // nomination normally goes up. The whipped number is what it costs to
-  // make it safe.
+  // Nobody is bought, so the count that matters is the bare one.
   { const bare=Object.assign({},C,{buy:[]});
     w.rawOdds=votePassOdds(Object.assign({},w,{house:(w.house===C?bare:w.house), senate:(w.senate===C?bare:w.senate)})); }
+  w.odds=w.rawOdds;
+  C.buy=[]; C.cost=0;
   w.floor=C;
   return w;
 }
@@ -5289,9 +5288,7 @@ function apptWhip(postId, cand, cushion){
 function apptNominate(postId, idx, cushion){
   const slate=apptSlate(postId), cand=slate[idx]; if(!cand)return false;
   const w=apptWhip(postId,cand,cushion);
-  if(!window.SANDBOX && GAME.capital<w.cost)return false;
-  if(!w.possible&&!window.SANDBOX)return false;
-  GAME.capital=clamp(GAME.capital-w.cost,0,CAPITAL_MAX);
+  // no capital changes hands: a confirmation is a vote
   const post=APPT_POSTS[postId];
   const passed=window.SANDBOX?true:(Math.random()<w.odds);
   if(!passed){
@@ -5318,12 +5315,38 @@ function apptNominate(postId, idx, cushion){
 function apptCanRemove(postId){ const h=apptHolder(postId); return !!(h&&h.acting) || !!POLICIES.cabinetGovernment || APPT_POSTS[postId].body==="department"; }
 function apptRemove(postId){
   const h=apptHolder(postId); if(!h||!apptCanRemove(postId))return false;
-  const cost=POLICIES.cabinetGovernment?3:6;
+  const cost=POLICIES.cabinetGovernment?2:3;   // a removal is a phone call, not a campaign
   if(!window.SANDBOX && GAME.capital<cost)return false;
   GAME.capital=clamp(GAME.capital-cost,0,CAPITAL_MAX);
   delete GAME.appointments[postId];
   GAME.log.push(ico('ban')+" "+h.name+" removed from "+APPT_POSTS[postId].name+" — "+(POLICIES.cabinetGovernment?"the department answers to you":"a resignation arranged"));
   render(); return true;
+}
+/* THE AMENDMENT CLEARS THE BUILDING. Cabinet Government abolishes the boards
+   and commissions that sat between the governor and the agencies, and the
+   people those boards appointed go with them. Every chair falls vacant on the
+   day it takes effect and every one is yours to fill, free, subject to the
+   Senate. It is the largest single decision in the game; it should not pass
+   quietly. A coalition partner's appointee is the one exception — they are
+   in the government by an agreement you signed, not by a commission's grace. */
+function apptCabinetReorg(){
+  GAME.appointments=GAME.appointments||{}; GAME.apptVacancies=GAME.apptVacancies||{};
+  let cleared=0;
+  for(const id in APPT_POSTS){
+    const h=GAME.appointments[id];
+    if(!h||h.side==="partner")continue;
+    delete GAME.appointments[id];
+    delete GAME.apptVacancies[id];
+    const slate=apptSlate(id);
+    // the sitting director may be sent straight back up, like any term ending
+    if(!h.acting)
+      slate.unshift({name:h.name, trait:h.trait, group:h.group, foe:h.foe,
+        side:"incumbent", loyalty:h.loyalty, since:h.since, served:GAME.turn-(h.since||0)});
+    GAME.apptVacancies[id].opened=GAME.turn;
+    cleared++;
+  }
+  if(cleared)GAME.log.push(ico('columns')+" The commissions are abolished — "+cleared
+    +" chairs fall vacant at once, and every one of them is yours to fill");
 }
 /* Terms end, and people leave. Checked once a quarter. */
 function tickAppointments(){
@@ -15434,7 +15457,7 @@ function showApptFloor(postId, idx){
   const slate=apptSlate(postId), cand=slate&&slate[idx];
   if(!cand)return;
   if(floorFrozen()){ showFloorShut("the nomination of "+cand.name); return; }
-  GAME.pendingAppt={postId, idx, cushion:0};
+  GAME.pendingAppt={postId, idx};
   drawApptFloor();
 }
 function drawApptFloor(){
@@ -15443,20 +15466,13 @@ function drawApptFloor(){
   if(!cand){ GAME.pendingAppt=null; return; }
   const post=APPT_POSTS[A.postId];
   const card=document.getElementById("floorCard"), modal=document.getElementById("floorModal");
-  const w=apptWhip(A.postId,cand,A.cushion||0);
+  const w=apptWhip(A.postId,cand,0);
   const pol=apptPseudoBill(A.postId,cand);
-  const afford=GAME.capital>=w.cost||!!window.SANDBOX;
   const raw=Math.round(w.rawOdds*100), odds=Math.round(w.odds*100);
   const oddsWord=w.odds>=0.95?"near-certain":w.odds>=0.8?"likely":w.odds>=0.55?"probable":w.odds>=0.4?"a coin flip":w.odds>=0.15?"an outside chance":"almost hopeless";
   const trait=APPT_TRAITS[cand.trait]||APPT_TRAITS.caretaker;
   const g=SIMULANTS[cand.group], f=cand.foe?SIMULANTS[cand.foe]:null;
-  const cush=[0,2,4,6].map(cv=>{
-    const q=apptWhip(A.postId,cand,cv);
-    const on=cv===(A.cushion||0);
-    return `<button class="conc ${on?'on':''}${(GAME.capital>=q.cost&&q.possible)?'':' broke'}" data-acush="${cv}">
-      <span class="conc-l">${cv===0?"Send it as it stands":"+"+cv+" spare votes"}</span>
-      <span class="conc-c">${q.cost?"\u25c8"+q.cost:"free"} \u00b7 ${Math.round(q.odds*100)}%</span></button>`;
-  }).join("");
+
   card.innerHTML=`<div class="sectionhdr">${ico(post.icon)} Confirmation \u2014 ${cand.name}</div>
     <div class="sectionsub">${apptPostLabel(A.postId)}. ${prOn()
       ? `Under proportional representation there is no Senate: the <b>Assembly</b> confirms, and a government that cannot carry its own nominee is being told something about its coalition.`
@@ -15470,26 +15486,22 @@ function drawApptFloor(){
       </span><span class="rval"></span></div></div>
     <div class="odds-box ${w.odds>=0.8?'good':w.odds>=0.5?'mid':'bad'}">
       <span class="odds-n">${odds}%</span>
-      <span class="odds-t">to be confirmed \u2014 <b>${oddsWord}</b>.${raw!==odds?` Sent up as it stands, with nobody whipped, it is <b>${raw}%</b>.`:``} A confirmation vote wobbles the same way any other does: members are absent, members reconsider, and a member you whipped is committed rather than owned.</span>
+      <span class="odds-t">to be confirmed \u2014 <b>${oddsWord}</b>. A confirmation wobbles the way any vote does: members are absent, members reconsider. If the room is not there, the answer is a different name \u2014 there is no price that buys this one through.</span>
     </div>
     <div class="whip-cost">
-      <span>${w.floor.buy.length?"Whipping "+w.floor.buy.length+" vote"+(w.floor.buy.length===1?"":"s")+" plus floor time":"The chamber carries it \u2014 this nomination costs nothing"}</span>
-      <span class="wc-num ${afford?'':'broke'}">${w.cost?`\u25c8 ${w.cost}`:"free"} <span class="wc-have">of \u25c8 ${GAME.capital}</span></span></div>
+      <span>A confirmation costs no capital \u2014 it is a vote, and you have the chamber you have</span>
+      <span class="wc-num">free</span></div>
     <div style="display:flex;gap:10px;margin:6px 0 4px;flex-wrap:wrap">
-      <button class="enactbtn" id="apptGo" ${((w.possible||window.SANDBOX)&&afford)?'':'disabled'}>${
-        !w.possible?"There are not the votes, at any price"
-        :!afford?"Not enough capital"
-        :"Nominate"+(w.floor.buy.length?", whipping "+w.floor.buy.length:"")}</button>
+      <button class="enactbtn" id="apptGo">${
+        w.rawOdds<0.5?"Nominate anyway \u2014 it is short":"Nominate"}</button>
       <button class="enactbtn ghost" id="apptNo">Not this one</button>
     </div>
     <div class="floor-roll">${ico('columns')} The count, seat by seat</div>
     ${whipChamberHTML(w.floor,pol,"enact")}
     <div class="whip-legend"><span><i class="wp y own"></i>your members, yes</span><span><i class="wp y cross"></i>crossover yes</span><span><i class="wp buy"></i>whipped</span><span><i class="wp n"></i>no</span><span><i class="wp n hard"></i>not for sale</span></div>
-    <div class="conc-h" style="margin-top:14px">${ico('shield')} How big a margin \u2014 spare votes are insurance, not waste</div>
-    <div class="conc-row">${cush}</div>`;
+`;
   modal.classList.remove("hidden");
-  card.querySelectorAll('[data-acush]').forEach(el=>el.addEventListener('click',()=>{
-    GAME.pendingAppt.cushion=+el.dataset.acush; drawApptFloor(); }));
+
   const close=()=>{ modal.classList.add("hidden"); GAME.pendingAppt=null;
     document.removeEventListener("keydown",onKey,true); };
   const onKey=e=>{ if(modal.classList.contains("hidden"))return;
@@ -15497,9 +15509,9 @@ function drawApptFloor(){
   document.getElementById("apptNo").onclick=()=>{ close(); render(); };
   const go=document.getElementById("apptGo");
   if(go)go.onclick=()=>{
-    const {postId,idx,cushion}=GAME.pendingAppt;
+    const {postId,idx}=GAME.pendingAppt;
     close();
-    apptNominate(postId,idx,cushion||0);
+    apptNominate(postId,idx,0);
   };
   document.addEventListener("keydown",onKey,true);
 }
@@ -19730,6 +19742,7 @@ function _applyEnact(id, level){
   // Proportional representation does not reseat the chamber on the night it
   // passes. The election printed on the same ballot was counted under the
   // old rules and stands; the new rules govern the next one.
+  if(id==="cabinetGovernment")apptCabinetReorg();   // every chair falls vacant at once
   if(id==="propRep"){
     GAME.prPending=true;
     GAME.log.push(ico('columns')+" Proportional representation is ratified — it governs the next legislative election, not tonight's");
@@ -20953,8 +20966,8 @@ function renderAppointments(){
   let h=`<div class="sectionhdr">${ico('people')} Appointments</div>`;
   h+=`<div class="sectionsub">Oregon does not have a cabinet. It has departments under boards and commissions, and who sits in those chairs decides how well the money you appropriate is actually spent. Every appointee brings a trait — how the department runs — and an interest group, which stays pleased exactly as long as they hold the post and stops the day they leave.`;
   h+= cab
-    ? ` You passed Cabinet Government: directors serve at your pleasure and you can replace any of them.`
-    : ` Commissioners hold fixed terms. Until you pass <b>Cabinet Government</b> you cannot remove one — you wait for the term to end.`;
+    ? ` You passed Cabinet Government: the commissions are gone, every director serves at your pleasure, and removing one costs 2.`
+    : ` Department heads serve at your pleasure and can be replaced for 3. Commissioners hold fixed terms and cannot \u2014 you wait for the term to end, or pass <b>Cabinet Government</b>, which abolishes the commissions and vacates every chair at once.`;
   h+=` Nominees are confirmed by ${prOn()?"the Assembly":"the Senate"}, on the floor, like anything else \u2014 and a nomination the chamber already carries costs you nothing.`;
   h+=` The Public Utility Commission is three commissioners rather than one, drawn from three different worlds, and it decides as a body: what the commission does to rates is the <b>average</b> of the people on it, so one reformer among three caretakers moves it by a third of a reformer.`;
   // what the chamber you actually have means for what you can appoint
@@ -20981,7 +20994,7 @@ function renderAppointments(){
         ? `<span class="pill">${holder.acting?"acting \u2014 replace at will":"no fixed term"}</span>`
         : `<span class="pill"${left<=4?` style="background:var(--gold);color:var(--ink)"`:``}>${left===0?"term ends this quarter":`${left} quarter${left===1?"":"s"} left in the term`}</span>`;
       const settleChip = settling
-        ? `<span class="pill" style="background:var(--clay);color:var(--paper)">settling in \u2014 ${settling} more quarter${settling===1?"":"s"}</span>` : "";
+        ? `<span class="pill" style="background:var(--clay);color:var(--paper)">tearing it up \u2014 delivering less for ${settling} more quarter${settling===1?"":"s"}</span>` : "";
       const canRm=apptCanRemove(id), rmCost=cab?3:6;
       h+=`<div class="rrow"><span class="rlabel"><b>${ico(post.icon)} ${apptPostLabel(id)}</b> ${sideChip} ${termChip} ${settleChip}
         <div class="fnote" style="margin-top:3px"><b>${holder.name}</b> ${apptTraitChip(holder.trait)} &middot; ${(APPT_TRAITS[holder.trait]||{}).blurb||""}</div>
@@ -21004,7 +21017,6 @@ function renderAppointments(){
         const g=SIMULANTS[c.group], f=c.foe?SIMULANTS[c.foe]:null;
         const odds=Math.round(w.odds*100), raw=Math.round(w.rawOdds*100);
         const col=raw>=70?"var(--moss)":raw>=45?"var(--gold)":"var(--clay)";
-        const afford=(GAME.capital>=w.cost)||window.SANDBOX;
         h+=`<div class="rrow" style="padding-left:10px"><span class="rlabel">
           <b>${c.name}</b> ${apptTraitChip(c.trait)} ${c.side==="opposition"?`<span class="pill" style="background:var(--clay);color:var(--paper)">other party</span>`:c.side==="incumbent"?`<span class="pill" style="background:var(--moss);color:var(--paper)">reappoint \u2014 ${c.served||0} quarter${(c.served||0)===1?"":"s"} served</span>`:""}
           <div class="fnote" style="margin-top:3px">${(APPT_TRAITS[c.trait]||{}).blurb||""}</div>
@@ -21012,7 +21024,7 @@ function renderAppointments(){
           <div class="fnote" style="margin-top:4px">${g?g.name+" gain":""}${f?", "+f.name+" lose":""} while they serve</div>
           <div class="fnote" style="margin-top:4px">${w.chamberName.replace("the ","").replace(/^./,x=>x.toUpperCase())}: <b>${w.floor.expect.toFixed(0)}</b> of ${w.floor.total} expected, needs ${w.floor.need}
             &middot; <b style="color:${col}">${raw}%</b> as it stands${w.floor.short?` &middot; ${w.floor.short} vote${w.floor.short===1?"":"s"} to whip and it is safe`:" — it carries, and costs you nothing"}</div>
-          </span><span class="rval"><button class="fcard-btn" data-apptnom="${id}:${i}" ${afford?"":"disabled"}>${w.cost?`\u25c8${w.cost} `:``}Nominate</button></span></div>`;
+          </span><span class="rval"><button class="fcard-btn" data-apptnom="${id}:${i}">Nominate</button></span></div>`;
       });
     }
     h+=`</div>`;
