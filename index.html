@@ -4956,7 +4956,7 @@ const APPT_TRAITS={
     blurb:"Came up through the agency. Knows where everything is and whom to call; will not change any of it.",
     eff:0.06, overhead:-1.2, capital:0, confirm:0.6 },
   reformer:{ label:"Reformer", icon:"wrench",
-    blurb:"Hired to shake the place up, and does. The department delivers materially more and spends the first year furious about it.",
+    blurb:"Hired to shake the place up, and does. For the first year the department delivers LESS than it did while everything is torn apart and rebuilt; after that, materially more. The upheaval costs you administrative overhead and political capital the whole time they serve.",
     eff:0.13, overhead:1.6, capital:-0.5, confirm:-0.5 },
   loyalist:{ label:"Loyalist", icon:"handshake",
     blurb:"Yours before they were the department's. You stop spending your week persuading your own government; the department notices, and slows.",
@@ -5069,6 +5069,19 @@ function apptPartnerWalked(pid){
   }
 }
 function apptVacant(id){ return !apptHolder(id); }
+/* Quarters of a reformer's upheaval still to run, 0 if none. */
+function apptSettlingLeft(id){
+  const h=apptHolder(id);
+  if(!h||h.trait!=="reformer")return 0;
+  return Math.max(0, APPT_SETTLE-(GAME.turn-(h.since||0)));
+}
+/* A fixed term's remaining quarters, or null where there is no fixed term
+   (an acting director, a coalition partner's appointee). */
+function apptTermLeft(id){
+  const h=apptHolder(id);
+  if(!h||(h.term||0)>=GAME.turn+900)return null;
+  return Math.max(0,(h.term||0)-GAME.turn);
+}
 /* What to call one chair. On a multi-member commission the body's name is
    shared, so the seat is what tells them apart. */
 function apptPostLabel(id){
@@ -5079,6 +5092,11 @@ function apptPostLabel(id){
    nothing it does lands quite as hard. */
 const APPT_VACANT_EFF=-0.06, APPT_VACANT_OVERHEAD=0.8, APPT_VACANT_CAPITAL=-0.2;
 const APPT_ACTING_AFTER=4;                 // quarters an empty chair waits before a deputy steps up
+/* A REFORMER IS WORSE BEFORE THEY ARE BETTER. Four quarters of tearing the
+   place apart, starting below where the department was, and only then the
+   gain they were hired for. The page reads these same two numbers, so what a
+   card promises and what the model delivers are the same thing. */
+const APPT_SETTLE=4, APPT_SETTLE_EFF=-0.04;
 /* What the floor has to say about a nominee, in one place so it can be
    calibrated against measured odds. */
 const APPT_CONFIRM={
@@ -5095,14 +5113,16 @@ const APPT_CONFIRM={
   // what it is actually worth in a chamber that has districts.
   prGroup:0.42,
   cross:3, betray:-3,
-  pop:1.1, loyalty:0.7, trait:0.6, crossOwn:-1.6, crossOpp:2.0, base:2 };
+  pop:1.1, loyalty:0.7, trait:0.6, crossOwn:-1.6, crossOpp:2.0, base:2,
+  incumbent:0.8 };   // the chamber has confirmed this one before
 function apptEffFor(id){
   const h=apptHolder(id);
   if(!h)return APPT_VACANT_EFF;
   const t=APPT_TRAITS[h.trait]||APPT_TRAITS.caretaker;
   // a reformer is worse before they are better: the first year is the churn
   const age=GAME.turn-(h.since||0);
-  if(h.trait==="reformer"&&age<4)return -0.04+(t.eff+0.04)*(age/4);
+  if(h.trait==="reformer"&&age<APPT_SETTLE)
+    return APPT_SETTLE_EFF+(t.eff-APPT_SETTLE_EFF)*(age/APPT_SETTLE);
   return t.eff;
 }
 /* How hard policy aimed at one statistic actually lands, given who runs the
@@ -5233,7 +5253,8 @@ function apptWhip(postId, cand, cushion){
   ctx.disc=K.disc;
   const trait=APPT_TRAITS[cand.trait]||APPT_TRAITS.caretaker;
   const pop=clamp((overallApproval()-46)/22,-1,1);        // a popular governor's nominee sails
-  const standing=pop*K.pop + (cand.loyalty-0.5)*K.loyalty + (trait.confirm||0)*K.trait;
+  const standing=pop*K.pop + (cand.loyalty-0.5)*K.loyalty + (trait.confirm||0)*K.trait
+    + (cand.side==="incumbent"?K.incumbent:0);
   // An appointee from the other party inverts the room: their caucus is being
   // handed a department and yours is being asked to watch it happen.
   ctx.ease=(mine,m)=>{
@@ -5285,7 +5306,10 @@ function apptNominate(postId, idx, cushion){
   }
   GAME.appointments=GAME.appointments||{};
   GAME.appointments[postId]={name:cand.name, trait:cand.trait, group:cand.group, foe:cand.foe,
-    side:cand.side, loyalty:cand.loyalty, since:GAME.turn, term:GAME.turn+12+Math.floor(Math.random()*8)};
+    side:cand.side, loyalty:cand.loyalty,
+    // a reappointment is a continuation: the settling-in they already did counts
+    since:(cand.side==="incumbent"&&cand.since!=null)?cand.since:GAME.turn,
+    term:GAME.turn+12+Math.floor(Math.random()*8)};
   delete GAME.apptVacancies[postId];
   GAME.log.push(ico(post.icon)+" "+cand.name+" confirmed to "+post.name+" ("+(APPT_TRAITS[cand.trait]||{}).label+")");
   render(); return true;
@@ -5311,8 +5335,19 @@ function tickAppointments(){
     if(h){
       if(GAME.turn>=(h.term||0)){
         delete GAME.appointments[id];
-        GAME.apptVacancies[id]={opened:GAME.turn, slate:apptSlate(id)};
-        GAME.log.push(ico(APPT_POSTS[id].icon)+" "+h.name+"'s term at "+APPT_POSTS[id].name+" has ended — the chair is empty");
+        delete GAME.apptVacancies[id];
+        const slate=apptSlate(id);
+        // THE PERSON WHOSE TERM JUST ENDED CAN BE SENT BACK. A term ending is
+        // not a dismissal, and being handed three strangers instead of the
+        // choice to keep somebody was the one place the page took a decision
+        // away from you. They keep the clock they already ran, so a reformer
+        // four years in is not furious about the filing system all over again.
+        if(!h.acting && h.side!=="partner")
+          slate.unshift({name:h.name, trait:h.trait, group:h.group, foe:h.foe,
+            side:"incumbent", loyalty:h.loyalty, since:h.since, served:GAME.turn-(h.since||0)});
+        GAME.apptVacancies[id].opened=GAME.turn;
+        GAME.log.push(ico(APPT_POSTS[id].icon)+" "+h.name+"'s term at "+APPT_POSTS[id].name
+          +" has ended — the chair is empty, and they can be reappointed");
       }
       continue;
     }
@@ -15429,7 +15464,7 @@ function drawApptFloor(){
       : `The <b>Senate</b> confirms, alone \u2014 the House has no part in it.`}
       A confirmation is not a bill. Members vote it on where they sit far more than on who the nominee is: your own bench confirms the government's people, a coalition partner confirms them because the government is theirs too, and the other side is against for the same reason you are for. The interest group the nominee came from moves it at the margin.</div>
     <div class="ebgroup" style="margin-bottom:10px"><div class="rrow"><span class="rlabel">
-      <b>${cand.name}</b> ${apptTraitChip(cand.trait)} ${cand.side==="opposition"?`<span class="pill" style="background:var(--clay);color:var(--paper)">from the other party</span>`:""}
+      <b>${cand.name}</b> ${apptTraitChip(cand.trait)} ${cand.side==="opposition"?`<span class="pill" style="background:var(--clay);color:var(--paper)">from the other party</span>`:cand.side==="incumbent"?`<span class="pill" style="background:var(--moss);color:var(--paper)">reappointment</span>`:""}
       <div class="fnote" style="margin-top:3px">${trait.blurb||""}</div>
       <div class="fnote" style="margin-top:4px">${apptEffectLine(A.postId,cand.trait)}</div>
       <div class="fnote" style="margin-top:4px">${g?g.name+" gain":""}${f?", "+f.name+" lose":""} for as long as they hold the post</div>
@@ -15439,13 +15474,13 @@ function drawApptFloor(){
       <span class="odds-t">to be confirmed \u2014 <b>${oddsWord}</b>.${raw!==odds?` Sent up as it stands, with nobody whipped, it is <b>${raw}%</b>.`:``} A confirmation vote wobbles the same way any other does: members are absent, members reconsider, and a member you whipped is committed rather than owned.</span>
     </div>
     <div class="whip-cost">
-      <span>${w.floor.buy.length?"Whipping "+w.floor.buy.length+" vote"+(w.floor.buy.length===1?"":"s")+" plus floor time":"The chamber carries it \u2014 sending a name up costs nothing"}</span>
+      <span>${w.floor.buy.length?"Whipping "+w.floor.buy.length+" vote"+(w.floor.buy.length===1?"":"s")+" plus floor time":"The chamber carries it \u2014 this nomination costs nothing"}</span>
       <span class="wc-num ${afford?'':'broke'}">${w.cost?`\u25c8 ${w.cost}`:"free"} <span class="wc-have">of \u25c8 ${GAME.capital}</span></span></div>
     <div style="display:flex;gap:10px;margin:6px 0 4px;flex-wrap:wrap">
       <button class="enactbtn" id="apptGo" ${((w.possible||window.SANDBOX)&&afford)?'':'disabled'}>${
         !w.possible?"There are not the votes, at any price"
         :!afford?"Not enough capital"
-        :"Send the name up"+(w.floor.buy.length?", whipping "+w.floor.buy.length:"")}</button>
+        :"Nominate"+(w.floor.buy.length?", whipping "+w.floor.buy.length:"")}</button>
       <button class="enactbtn ghost" id="apptNo">Not this one</button>
     </div>
     <div class="floor-roll">${ico('columns')} The count, seat by seat</div>
@@ -20890,12 +20925,19 @@ function apptTraitChip(t){
   const T=APPT_TRAITS[t]||APPT_TRAITS.caretaker;
   return `<span class="pill">${ico(T.icon)} ${T.label}</span>`;
 }
-function apptEffectLine(id, trait){
+function apptEffectLine(id, trait, serving){
   const post=APPT_POSTS[id], T=APPT_TRAITS[trait]||APPT_TRAITS.caretaker;
   const bits=[];
-  const pct=Math.round((T.eff||0)*100);
+  // For somebody already in the chair, the honest number is what the
+  // department is delivering THIS quarter — which for a reformer in their
+  // first year is a loss, not the gain they will eventually reach.
+  const settling=serving?apptSettlingLeft(id):0;
+  const now=serving?apptEffFor(id):(T.eff||0);
+  const pct=Math.round(now*100), end=Math.round((T.eff||0)*100);
   const what=post.metrics.length?post.metrics.map(k=>METRICS[k]?METRICS[k].name:k).slice(0,3).join(", "):(post.agency?AGENCIES[post.agency].name:"the department");
-  bits.push((pct>=0?"+":"")+pct+"% on "+what);
+  bits.push(settling
+    ? `<b style="color:var(--clay)">${pct>=0?"+":""}${pct}%</b> on ${what} right now, reaching ${end>=0?"+":""}${end}% in ${settling} quarter${settling===1?"":"s"}`
+    : (pct>=0?"+":"")+pct+"% on "+what);
   if(T.overhead)bits.push((T.overhead>0?"+":"")+T.overhead.toFixed(1)+" administrative overhead");
   if(T.capital)bits.push((T.capital>0?"+":"")+T.capital.toFixed(1)+" capital a quarter");
   return bits.join(" &middot; ");
@@ -20914,7 +20956,7 @@ function renderAppointments(){
   h+= cab
     ? ` You passed Cabinet Government: directors serve at your pleasure and you can replace any of them.`
     : ` Commissioners hold fixed terms. Until you pass <b>Cabinet Government</b> you cannot remove one — you wait for the term to end.`;
-  h+=` Nominees are confirmed by ${prOn()?"the Assembly":"the Senate"}, on the floor, like anything else \u2014 and a name the chamber already carries costs you nothing to send up.`;
+  h+=` Nominees are confirmed by ${prOn()?"the Assembly":"the Senate"}, on the floor, like anything else \u2014 and a nomination the chamber already carries costs you nothing.`;
   h+=` The Public Utility Commission is three commissioners rather than one, drawn from three different worlds, and it decides as a body: what the commission does to rates is the <b>average</b> of the people on it, so one reformer among three caretakers moves it by a third of a reformer.`;
   // what the chamber you actually have means for what you can appoint
   if(prOn()&&coalitionPartners().length){
@@ -20932,18 +20974,30 @@ function renderAppointments(){
     const post=APPT_POSTS[id], holder=apptHolder(id);
     h+=`<div class="ebgroup" style="margin-bottom:10px">`;
     if(holder){
-      const left=Math.max(0,(holder.term||0)-GAME.turn);
+      const left=apptTermLeft(id);
+      const settling=apptSettlingLeft(id);
       const sideChip = holder.side==="opposition" ? `<span class="pill" style="background:var(--clay);color:var(--paper)">from the other party</span>` : "";
+      // the clock that decides when you next get a choice here
+      const termChip = left==null
+        ? `<span class="pill">${holder.acting?"acting \u2014 replace at will":"no fixed term"}</span>`
+        : `<span class="pill"${left<=4?` style="background:var(--gold);color:var(--ink)"`:``}>${left===0?"term ends this quarter":`${left} quarter${left===1?"":"s"} left in the term`}</span>`;
+      const settleChip = settling
+        ? `<span class="pill" style="background:var(--clay);color:var(--paper)">settling in \u2014 ${settling} more quarter${settling===1?"":"s"}</span>` : "";
       const canRm=apptCanRemove(id), rmCost=cab?3:6;
-      h+=`<div class="rrow"><span class="rlabel"><b>${ico(post.icon)} ${apptPostLabel(id)}</b> ${sideChip}
+      h+=`<div class="rrow"><span class="rlabel"><b>${ico(post.icon)} ${apptPostLabel(id)}</b> ${sideChip} ${termChip} ${settleChip}
         <div class="fnote" style="margin-top:3px"><b>${holder.name}</b> ${apptTraitChip(holder.trait)} &middot; ${(APPT_TRAITS[holder.trait]||{}).blurb||""}</div>
-        <div class="fnote" style="margin-top:4px">${apptEffectLine(id,holder.trait)}</div>
+        <div class="fnote" style="margin-top:4px">${apptEffectLine(id,holder.trait,true)}</div>
         <div class="fnote" style="margin-top:4px">${apptGroupLine(holder)}</div>
-        <div class="fnote" style="margin-top:4px;opacity:.85">${post.body==="commission"?post.seat:"Serves at the governor's pleasure"} &middot; term ends in ${left} quarter${left===1?"":"s"}</div>
+        <div class="fnote" style="margin-top:4px;opacity:.85">${post.body==="commission"?post.seat:"Serves at the governor's pleasure"}</div>
         </span><span class="rval">${canRm?`<button class="fcard-btn" data-apptrm="${id}" ${(GAME.capital>=rmCost||window.SANDBOX)?"":"disabled"}>\u25c8${rmCost} Replace</button>`:`<span class="fnote">fixed term</span>`}</span></div>`;
     } else {
       h+=`<div class="rrow"><span class="rlabel"><b>${ico(post.icon)} ${apptPostLabel(id)}</b> <span class="pill" style="background:var(--gold);color:var(--ink)">vacant</span>
-        <div class="fnote" style="margin-top:3px">An acting director is running it: everything the department delivers lands ${Math.abs(Math.round(APPT_VACANT_EFF*100))}% softer, overhead is up ${APPT_VACANT_OVERHEAD.toFixed(1)}, and it costs you ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter until you fill it.</div>
+        <div class="fnote" style="margin-top:3px">Nobody is confirmed: everything the department delivers lands ${Math.abs(Math.round(APPT_VACANT_EFF*100))}% softer, overhead is up ${APPT_VACANT_OVERHEAD.toFixed(1)}, and it costs you ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter until you fill it.${(()=>{
+          const v=(GAME.apptVacancies||{})[id]; if(!v)return "";
+          const due=Math.max(0,APPT_ACTING_AFTER-(GAME.turn-(v.opened||0)));
+          return due?` A deputy takes the chair in <b>${due} quarter${due===1?"":"s"}</b>, and the names below go with them.`
+                    :" A deputy is running it now.";
+        })()}</div>
         </span><span class="rval"></span></div>`;
       const slate=apptSlate(id);
       slate.forEach((c,i)=>{
@@ -20953,7 +21007,7 @@ function renderAppointments(){
         const col=raw>=70?"var(--moss)":raw>=45?"var(--gold)":"var(--clay)";
         const afford=(GAME.capital>=w.cost)||window.SANDBOX;
         h+=`<div class="rrow" style="padding-left:10px"><span class="rlabel">
-          <b>${c.name}</b> ${apptTraitChip(c.trait)} ${c.side==="opposition"?`<span class="pill" style="background:var(--clay);color:var(--paper)">other party</span>`:""}
+          <b>${c.name}</b> ${apptTraitChip(c.trait)} ${c.side==="opposition"?`<span class="pill" style="background:var(--clay);color:var(--paper)">other party</span>`:c.side==="incumbent"?`<span class="pill" style="background:var(--moss);color:var(--paper)">reappoint \u2014 ${c.served||0} quarter${(c.served||0)===1?"":"s"} served</span>`:""}
           <div class="fnote" style="margin-top:3px">${(APPT_TRAITS[c.trait]||{}).blurb||""}</div>
           <div class="fnote" style="margin-top:4px">${apptEffectLine(id,c.trait)}</div>
           <div class="fnote" style="margin-top:4px">${g?g.name+" gain":""}${f?", "+f.name+" lose":""} while they serve</div>
