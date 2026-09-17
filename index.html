@@ -5379,11 +5379,18 @@ function apptNominate(postId, idx, cushion){
 /* What ending somebody's tenure early costs. Read by apptRemove AND by the
    button, which used to carry its own copy of the number and went on quoting
    the old one after the price changed. */
-function apptRemoveCost(){ return POLICIES.cabinetGovernment?2:3; }
+function apptRemoveCost(postId){
+  // Removing somebody YOU appointed is admitting a mistake in public and is
+  // priced accordingly. Removing somebody who was simply already there is
+  // what every new governor does in January, and costs nothing at all.
+  const h=postId?apptHolder(postId):null;
+  if(h&&h.side==="sitting")return 0;
+  return POLICIES.cabinetGovernment?2:3;
+}
 function apptCanRemove(postId){ return !!POLICIES.cabinetGovernment || APPT_POSTS[postId].body==="department"; }
 function apptRemove(postId){
   const h=apptHolder(postId); if(!h||!apptCanRemove(postId))return false;
-  const cost=apptRemoveCost();
+  const cost=apptRemoveCost(postId);
   if(!window.SANDBOX && GAME.capital<cost)return false;
   GAME.capital=clamp(GAME.capital-cost,0,CAPITAL_MAX);
   delete GAME.appointments[postId];
@@ -5479,11 +5486,23 @@ function apptSeedSittingMembers(){
   const ids=Object.keys(APPT_POSTS);
   ids.forEach((id,i)=>{
     const c=apptMakeCandidate(id,"yours");
-    // rarely a reformer: nobody put these people here to change anything
-    c.trait = Math.random()<0.55 ? "caretaker" : (Math.random()<0.7 ? "insider" : "reformer");
+    // NOBODY GETS A FIXED TERM BY ACCIDENT. A commission seat is four years
+    // somebody had to be chosen for, so the people you cannot remove are the
+    // ones who were put there on purpose. A department head may genuinely be
+    // minding the shop until the next governor arrives.
+    const fixed = APPT_POSTS[id].body==="commission";
+    const r=Math.random();
+    c.trait = fixed
+      ? (r<0.50 ? "insider" : r<0.80 ? "reformer" : "caretaker")
+      : (r<0.45 ? "insider" : r<0.65 ? "reformer" : "caretaker");
+    // never a loyalist: a loyalist is loyal to YOU, and none of them know you
     c.loyalty=+(0.1+Math.random()*0.25).toFixed(2);
+    // AND THEY DID NOT START THIS MORNING. Part-way through already, so an
+    // inherited reformer is past their disruptive year rather than spending
+    // it on your clock, and somebody long-serving is already a flight risk.
+    const served=2+Math.floor(Math.random()*14);
     GAME.appointments[id]={name:c.name, trait:c.trait, group:c.group, foe:c.foe, side:"sitting",
-      loyalty:c.loyalty, since:0, term:3+Math.floor(Math.random()*16)+ (i%3)};
+      loyalty:c.loyalty, since:-served, term:3+Math.floor(Math.random()*16)+ (i%3)};
   });
   // the chairs as you found them are the zero point for overhead and capital
   GAME.apptBase={overhead:apptOverheadRaw(), capital:apptCapitalRaw()};
@@ -21093,13 +21112,13 @@ function renderAppointments(){
         : `<span class="pill"${left<=4?` style="background:var(--gold);color:var(--ink)"`:``}>${left===0?"term ends this quarter":`${left} quarter${left===1?"":"s"} left in the term`}</span>`;
       const settleChip = settling
         ? `<span class="pill" style="background:var(--clay);color:var(--paper)">tearing it up \u2014 delivering less for ${settling} more quarter${settling===1?"":"s"}</span>` : "";
-      const canRm=apptCanRemove(id), rmCost=apptRemoveCost();
+      const canRm=apptCanRemove(id), rmCost=apptRemoveCost(id);
       h+=`<div class="rrow"><span class="rlabel"><b>${ico(post.icon)} ${apptPostLabel(id)}</b> ${sideChip} ${termChip} ${settleChip}
         <div class="fnote" style="margin-top:3px"><b>${holder.name}</b> ${apptTraitChip(holder.trait)} &middot; ${(APPT_TRAITS[holder.trait]||{}).blurb||""}</div>
         <div class="fnote" style="margin-top:4px">${apptEffectLine(id,holder.trait,true)}</div>
         <div class="fnote" style="margin-top:4px">${apptGroupLine(holder)}</div>
         <div class="fnote" style="margin-top:4px;opacity:.85">${post.body==="commission"?`One seat on the ${post.seat} \u2014 a fixed term you cannot cut short`:`${post.name} \u2014 serves at the governor's pleasure`}</div>
-        </span><span class="rval">${canRm?`<button class="fcard-btn" data-apptrm="${id}" ${(GAME.capital>=rmCost||window.SANDBOX)?"":"disabled"}>\u25c8${rmCost} Remove</button>`:`<span class="fnote">fixed term</span>`}</span></div>`;
+        </span><span class="rval">${canRm?`<button class="fcard-btn" data-apptrm="${id}" ${(GAME.capital>=rmCost||window.SANDBOX)?"":"disabled"}>${rmCost?`\u25c8${rmCost} `:``}Remove</button>`:`<span class="fnote">fixed term</span>`}</span></div>`;
     } else {
       h+=`<div class="rrow"><span class="rlabel"><b>${ico(post.icon)} ${apptPostLabel(id)}</b> <span class="pill" style="background:var(--gold);color:var(--ink)">vacant</span>
         <div class="fnote" style="margin-top:3px"><b>Deputy ${apptDeputy(id)||"—"}</b> is keeping it running, and brings nothing: no interest group, no gain, no authority. The seat is vacant until somebody is confirmed, so everything the department delivers lands ${Math.abs(Math.round(APPT_VACANT_EFF*100))}% softer, overhead is up ${APPT_VACANT_OVERHEAD.toFixed(1)}, and it costs you ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter for as long as you leave it.</div>
