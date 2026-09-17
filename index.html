@@ -859,6 +859,11 @@
   .rrow{display:flex;align-items:baseline;gap:8px;padding:5px 0;border-bottom:1px solid var(--line-faint)}
   .rlabel{flex:1;font-size:14.5px;color:var(--ink)}
   .rval{font-family:var(--font-data);font-size:14.5px;color:var(--muted-2)}
+  /* A row whose label is a full office title and whose value is most of a
+     sentence cannot share a baseline flex with the budget lines. */
+  .rrow.apptrow{display:block}
+  .rrow.apptrow .rlabel{display:block}
+  .rrow.apptrow .rval{display:block;margin-top:1px;padding-left:19px}
   .rdelta{font-family:var(--font-data);font-size:13.5px;font-weight:600;min-width:62px;text-align:right}
   .rdelta.good{color:var(--good)}
   .rdelta.bad{color:var(--bad)}
@@ -5530,9 +5535,6 @@ function apptSeedSittingMembers(){
         return (io.economic||0)+(io.social||0)+(io.govSize||0); };
       const pool=(APPT_POSTS[id].pool||[]).slice().sort((a,b)=>lean(a)-lean(b));
       if(pool.length)c.group=pool[Math.floor(Math.random()*Math.min(2,pool.length))];
-      // and whoever resents them is on the governor's own side
-      const foes=(APPT_POSTS[id].foes||[]).slice().sort((a,b)=>lean(b)-lean(a));
-      if(foes.length)c.foe=foes.find(f=>f!==c.group)||null;
     }
     const fixed = APPT_POSTS[id].body==="commission";
     const r=Math.random();
@@ -5549,7 +5551,11 @@ function apptSeedSittingMembers(){
     // difference between a working government and nine simultaneous vacancies
     // when this runs for a save resumed part-way through a term.
     const now=GAME.turn||0;
-    GAME.appointments[id]={name:c.name, trait:c.trait, group:c.group, foe:c.foe, side:"sitting",
+    // NO FOE ON AN INHERITED CHAIR. The foe term is anger at a CHOICE, and
+    // this appointment was made by a government that is gone, so keeping
+    // somebody costs you nothing with your own people. The moment you
+    // confirm somebody yourself, a foe comes with the choice again.
+    GAME.appointments[id]={name:c.name, trait:c.trait, group:c.group, foe:null, side:"sitting",
       loyalty:c.loyalty, since:now-served, term:now+3+Math.floor(Math.random()*16)+ (i%3)};
   });
   // the chairs as you found them are the zero point for overhead and capital
@@ -12360,8 +12366,8 @@ function showQuarterReport(){
   const _vac=Object.keys(APPT_POSTS).filter(id=>apptVacant(id));
   const apptBlock=_vac.length?`<div class="rsection"><div class="rsec-h">${ico('people')} Appointments</div>`
     +_vac.map(id=>{ const v=(GAME.apptVacancies||{})[id], open=v?Math.max(0,GAME.turn-(v.opened||0)):0;
-      return `<div class="rrow"><span class="rlabel" style="color:var(--gold)">${ico(APPT_POSTS[id].icon)} ${apptPostLabel(id)}</span>`
-        +`<span class="rval" style="color:var(--gold)">vacant ${open}q \u00b7 Deputy ${apptDeputy(id)||"—"} minding it</span></div>`;
+      return `<div class="rrow apptrow"><span class="rlabel" style="color:var(--gold)">${ico(APPT_POSTS[id].icon)} ${apptPostLabel(id)}</span>`
+        +`<span class="rval" style="color:var(--gold)">vacant ${open}q \u00b7 Deputy ${apptDeputy(id)||"—"}</span></div>`;
     }).join("")
     +`<div class="rforecast">A deputy keeps each of these running and brings nothing to it. An empty chair costs you ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter and softens everything that department delivers, for as long as it stays empty. Nominations are on the Appointments page.</div></div>`:"";
   const events=(GAME.log||[]).slice(-6).filter(l=>/began|RESOLVED|Midterms|kicker|Kicker|Reserves|Promise|Scandal|boom|Windfall|Federal|Deficit|debt|Austerity/i.test(l));
