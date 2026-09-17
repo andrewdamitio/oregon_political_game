@@ -7728,6 +7728,7 @@ const SITUATIONS={
     metricEffect:{health:-2.5}, moodMag:1, minTurns:1, onTrigger:{capital:-3},
     groupMood:{suburban:-5,blueCollar:-3,parents:-5}},
   gopWalkout:{name:"Legislative Walkout", kind:"bad", category:"condition",
+    card:"The Republican caucus has left the state. Nothing reaches a floor until they come back.",
     desc:"Article IV section 12 sets the legislative quorum at two-thirds, which in Oregon means the minority can end the session by leaving the state. It killed cap-and-trade twice. Whoever is out of power does the walking: a progressive governor faces the Republican caucus in Idaho, a Republican governor faces the Democratic caucus in Washington.\n\nEither way the building stops. No bill of yours reaches a floor for three full quarters, and no capital changes that, because there is nobody there to spend it on. Meet their price and end it the same quarter, or wait them out.\n\nYour program brings it on, not your polling. There has to be something on the books to walk out about, and the further past the settlement you inherited you drive the agenda, the closer the caucus gets to the buses. How alone their voters are sharpens it. How popular you are decides whether they dare.\n\nA Simple-Majority Quorum amendment ends the tactic. So does holding two-thirds of both chambers, or a coalition holding two-thirds of the Assembly under proportional representation.",
     trigger:()=>walkoutTrigger("right"),
     // exactly three quarters, then they come home — the escape hatches end it early
@@ -7741,6 +7742,7 @@ const SITUATIONS={
     indicatorEffect:{}, moodAxes:{economic:0.1,govSize:0.1},
     groupMood:{moderate:-3, businessClass:-3}},
   demWalkout:{name:"Legislative Walkout", kind:"bad", category:"condition",
+    card:"The Democratic caucus has left the state. Nothing reaches a floor until they come back.",
     desc:"Article IV section 12 does not name a party. The two-thirds quorum that Oregon Republicans used to kill cap-and-trade twice is the same rule read from the other side of the aisle, and it belongs to whoever is out of power — so a Republican governor faces the Democratic caucus, and the buses go north to Vancouver and Olympia rather than east to Idaho. Democrats have done exactly this elsewhere when they had nothing else: Wisconsin in 2011 over Act 10, Texas in 2021 over the voting bill, and Oregon's own Senate Democrats over redistricting in 2001.\n\nWhat they leave over is a bill, not a poll — the corporate tax cut, bargaining rights narrowed, abortion access rolled back, right-to-work, paid leave gutted. The building stops for three full quarters and no amount of political capital changes that, because there is nobody there to spend it on. You can meet their price and end it early, or wait them out and let your own coalition watch you refuse to blink. A Simple-Majority Quorum amendment ends the tactic for good, and so does holding two-thirds of both chambers — or, under proportional representation, a governing coalition holding two-thirds of the Assembly.",
     trigger:()=>walkoutTrigger("left"),
     clear:()=>POLICIES.quorumReform || quorumProof() || (GAME.situationAge.demWalkout||0) >= 3,
@@ -8748,6 +8750,20 @@ function sitNear(cur, from, to){
 }
 /* The closest way out of a multi-route condition. */
 function sitBest(){ let m=1; for(let i=0;i<arguments.length;i++)m=Math.min(m,arguments[i]); return m; }
+/* WHAT A CRISIS SAYS ON THE BOARD. The full description belongs on the
+   situation's own page. A card that has to sit beside four others needs one
+   line, and for almost every entry the line already exists: it is the first
+   sentence. A situation can override it with `card` where its opening is a
+   statute citation or a recap of the player's own record. */
+function sitCardLine(sid){
+  const S=SITUATIONS[sid]; if(!S)return "";
+  if(S.card)return S.card;
+  const d=String(S.desc||"").replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim();
+  const m=d.match(/^[^.!?]*[.!?]/);
+  let t=(m?m[0]:d).trim();
+  if(t.length>165)t=t.slice(0,162).replace(/[ ,;:]+$/,"")+"...";
+  return t;
+}
 function sitSeverity(sid){
   const st=SITUATIONS[sid];
   if(!st||!GAME.activeSituations[sid])return 0;
@@ -12144,7 +12160,7 @@ function showWelcome(onDone){
   const cardFor=(S)=>`<button class="startcard${(chosen&&S.id===cur)?' selected':''}" data-start="${S.id}">
       <div class="sc-name">${S.name}</div>
       <div class="sc-blurb">${S.blurb}</div>
-      <div class="sc-seats">${ico('columns')} <b>${S.seats}</b> — the seats you take office with</div>
+      <div class="sc-seats">${ico('columns')} <b>${S.seats}</b> in the seats you take office with</div>
     </button>`;
   card.innerHTML=`<div class="egrand welcome-grand welcome-title">
     <div class="wm-seal"><img class="seal-lg" src="cropped-oregon-state-seal.webp" alt="Great Seal of the State of Oregon"></div>
@@ -12153,12 +12169,12 @@ function showWelcome(onDone){
     <div class="eg-tagline">Political Simulator</div>
     <div class="wm-rule"></div>
     <div class="eg-role">You have been elected <b>Governor</b>. Eight years to leave the state better than you found it.</div>
-    <div class="startprompt">First — <b>how did you win?</b></div>
+    <div class="startprompt">First: <b>how did you win?</b></div>
     <div class="startrow">${cardFor(STARTS.liberal)}${cardFor(STARTS.conservative)}</div>
-    <div class="eg-sub startnote">Same Oregon either way: the same laws, the same crises, the same budget hole. How you won decides which seats in Salem are yours, and who is already sitting in the chairs when you arrive.</div>
+    <div class="eg-sub startnote">The same Oregon either way, with the same budget hole. How you won decides which seats in Salem are yours and who is already sitting in the chairs when you arrive.</div>
     <label class="welcome-optin">
       <input type="checkbox" id="welcomeTermLimit" ${GAME.enforceTermLimit!==false?'checked':''}>
-      <span>Enforce Oregon's <b>two consecutive-term limit</b> — your second term is your last unless you amend the constitution. Off means re-election without end.</span>
+      <span>Enforce Oregon's <b>two consecutive-term limit</b>, so your second term is your last unless you amend the constitution. Off means re-election without end.</span>
     </label>
     <button class="enactbtn welcome-go" id="welcomeGo"${chosen?'':' disabled'}>${chosen?'Take office ▸':'Choose how you won to begin'}</button>
     <details class="welcome-help">
@@ -21519,10 +21535,13 @@ function renderSidebar(){
   paintClimateReadouts("");
   // the board tab already shows active situations as tiles up top — don't duplicate them in the sidebar
   document.getElementById("sitSection").style.display=(currentView==="board")?"none":"";
-  const sl=document.getElementById("sitList"), keys=Object.keys(GAME.activeSituations);
+  const sl=document.getElementById("sitList"),
+    // a key with no situation behind it throws on s.kind and takes the whole
+    // sidebar with it; applySave strips these, nothing else was checking
+    keys=Object.keys(GAME.activeSituations).filter(k=>SITUATIONS[k]);
   sl.innerHTML=keys.length?keys.map(sid=>{const s=SITUATIONS[sid];
     const age=GAME.situationAge[sid]||0;
-    return `<div class="sit ${s.kind} sit-link" data-detail="s_${sid}"><div class="sname">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div><div class="sdesc">${s.desc}</div><div class="sage">${s.category==='event'?'event':'condition'} · ${age+1}q active</div></div>`;}).join(''):'<div class="empty">No active situations.</div>';
+    return `<div class="sit ${s.kind} sit-link" data-detail="s_${sid}"><div class="sname">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div><div class="sdesc">${sitCardLine(sid)}</div><div class="sage">${s.category==='event'?'event':'condition'} · ${age+1}q active</div></div>`;}).join(''):'<div class="empty">No active situations.</div>';
   document.getElementById("logList").innerHTML=GAME.log.length?GAME.log.slice().reverse().map(l=>`<div class="log">${l}</div>`).join(''):'<div class="empty">—</div>';
   sl.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
   const nb=document.getElementById("nmBlock"), nl=document.getElementById("nmLabel");
@@ -22206,13 +22225,13 @@ for(const id in SIMULANTS)SIMULANTS[id].id=id;
 const STARTS={
   liberal:{
     id:"liberal", name:"As a Democrat",
-    blurb:"Oregon almost always elects Democratic governors and legislatures. In this run the Democrats hold just enough of each chamber to raise taxes on their own — a working majority, so the constraint on your term is capital and attention, not arithmetic.",
+    blurb:"Oregon almost always elects Democratic governors and legislatures. In this run they hold just enough of each chamber to raise taxes on their own. The constraint on your term is capital and attention, not arithmetic.",
     seats:"36 of 60 · 18 of 30",
     blocs:{}, legis:{house:36, senate:18}
   },
   conservative:{
     id:"conservative", name:"As a Republican",
-    blurb:"The Oregon GOP takes a legislative majority for the first time in decades — a signal that the state wants a real change of direction. Every chair in the executive branch was filled by somebody the other side put there, and what you do about that is the first real decision of the term.",
+    blurb:"The Oregon GOP takes a legislative majority for the first time in decades, on a clear signal that the state wants a change of direction. Every chair in the executive branch was filled by somebody the other side put there, and what you do about that is the first real decision of the term.",
     seats:"33 of 60 · 17 of 30",
     // Balanced so the two starts open on the same overall approval: this is a
     // different coalition, not a bigger one. What moves is WHO likes you.
