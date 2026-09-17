@@ -5185,7 +5185,7 @@ const APPT_CONFIRM={
   // what it is actually worth in a chamber that has districts.
   prGroup:0.42,
   cross:3, betray:-3,
-  pop:1.1, loyalty:0.7, trait:0.6, crossOwn:-1.6, crossOpp:2.0, base:2,
+  pop:1.1, loyalty:0.7, trait:0.6, crossOwn:-1.6, crossOpp:5.2, base:2,   // must outweigh the -3.4 of their own discipline
   // WHAT THE OTHER SIDE WILL VOTE FOR. A nominee out of a bloc that leans
   // their way, and one whose whole promise is that nothing changes.
   reachGroup:2.2, reachTrait:1.3,
@@ -5307,11 +5307,24 @@ function apptMakeCandidate(postId, side){
 }
 /* Three names for an empty chair: two of your own, and one from the other
    side who is easier to confirm and costs you with your base. */
+/* Does the government hold the chamber that confirms? Under districts that is
+   the Senate; under proportional representation it is whatever the coalition
+   can actually whip in the Assembly. */
+function apptChamberHeld(){
+  if(prOn())return coalitionSeats(true)>=LEGIS.majH;
+  return (GAME.legis&&GAME.legis.senate||0)>=LEGIS.majS;
+}
 function apptSlate(postId){
   const v=(GAME.apptVacancies=GAME.apptVacancies||{});
   if(!v[postId])v[postId]={opened:GAME.turn, deputy:apptMakeCandidate(postId,"deputy").name,
     slate:[apptMakeCandidate(postId,"yours"),apptMakeCandidate(postId,"yours"),apptMakeCandidate(postId,"opposition")]};
   if(!v[postId].deputy)v[postId].deputy=apptMakeCandidate(postId,"deputy").name;
+  // A REJECTED NAME IS SPENT, INCLUDING THE CROSS-AISLE ONE. Losing it in a
+  // chamber you do not hold would leave a governor with two of their own and
+  // no way to pass either, so somebody else from the other party comes
+  // forward. Hold the chamber and the slate stands as dealt.
+  if(!apptChamberHeld() && !v[postId].slate.some(c=>c.side==="opposition"))
+    v[postId].slate.push(apptMakeCandidate(postId,"opposition"));
   return v[postId].slate;
 }
 /* Who is actually keeping the lights on in a vacant department. Naming them
@@ -5404,15 +5417,21 @@ function apptNominate(postId, idx, cushion){
   const w=apptWhip(postId,cand,cushion);
   // no capital changes hands: a confirmation is a vote
   const post=APPT_POSTS[postId];
-  const passed=window.SANDBOX?true:(Math.random()<w.odds);
+  // the same roll the bill floor runs: every member counted one at a time
+  // with vote-day noise, rather than one throw against a summary number
+  const res=runFloorVote(w);
+  const passed=res.passed;
   if(!passed){
-    GAME.log.push(ico('ban')+" "+w.chamberName.replace("the ","The ")+" rejected "+cand.name+" for "+post.name);
+    GAME.log.push(ico('ban')+" "+w.chamberName.replace("the ","The ")+" rejected "+cand.name+" for "+post.name
+      +" \u2014 "+res[w.floor.chamber].yes+" to "+Math.max(0,w.floor.total-res[w.floor.chamber].yes));
     createGrudge("capital",-1);
     GAME.mandateShock=(GAME.mandateShock||0)-1.5;
     // the slate moves on: that name is spent
     slate.splice(idx,1);
     if(!slate.length)delete GAME.apptVacancies[postId];
-    render(); return false;
+    showApptResult({ok:false, name:cand.name, post:apptPostLabel(postId), w,
+      res:res[w.floor.chamber], chamber:w.chamberName.replace("the ","The ")});
+    return false;
   }
   GAME.appointments=GAME.appointments||{};
   GAME.appointments[postId]={name:cand.name, trait:cand.trait, group:cand.group, foe:cand.foe,
@@ -5423,7 +5442,9 @@ function apptNominate(postId, idx, cushion){
   delete GAME.apptVacancies[postId];
   apptCompassShift(cand);          // staffing the state is part of the record
   GAME.log.push(ico(post.icon)+" "+cand.name+" confirmed to "+apptPostLabel(postId)+" ("+(APPT_TRAITS[cand.trait]||{}).label+")");
-  render(); return true;
+  showApptResult({ok:true, name:cand.name, post:apptPostLabel(postId), w,
+    res:res[w.floor.chamber], chamber:w.chamberName.replace("the ","The ")});
+  return true;
 }
 /* Only a governor with a cabinet can clear a chair at will. Under the boards
    and commissions Oregon actually has, you wait for the term to end. */
@@ -15418,6 +15439,33 @@ function runFloorVote(w){
 }
 /* The clerk reads the result. A bill that dies deserves to be told to your
    face, with the count, rather than quietly greying out a button. */
+/* THE CLERK READS THE ROLL ON A NOMINATION TOO. One chamber, because only
+   one confirms, and no capital line, because a confirmation costs none. */
+function showApptResult(o){
+  const card=document.getElementById("voteResultCard"), modal=document.getElementById("voteResultModal");
+  if(!card||!modal)return;
+  const R=o.res, total=o.w.floor.total, no=Math.max(0,total-R.yes);
+  card.innerHTML=`<div class="sectionhdr">${ico(o.ok?'people':'ban')} ${o.ok?"Confirmed":"Rejected"} \u2014 ${o.name}</div>
+    <div class="sectionsub">${o.ok
+      ? `The clerk reads the roll and ${o.name} is confirmed to ${o.post}.`
+      : `${o.name} falls short on the floor. The whip count was a projection; on the day it did not hold.`}</div>
+    <div class="rsection" style="margin-top:10px">
+      <div class="rrow"><span class="rlabel">${o.chamber}</span>
+        <span class="rval" style="color:${o.ok?'var(--good)':'var(--clay)'}"><b>${R.yes}</b>\u2013${no} \u00b7 needed ${R.need}${o.ok?"":" \u2717"}</span></div>
+      ${o.ok?`<div class="rrow"><span class="rlabel">Takes office</span><span class="rval">this quarter</span></div>`
+           :`<div class="rrow"><span class="rlabel">That name is spent</span><span class="rval" style="color:var(--clay)">off the slate</span></div>
+             <div class="rrow"><span class="rlabel">The chair</span><span class="rval">still vacant</span></div>`}
+    </div>
+    ${o.ok?"":`<div class="sectionsub" style="margin-top:9px;font-size:13px">Send up somebody the chamber will take, or win the seats. A confirmation costs no capital, so the only price of losing one is the name and the quarter.</div>`}
+    <button class="enactbtn" id="voteResOk">${o.ok?"Good":"Understood \u25b8"}</button>`;
+  modal.classList.remove("hidden");
+  const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); render(); };
+  const onKey=e=>{ if(modal.classList.contains("hidden"))return;
+    if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); } };
+  document.getElementById("voteResOk").onclick=close;
+  document.addEventListener("keydown",onKey,true);
+  setTimeout(()=>{try{document.getElementById("voteResOk").focus();}catch(e){}},30);
+}
 function showVoteResult(o){
   const card=document.getElementById("voteResultCard"), modal=document.getElementById("voteResultModal");
   if(!card||!modal)return;
