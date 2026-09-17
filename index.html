@@ -2080,6 +2080,11 @@ function applySave(sv){
     // dilemma screen would also drop it for having no text; this just clears it
     // before anything else reads the id.
     if(GAME.pendingDilemma&&!DILEMMAS[GAME.pendingDilemma])GAME.pendingDilemma=null;
+    // A SAVE OLDER THAN THE APPOINTMENTS SYSTEM carries no chairs at all. The
+    // ones bootWorld seeded are still standing, but their terms were written
+    // for a game at turn zero and have mostly expired by the time this save
+    // resumes. Re-seed them against the turn we actually arrived at.
+    if(!sv.game || !sv.game.appointments) apptSeedSittingMembers();
     GAME.fading={};
     NATIONAL_MOOD.value=sv.nm.value; NATIONAL_MOOD.drift=sv.nm.drift;
     if(sv.landuse!=null)LANDUSE.index=sv.landuse;
@@ -5502,6 +5507,21 @@ function apptSeedSittingMembers(){
     // somebody had to be chosen for, so the people you cannot remove are the
     // ones who were put there on purpose. A department head may genuinely be
     // minding the shop until the next governor arrives.
+    // A REPUBLICAN GOVERNOR INHERITS THE OTHER SIDE'S GOVERNMENT. Oregon has
+    // not elected one since 1982, so every chair was filled by somebody a
+    // Democratic administration chose. Draw their interest group from the
+    // blocs furthest from the incoming governor rather than from the whole
+    // pool, and the Appointments page opens as a real problem: thirteen
+    // people who answer to the other side, and free to remove.
+    if(GAME.startId==="conservative"){
+      const lean=b=>{ const io=(SIMULANTS[b]&&SIMULANTS[b].ideology)||{};
+        return (io.economic||0)+(io.social||0)+(io.govSize||0); };
+      const pool=(APPT_POSTS[id].pool||[]).slice().sort((a,b)=>lean(a)-lean(b));
+      if(pool.length)c.group=pool[Math.floor(Math.random()*Math.min(2,pool.length))];
+      // and whoever resents them is on the governor's own side
+      const foes=(APPT_POSTS[id].foes||[]).slice().sort((a,b)=>lean(b)-lean(a));
+      if(foes.length)c.foe=foes.find(f=>f!==c.group)||null;
+    }
     const fixed = APPT_POSTS[id].body==="commission";
     const r=Math.random();
     c.trait = fixed
@@ -5513,8 +5533,12 @@ function apptSeedSittingMembers(){
     // inherited reformer is past their disruptive year rather than spending
     // it on your clock, and somebody long-serving is already a flight risk.
     const served=2+Math.floor(Math.random()*14);
+    // RELATIVE TO NOW, not to turn zero. Identical on a fresh game, and the
+    // difference between a working government and nine simultaneous vacancies
+    // when this runs for a save resumed part-way through a term.
+    const now=GAME.turn||0;
     GAME.appointments[id]={name:c.name, trait:c.trait, group:c.group, foe:c.foe, side:"sitting",
-      loyalty:c.loyalty, since:-served, term:3+Math.floor(Math.random()*16)+ (i%3)};
+      loyalty:c.loyalty, since:now-served, term:now+3+Math.floor(Math.random()*16)+ (i%3)};
   });
   // the chairs as you found them are the zero point for overhead and capital
   GAME.apptBase={overhead:apptOverheadRaw(), capital:apptCapitalRaw()};
@@ -12096,12 +12120,12 @@ function showWelcome(onDone){
     <div class="eg-role">You have been elected <b>Governor</b>. Eight years to leave the state better than you found it.</div>
     <div class="startprompt">First — <b>how did you win?</b></div>
     <div class="startrow">${cardFor(STARTS.liberal)}${cardFor(STARTS.conservative)}</div>
-    <div class="eg-sub startnote">Same Oregon either way: the same laws, the same crises, the same budget hole. The coalition decides which seats in Salem are yours and which half of the policy list the floor will carry.</div>
+    <div class="eg-sub startnote">Same Oregon either way: the same laws, the same crises, the same budget hole. How you won decides which seats in Salem are yours, and who is already sitting in the chairs when you arrive.</div>
     <label class="welcome-optin">
       <input type="checkbox" id="welcomeTermLimit" ${GAME.enforceTermLimit!==false?'checked':''}>
       <span>Enforce Oregon's <b>two consecutive-term limit</b> — your second term is your last unless you amend the constitution. Off means re-election without end.</span>
     </label>
-    <button class="enactbtn welcome-go" id="welcomeGo"${chosen?'':' disabled'}>${chosen?'Take office ▸':'Choose a coalition to begin'}</button>
+    <button class="enactbtn welcome-go" id="welcomeGo"${chosen?'':' disabled'}>${chosen?'Take office ▸':'Choose how you won to begin'}</button>
     <details class="welcome-help">
       <summary>How to play</summary>
       <div class="welcome-body">
@@ -22139,14 +22163,14 @@ for(const id in SIMULANTS)SIMULANTS[id].id=id;
    ============================================================ */
 const STARTS={
   liberal:{
-    id:"liberal", name:"A Democratic Coalition",
-    blurb:"Oregon almost always elects Democratic governors and legislatures. In this run the Democrats hold just enough of each chamber to raise taxes on their own — a working majority, so the constraint on your term is capital and attention, not arithmetic. The right-hand half of the policy list is out of reach at any price.",
+    id:"liberal", name:"As a Democrat",
+    blurb:"Oregon almost always elects Democratic governors and legislatures. In this run the Democrats hold just enough of each chamber to raise taxes on their own — a working majority, so the constraint on your term is capital and attention, not arithmetic.",
     seats:"36 of 60 · 18 of 30",
     blocs:{}, legis:{house:36, senate:18}
   },
   conservative:{
-    id:"conservative", name:"A Republican Coalition",
-    blurb:"The Oregon GOP takes a legislative majority for the first time in decades — a signal that the state wants a real change of direction. The mainstream-right agenda is on the table; the further-right one still is not, and the seats you hold are the ones you can lose.",
+    id:"conservative", name:"As a Republican",
+    blurb:"The Oregon GOP takes a legislative majority for the first time in decades — a signal that the state wants a real change of direction. You inherit a government staffed by the other side, and the seats you hold are the ones you can lose.",
     seats:"33 of 60 · 17 of 30",
     // Balanced so the two starts open on the same overall approval: this is a
     // different coalition, not a bigger one. What moves is WHO likes you.
