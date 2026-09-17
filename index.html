@@ -2767,11 +2767,23 @@ const INDICATORS={
       const weak = Math.min(police, prosecution, jail);
       return clamp((sum*0.80 + weak*0.20)*100, 0, 100);
     },
-    drivers:()=>[
-      {name:ico('shield')+" Police Funding",v:(POLICIES.policing?effLevelOf(POLICIES.policing):0.25)*100,link:"p_policing"},
-      {name:ico(AGENCIES.judiciary.icon)+" "+AGENCIES.judiciary.name,v:(AGENCIES.judiciary?.funding??0.5)*100,link:"a_judiciary"},
-      {name:ico(AGENCIES.corrections.icon)+" "+AGENCIES.corrections.name,v:(AGENCIES.corrections?.funding??0.5)*100,link:"a_corrections"},
-    ],
+    /* EACH PILLAR'S SHARE, not its raw funding. These rows used to print
+       funding x 100 as though the gauge were their sum, which read 150
+       against a gauge of 50 and could never have agreed with it at any
+       funding level: the gauge is a weighted average, four fifths of it, with
+       the last fifth resting on the weakest pillar alone. */
+    drivers:()=>{
+      const police=POLICIES.policing?effLevelOf(POLICIES.policing):0.25;
+      const prosecution=AGENCIES.judiciary?.funding??0.5;
+      const jail=AGENCIES.corrections?.funding??0.5;
+      const weak=Math.min(police,prosecution,jail);
+      return [
+        {name:ico('shield')+" Police Funding",v:police*0.34*0.80*100,link:"p_policing"},
+        {name:ico(AGENCIES.judiciary.icon)+" "+AGENCIES.judiciary.name,v:prosecution*0.33*0.80*100,link:"a_judiciary"},
+        {name:ico(AGENCIES.corrections.icon)+" "+AGENCIES.corrections.name,v:jail*0.33*0.80*100,link:"a_corrections"},
+        {name:ico('warning')+" The weakest of the three, on its own",v:weak*0.20*100,link:null},
+      ];
+    },
     feedback:{violentCrime:-0.025, propertyCrime:-0.022, drugUse:-0.018, homelessness:-0.010}},
   housingAffordability:{name:"Housing Affordability", icon:"house", value:40,
     desc:"How accessible Oregon's housing market is to working residents — a composite of growth pressure on cost, income inequality, housing production, and land-use supply. Oregon has one of the worst housing deficits in the nation, driven by decades of underbuilding behind urban growth boundaries and stagnant wages, worsened by every wave of arrivals the state has not built room for. High affordability attracts workers and families; low affordability accelerates homelessness, inequality, and out-migration.",
@@ -19619,7 +19631,22 @@ function renderDetail(){
           if(d.base){h+=`<div class="threshline" style="opacity:.8">${d.name}: ${d.v}</div>`;continue;}
           h+=effectBar(d.name, d.v, scale, {color:indDeltaGood(id,d.v)?'var(--good)':'var(--clay)', link:d.link||null, fmt:v=>(v>=0?'+':'')+v.toFixed(1)});
         }
-        h+=`<div class="threshline" style="margin-top:6px;font-style:italic">These combine (plus active crises) into the gauge, which then eases toward that target with some lag.</div></div>`;
+        // THE PANEL CHECKS ITS OWN ARITHMETIC. If these rows do not account
+        // for the number above them, say so rather than let the difference
+        // sit there unnamed — a gauge held at the end of its scale is the
+        // usual reason, and a driver list that has drifted out of step with
+        // its formula is the one worth catching.
+        const _shown=ds.reduce((a,d)=>a+(d.v||0),0);
+        let _target=ind.value; try{ _target=ind.derive(); }catch(e){}
+        const _gap=+( _target-_shown ).toFixed(2);
+        if(Math.abs(_gap)>0.05){
+          const _floored=_target<=0.01&&_shown<0, _capped=_target>=99.99&&_shown>100;
+          const _lbl=_floored?(ico('warning')+" Held at 0 — the rows above run "+Math.abs(_shown).toFixed(1)+" past the bottom of the scale")
+                 :_capped?(ico('warning')+" Held at 100 — the rows above run "+(_shown-100).toFixed(1)+" past the top of the scale")
+                 :(ico('doc')+" Other sources, not itemised");
+          h+=effectBar(_lbl, _gap, Math.max(scale,Math.abs(_gap)), {color:'var(--muted-3)', link:null, fmt:v=>(v>=0?'+':'')+v.toFixed(1)});
+        }
+        h+=`<div class="threshline" style="margin-top:6px;font-style:italic">These add up to the target the gauge is easing toward, which it reaches with some lag.</div></div>`;
       }
     }
     // what it feeds into
