@@ -5304,6 +5304,20 @@ function apptCapitalRaw(){
    either way until you change one. Everything below is the difference you
    have made. */
 function apptOverhead(){ return +(apptOverheadRaw()-((GAME.apptBase&&GAME.apptBase.overhead)||0)).toFixed(2); }
+/* WHAT THE CHAIRS DELIVER, which is the thing the two figures above are the
+   price of. The mean multiplier across every statistic an appointee's
+   department produces, so it is the same number the engine applies rather
+   than a restatement of the trait table. Unlike overhead and capital this
+   is absolute, not measured from the slate you inherited: a player reading
+   +6% should be able to conclude policy lands 6% harder, without first
+   working out what the last governor left behind. */
+function apptDelivery(){
+  const seen={}; let v=0, n=0;
+  for(const id in APPT_POSTS)for(const k of APPT_POSTS[id].metrics){
+    if(seen[k])continue; seen[k]=1; v+=apptMetricMult(k); n++;
+  }
+  return n ? v/n : 1;
+}
 function apptCapital(){ return +(apptCapitalRaw()-((GAME.apptBase&&GAME.apptBase.capital)||0)).toFixed(2); }
 /* THE STANDING APPROVAL OF A CHAIR. The group an appointee came from is
    pleased for exactly as long as they serve, and the group that fought the
@@ -21570,8 +21584,16 @@ function renderAppointments(){
   h+=`</div>`;
   const vac=Object.keys(APPT_POSTS).filter(id=>apptVacant(id)).length;
   h+=`<div class="detailrow"><span class="pill">${ico('doc')} ${Object.keys(APPT_POSTS).length-vac} of ${Object.keys(APPT_POSTS).length} chairs filled</span>`;
-  h+=`<span class="pill">${ico('scales')} Appointees are worth <b>${apptCapital()>=0?"+":""}${apptCapital().toFixed(1)}</b> capital a quarter</span>`;
-  h+=`<span class="pill">${ico('wrench')} and <b>${apptOverhead()>=0?"+":""}${apptOverhead().toFixed(1)}</b> administrative overhead</span></div>`;
+  // THE PURCHASE COMES FIRST. What the chairs deliver is the reason to fill
+  // them; capital and overhead are what it costs, and leading with the cost
+  // made the whole page read as a bill.
+  const _dl=Math.round((apptDelivery()-1)*100);
+  h+=`<span class="pill">${ico('muscle')} Policy where they run it lands <b style="color:${_dl>0?'var(--moss)':_dl<0?'var(--clay)':'inherit'}">${_dl>=0?"+":""}${_dl}%</b></span>`;
+  h+=`<span class="pill">${ico('scales')} <b>${apptCapital()>=0?"+":""}${apptCapital().toFixed(1)}</b> capital a quarter</span>`;
+  h+=`<span class="pill">${ico('wrench')} <b>${apptOverhead()>=0?"+":""}${apptOverhead().toFixed(1)}</b> administrative overhead</span></div>`;
+  // and say what the two figures are measured against, because they are
+  // differences from the chairs as you found them and nothing said so
+  h+=`<div class="fnote" style="margin:-4px 0 10px">Delivery is what the departments are actually returning now. Capital and overhead are measured against the slate you took office with, so they read zero until you change somebody.</div>`;
   for(const id in APPT_POSTS){
     const post=APPT_POSTS[id], holder=apptHolder(id);
     h+=`<div class="ebgroup" style="margin-bottom:10px">`;
