@@ -1329,9 +1329,13 @@
   .leg-map-svg{width:100%;height:auto;display:block;background:var(--paper)}
   /* the frame the map is zoomed inside. It clips, so a scaled map cannot
      push the card around or spill over the footnote under it. */
-  .legmap-view{position:relative;overflow:hidden;border:1px solid var(--line);background:var(--paper);touch-action:none}
+  /* pan-y until it is actually zoomed, so a touch that starts on a map can
+     still scroll the page. Only a zoomed map takes the gesture for itself. */
+  .legmap-view{position:relative;overflow:hidden;border:1px solid var(--line);background:var(--paper);touch-action:pan-y}
+  .legmap-view.zoomed{touch-action:none}
   .legmap-view .leg-map-svg{transform-origin:0 0}
   .legmap-view.zoomed{cursor:grab}
+  .legmap-view .fc-map{transform-origin:0 0}
   .legmap-view.dragging{cursor:grabbing}
   .legmap-zoombar{position:absolute;right:5px;bottom:5px;display:flex;flex-direction:column;gap:3px;z-index:2}
   .legmap-zoombar button{width:23px;height:23px;padding:0;line-height:1;font-family:var(--font-data);font-size:15px;font-weight:600;
@@ -1370,7 +1374,7 @@
   .fc-curve{width:100%;height:auto;display:block;background:var(--paper);border:1px solid var(--line)}
   .fc-odds{display:flex;gap:16px;flex-wrap:wrap;margin:7px 0 8px;font-size:12.5px;color:var(--muted-2)}
   .fc-odd i{display:inline-block;width:9px;height:9px;margin-right:5px;vertical-align:-1px}
-  .fc-map{width:100%;height:auto;display:block;background:var(--paper);border:1px solid var(--line)}
+  .fc-map{width:100%;height:auto;display:block;background:var(--paper)}
   .fc-map .fc-d{cursor:pointer;transition:filter var(--motion)}
   .fc-map .fc-d:hover,.fc-map .fc-d:focus{filter:brightness(1.12);stroke:var(--ink);stroke-width:1.1;outline:none}
   .fc-read{font-size:12.5px;color:var(--muted-1);min-height:2.6em;margin-top:6px;line-height:1.45}
@@ -16336,7 +16340,7 @@ function forecastCardHTML(fc){
       <span class="fc-odd"><i style="background:var(--gold)"></i>Majority (${fc.maj}+) <b>${pct(fc.pMaj)}</b></span>
       <span class="fc-odd"><i style="background:var(--slate-blue)"></i>Three-fifths (${fc.sup}+) <b>${pct(fc.pSup)}</b></span>
     </div>
-    ${forecastMapHTML(fc)}
+    ${legMapFrame(forecastMapHTML(fc))}
     <div class="fc-read" data-fcread="${fc.chamber}">Hover a district for its odds</div>
   </div>`;
 }
@@ -16619,8 +16623,9 @@ function legForecastHTML(){
     <div class="fc-grid">${forecastCardHTML(hf)}${forecastCardHTML(sf)}</div>
     ${coalitionHTML("house", new Set(chamberSupport("house").filter(r=>r.support>50).map(r=>r.id)))}`;
 }
-/* hover readout on the forecast maps */
+/* hover readout on the forecast maps, and the zoom on them */
 function wireForecast(root){
+  wireMapZoom(root);
   root.querySelectorAll('[data-fcread]').forEach(rd=>{
     const card=rd.closest('.fc-card'); if(!card)return;
     const ch=rd.dataset.fcread, fc=(window._FC||{})[ch]; if(!fc)return;
@@ -16653,7 +16658,7 @@ const LEGZOOM_MIN=1, LEGZOOM_MAX=4, LEGZOOM_STEP=0.5;
    clamped so an edge of the map can never be dragged into the middle of the
    frame, which is the usual way a zoomable map ends up showing nothing. */
 function legZoomApply(view){
-  const svg=view.querySelector('.leg-map-svg'), st=view._lz;
+  const svg=view.querySelector('.leg-map-svg, .fc-map'), st=view._lz;   // two map builders, two classes
   if(!svg||!st)return;
   const W=view.clientWidth, H=view.clientHeight;
   st.x=clamp(st.x, Math.min(0,W-W*st.k), 0);
@@ -16682,7 +16687,10 @@ function legZoomTo(view,k2,px,py){
    the bar in the corner steps in and out about the centre. The zoom lives on
    the node, so leaving the page and coming back gives you the whole state
    again. */
-function wireLegMaps(root){
+/* Wire every zoomable map frame under root. Called for both the election
+   result maps and the Campaign HQ forecast maps, which are different
+   functions drawing the same districts. */
+function wireMapZoom(root){
   root.querySelectorAll('[data-legview]').forEach(view=>{
     view._lz={k:1,x:0,y:0};
     const stop=ev=>{ ev.preventDefault(); ev.stopPropagation(); };
@@ -16723,6 +16731,11 @@ function wireLegMaps(root){
     view.addEventListener('pointercancel',end);
     legZoomApply(view);
   });
+}
+/* Click or Enter on a result-map card enlarges it to the full width of the
+   section. Only the election screen has these cards. */
+function wireLegMaps(root){
+  wireMapZoom(root);
   root.querySelectorAll('[data-legzoom]').forEach(el=>{
     let t=null;
     const toggle=()=>el.classList.toggle('zoom');
