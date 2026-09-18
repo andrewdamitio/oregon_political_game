@@ -8642,6 +8642,7 @@ const GAME={
   // to a permanent fund for one quarter before it settles on the old rules
   surplusPool:null,
   pendingSurplusBill:null,   // {fundId, share} while the floor screen is open
+  surplusOut:0,              // surplus voted into a fund this quarter, off the balance
   // Consecutive quarters closed in the black. One good quarter is luck; three
   // is a surplus, and a surplus is a thing everyone in Salem has plans for.
   surplusStreak:0,
@@ -10625,6 +10626,9 @@ function budgetBalance(){
   const spend=Object.values(spd).reduce((a,b)=>a+b,0);
   // pending kicker refunds walk out the door this cycle
   if(GAME.pendingKicker>0)revenue-=GAME.pendingKicker;
+  // so does a surplus the legislature has just voted into a fund. A one-time
+  // transfer comes off the year once, the same way the kicker line above does.
+  if((GAME.surplusOut||0)>0)revenue-=GAME.surplusOut;
   return {revenue,spend,balance:revenue-spend};
 }
 /* The accumulated-shortfall level that tips into a Structural Deficit Crisis.
@@ -12950,6 +12954,8 @@ const SURPLUS_DEST={
         blocs:{parents:6, publicUnions:5, liberal:3, students:2, libertarian:-2}},
   csf:{ label:"the Common School Fund", apply:a=>{ GAME.csfCorpus=+((GAME.csfCorpus||0)+a).toFixed(3); },
         blocs:{parents:5, rural:3, publicUnions:3, moderate:1}},
+  rainyDay:{label:"the Rainy Day Fund", apply:a=>{ GAME.rainyDay=+(GAME.rainyDay+a).toFixed(3); },
+        blocs:{moderate:5, businessClass:4, wealthy:2, retirees:2, socialist:-2}},
   debt:{label:"the accumulated shortfall", apply:a=>{ GAME.structuralDebt=+Math.max(0,(GAME.structuralDebt||0)-a).toFixed(3); },
         blocs:{businessClass:6, moderate:4, wealthy:3, conservative:3, socialist:-2}}
 };
@@ -13014,6 +13020,7 @@ function applySurplusDirect(fundId, share, w){
   const amt=+(p.amount*clamp(share,0,1)).toFixed(3);
   if(amt<=0.005)return false;
   D.apply(amt);
+  GAME.surplusOut=+(((GAME.surplusOut||0)+amt)).toFixed(3);   // off this quarter's balance at once
   p.amount=+(p.amount-amt).toFixed(3);
   if(p.amount<=0.005)GAME.surplusPool=null;
   const pol=surplusPseudoBill(fundId,share);
@@ -16883,6 +16890,7 @@ function _calcCapital(){
 }
 function _runTicks(){
   settleSurplusPool();          // last quarter's undirected surplus lands first
+  GAME.surplusOut=0;            // the deduction belonged to the quarter just ended
   settlePending(true);
   currentView="board"; detailKey=null;
   tickEconomy(); tickPhase(); tickEffSm(); tickMembership();
@@ -21731,11 +21739,11 @@ function renderBudget(){
           : cd<RESERVE_DRAW_COOLDOWN ? `Draw available again in ${RESERVE_DRAW_COOLDOWN-cd}q.` : ``;
         if(why)rdCtl+=`<div class="fnote" style="opacity:.7;font-style:italic">${why}</div>`;
       }
-      h+=`<div class="fcard"><div class="fname">${ico('bank')} Rainy Day Fund</div><div class="fval" style="color:${rdCol}">$${GAME.rainyDay.toFixed(2)}B</div>${rdCtl}<button class="fcard-btn" data-fund="rainyDay">${ico('search')} Inputs &amp; outputs →</button></div>`;
+      h+=`<div class="fcard"><div class="fname">${ico('bank')} Rainy Day Fund</div><div class="fval" style="color:${rdCol}">$${GAME.rainyDay.toFixed(2)}B</div>${rdCtl}<button class="fcard-btn" data-fund="rainyDay">${ico('wrench')} Manage →</button></div>`;
     }
     h+=`<div class="fcard"><div class="fname">${ico('cap')} Education Stability Fund</div><div class="fval">$${GAME.eduStability.toFixed(2)}B</div>
       <div class="fnote">IN: ${(LOTTERY_ESF_SHARE*100).toFixed(0)}% of net lottery proceeds, constitutionally dedicated — <b>$${((GAME.esfLottoIn||0)*1000).toFixed(0)}M/yr</b>${GAME.eduStability>=+(budgetBalance().spend*0.055).toFixed(2)?' (at the cap, so the dedication is idle)':''} — plus 40% of any surplus that escapes the kicker. Capped near 5.5% of the budget.
-      OUT: one purpose. When a deficit drains the Rainy Day Fund and forces a cut, this absorbs up to <b>85%</b> of the hit to schools. Nothing else, and never on your say-so.</div><button class="fcard-btn" data-fund="esf">${ico('search')} Inputs &amp; outputs →</button></div>`;
+      OUT: one purpose. When a deficit drains the Rainy Day Fund and forces a cut, this absorbs up to <b>85%</b> of the hit to schools. Nothing else, and never on your say-so.</div><button class="fcard-btn" data-fund="esf">${ico('wrench')} Manage →</button></div>`;
     // --- shortfall / crisis ---
     {
       const debt=GAME.structuralDebt||0, ds=GAME.deficitStreak||0;
@@ -21747,7 +21755,7 @@ function renderBudget(){
         <div class="fnote">${near
           ? `Deficits carried past an exhausted Rainy Day Fund${ds?` — <b>${ds}</b> consecutive deficit ${ds===1?'quarter':'quarters'}`:''}. Every surplus pays this down first.`
           : `Nothing carried — every quarter's gap has been met by revenue or the Rainy Day Fund.`}
-          A <b>Structural Deficit Crisis</b> triggers past <b>−$${thr.toFixed(2)}B</b> (≈0.26% of the state's $${Math.round((METRICS.gspLevel?METRICS.gspLevel.value:305))}B GDP — the bar rises as the economy grows) or four straight deficit quarters. ${(near&&GAME.rainyDay>0.3)?'Draw on the Rainy Day Fund above to pay it down.':''}</div><button class="fcard-btn" data-fund="debt">${ico('search')} Inputs &amp; outputs →</button></div>`;
+          A <b>Structural Deficit Crisis</b> triggers past <b>−$${thr.toFixed(2)}B</b> (≈0.26% of the state's $${Math.round((METRICS.gspLevel?METRICS.gspLevel.value:305))}B GDP — the bar rises as the economy grows) or four straight deficit quarters. ${(near&&GAME.rainyDay>0.3)?'Draw on the Rainy Day Fund above to pay it down.':''}</div><button class="fcard-btn" data-fund="debt">${ico('wrench')} Manage →</button></div>`;
     }
     // PERS belongs with the funds — it has a page and a portfolio control.
     {
@@ -22710,7 +22718,7 @@ function bootWorld(startId){
   GAME.agendaBaseline=0; GAME.compassStart={ec:0,so:0}; GAME.compassEvents={ec:0,so:0};
   GAME.mandateShock=0; GAME.changeAppetite=0; GAME.uturnCount=0; GAME.protestCrackdowns=0;
   GAME.floorFail={}; GAME.enactedAt={}; GAME.senateClass=0; GAME.serviceDisrupt=0;
-  GAME.pendingKicker=0; GAME.corpKickerToK12=0; GAME.pendingSurplus=null; GAME.surplusPool=null; GAME.elliottResolved=false; GAME.sportsBook=null; GAME.dilemmaDone={}; GAME.offshoreLeased=false;
+  GAME.pendingKicker=0; GAME.corpKickerToK12=0; GAME.pendingSurplus=null; GAME.surplusPool=null; GAME.surplusOut=0; GAME.pendingSurplusBill=null; GAME.elliottResolved=false; GAME.sportsBook=null; GAME.dilemmaDone={}; GAME.offshoreLeased=false;
   GAME.legisElections=0;
   // ---- back to the authored data
   for(const k in METRICS){ METRICS[k].value=WORLD_SEED.m[k]; METRICS[k].calib=0; }
