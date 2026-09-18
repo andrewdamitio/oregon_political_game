@@ -1862,7 +1862,7 @@
     <button data-view="execorders">Executive Orders</button>
     <button data-view="appointments">Appointments</button>
     <button data-view="voters">Voters</button>
-    <button data-view="budget">Budget</button>
+    <button data-view="budget">Budget &amp; Funds</button>
     <button data-view="camphq">Campaign HQ</button>
     <button class="railmap railcompass" data-view="compass" id="railCompass" title="Political compass" aria-label="Open the political compass"></button>
     <button class="railmap" data-view="countymap" id="railMap" title="Oregon county map" aria-label="Open the Oregon county map"></button>
@@ -8637,7 +8637,10 @@ const GAME={
   pendingKicker:0,
   corpKickerToK12:0,    // Measure 85: the corporate kicker is dedicated to K-12, not refunded
   sportsBook:null,       // null | "lottery" | "commercial" | "tribal" — how sports wagering runs      // kicker owed, paid out next cycle
-  pendingSurplus:null,  // {surplus} — a kicker-eligible surplus awaiting the player's end-of-quarter choice
+  pendingSurplus:null,  // {surplus} — legacy holder, used only to reuse the refund split at settlement
+  // {amount, kicker, opened} — a booked surplus the legislature may direct
+  // to a permanent fund for one quarter before it settles on the old rules
+  surplusPool:null,
   // Consecutive quarters closed in the black. One good quarter is luck; three
   // is a surplus, and a surplus is a thing everyone in Salem has plans for.
   surplusStreak:0,
@@ -11182,10 +11185,18 @@ function settleFiscal(){
       }
     }
     if(surplus>0.01){
+      // THE SURPLUS IS NOT SWEPT THE INSTANT IT APPEARS. It sits for a quarter
+      // as a pool the legislature can be asked to direct into a permanent
+      // fund. Anything still in it at the end of the next quarter settles on
+      // the rules below, so ignoring it behaves as it always did.
+      if(!GAME.surplusPool){
+        GAME.surplusPool={amount:+surplus.toFixed(3),
+          kicker:(surplusPct>=0.02 && !POLICIES.kickerReform), opened:GAME.turn};
+        surplus=0;
+      }
+    }
+    if(surplus>0.01){
       if(surplusPct>=0.02 && !POLICIES.kickerReform){
-        // a kicker-eligible surplus — don't settle it here. Stash it for the
-        // end-of-quarter popup, which lets the player move part of it into the
-        // emergency reserves before the kicker refunds the rest.
         GAME.pendingSurplus={surplus};
       } else {
         // the Education Stability Fund is capped (~5% of GF, like the real one) —
@@ -12891,6 +12902,110 @@ function showMidterm(m){
    surplus is moved into the emergency reserves (70% Rainy Day / 30% Education
    Stability) for `capCost` political capital; the remainder refunds via the
    kicker next quarter. */
+/* A pool the legislature did not spend settles on the old rules a quarter
+   later: refunded if the kicker is owed it, split into the reserves if not. */
+function settleSurplusPool(){
+  const p=GAME.surplusPool;
+  if(!p)return;
+  if(GAME.turn<=(p.opened||0))return;           // it gets its quarter first
+  const left=+(p.amount||0).toFixed(3);
+  GAME.surplusPool=null;
+  if(left<=0.01)return;
+  if(p.kicker){
+    GAME.pendingSurplus={surplus:left};
+    _resolveSurplus(0,0);                        // the whole remainder refunds
+    return;
+  }
+  const esfCap=+(budgetBalance().spend*0.055).toFixed(2);
+  const toEd=left*0.4, room=Math.max(0,esfCap-GAME.eduStability);
+  const esfAdd=Math.min(toEd,room);
+  GAME.eduStability+=esfAdd;
+  GAME.rainyDay+=left*0.6+(toEd-esfAdd);
+  GAME.log.push(ico('bank')+" $"+left.toFixed(2)+"B of undirected surplus settles into the reserves");
+}
+/* Which permanent funds will take a directed surplus, and who is pleased. */
+/* How loudly the people owed the refund object, how fast that grows with the
+   share, and one multiplier so the whole thing can be tuned against measured
+   odds rather than guessed at. */
+const SURPLUS_ANGER={conservative:-7.5, libertarian:-7.5, wealthy:-5.5, businessClass:-4, moderate:-3.2, retirees:-2.4};
+/* Tuned against measured odds: a comfortable majority takes a third of a
+   surplus without trouble, half is a real question, and taking the whole
+   refund is close to impossible. */
+let SURPLUS_ANGER_K=0.75, SURPLUS_BITE=1.4;
+const SURPLUS_DEST={
+  pers:{label:"the PERS hole", apply:a=>{ GAME.persUAL=+clamp((GAME.persUAL||28)-a,3,70).toFixed(3);
+          GAME.persRate=+clamp(5.26+GAME.persUAL*0.075,5.26,11.5).toFixed(3); },
+        blocs:{publicUnions:7, retirees:4, moderate:2, businessClass:2, libertarian:-2}},
+  esf:{ label:"the Education Stability Fund", apply:a=>{ GAME.eduStability=+(GAME.eduStability+a).toFixed(3); },
+        blocs:{parents:6, publicUnions:5, liberal:3, students:2, libertarian:-2}},
+  csf:{ label:"the Common School Fund", apply:a=>{ GAME.csfCorpus=+((GAME.csfCorpus||0)+a).toFixed(3); },
+        blocs:{parents:5, rural:3, publicUnions:3, moderate:1}},
+  debt:{label:"the accumulated shortfall", apply:a=>{ GAME.structuralDebt=+Math.max(0,(GAME.structuralDebt||0)-a).toFixed(3); },
+        blocs:{businessClass:6, moderate:4, wealthy:3, conservative:3, socialist:-2}}
+};
+function surplusPoolAmount(){ return (GAME.surplusPool&&GAME.surplusPool.amount)||0; }
+function surplusNeedsVote(){ return !!(GAME.surplusPool&&GAME.surplusPool.kicker); }
+/* The price climbs with the share. Taking a refund off taxpayers costs far
+   more than moving money that is already the state's. */
+function surplusCapitalCost(share){
+  const s=clamp(share,0,1);
+  return surplusNeedsVote() ? Math.round(3+s*12) : Math.round(s*4);
+}
+/* A directed surplus scored like a bill: who gains from the destination, and
+   who was owed the refund it came out of. */
+function surplusPseudoBill(fundId, share){
+  const D=SURPLUS_DEST[fundId]||SURPLUS_DEST.debt, be={}, s=clamp(share,0,1);
+  for(const b in D.blocs)be[b]=(be[b]||0)+D.blocs[b]*s;
+  if(surplusNeedsVote()){
+    // MONEY THE KICKER OWED THEM. Taking all of a refund is not four times
+    // as objectionable as taking a quarter: a quarter can be called a
+    // rounding and the whole thing cannot. So this runs steeper than the
+    // share, while the destination's own people are pleased on a straight
+    // line, and the gap between the two is what the slider is choosing.
+    const anger=SURPLUS_ANGER, bite=Math.pow(s,SURPLUS_BITE);
+    for(const b in anger)be[b]=(be[b]||0)+anger[b]*SURPLUS_ANGER_K*bite;
+  }
+  return {name:"Directing the surplus to "+D.label, blocEffect:be, ideology:{govSize:-0.3*s},
+          _super:false, niche:false, _surplus:true};
+}
+/* The whip count for it. A budget bill, so both chambers under districts. */
+function surplusWhip(fundId, share, cushion){
+  const pol=surplusPseudoBill(fundId,share), _sf=stateFeel();
+  const ctx={ sf:_sf, align:coalitionAlignment(_sf),
+    hHeld:new Set((GAME.legis&&GAME.legis.hHeld)||[...legisSeatMap(OR_HOUSE_DISTRICTS,(GAME.legis&&GAME.legis.house)||0).mine]),
+    prCentre:new Set((GAME.legis&&GAME.legis.prCentre)||[]),
+    prAllies:coalitionSeatIds(),
+    sHeld:new Set((GAME.legis&&GAME.legis.sHeld)||[...legisSeatMap(OR_SENATE_DISTRICTS,(GAME.legis&&GAME.legis.senate)||0).mine]) };
+  ctx.disc=0.9;
+  const H=chamberWhip("house",pol,"enact",ctx,cushion||0);
+  const S2=prOn()? {chamber:"senate",members:[],total:0,need:0,yes:0,firm:0,expect:0,short:0,buy:[],cost:0,possible:true,unbuyable:0}
+                 : chamberWhip("senate",pol,"enact",ctx,cushion||0);
+  // NOBODY IS BOUGHT. You cannot purchase your way through taking a refund
+  // off the people it was promised to, so the count stands as it stands and
+  // the price is the floor time plus what the share costs politically.
+  H.buy=[]; H.cost=0; S2.buy=[]; S2.cost=0;
+  const w={house:H, senate:S2, narrowed:1, cushion:0, needsSuper:false,
+           base:Math.round(BILL_FLOOR_COST*oppositionCapitalMult())};
+  w.cost=w.base+surplusCapitalCost(share);
+  w.possible=true;
+  w.odds=votePassOdds(w);
+  return w;
+}
+/* Send the share where it was voted, and let the blocs react. */
+function applySurplusDirect(fundId, share, w){
+  const p=GAME.surplusPool; if(!p)return false;
+  const D=SURPLUS_DEST[fundId]; if(!D)return false;
+  const amt=+(p.amount*clamp(share,0,1)).toFixed(3);
+  if(amt<=0.005)return false;
+  D.apply(amt);
+  p.amount=+(p.amount-amt).toFixed(3);
+  if(p.amount<=0.005)GAME.surplusPool=null;
+  const pol=surplusPseudoBill(fundId,share);
+  for(const b in pol.blocEffect)createGrudge("v_"+b, pol.blocEffect[b]*0.5, 0.9, "Surplus to "+D.label);
+  GAME.log.push(ico('bank')+" $"+amt.toFixed(2)+"B of the surplus directed to "+D.label
+    +(surplusNeedsVote()?" over the kicker":""));
+  return true;
+}
 function _resolveSurplus(fraction, capCost){
   const p=GAME.pendingSurplus; GAME.pendingSurplus=null;
   if(!p)return;
@@ -16675,6 +16790,7 @@ function _calcCapital(){
   if((GAME.lastBalance||0)>0.5)GAME.capital=clamp(GAME.capital+1,0,100);
 }
 function _runTicks(){
+  settleSurplusPool();          // last quarter's undirected surplus lands first
   settlePending(true);
   currentView="board"; detailKey=null;
   tickEconomy(); tickPhase(); tickEffSm(); tickMembership();
@@ -16783,7 +16899,7 @@ function doEndTurn(){
     else afterReport();
   };
   const afterEo=()=>{
-    if(GAME.pendingSurplus) showSurplusChoice(afterSurplus);
+    if(GAME.pendingSurplus) showSurplusChoice(afterSurplus);   // legacy path, no longer reached from the pool
     else if(GAME.pendingShortfall) showShortfallChoice(afterSurplus);
     else afterSurplus();
   };
@@ -19148,6 +19264,38 @@ function renderDetail(){
       GAME.log.push(ico('coffin')+" PERS portfolio set to "+persRisk().label.toLowerCase());
       render();
     }));
+    // the surplus slider and its button, on a fund page
+    {
+      const sl=main.querySelector('#surplusShare');
+      if(sl)sl.addEventListener('input',()=>{ GAME._surplusShare=(+sl.value)/100; render(); });
+      const go=main.querySelector('#surplusGo');
+      if(go)go.addEventListener('click',()=>{
+        const id=(detailKey||'').replace(/^fund_/,'');
+        const share=(GAME._surplusShare!=null?GAME._surplusShare:0.5);
+        if(!SURPLUS_DEST[id]||share<=0.001)return;
+        if(surplusNeedsVote()){
+          const w=surplusWhip(id,share,0);
+          if(!window.SANDBOX&&GAME.capital<w.cost)return;
+          GAME.capital=clamp(GAME.capital-w.cost,0,CAPITAL_MAX);
+          const res=runFloorVote(w);
+          if(!res.passed){
+            GAME.log.push(ico('ban')+" The floor refused to direct the surplus to "+SURPLUS_DEST[id].label
+              +" — it refunds on the kicker as scheduled");
+            createGrudge('capital',-1);
+            showVoteResult({ok:false, name:'Directing the surplus', res, w, back:GAME.turn});
+            return;
+          }
+          applySurplusDirect(id,share,w);
+          showVoteResult({ok:true, name:'Directing the surplus', res, w});
+          render(); return;
+        }
+        const cost=surplusCapitalCost(share);
+        if(!window.SANDBOX&&GAME.capital<cost)return;
+        GAME.capital=clamp(GAME.capital-cost,0,CAPITAL_MAX);
+        applySurplusDirect(id,share,null);
+        render();
+      });
+    }
     main.querySelectorAll('[data-csfrisk]').forEach(el=>el.addEventListener('click',e=>{
       GAME.csfRisk=e.currentTarget.dataset.csfrisk;
       GAME.log.push(ico('cap')+" Common School Fund portfolio set to "+csfRisk().label.toLowerCase());
@@ -21152,10 +21300,44 @@ function renderFundDetail(id){
   h+=sparkline(GAME.history[F.series],{axis:true,color:F.invert?'var(--clay)':'var(--moss)',fmt:x=>"$"+x.toFixed(2)+"B"});
   h+=`<div class="ebgroup-label" style="margin-top:14px">Money in</div><div class="ebgroup">${inn.map(o=>row(o,1)).join("")}</div>`;
   h+=`<div class="ebgroup-label" style="margin-top:12px">Money out</div><div class="ebgroup">${out.map(o=>row(o,-1)).join("")}</div>`;
+  h+=surplusDirectHTML(id);
   if(id==="pers")h+=persRiskControlHTML();
   if(id==="csf")h+=csfRiskControlHTML();
   const nt=(typeof F.note==="function")?F.note():F.note;
   h+=`<div class="lg-verdict" style="margin-top:14px">${nt}</div>`;
+  return h;
+}
+/* DIRECTING THE SURPLUS. Shown on a fund page only while a pool is sitting
+   there to direct. The share is a slider because the argument is about how
+   much, not whether: every step up costs more capital and, while the kicker
+   is owed the money, makes the floor vote harder. */
+function surplusDirectHTML(id){
+  if(!SURPLUS_DEST[id])return "";
+  const pool=surplusPoolAmount();
+  if(pool<=0.01)return "";
+  const share=(GAME._surplusShare!=null?GAME._surplusShare:0.5);
+  const amt=pool*share, vote=surplusNeedsVote();
+  const w=vote?surplusWhip(id,share,0):null;
+  const cost=vote?w.cost:surplusCapitalCost(share);
+  const afford=GAME.capital>=cost||!!window.SANDBOX;
+  let h=`<div class="ebgroup-label" style="margin-top:16px">${ico('cash')} Direct the surplus here</div>`;
+  h+=`<div class="fnote" style="margin-bottom:8px">$${pool.toFixed(2)}B is sitting unspent from last quarter. ${vote
+    ? `It cleared the 2% line, so the kicker owes it to taxpayers. Taking any of it needs a vote in both chambers, and the people it was owed to will notice.`
+    : `The kicker is repealed, so this is the state's money. Moving it is an administrative act.`}
+    Anything you leave settles into the reserves at the end of the quarter.</div>`;
+  h+=`<div class="rrow"><span class="rlabel" style="flex:1">
+      <input type="range" id="surplusShare" min="0" max="100" step="5" value="${Math.round(share*100)}" style="width:100%">
+      <div class="fnote" style="margin-top:4px">Sending <b>$${amt.toFixed(2)}B</b> of $${pool.toFixed(2)}B (${Math.round(share*100)}%)</div>
+    </span></div>`;
+  h+=`<div class="rrow"><span class="rlabel">Political capital</span>
+      <span class="rval" style="color:${afford?'var(--muted-2)':'var(--clay)'}">\u25c8 ${cost} of \u25c8 ${GAME.capital}</span></div>`;
+  if(vote){
+    const o=Math.round(w.odds*100);
+    h+=`<div class="rrow"><span class="rlabel">On the floor</span>
+      <span class="rval" style="color:${o>=70?'var(--good)':o>=45?'var(--gold)':'var(--clay)'}">${o}% to pass both chambers</span></div>`;
+  }
+  h+=`<button class="fcard-btn" id="surplusGo" ${(afford&&share>0.001)?"":"disabled"}>${
+    vote?`Send it to the floor`:`Direct $${amt.toFixed(2)}B`}</button>`;
   return h;
 }
 /* The one control on a fund page: how the Oregon Investment Council is told to
@@ -22476,7 +22658,7 @@ function bootWorld(startId){
   GAME.agendaBaseline=0; GAME.compassStart={ec:0,so:0}; GAME.compassEvents={ec:0,so:0};
   GAME.mandateShock=0; GAME.changeAppetite=0; GAME.uturnCount=0; GAME.protestCrackdowns=0;
   GAME.floorFail={}; GAME.enactedAt={}; GAME.senateClass=0; GAME.serviceDisrupt=0;
-  GAME.pendingKicker=0; GAME.corpKickerToK12=0; GAME.pendingSurplus=null; GAME.elliottResolved=false; GAME.sportsBook=null; GAME.dilemmaDone={}; GAME.offshoreLeased=false;
+  GAME.pendingKicker=0; GAME.corpKickerToK12=0; GAME.pendingSurplus=null; GAME.surplusPool=null; GAME.elliottResolved=false; GAME.sportsBook=null; GAME.dilemmaDone={}; GAME.offshoreLeased=false;
   GAME.legisElections=0;
   // ---- back to the authored data
   for(const k in METRICS){ METRICS[k].value=WORLD_SEED.m[k]; METRICS[k].calib=0; }
