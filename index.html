@@ -7005,7 +7005,15 @@ function checkActivistTriggers(){
     const act=GAME.activists[t.id];
     if(act){
       act.turnsLeft--;
-      if(act.turnsLeft<=0){delete GAME.activists[t.id]; GAME.activistCooldowns[t.id]=4;}
+      if(act.turnsLeft<=0){
+        // A DRIVE OUTLIVES THE MARCH. Signatures take months to gather, so a
+        // group that has just stood down is exactly who is filing now. It
+        // keeps its standing as a ballot sponsor for six more quarters.
+        GAME.activistRecent=GAME.activistRecent||{};
+        GAME.activistRecent[t.id]={dir:act.dir, label:act.label, ownGroup:act.ownGroup,
+          alliedGroups:act.alliedGroups, until:GAME.turn+6};
+        delete GAME.activists[t.id]; GAME.activistCooldowns[t.id]=4;
+      }
     } else {
       const cd=GAME.activistCooldowns[t.id]||0;
       if(cd>0){GAME.activistCooldowns[t.id]--;}
@@ -8726,7 +8734,7 @@ const GAME={
   // in specific counties. Persuasion + turnout boosts, weighted by v.cw at the
   // election, that decay each quarter. Keyed by county name.
   countyCamp:{},
-  activists:{}, activistCooldowns:{},
+  activists:{}, activistCooldowns:{}, activistRecent:{},
   termLengthTurns:16, midtermTurn:8, term:1, enforceTermLimit:true,
   // ---- ballot measures: constitutional amendments you have REFERRED to the
   // voters and are waiting on. pending[] resolves at the next statewide ballot
@@ -17871,6 +17879,43 @@ function citizenCandidatePool(){
    (GAME.activists) is a natural sponsor of anything that reads as a win for
    them; the rest is random, since real petition drives don't wait for a
    perfect opening. */
+/* Everyone with standing to sponsor an initiative right now: groups on the
+   street, plus those whose drive ended recently enough that the petition is
+   still circulating. */
+function organisedGroups(){
+  const out=[];
+  for(const id in (GAME.activists||{})){
+    const a=GAME.activists[id];
+    out.push({id, dir:a.dir, label:a.label, ownGroup:a.ownGroup, alliedGroups:a.alliedGroups, live:true});
+  }
+  for(const id in (GAME.activistRecent||{})){
+    if(GAME.activists&&GAME.activists[id])continue;          // already counted, still live
+    const r=GAME.activistRecent[id];
+    if(!r||GAME.turn>r.until)continue;
+    out.push({id, dir:r.dir, label:r.label, ownGroup:r.ownGroup, alliedGroups:r.alliedGroups, live:false});
+  }
+  return out;
+}
+/* How much a given group would want this measure passed. Positive means it
+   is a win for them in the direction proposed. */
+function measureFavour(cand, g){
+  const p=measureFor(cand.id); if(!p||!p.blocEffect)return 0;
+  const groups=[g.ownGroup].concat(g.alliedGroups||[]);
+  let sum=0;
+  for(const b of groups) if(p.blocEffect[b]!==undefined)sum+=p.blocEffect[b];
+  let mag=0; try{ mag=measureMagnitude(cand); }catch(e){ mag=0; }
+  return sum*mag;
+}
+/* The organised opponent, if any, whose interest this measure serves. */
+function measureSponsorGroup(cand){
+  let best=null, bestV=0;
+  for(const g of organisedGroups()){
+    if(g.dir!=="against")continue;
+    const v=measureFavour(cand,g);
+    if(v>0.01 && v>bestV){ bestV=v; best=g; }
+  }
+  return best;
+}
 function citizenSponsorWeight(cand){
   const p=measureFor(cand.id); if(!p||!p.blocEffect)return 0;
   // scale by how much the proposal actually changes: a one-tier nudge is a
@@ -17880,12 +17925,12 @@ function citizenSponsorWeight(cand){
   let polar=0; for(const k in p.blocEffect)polar+=Math.abs(p.blocEffect[k]);
   polar*=Math.min(1,Math.abs(mag)+0.35);
   let align=0;
-  for(const aid in (GAME.activists||{})){
-    const a=GAME.activists[aid];
+  for(const a of organisedGroups()){
     const groups=[a.ownGroup].concat(a.alliedGroups||[]);
     let s=0; for(const g of groups) if(p.blocEffect[g]!==undefined)s+=p.blocEffect[g];
     s*=mag;
-    align+=(a.dir==="against"?s:-s);
+    // a drive still circulating counts, at three quarters of the weight
+    align+=(a.dir==="against"?s:-s)*(a.live?1:0.75);
   }
   // Damped, not linear. Weight used to scale straight off the size of a
   // policy's bloc table, so High Speed Rail — which has the biggest one in the
@@ -17915,6 +17960,14 @@ function citizenSponsorText(m){
   const ideo=policyIdeology(p);
   const tilt=((ideo.economic||0)+(ideo.govSize||0)*0.5)*measureMagnitude(m);
   const wing=tilt>0.08?"A conservative-aligned":tilt<-0.08?"A progressive-aligned":"A nonpartisan";
+  // IF AN ORGANISED OPPONENT DROVE THIS, NAME THEM. Otherwise the player sees
+  // a generic coalition and never connects the measure to the group that has
+  // been mobilised against them for the last eight quarters.
+  const g=measureSponsorGroup(m);
+  if(g){
+    const who=String(g.label||"").replace(/<[^>]*>/g,"").trim()||"An organised group";
+    return `${who}, organised against you, put this on the ballot`;
+  }
   return top.length?`${wing} coalition led by ${top.join(" and ")}`:`${wing} citizen coalition`;
 }
 /* Pick 3-4 measures for the coming ballot: shortlist by sponsor weight, with
@@ -17940,6 +17993,13 @@ function generateCitizenMeasures(){
   if(unlikely.length){
     const pick=unlikely[Math.floor(Math.random()*unlikely.length)];
     if(!chosen.some(c=>c.id===pick.id))chosen.push(pick);
+  }
+  // AN ORGANISED OPPONENT GETS A SLOT. Leaving it to the sponsor weight meant
+  // a group could spend eight quarters mobilised against you and put nothing
+  // on the ballot, which is the opposite of opposition with steam.
+  if(!chosen.some(c=>measureSponsorGroup(c))){
+    const theirs=short.filter(c=>measureSponsorGroup(c));
+    if(theirs.length)chosen.push(theirs[0]);
   }
   const remaining=short.filter(c=>!chosen.some(x=>x.id===c.id));
   while(chosen.length<count && remaining.length){
