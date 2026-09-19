@@ -15511,7 +15511,12 @@ function legMapSVG(rows, seatMap, contested){
 /* The clipping frame and the zoom bar that sit around a district map. The
    buttons carry no text a screen reader would read as a number, so they are
    labelled. */
-function legMapFrame(svg){
+/* Wrap a map in the pan-and-zoom frame. Pass {noZoom:true} for a map that
+   already has a zoom of its own: the election cards enlarge on a click, and
+   a second zoom inside the first one means two gestures competing for the
+   same pointer. */
+function legMapFrame(svg, opts){
+  if(opts&&opts.noZoom)return svg;
   return `<div class="legmap-view" data-legview>${svg}`
     +`<div class="legmap-zoombar">`
     +`<button type="button" class="lzbtn" data-lzin aria-label="Zoom in" title="Zoom in">+</button>`
@@ -15599,13 +15604,13 @@ function legMapsHTML(R){
   const upN=sUp?sUp.size:LEGIS.senate;
   return `<div class="legmap-grid">
     <div class="legmap-card" data-legzoom role="button" tabindex="0" title="Click to enlarge">
-      <div class="legmap-h">House — ${after.house} of ${LEGIS.house} <span class="legmap-zoomhint">⤢ click to enlarge · double click to zoom</span></div>
-      ${legMapFrame(legMapSVG(OR_HOUSE_DISTRICTS, hs))}
+      <div class="legmap-h">House — ${after.house} of ${LEGIS.house} <span class="legmap-zoomhint">⤢ click to enlarge</span></div>
+      ${legMapFrame(legMapSVG(OR_HOUSE_DISTRICTS, hs), {noZoom:true})}
       <div class="legmap-foot">All ${LEGIS.house} seats were on this ballot. ${hs.tipping?`Your ${_cmNth(after.house)} seat is <b>HD ${hs.tipping}</b>`:`You hold no House seat`}${hs.nextUp?` · the next one up is <b>HD ${hs.nextUp}</b>`:``}${legTipDrivers(hs,"house")}</div>
     </div>
     <div class="legmap-card" data-legzoom role="button" tabindex="0" title="Click to enlarge">
-      <div class="legmap-h">Senate — ${after.senate} of ${LEGIS.senate} <span class="legmap-zoomhint">⤢ click to enlarge · double click to zoom</span></div>
-      ${legMapFrame(legMapSVG(OR_SENATE_DISTRICTS, ss, sUp))}
+      <div class="legmap-h">Senate — ${after.senate} of ${LEGIS.senate} <span class="legmap-zoomhint">⤢ click to enlarge</span></div>
+      ${legMapFrame(legMapSVG(OR_SENATE_DISTRICTS, ss, sUp), {noZoom:true})}
       <div class="legmap-foot">${upN} of ${LEGIS.senate} seats were up this cycle — the rest (dimmed) hold their four-year terms. ${ss.tipping?`Your ${_cmNth(after.senate)} seat is <b>SD ${ss.tipping}</b>`:`You hold no Senate seat`}${ss.nextUp?` · the next one up is <b>SD ${ss.nextUp}</b>`:``}${legTipDrivers(ss,"senate")}</div>
     </div>
   </div>
@@ -16976,6 +16981,7 @@ function legZoomTo(view,k2,px,py){
    waiting for a browser tooltip. */
 function wireLegReadout(root){
   root.querySelectorAll('[data-legread]').forEach(rd=>{
+    if(rd._wired)return; rd._wired=true;      // a map may be wired by more than one caller
     const host=rd.previousElementSibling;
     if(!host||!host.querySelectorAll)return;
     const dflt=rd.textContent;
@@ -17055,7 +17061,8 @@ function wireMapZoom(root){
 /* Click or Enter on a result-map card enlarges it to the full width of the
    section. Only the election screen has these cards. */
 function wireLegMaps(root){
-  wireMapZoom(root);
+  wireLegReadout(root);   // these maps have no zoom frame, so wire it directly
+  wireMapZoom(root);      // harmless: it finds no frames here
   root.querySelectorAll('[data-legzoom]').forEach(el=>{
     let t=null;
     const toggle=()=>el.classList.toggle('zoom');
