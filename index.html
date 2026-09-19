@@ -2186,6 +2186,37 @@ function applySave(sv){
      dropped silently. Create and unlock on the first gesture instead, well
      before anything needs to play. The one-sample silent buffer is what
      actually releases it on iOS. */
+  /* Everything goes out through a limiter. The gavel stacks three layers and
+     would otherwise sum past 1.0 and clip into a crackle. Threshold is -6dBFS,
+     far above the quarter tap and the welcome chord, so neither is touched. */
+  var BUS=null;
+  function out(){
+    var ac=ctx(); if(!ac)return null;
+    if(BUS&&BUS.context===ac)return BUS;
+    try{
+      var c=ac.createDynamicsCompressor();
+      c.threshold.value=-6; c.knee.value=4; c.ratio.value=12;
+      c.attack.value=0.001; c.release.value=0.10;
+      c.connect(ac.destination);
+      BUS=c;
+    }catch(e){ BUS=null; }
+    return BUS||ac.destination;
+  }
+  /* A PERCUSSIVE BODY. Instant attack, no ramp, and a fast downward pitch
+     slide, which is the cue that says something was struck. */
+  function thump(freq,start,dur,gain){
+    var ac=ctx(); if(!ac)return;
+    try{
+      var o=ac.createOscillator(), g=ac.createGain(), t0=ac.currentTime+start+0.015;
+      o.type='sine';
+      o.frequency.setValueAtTime(freq*1.8,t0);
+      o.frequency.exponentialRampToValueAtTime(freq,t0+0.045);
+      g.gain.setValueAtTime(gain,t0);
+      g.gain.exponentialRampToValueAtTime(0.0008,t0+dur);
+      o.connect(g); g.connect(out()||ac.destination);
+      o.start(t0); o.stop(t0+dur+0.03);
+    }catch(e){}
+  }
   var UNLOCKED=false;
   function unlockAudio(){
     if(UNLOCKED)return;
@@ -2207,7 +2238,7 @@ function applySave(sv){
     g.gain.setValueAtTime(0.0001,t0);
     g.gain.linearRampToValueAtTime(gain||0.2,t0+0.02);
     g.gain.exponentialRampToValueAtTime(0.0006,t0+dur);
-    o.connect(g); g.connect(ac.destination);
+    o.connect(g); g.connect(out()||ac.destination);
     o.start(t0); o.stop(t0+dur+0.05);
   }
   /* A WOOD KNOCK IS NOISE, NOT A TONE. Short band-passed white noise with a
@@ -2225,14 +2256,16 @@ function applySave(sv){
       var g=ac.createGain(), t0=ac.currentTime+start+0.015;   // same runway as tone()
       g.gain.setValueAtTime(gain||0.2,t0);
       g.gain.exponentialRampToValueAtTime(0.0005,t0+dur);
-      src.connect(bp); bp.connect(g); g.connect(ac.destination);
+      src.connect(bp); bp.connect(g); g.connect(out()||ac.destination);
       src.start(t0); src.stop(t0+dur+0.02);
     }catch(e){}
   }
-  /* One strike of the gavel: the crack, then the block under it. */
+  /* One strike of the gavel, in three layers: the crack your ear locates it
+     by, the wood underneath, and the impact that gives it weight. */
   function knock(at,gain,bright){
-    noise(at,0.055,gain,bright?380:300,2.2);
-    tone(bright?150:128,at,0.085,'sine',gain*0.85);
+    noise(at,0.030,gain*0.85, bright?2400:1900, 0.7);   // crack
+    noise(at,0.080,gain*1.00, bright?460:360,  0.9);    // wood
+    thump(bright?172:146, at, 0.13, gain*1.05);         // the block
   }
   function paint(){
     var b=document.getElementById('sfxToggle');
@@ -2250,10 +2283,16 @@ function applySave(sv){
     lose:function(){ if(!ON)return; tone(392,0,0.5,'sawtooth',0.13); tone(261.63,0.17,0.7,'sawtooth',0.12); tone(185,0.36,1.05,'sine',0.11); },
     /* IT CARRIES. Two strikes, the second a touch brighter, the way a gavel
        actually lands when a chair is calling a result rather than order. */
-    votePass:function(){ if(!ON)return; knock(0,0.20,false); knock(0.115,0.22,true); },
+    votePass:function(){ if(!ON)return; knock(0,0.62,false); knock(0.125,0.70,true); },
     /* IT DOES NOT. One strike, lower, and nothing after it. The silence where
        the second knock would be is the whole point. */
-    voteFail:function(){ if(!ON)return; noise(0,0.075,0.17,235,1.8); tone(104,0,0.16,'sine',0.16); },
+    /* One strike, lower and deader than either half of the gavel, and nothing
+       after it. Same weight, no resolution. */
+    voteFail:function(){ if(!ON)return;
+      noise(0,0.030,0.42,1100,0.8);
+      noise(0,0.110,0.60,240,0.9);
+      thump(104,0,0.20,0.62);
+    },
     /* The quarter turning over. Quietest thing in the set by a wide margin,
        because it plays on every single turn. */
     quarter:function(){ if(!ON)return; noise(0,0.045,0.055,210,1.5); tone(96,0,0.07,'sine',0.05); },
@@ -14099,6 +14138,7 @@ function showElection(r){
       location.href=location.origin+location.pathname;
       return;
     }
+    if(window.SFX){ try{ SFX.welcome(); }catch(e){} }   // a new term opens the same way the first one did
     GAME.term++;GAME.capital=clamp(GAME.capital+15,0,100);GAME.log.push("★ Term "+GAME.term+" begins");
     GAME.skipReport=false; GAME.skipCampaign=false; // reports and campaign popup resume each new term
     GAME.campaign={effort:{},promises:[],pool:10};
