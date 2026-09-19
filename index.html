@@ -12387,6 +12387,13 @@ function showWelcome(onDone){
   if(!modal||!card){ if(onDone)onDone(); return; }
   const yr=GAME.startYear||2025;
   const chosen=!!GAME._coalitionChosen;
+  // BOTH ROWS, EXPLICITLY. A default marked as selected reads as a decision
+  // already taken, so nothing is marked until it is actually clicked.
+  const mandOk=!!GAME._mandateChosen;
+  const ready=chosen&&mandOk;
+  const goLabel=ready?'Take office \u25b8'
+    :!chosen?'Choose how you won to begin'
+    :'Choose your legislature to begin';
   const cur=STARTS[GAME.startId]?GAME.startId:activeStartId();
   const curMand=activeMandate(cur);
   const cardFor=(S)=>`<button class="startcard${(chosen&&S.id===cur)?' selected':''}" data-start="${S.id}">
@@ -12405,7 +12412,7 @@ function showWelcome(onDone){
     <div class="eg-sub startnote">The same Oregon either way, with the same budget hole. How you won decides who is already sitting in the chairs when you arrive, and who is with you in Salem.</div>
     <div class="startprompt" style="margin-top:2px">And <b>what did you win with you?</b></div>
     <div class="mandrow">${['supermajority','majority','minority'].map(k=>{
-      const M=START_MANDATE[k], on=(curMand===k);
+      const M=START_MANDATE[k], on=(mandOk&&curMand===k);
       return `<button class="mandbtn${on?' selected':''}" data-mandate="${k}">
         <span class="mb-name">${M.label}</span>
         <span class="mb-seats">House ${M.house} of 60 \u00b7 Senate ${M.senate} of 30</span>
@@ -12416,7 +12423,7 @@ function showWelcome(onDone){
       <input type="checkbox" id="welcomeTermLimit" ${GAME.enforceTermLimit!==false?'checked':''}>
       <span>Enforce Oregon's <b>two consecutive-term limit</b>, so your second term is your last unless you amend the constitution. Off means re-election without end.</span>
     </label>
-    <button class="enactbtn welcome-go" id="welcomeGo"${chosen?'':' disabled'}>${chosen?'Take office ▸':'Choose how you won to begin'}</button>
+    <button class="enactbtn welcome-go" id="welcomeGo"${ready?'':' disabled'}>${goLabel}</button>
     <details class="welcome-help">
       <summary>How to play</summary>
       <div class="welcome-body">
@@ -12480,6 +12487,15 @@ function showWelcome(onDone){
   // Switching coalition rebuilds the world in place — same seed, same opening,
   // no page reload. The reload was invisible on desktop and looked like a
   // crash-and-restart on a phone.
+  // Take office is live only once both rows have been answered, and says
+  // which one is still outstanding until then.
+  const syncGo=()=>{
+    const ok=!!GAME._coalitionChosen && !!GAME._mandateChosen;
+    goBtn.disabled=!ok;
+    goBtn.textContent = ok ? 'Take office \u25b8'
+      : !GAME._coalitionChosen ? 'Choose how you won to begin'
+      : 'Choose your legislature to begin';
+  };
   // THE MANDATE. Same shape as the party cards: remember it, rebuild the
   // world so applyStart lays the seats down, then repaint only the pieces
   // that changed rather than re-rendering and replaying the title animation.
@@ -12490,9 +12506,11 @@ function showWelcome(onDone){
     const keepTL=document.getElementById("welcomeTermLimit");
     if(keepTL)GAME.enforceTermLimit=!!keepTL.checked;
     bootWorld(GAME.startId||activeStartId());
+    GAME._mandateChosen=true;
     card.querySelectorAll('.mandbtn').forEach(x=>x.classList.toggle('selected', x.dataset.mandate===m));
     const note=b.closest('.mandrow')&&b.closest('.mandrow').nextElementSibling;
     if(note)note.innerHTML=START_MANDATE[m].note;
+    syncGo();
   });
   card.querySelectorAll('[data-start]').forEach(b=>b.onclick=()=>{
     const id=b.dataset.start;
@@ -12505,8 +12523,8 @@ function showWelcome(onDone){
     // re-render replayed the title’s entrance animation, flashing "OREGON".
     if(id!==GAME.startId) bootWorld(id);
     card.querySelectorAll('.startcard').forEach(x=>x.classList.toggle('selected', x.dataset.start===id));
-    goBtn.disabled=false; goBtn.textContent="Take office ▸";
-    setTimeout(()=>{try{goBtn.focus({preventScroll:true});}catch(e){}},10);
+    syncGo();
+    setTimeout(()=>{try{ if(!goBtn.disabled)goBtn.focus({preventScroll:true}); }catch(e){}},10);
   });
   modal.classList.remove("hidden");
   modal.classList.add("grand");
@@ -22920,12 +22938,12 @@ function activeMandate(startId){
 const STARTS={
   liberal:{
     id:"liberal", name:"As a Democrat",
-    blurb:"Oregon almost always elects Democratic governors and legislatures, and this run is no exception. What is in front of you is a budget hole and a bench of your own people who each want something different out of you.",
+    blurb:"Oregon almost always elects Democratic governors and legislatures, and this run is no exception. What is in front of you is a bench of your own people, each of whom wants something different out of you, and no opponent to blame when they do not get it.",
     blocs:{}, legis:{house:36, senate:18}
   },
   conservative:{
     id:"conservative", name:"As a Republican",
-    blurb:"The Oregon GOP wins statewide for the first time in decades, on a clear signal that the state wants a change of direction. Every chair in the executive branch was filled by somebody the other side put there, and what you do about that is the first real decision of the term.",
+    blurb:"The Oregon GOP wins statewide for the first time in decades, on a clear signal that the state wants a change of direction. You arrive in a Salem that has not been run your way in living memory, and almost nobody in it owes you anything.",
     // Balanced so the two starts open on the same overall approval: this is a
     // different coalition, not a bigger one. What moves is WHO likes you.
     blocs:{ conservative:+12, rural:+11, timber:+9, libertarian:+8, businessClass:+8,
@@ -23021,7 +23039,7 @@ const WORLD_PRISTINE=(()=>{
 })();
 /* Choices the player makes on the welcome screen before the coalition switch
    reboots the world. They belong to the player, not to the world. */
-const WORLD_CARRY=["enforceTermLimit","_coalitionChosen"];
+const WORLD_CARRY=["enforceTermLimit","_coalitionChosen","_mandateChosen"];
 function restorePristineWorld(){
   const W=WORLD_PRISTINE;
   // GAME: every field play added goes, every field the literal had comes back
