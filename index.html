@@ -2184,6 +2184,30 @@ function applySave(sv){
     o.connect(g); g.connect(ac.destination);
     o.start(t0); o.stop(t0+dur+0.05);
   }
+  /* A WOOD KNOCK IS NOISE, NOT A TONE. Short band-passed white noise with a
+     fast decay: the filter frequency is what makes it read as wood rather
+     than a hiss, and the decay is what makes it a knock rather than a rush. */
+  function noise(start,dur,gain,freq,q){
+    var ac=ctx(); if(!ac)return;
+    try{
+      var len=Math.max(1,Math.floor(ac.sampleRate*dur));
+      var buf=ac.createBuffer(1,len,ac.sampleRate), d=buf.getChannelData(0);
+      for(var i=0;i<len;i++)d[i]=Math.random()*2-1;
+      var src=ac.createBufferSource(); src.buffer=buf;
+      var bp=ac.createBiquadFilter(); bp.type='bandpass';
+      bp.frequency.value=freq||320; bp.Q.value=(q==null?1.6:q);
+      var g=ac.createGain(), t0=ac.currentTime+start;
+      g.gain.setValueAtTime(gain||0.2,t0);
+      g.gain.exponentialRampToValueAtTime(0.0005,t0+dur);
+      src.connect(bp); bp.connect(g); g.connect(ac.destination);
+      src.start(t0); src.stop(t0+dur+0.02);
+    }catch(e){}
+  }
+  /* One strike of the gavel: the crack, then the block under it. */
+  function knock(at,gain,bright){
+    noise(at,0.055,gain,bright?380:300,2.2);
+    tone(bright?150:128,at,0.085,'sine',gain*0.85);
+  }
   function paint(){
     var b=document.getElementById('sfxToggle');
     if(b)b.innerHTML='<svg class=\'ico\' aria-hidden=\'true\'><use href=\'#ic-'+(ON?'volume':'volume-x')+'\'/></svg>';
@@ -2197,7 +2221,19 @@ function applySave(sv){
       tone(1567.98,0.44,0.9,'sine',0.13);
       tone(261.63,0,1.15,'sawtooth',0.045);
     },
-    lose:function(){ if(!ON)return; tone(392,0,0.5,'sawtooth',0.13); tone(261.63,0.17,0.7,'sawtooth',0.12); tone(185,0.36,1.05,'sine',0.11); }
+    lose:function(){ if(!ON)return; tone(392,0,0.5,'sawtooth',0.13); tone(261.63,0.17,0.7,'sawtooth',0.12); tone(185,0.36,1.05,'sine',0.11); },
+    /* IT CARRIES. Two strikes, the second a touch brighter, the way a gavel
+       actually lands when a chair is calling a result rather than order. */
+    votePass:function(){ if(!ON)return; knock(0,0.20,false); knock(0.115,0.22,true); },
+    /* IT DOES NOT. One strike, lower, and nothing after it. The silence where
+       the second knock would be is the whole point. */
+    voteFail:function(){ if(!ON)return; noise(0,0.075,0.17,235,1.8); tone(104,0,0.16,'sine',0.16); },
+    /* The quarter turning over. Quietest thing in the set by a wide margin,
+       because it plays on every single turn. */
+    quarter:function(){ if(!ON)return; noise(0,0.045,0.055,210,1.5); tone(96,0,0.07,'sine',0.05); },
+    /* Something is asking you a question. Two notes rising a fourth, warm and
+       unresolved, so it does not sound like either of the gavels. */
+    dilemma:function(){ if(!ON)return; tone(440,0,0.42,'triangle',0.12); tone(587.33,0.145,0.62,'triangle',0.115); }
   };
   document.addEventListener('DOMContentLoaded',function(){
     paint();
@@ -15770,6 +15806,7 @@ function showVoteResult(o){
       : "You whipped and you lost — the political capital is gone either way. Build the margin, weaken the bill, or win the seats."}</div>`}
     <button class="enactbtn" id="voteResOk">${o.ok?"Good":"Understood ▸"}</button>`;
   modal.classList.remove("hidden");
+  if(window.SFX){ try{ o.ok?SFX.votePass():SFX.voteFail(); }catch(e){} }
   const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
   const onKey=e=>{ if(modal.classList.contains("hidden"))return;
     if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); } };
@@ -17103,6 +17140,7 @@ function _runTicks(){
 }
 /* regular quarter advancement — called by the campaign popup "Next Quarter" button */
 function doEndTurn(){
+  if(window.SFX){ try{ SFX.quarter(); }catch(e){} }
   _runTicks();
   tickCoalition();
   _calcCapital();
@@ -22596,6 +22634,12 @@ function renderDilemma(){
   h+=`</div><div class="dilemma-foot">You must decide before the quarter ends. There is no clean choice — both sides will remember.</div>`;
   card.innerHTML=h;
   modal.classList.remove("hidden");
+  // renderDilemma runs on every render, so the figure is tied to the dilemma
+  // rather than to the call. It sounds once, when this one first appears.
+  if(window.SFX && window._lastDilemmaSound!==GAME.pendingDilemma){
+    window._lastDilemmaSound=GAME.pendingDilemma;
+    try{ SFX.dilemma(); }catch(e){}
+  }
   card.querySelectorAll('[data-opt]').forEach(b=>b.addEventListener('click',()=>resolveDilemma(+b.dataset.opt)));
 }
 /* the sidebar's clickable mini political-compass — a scaled-down grid with the
