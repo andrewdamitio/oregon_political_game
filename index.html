@@ -2186,6 +2186,21 @@ function applySave(sv){
      dropped silently. Create and unlock on the first gesture instead, well
      before anything needs to play. The one-sample silent buffer is what
      actually releases it on iOS. */
+  /* A SUSPENDED CONTEXT HAS A FROZEN CLOCK. Scheduling into one puts the
+     sound in the past the moment it wakes, so it is discarded in silence.
+     Browsers suspend on their own: focus loss, sleep, power saving. So if
+     the context is asleep, wait for resume() to resolve and schedule after,
+     rather than carrying on and hoping. */
+  function play(fn){
+    var ac=ctx(); if(!ac)return;
+    if(ac.state==='suspended'){
+      try{
+        var p=ac.resume();
+        if(p&&p.then){ p.then(function(){ try{ fn(ac); }catch(e){} },function(){}); return; }
+      }catch(e){}
+    }
+    try{ fn(ac); }catch(e){}
+  }
   /* Everything goes out through a limiter. The gavel stacks three layers and
      would otherwise sum past 1.0 and clip into a crackle. Threshold is -6dBFS,
      far above the quarter tap and the welcome chord, so neither is touched. */
@@ -2204,23 +2219,27 @@ function applySave(sv){
   }
   /* A PERCUSSIVE BODY. Instant attack, no ramp, and a fast downward pitch
      slide, which is the cue that says something was struck. */
-  function thump(freq,start,dur,gain){
-    var ac=ctx(); if(!ac)return;
+  function thump(freq,start,dur,gain,drop){
+    play(function(ac){
     try{
       var o=ac.createOscillator(), g=ac.createGain(), t0=ac.currentTime+start+0.015;
       o.type='sine';
-      o.frequency.setValueAtTime(freq*1.8,t0);
+      o.frequency.setValueAtTime(freq*(drop||1.5),t0);
       o.frequency.exponentialRampToValueAtTime(freq,t0+0.045);
       g.gain.setValueAtTime(gain,t0);
       g.gain.exponentialRampToValueAtTime(0.0008,t0+dur);
       o.connect(g); g.connect(out()||ac.destination);
       o.start(t0); o.stop(t0+dur+0.03);
     }catch(e){}
+    });
   }
   var UNLOCKED=false;
   function unlockAudio(){
-    if(UNLOCKED)return;
+    // ctx() FIRST, on every gesture, because it is what resumes a context the
+    // browser has suspended. Guarding above this line meant the first click
+    // woke the audio and no click ever could again.
     var ac=ctx(); if(!ac)return;
+    if(UNLOCKED)return;
     UNLOCKED=true;
     try{
       var b=ac.createBuffer(1,1,ac.sampleRate), src=ac.createBufferSource();
@@ -2232,7 +2251,7 @@ function applySave(sv){
     catch(e){ document.addEventListener(ev, unlockAudio, true); }
   });
   function tone(freq,start,dur,type,gain){
-    var ac=ctx(); if(!ac)return;
+    play(function(ac){
     var o=ac.createOscillator(), g=ac.createGain(), t0=ac.currentTime+start+0.015;   // runway for a context that just resumed
     o.type=type||'triangle'; o.frequency.value=freq;
     g.gain.setValueAtTime(0.0001,t0);
@@ -2240,12 +2259,13 @@ function applySave(sv){
     g.gain.exponentialRampToValueAtTime(0.0006,t0+dur);
     o.connect(g); g.connect(out()||ac.destination);
     o.start(t0); o.stop(t0+dur+0.05);
+    });
   }
   /* A WOOD KNOCK IS NOISE, NOT A TONE. Short band-passed white noise with a
      fast decay: the filter frequency is what makes it read as wood rather
      than a hiss, and the decay is what makes it a knock rather than a rush. */
   function noise(start,dur,gain,freq,q){
-    var ac=ctx(); if(!ac)return;
+    play(function(ac){
     try{
       var len=Math.max(1,Math.floor(ac.sampleRate*dur));
       var buf=ac.createBuffer(1,len,ac.sampleRate), d=buf.getChannelData(0);
@@ -2259,13 +2279,14 @@ function applySave(sv){
       src.connect(bp); bp.connect(g); g.connect(out()||ac.destination);
       src.start(t0); src.stop(t0+dur+0.02);
     }catch(e){}
+    });
   }
   /* One strike of the gavel, in three layers: the crack your ear locates it
      by, the wood underneath, and the impact that gives it weight. */
   function knock(at,gain,bright){
     noise(at,0.030,gain*0.85, bright?2400:1900, 0.7);   // crack
     noise(at,0.080,gain*1.00, bright?460:360,  0.9);    // wood
-    thump(bright?172:146, at, 0.13, gain*1.05);         // the block
+    thump(bright?274:206, at, 0.12, gain*1.05, 1.3);    // the block, tight drop so it lands rather than falls
   }
   function paint(){
     var b=document.getElementById('sfxToggle');
@@ -2283,7 +2304,12 @@ function applySave(sv){
     lose:function(){ if(!ON)return; tone(392,0,0.5,'sawtooth',0.13); tone(261.63,0.17,0.7,'sawtooth',0.12); tone(185,0.36,1.05,'sine',0.11); },
     /* IT CARRIES. Two strikes, the second a touch brighter, the way a gavel
        actually lands when a chair is calling a result rather than order. */
-    votePass:function(){ if(!ON)return; knock(0,0.62,false); knock(0.125,0.70,true); },
+    votePass:function(){ if(!ON)return;
+      knock(0,0.62,false); knock(0.125,0.70,true);
+      // the gavel says it happened; this says it went your way
+      tone(659.25,0.26,0.34,'triangle',0.115);
+      tone(987.77,0.38,0.52,'sine',0.095);
+    },
     /* IT DOES NOT. One strike, lower, and nothing after it. The silence where
        the second knock would be is the whole point. */
     /* One strike, lower and deader than either half of the gavel, and nothing
@@ -2291,14 +2317,21 @@ function applySave(sv){
     voteFail:function(){ if(!ON)return;
       noise(0,0.030,0.42,1100,0.8);
       noise(0,0.110,0.60,240,0.9);
-      thump(104,0,0.20,0.62);
+      thump(104,0,0.22,0.62,2.1);   // a deeper fall than the gavel, which is the point
     },
     /* The quarter turning over. Quietest thing in the set by a wide margin,
        because it plays on every single turn. */
     quarter:function(){ if(!ON)return; noise(0,0.045,0.055,210,1.5); tone(96,0,0.07,'sine',0.05); },
     /* Something is asking you a question. Two notes rising a fourth, warm and
        unresolved, so it does not sound like either of the gavels. */
-    dilemma:function(){ if(!ON)return; tone(440,0,0.42,'triangle',0.12); tone(587.33,0.145,0.62,'triangle',0.115); },
+    /* A QUESTION BEING PUT TO YOU. It waits out the quarter tap it shares a
+       tick with, then climbs, so it is not competing with a noise burst for
+       the first 70ms of its life. */
+    dilemma:function(){ if(!ON)return;
+      tone(440.00,0.18,0.40,'triangle',0.17);
+      tone(587.33,0.32,0.46,'triangle',0.16);
+      tone(880.00,0.46,0.70,'sine',0.115);
+    },
     /* TAKING OFFICE. A rising fifth into the octave over a low pad. Warmer and
        slower than the election fanfare, because this one opens a term rather
        than celebrating the end of one. */
