@@ -10102,7 +10102,7 @@ function blocImpactHTML(key){
   if(!impacts.length)return "";
   impacts.sort((a,b)=>Math.abs(b.v)-Math.abs(a.v));
   const scale=Math.max(0.5,...impacts.map(c=>Math.abs(c.v)));
-  let h=`<div class="ebgroup-label">Current approval impact per voter bloc</div><div class="ebgroup">`;
+  let h=`<div class="ebgroup-label">Effect on voter blocs</div><div class="ebgroup">`;
   for(const c of impacts)h+=effectBar(c.name,c.v,scale,{color:c.v>=0?'var(--good)':'var(--clay)',link:"v_"+c.sid,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' pts'});
   h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Approval points this is currently contributing to each bloc, given their sensitivities and the metric's current value. Click a bloc to see its full approval breakdown.</div></div>`;
   return h;
@@ -18824,6 +18824,30 @@ function effectsBreakdownHTML(kind,obj){
     h+=`<div class="ebnote">No direct metric effects.</div>`;
   }
 
+  // 1a. EVERY SETTING, SIDE BY SIDE. A tier policy's inherited setting is the
+  // zero point, so its own effects list is empty and the page would otherwise
+  // say nothing about the choice it exists to offer.
+  if(kind==="policy" && obj.mechanic==="tier" && obj.tierEffects && obj.tiers){
+    const cur=obj.tierIndex||0, home=(obj.tierHome!==undefined?obj.tierHome:null);
+    h+=`<div class="ebgroup-label">What each setting does</div><div class="ebgroup">`;
+    for(let i=0;i<obj.tiers.length;i++){
+      const fx=obj.tierEffects[i]||{};
+      const keys=Object.keys(fx).filter(k=>METRICS[k]&&Math.abs(fx[k])>0.001);
+      const here=(i===cur);
+      const bits=keys.map(k=>{
+        const m=METRICS[k], v=fx[k];
+        const good=m.invert? v<0 : v>0;
+        return `<span style="color:${good?'var(--good)':'var(--clay)'}">${m.name} ${v>=0?'+':''}${v}</span>`;
+      });
+      h+=`<div class="threshline" style="padding:3px 0;${here?'font-weight:600':'opacity:.82'}">`
+        +`${here?'▸ ':'<span style="opacity:0">▸ </span>'}${obj.tiers[i]}`
+        +`${here?' <span style="opacity:.7;font-weight:400">(current)</span>':''}`
+        +`${(home!==null&&i===home&&!here)?' <span style="opacity:.7">(what you inherited)</span>':''}`
+        +` &middot; ${bits.length?bits.join(' &middot; '):'<span style="opacity:.7">no change to any statistic</span>'}</div>`;
+    }
+    h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Measured against the setting Oregon starts on, which is why one row is always level. Moving the slider is what turns these on.</div></div>`;
+  }
+
   // 1b. Direct effects on indicators — policies and agencies
   {
     const indMap={};
@@ -18932,7 +18956,7 @@ function effectsBreakdownHTML(kind,obj){
   }
   if(reactions.length){
     reactions.sort((a,b)=>b.r-a.r);
-    h+=`<div class="ebgroup-label">Voter bloc reactions (${reactions.length} of ${Object.keys(SIMULANTS).length} groups affected)</div><div class="ebgroup">`;
+    h+=`<div class="ebgroup-label">Effect on voter blocs (${reactions.length} of ${Object.keys(SIMULANTS).length} groups affected)</div><div class="ebgroup">`;
     const scale=Math.max(1,...reactions.map(x=>Math.abs(x.r)));
     for(const x of reactions)
       h+=effectBar(x.name+(x.want?` <span class="eb-want">wants more funding</span>`:``), x.r, scale,
@@ -18942,7 +18966,7 @@ function effectsBreakdownHTML(kind,obj){
     if(reactions.some(x=>x.want))
       h+=`<div class="ebnote">Groups marked <b>wants more funding</b> are not against this — they back it, and are marking it down because the level sits below what they consider adequate. Raise it and they turn positive.</div>`;
   } else {
-    h+=`<div class="ebgroup-label">Voter bloc reactions</div><div class="ebnote">No voter group is significantly affected by this on its own.</div>`;
+    h+=`<div class="ebgroup-label">Effect on voter blocs</div><div class="ebnote">No voter group is significantly affected by this on its own.</div>`;
   }
   // 5. Voter group size effects — slow structural shifts in electorate composition
   const sizeEffects=getSizeEffects(kind,obj);
@@ -19603,7 +19627,7 @@ function renderDetail(){
       const better=v=>m.invert?v<0:v>0;
       const real=cons.filter(c=>!c.base);
       real.sort((a,b)=>{const ab=better(a.v)?0:1,bb=better(b.v)?0:1;return ab-bb||Math.abs(b.v)-Math.abs(a.v);});
-      h+=`<div class="ebgroup-label">What's driving this number</div><div class="ebgroup">`;
+      h+=`<div class="ebgroup-label">What feeds this number</div><div class="ebgroup">`;
       h+=`<div class="threshline" style="opacity:.8">⊕ Natural equilibrium: ${m.eq}${m.fmt==='usd'?' ($)':''} — where this statistic drifts with no intervention</div>`;
       if(real.length){
         const scale=Math.max(0.3,...real.map(c=>Math.abs(c.v)));
@@ -19639,7 +19663,7 @@ function renderDetail(){
         const goodForM=(mk,v)=>{const tm=METRICS[mk];return tm&&tm.invert?v<0:v>0;};
         const allAbs=downLinks.map(L=>Math.abs((m.value-L.ref)*L.coef*0.25));
         const scale=Math.max(0.05,...allAbs);
-        h+=`<div class="ebgroup-label">Effects on other metrics</div><div class="ebgroup">`;
+        h+=`<div class="ebgroup-label">What this drives</div><div class="ebgroup">`;
         for(const L of downLinks){
           const tm=METRICS[L.to];
           const delta=(m.value-L.ref)*L.coef*0.25;
@@ -20249,7 +20273,7 @@ function renderDetail(){
     if(typeof ind.drives==="function"){
       let rows=[]; try{ rows=ind.drives()||[]; }catch(e){ rows=[]; }
       if(rows.length){
-        h+=`<div class="ebgroup-label">What this indicator drives</div><div class="ebgroup">`;
+        h+=`<div class="ebgroup-label">What this drives</div><div class="ebgroup">`;
         const sc=Math.max(0.5,...rows.map(r=>Math.abs(r.v)));
         for(const r of rows){
           const pos=r.v>=0, helpful=(r.good===undefined)?pos:(r.good?pos:!pos);
@@ -20263,7 +20287,7 @@ function renderDetail(){
     // what it feeds into
     const fb=Object.keys(ind.feedback||{});
     if(fb.length){
-      h+=`<div class="ebgroup-label">What this indicator drives</div><div class="ebgroup">`;
+      h+=`<div class="ebgroup-label">What this drives</div><div class="ebgroup">`;
       const scale=Math.max(0.02,...fb.map(k=>Math.abs(ind.feedback[k])));
       for(const k of fb){const m=METRICS[k], i2=!m&&INDICATORS[k];
         const good=m&&m.invert?ind.feedback[k]<0:ind.feedback[k]>0;
