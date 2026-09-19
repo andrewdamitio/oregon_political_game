@@ -2173,10 +2173,36 @@ function applySave(sv){
   var ON=true;
   try{if(localStorage.getItem('sc_sfx')==='0')ON=false;}catch(e){}
   var AC=null;
-  function ctx(){ try{ if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended')AC.resume(); }catch(e){AC=null;} return AC; }
+  function ctx(){
+    try{
+      if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)();
+      if(AC.state==='suspended'){ var p=AC.resume(); if(p&&p.catch)p.catch(function(){}); }
+    }catch(e){ AC=null; }
+    return AC;
+  }
+  /* A BROWSER WILL NOT START AN AUDIO CONTEXT UNTIL YOU TOUCH THE PAGE, and
+     resume() is async. Scheduling a node in the same tick as the first click
+     puts it at a currentTime that has not started advancing yet, so it is
+     dropped silently. Create and unlock on the first gesture instead, well
+     before anything needs to play. The one-sample silent buffer is what
+     actually releases it on iOS. */
+  var UNLOCKED=false;
+  function unlockAudio(){
+    if(UNLOCKED)return;
+    var ac=ctx(); if(!ac)return;
+    UNLOCKED=true;
+    try{
+      var b=ac.createBuffer(1,1,ac.sampleRate), src=ac.createBufferSource();
+      src.buffer=b; src.connect(ac.destination); src.start(0);
+    }catch(e){}
+  }
+  ['pointerdown','keydown','touchstart'].forEach(function(ev){
+    try{ document.addEventListener(ev, unlockAudio, {capture:true, passive:true}); }
+    catch(e){ document.addEventListener(ev, unlockAudio, true); }
+  });
   function tone(freq,start,dur,type,gain){
     var ac=ctx(); if(!ac)return;
-    var o=ac.createOscillator(), g=ac.createGain(), t0=ac.currentTime+start;
+    var o=ac.createOscillator(), g=ac.createGain(), t0=ac.currentTime+start+0.015;   // runway for a context that just resumed
     o.type=type||'triangle'; o.frequency.value=freq;
     g.gain.setValueAtTime(0.0001,t0);
     g.gain.linearRampToValueAtTime(gain||0.2,t0+0.02);
@@ -2196,7 +2222,7 @@ function applySave(sv){
       var src=ac.createBufferSource(); src.buffer=buf;
       var bp=ac.createBiquadFilter(); bp.type='bandpass';
       bp.frequency.value=freq||320; bp.Q.value=(q==null?1.6:q);
-      var g=ac.createGain(), t0=ac.currentTime+start;
+      var g=ac.createGain(), t0=ac.currentTime+start+0.015;   // same runway as tone()
       g.gain.setValueAtTime(gain||0.2,t0);
       g.gain.exponentialRampToValueAtTime(0.0005,t0+dur);
       src.connect(bp); bp.connect(g); g.connect(ac.destination);
@@ -2233,7 +2259,17 @@ function applySave(sv){
     quarter:function(){ if(!ON)return; noise(0,0.045,0.055,210,1.5); tone(96,0,0.07,'sine',0.05); },
     /* Something is asking you a question. Two notes rising a fourth, warm and
        unresolved, so it does not sound like either of the gavels. */
-    dilemma:function(){ if(!ON)return; tone(440,0,0.42,'triangle',0.12); tone(587.33,0.145,0.62,'triangle',0.115); }
+    dilemma:function(){ if(!ON)return; tone(440,0,0.42,'triangle',0.12); tone(587.33,0.145,0.62,'triangle',0.115); },
+    /* TAKING OFFICE. A rising fifth into the octave over a low pad. Warmer and
+       slower than the election fanfare, because this one opens a term rather
+       than celebrating the end of one. */
+    welcome:function(){ if(!ON)return;
+      tone(130.81,0,1.5,'sine',0.055);
+      tone(261.63,0.00,0.70,'triangle',0.15);
+      tone(392.00,0.16,0.70,'triangle',0.14);
+      tone(523.25,0.32,1.10,'triangle',0.15);
+      tone(783.99,0.52,0.95,'sine',0.070);
+    }
   };
   document.addEventListener('DOMContentLoaded',function(){
     paint();
@@ -12416,6 +12452,7 @@ function showWelcome(onDone){
   const goBtn=document.getElementById("welcomeGo");
   const go=()=>{
     if(!GAME._coalitionChosen)return;                    // pick a coalition first
+    if(window.SFX){ try{ SFX.welcome(); }catch(e){} }
     const tl=document.getElementById("welcomeTermLimit");
     GAME.enforceTermLimit = tl ? !!tl.checked : true;
     if(!GAME.enforceTermLimit && CATALOG.termLimitRepeal) delete CATALOG.termLimitRepeal;   // no limit ⇒ nothing to repeal
