@@ -22038,8 +22038,8 @@ const FUNDS={
     inflows:()=>[
       {name:"Lottery dedication (Art. XV §4)", v:(GAME.esfLottoIn||0),
        note:(LOTTERY_ESF_SHARE*100).toFixed(0)+"% of net lottery proceeds, before anything reaches the General Fund. Scales with how hard the State Lottery is pushed. Stops at the cap."},
-      {name:"Share of any surplus past the kicker", v:0,
-       note:"40% of a surplus that survives the 2% kicker line, up to the cap; the rest goes to the Rainy Day Fund."}],
+      {name:"Share of a surplus the kicker does not take", v:0,
+       note:"40% of it, up to the cap, with the rest going to the Rainy Day Fund. A surplus under the 2% line always qualifies. One that clears the line only qualifies if the kicker has been repealed, because otherwise the whole of it refunds to taxpayers."}],
     outflows:()=>[{name:"Cushioning a forced school cut", v:0,
       note:"One purpose only. When a deficit exhausts the Rainy Day Fund and forces a cut, this absorbs up to 85% of the hit to the school budget. It cannot close the general gap."}],
     note:()=>"Capped at about 5.5% of the budget — "+"$"+(budgetBalance().spend*0.055).toFixed(2)+"B right now. At the cap the lottery dedication has nowhere to go and simply stays in the General Fund transfer."},
@@ -22047,12 +22047,23 @@ const FUNDS={
   rainyDay:{ name:"Rainy Day Fund", icon:"bank", series:"fund_rainyDay", invert:false,
     val:()=>GAME.rainyDay||0,
     blurb:"The general reserve. This is the one pot that can absorb a deficit anywhere in the budget, and it is drawn automatically before a shortfall is allowed to become structural debt.",
-    inflows:()=>[{name:"Budget surpluses under the kicker line", v:0,
-      note:POLICIES.kickerReform?"With the kicker repealed, every above-forecast surplus accumulates here (60%) and in the Education Stability Fund (40%).":"60% of any surplus that does not trip the 2% kicker."}],
+    /* Both rows test POLICIES.kickerReform the same way settleFiscal does,
+       so the page cannot drift from the settlement it describes. */
+    inflows:()=>[
+      {name:"Surplus that stays under the 2% line", v:0,
+       note:"A surplus this small never owed the kicker anything, so it fills the reserves whether the kicker stands or not. 60% lands here and 40% goes to the Education Stability Fund, and once that fund is at its cap the share it cannot take comes here too."},
+      POLICIES.kickerReform
+        ? {name:"Surplus that clears the 2% line", v:0,
+           note:"With the kicker repealed this is reserve money as well, on the same 60/40 split. That is what the repeal buys: the good years used to empty themselves into refund cheques and now they fill the fund."}
+        : {name:"Surplus that clears the 2% line: refunded, not banked", v:0,
+           note:"Nothing from it reaches this fund. Clearing the line owes the whole surplus back to taxpayers, so your best revenue years are the ones that add least to the reserve. Two things still hold money back from the refund: an accumulated shortfall is paid down before the kicker is worked out, and while the surplus sits pooled for its one quarter you can put a share of it to a floor vote. Repeal the kicker and the whole surplus fills the reserves instead."}
+    ],
     outflows:()=>[
       {name:"Automatic deficit cover", v:0, note:"Drawn first, every quarter the budget closes short. Costs nothing and needs no decision from you."},
       {name:"Deliberate draw", v:0, note:"The one thing the automatic draw cannot do: retire structural debt already on the books. Costs capital and has a cooldown."}],
-    note:"Empty this and the next shortfall becomes structural debt, which compounds and is far harder to clear than it was to avoid."},
+    note:()=>"Every surplus settles in the same order: the accumulated shortfall first, then the kicker if it is owed, then this fund and the Education Stability Fund with whatever is left. "
+      +(POLICIES.kickerReform?"With the kicker repealed there is no second step, so everything past the shortfall reaches the reserves. ":"")
+      +"Empty this and the next shortfall becomes structural debt, which compounds and is far harder to clear than it was to avoid."},
 
   pers:{ name:"PERS Unfunded Liability", icon:"coffin", series:"fund_pers", invert:true,
     val:()=>GAME.persUAL||0,
@@ -22488,7 +22499,7 @@ function renderBudget(){
       const cd=GAME.turn-(GAME.lastReserveDraw??-99);
       let rdCtl=`<div class="fnote">${POLICIES.kickerReform
         ? `Kicker repealed, so <b>every</b> above-forecast surplus lands here (60%) and in the ESF (40%).`
-        : `Refilled by surpluses under the 2% kicker line.`} <b>Auto-drawn</b> against any quarter's deficit, free and automatic. A <b>deliberate draw</b> does the one thing that cannot: retire debt already on the books.</div>`;
+        : `Refilled by surpluses that stay under the 2% kicker line. One that clears the line refunds to taxpayers instead and adds nothing here.`} <b>Auto-drawn</b> against any quarter's deficit, free and automatic. A <b>deliberate draw</b> does the one thing that cannot: retire debt already on the books.</div>`;
       if(GAME.reserveInfusion>0)
         rdCtl+=`<div class="fnote" style="color:var(--slate-blue)">↳ $${GAME.reserveInfusion.toFixed(2)}B drawn, lands in the budget at quarter's end.</div>`;
       if(reserveDrawAvailable())
