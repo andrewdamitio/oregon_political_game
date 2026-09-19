@@ -2201,8 +2201,18 @@ function applySave(sv){
      Browsers suspend on their own: focus loss, sleep, power saving. So if
      the context is asleep, wait for resume() to resolve and schedule after,
      rather than carrying on and hoping. */
+  var WARNED='';
+  function audioNote(state){
+    // once per distinct state, in the log the player can already see
+    if(WARNED===state)return; WARNED=state;
+    try{ if(typeof GAME!=='undefined'&&GAME.log)GAME.log.push('\u266a Sound could not play: audio is '+state
+      +'. Click anywhere and it should wake.'); }catch(e){}
+  }
   function play(fn){
-    var ac=ctx(); if(!ac)return;
+    var ac=ctx();
+    if(!ac){ audioNote('unavailable'); return; }
+    if(ac.state==='running')WARNED='';
+    else audioNote(ac.state);
     if(ac.state==='suspended'){
       try{
         var p=ac.resume();
@@ -2316,7 +2326,7 @@ function applySave(sv){
       return {on:ON, context:(AC?AC.state:'never created'), dead:CTXDEAD,
         clock:(AC?+AC.currentTime.toFixed(2):null), limiter:!!BUS, unlocked:UNLOCKED,
         modalsOpen:up, lastDilemmaSound:window._lastDilemmaSound||null,
-        pendingDilemma:(window.GAME?GAME.pendingDilemma:null)};
+        pendingDilemma:(typeof GAME!=='undefined'?GAME.pendingDilemma:null)};
     },
     win:function(){ if(!ON)return;
       [523.25,659.25,783.99,1046.5].forEach(function(f,i){ tone(f,i*0.11,0.55,'triangle',0.22); });
@@ -22699,28 +22709,45 @@ function dilemmaChordWhenVisible(modal){
   if(!window.SFX||!modal)return;
   const id=GAME.pendingDilemma;
   if(!id||window._lastDilemmaSound===id)return;
-  let tries=0;
-  (function check(){
-    if(GAME.pendingDilemma!==id)return;                       // answered or swapped
-    if(modal.classList.contains('hidden'))return;             // no longer up
-    let covered=false;
-    document.querySelectorAll('.modal').forEach(m=>{
-      if(m===modal || m.classList.contains('hidden'))return;
-      // a modal that is on screen for real, not merely missing a class
-      let shown=true;
-      try{ shown=(m.offsetParent!==null)||getComputedStyle(m).display!=='none'; }catch(e){}
-      if(shown)covered=true;
-    });
-    if(!covered){
-      if(window._lastDilemmaSound!==id){
-        window._lastDilemmaSound=id;
-        try{ SFX.dilemma(); }catch(e){}
-      }
-      return;
-    }
-    if(++tries<120)setTimeout(check,250);
-  })();
+  let covered=false;
+  document.querySelectorAll('.modal').forEach(m=>{
+    if(m===modal || m.classList.contains('hidden'))return;
+    let shown=true;
+    try{ shown=(m.offsetParent!==null)||getComputedStyle(m).display!=='none'; }catch(e){}
+    if(shown)covered=true;
+  });
+  if(!covered){
+    window._lastDilemmaSound=id;
+    try{ SFX.dilemma(); }catch(e){}
+    return;
+  }
+  // STILL BURIED. Do not wait on a timer for it: a sound asked for outside a
+  // user gesture cannot wake a sleeping context, so that is the one way to
+  // guarantee losing it. render() runs when the covering modal is dismissed,
+  // and that dismissal is a click, so the retry rides in on the gesture.
+  // The timer below is only a long-stop for a close that never re-renders.
+  if(!window._dilChordTimer){
+    window._dilChordTimer=setTimeout(function(){
+      window._dilChordTimer=null;
+      try{ if(GAME.pendingDilemma===id && window._lastDilemmaSound!==id){
+        const dm=document.getElementById('dilemmaModal');
+        if(dm && !dm.classList.contains('hidden')){ window._lastDilemmaSound=id; SFX.dilemma(); }
+      } }catch(e){}
+    }, 4000);
+  }
 }
+/* Any click may be the one that uncovers a waiting dilemma. Bubble phase, so
+   the modal's own close handler has already hidden it by the time we look,
+   and we are still inside the gesture the browser needs to wake the audio. */
+document.addEventListener('click',function(){
+  try{
+    if(typeof GAME==='undefined'||!GAME.pendingDilemma)return;
+    if(window._lastDilemmaSound===GAME.pendingDilemma)return;
+    const dm=document.getElementById('dilemmaModal');
+    if(!dm||dm.classList.contains('hidden'))return;
+    dilemmaChordWhenVisible(dm);
+  }catch(e){}
+},false);
 function renderDilemma(){
   const modal=document.getElementById("dilemmaModal"), card=document.getElementById("dilemmaCard");
   if(!modal||!card)return;
