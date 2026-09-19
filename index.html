@@ -2783,7 +2783,7 @@ const INDICATORS={
     ],
     feedback:{}},
   pensionBurden:{name:"Pension Burden (PERS)", icon:"coffin", value:55,
-    desc:"How heavily PERS pension costs weigh on the state. The ~$28B unfunded liability (about 78% funded) drives the employer contribution rate, and that rate is a payroll cost on every service Oregon delivers: school districts most of all, since they are the largest PERS employer group, then human services, corrections, the universities and the agencies. It crowds out what those budgets can buy; it is not a statement about how well any of them do their job.\n\nInvestment returns move the liability both ways: a strong market pays it down, a crash blows it open, and new benefits accrue every quarter. But the expensive part of PERS is a demographic wave, not a permanent condition: Tier 1 and Tier 2 members, hired before 1996 with the guaranteed-return benefit that built the hole, are retiring out, and everyone hired since is on the far cheaper OPSRP tier. Left alone through a normal market, the burden crests and then declines on its own. PERS Reform bends the accrual curve further, at a steep price with the public unions.",
+    desc:"How heavily public-employee retirements weigh on the state budget. PERS is the Public Employees Retirement System, which pays the pensions of Oregon's teachers and school staff, state agency employees, police and firefighters, and city and county workers. The ~$28B unfunded liability (about 78% funded) drives the employer contribution rate, and that rate is a payroll cost on every service Oregon delivers: school districts most of all, since they are the largest PERS employer group, then human services, corrections, the universities and the agencies. It crowds out what those budgets can buy; it is not a statement about how well any of them do their job.\n\nInvestment returns move the liability both ways: a strong market pays it down, a crash blows it open, and new benefits accrue every quarter. But the expensive part of PERS is a demographic wave, not a permanent condition: Tier 1 and Tier 2 members, hired before 1996 with the guaranteed-return benefit that built the hole, are retiring out, and everyone hired since is on the far cheaper OPSRP tier. Left alone through a normal market, the burden crests and then declines on its own. PERS Reform bends the accrual curve further, at a steep price with the public unions.",
     derive:()=>{
       const funded=clamp((130-(GAME.persUAL||28))/130, 0.4, 1.0);   // ~0.78 at UAL 28
       let v=20+(1-funded)*165;                                      // funded 1.0→20, 0.78→~56
@@ -13289,9 +13289,15 @@ function surplusPoolAmount(){ return (GAME.surplusPool&&GAME.surplusPool.amount)
 function surplusNeedsVote(){ return !!(GAME.surplusPool&&GAME.surplusPool.kicker); }
 /* The price climbs with the share. Taking a refund off taxpayers costs far
    more than moving money that is already the state's. */
+/* What the share itself costs, on top of the floor base. Taking more of a
+   refund costs more, because it is more of somebody's cheque; the slope
+   used to be 3+12s, which put a full transfer at 17 capital all in against
+   a mean income of about 10 a quarter. Nearly two quarters of everything
+   you earn to move money already sitting in the treasury was too much for
+   what it buys. */
 function surplusCapitalCost(share){
   const s=clamp(share,0,1);
-  return surplusNeedsVote() ? Math.round(3+s*12) : Math.round(s*4);
+  return surplusNeedsVote() ? Math.round(2+s*6) : Math.round(s*4);
 }
 /* A directed surplus scored like a bill: who gains from the destination, and
    who was owed the refund it came out of. */
@@ -16427,7 +16433,7 @@ function drawSurplusFloor(){
   const card=document.getElementById("floorCard"), modal=document.getElementById("floorModal");
   card.innerHTML=`<div class="sectionhdr">${ico('bank')} Move the surplus to ${D.label}</div>
     <div class="sectionsub">$${pool.toFixed(2)}B is sitting unspent from last quarter. ${vote
-      ? `It cleared the 2% line, so the kicker owes it back to taxpayers: taking any of it is a bill, in ${floorPlace()}, and the people it was promised to will read it as exactly that.`
+      ? `Under Oregon's kicker, revenue past the 2% line refunds to taxpayers in full, and this cleared it. Keeping any of it is a bill, in ${floorPlace()}, and the people the money was promised to will read it as exactly that.`
       : `The kicker is repealed, so the money is the state's and moving it is an administrative act.`}
       ${debt>0.01?`Left alone it would pay down the $${debt.toFixed(2)}B shortfall first, and taking it from there is its own argument.`:``}
       This moves money once. It changes no budget line and repeats nothing next quarter.</div>
@@ -22067,7 +22073,7 @@ const FUNDS={
 
   pers:{ name:"PERS Unfunded Liability", icon:"coffin", series:"fund_pers", invert:true,
     val:()=>GAME.persUAL||0,
-    blurb:"Not a fund you hold — a hole you owe. The gap between what PERS has promised and what it has set aside. It is the only line here where a smaller number is better, and it drives the employer contribution rate that every public payroll in Oregon pays.",
+    blurb:"Not a fund you hold — a hole you owe. PERS is the Public Employees Retirement System, the pensions Oregon has promised the people who work for it: teachers and school staff, state agency employees, police and firefighters, and city and county workers. This is the gap between what those retirements will cost and what has been set aside to pay for them. It is the only line here where a smaller number is better, and it drives the employer contribution rate that every public payroll in Oregon pays.",
     inflows:()=>{
       const pr=persRisk(), reformed=!!(POLICIES.persReform&&POLICIES.persReform.enacted);
       const wave=(GAME.persWave!=null?GAME.persWave:1);
@@ -22118,16 +22124,29 @@ function renderFundDetail(id){
    much, not whether: every step up costs more capital and, while the kicker
    is owed the money, makes the floor vote harder. */
 /* The button that opens the floor screen for moving surplus into this fund.
-   Only there while there is a surplus to move. */
+   Always there, because a quarter with nothing to move needs to say so. */
 function surplusDirectHTML(id){
   if(!SURPLUS_DEST[id])return "";
   const pool=surplusPoolAmount();
-  if(pool<=0.01)return "";
+  const hdr=`<div class="ebgroup-label" style="margin-top:16px">${ico('cash')} ${
+    pool>0.01 ? "This quarter's surplus" : "Nothing to move this quarter"}</div>`;
+  /* NOTHING TO MOVE IS ALSO AN ANSWER. This used to return an empty string,
+     so in a bad quarter the control vanished and a player looking for it
+     found no button and no reason for its absence. The two ways of having
+     nothing are different and it says which one applies. */
+  if(pool<=0.01){
+    const bal=budgetBalance().balance;
+    const why = bal<-0.005
+      ? `The budget is running a deficit of <b>$${Math.abs(bal).toFixed(2)}B</b> a year, so there is nothing to move. Only a surplus can be put into a fund. A quarter that closes short draws the reserves down instead, automatically and at no cost to you.`
+      : `Nothing is pooled right now. A quarter that closes in the black pools its surplus when it closes, and that is the quarter you can direct it in.`;
+    return hdr+`<div class="fnote" style="margin-bottom:8px">${why}</div>`
+      +`<div class="surp-act"><button class="fcard-btn big" id="surplusOpen" disabled>${ico('bank')} Add to fund \u2192</button></div>`;
+  }
   const vote=surplusNeedsVote(), debt=(GAME.surplusPool&&GAME.surplusPool.debt)||0;
-  let h=`<div class="ebgroup-label" style="margin-top:16px">${ico('cash')} This quarter's surplus</div>`;
+  let h=hdr;
   h+=`<div class="fnote" style="margin-bottom:8px"><b>$${pool.toFixed(2)}B</b> is unspent. ${vote
-    ? `It cleared the 2% line, so the kicker owes it to taxpayers and moving any of it takes a vote.`
-    : `The kicker is repealed, so this is the state's money to move.`}`;
+    ? `Under Oregon's kicker, revenue past the 2% line is refunded to taxpayers in full. This surplus cleared the line, so unless the legislature votes otherwise every dollar of it goes back and none of it reaches a fund. A vote is what puts a share of it in one instead.`
+    : `The kicker is repealed, so revenue past the 2% line stays the state's money. Moving it into a fund is an administrative act and needs no vote.`}`;
   if(debt>0.01)h+=` Left alone it would pay down the $${debt.toFixed(2)}B shortfall first.`;
   h+=`</div>`;
   // A BLOCK, NOT A BARE BUTTON. main>* carries the page's side padding and
