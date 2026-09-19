@@ -1464,6 +1464,15 @@
   .mres-card.pass .mres-verdict b{color:var(--moss)}
   .mres-card.fail .mres-verdict b{color:var(--clay)}
   .mm-result-svg{width:100%;height:auto;display:block;background:var(--paper);border:1px solid var(--line)}
+  .mm-result-svg .mm-c{cursor:pointer;transition:filter var(--motion)}
+  .mm-result-svg .mm-c:hover,.mm-result-svg .mm-c:focus{filter:brightness(1.12);stroke:var(--ink);stroke-width:1.1;outline:none}
+  .mres-read{font-size:12px;color:var(--muted-2);margin-top:5px;min-height:1.2em;font-family:var(--font-data)}
+  /* the same enlarge the district cards use, and for the same reason: one
+     zoom per card, never two competing for the pointer */
+  .mres-card{cursor:zoom-in;transition:box-shadow .12s}
+  .mres-card:hover{box-shadow:5px 5px 0 var(--shadow-hard)}
+  .mres-card.zoom{grid-column:1 / -1;cursor:zoom-out}
+  .mres-card.zoom .mm-result-svg{max-width:760px;margin:2px auto 0}
   .mres-foot{font-size:12px;color:var(--muted-2);margin-top:7px;font-style:italic}
   .mres-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
   .mres-head .mrh-verdict{font-family:var(--font-data);font-weight:700;font-size:12px;letter-spacing:.05em}
@@ -13129,7 +13138,7 @@ function showMidterm(m){
   // open at the top — the scroll container is .egrand inside the card
   const _top=()=>{ card.scrollTop=0; const g=card.querySelector('.egrand'); if(g)g.scrollTop=0; };
   _top(); requestAnimationFrame(_top);
-  wireLegMaps(card);
+  wireLegMaps(card); wireMeasureResults(card);
   const done=()=>{  /* wireMeasureResultCards removed — measures are always open */
     modal.classList.add("hidden");
     modal.classList.remove("grand");
@@ -14170,7 +14179,7 @@ function showElection(r){
     });
     card.querySelectorAll(barSel).forEach(bar=>bar.addEventListener('mouseleave',()=>{ rd.textContent=dflt; }));
   };
-  wireLegMaps(card);
+  wireLegMaps(card); wireMeasureResults(card);
   wireBarRead("egBarRead", ".eg-bar", true);      // 4 segments — keyboard-navigable
   wireBarRead("egBlkRead", ".eg-blk-bar", false); // dozens of bars — hover only
   const order=cRows.map((c,i)=>i).sort((a,b)=>cRows[a].popK-cRows[b].popK);
@@ -17060,6 +17069,35 @@ function wireMapZoom(root){
 }
 /* Click or Enter on a result-map card enlarges it to the full width of the
    section. Only the election screen has these cards. */
+/* The measure result cards: hover a county for its share, click the card to
+   open it across the grid. Same two behaviours as the district maps, and
+   like them no second zoom inside the card. */
+function wireMeasureResults(root){
+  root.querySelectorAll('[data-mmread]').forEach(rd=>{
+    if(rd._wired)return; rd._wired=true;
+    const svg=rd.previousElementSibling;
+    if(!svg||!svg.querySelectorAll)return;
+    const dflt=rd.textContent;
+    svg.querySelectorAll('[data-mmc]').forEach(el=>{
+      const show=()=>{
+        const y=+el.dataset.yes;
+        rd.innerHTML=`<b>${el.dataset.mmc} County</b> \u00b7 <b>${y}%</b> yes \u00b7 ${100-y}% no`
+          +` \u00b7 <span style="color:${y>=50?'var(--good)':'var(--clay)'}">${y>=50?'carried':'rejected'}</span>`;
+      };
+      el.addEventListener('mouseenter',show);
+      el.addEventListener('focus',show);
+      el.addEventListener('click',show);
+    });
+    svg.addEventListener('mouseleave',()=>{ rd.textContent=dflt; });
+  });
+  root.querySelectorAll('[data-mreszoom]').forEach(el=>{
+    if(el._wired)return; el._wired=true;
+    const toggle=()=>el.classList.toggle('zoom');
+    el.addEventListener('click',toggle);
+    el.addEventListener('keydown',ev=>{
+      if(ev.key==="Enter"||ev.key===" "){ ev.preventDefault(); toggle(); } });
+  });
+}
 function wireLegMaps(root){
   wireLegReadout(root);   // these maps have no zoom frame, so wire it directly
   wireMapZoom(root);      // harmless: it finds no frames here
@@ -17579,10 +17617,14 @@ function measureMapSVG(r){
     const mag=clamp(Math.abs(y-0.5)/0.28,0,1);
     const fill=cmMix(0.22+0.78*mag,"#e7e3d5",y>=0.5?"#33562f":"#9b2226");
     base+=`<path d="${c[2]}" fill="var(--paper-2)" stroke="var(--line)" stroke-width="0.5"/>`;
-    fills+=`<path d="${c[2]}" fill="${fill}" stroke="var(--paper)" stroke-width="0.4"><title>${c[0]} County — ${Math.round(y*100)}% yes</title></path>`;
+    const pct=Math.round(y*100);
+    fills+=`<path class="mm-c" data-mmc="${c[0]}" data-yes="${pct}" tabindex="0"`
+      +` d="${c[2]}" fill="${fill}" stroke="var(--paper)" stroke-width="0.4">`
+      +`<title>${c[0]} County — ${pct}% yes</title></path>`;
     labels+=`<text x="${c[3]}" y="${c[4]+2}" text-anchor="middle" font-size="6" font-family="var(--font-data)" fill="#1c1a17" stroke="rgba(255,255,255,0.7)" stroke-width="1.4" paint-order="stroke" style="pointer-events:none">${c[1]}</text>`;
   });
-  return `<svg class="mm-result-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="County results for this measure">${base}${fills}${labels}</svg>`;
+  return `<svg class="mm-result-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="County results for this measure">${base}${fills}${labels}</svg>`
+    +`<div class="mres-read" data-mmread>Hover a county for its result</div>`;
 }
 /* A few interest groups either side of the line on one measure. */
 function measureBlocResultHTML(blocs){
@@ -17616,7 +17658,7 @@ function measureResultMapsHTML(list){
       :r.stance==="oppose"?"You opposed it"
       :r.stance==="neutral"?"You declared neutrality"
       :"You took no side";
-    h+=`<div class="mres-card ${r.passed?'pass':'fail'}">
+    h+=`<div class="mres-card ${r.passed?'pass':'fail'}" data-mreszoom role="button" tabindex="0" title="Click to enlarge">
       <div class="mres-head">
         <span class="mres-name" style="flex:1 1 60%">${ico(r.icon)} ${r.source==="citizen"?"Citizen — ":""}${measureTitle(r)}</span>
         <span class="mrh-verdict">${r.passed?"PASSED":"FAILED"}</span>
