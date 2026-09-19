@@ -2201,18 +2201,8 @@ function applySave(sv){
      Browsers suspend on their own: focus loss, sleep, power saving. So if
      the context is asleep, wait for resume() to resolve and schedule after,
      rather than carrying on and hoping. */
-  var WARNED='';
-  function audioNote(state){
-    // once per distinct state, in the log the player can already see
-    if(WARNED===state)return; WARNED=state;
-    try{ if(typeof GAME!=='undefined'&&GAME.log)GAME.log.push('\u266a Sound could not play: audio is '+state
-      +'. Click anywhere and it should wake.'); }catch(e){}
-  }
   function play(fn){
-    var ac=ctx();
-    if(!ac){ audioNote('unavailable'); return; }
-    if(ac.state==='running')WARNED='';
-    else audioNote(ac.state);
+    var ac=ctx(); if(!ac)return;
     if(ac.state==='suspended'){
       try{
         var p=ac.resume();
@@ -2220,38 +2210,6 @@ function applySave(sv){
       }catch(e){}
     }
     try{ fn(ac); }catch(e){}
-  }
-  /* Everything goes out through a limiter. The gavel stacks three layers and
-     would otherwise sum past 1.0 and clip into a crackle. Threshold is -6dBFS,
-     far above the quarter tap and the welcome chord, so neither is touched. */
-  var BUS=null;
-  function out(){
-    var ac=ctx(); if(!ac)return null;
-    if(BUS&&BUS.context===ac)return BUS;
-    try{
-      var c=ac.createDynamicsCompressor();
-      c.threshold.value=-6; c.knee.value=4; c.ratio.value=12;
-      c.attack.value=0.001; c.release.value=0.10;
-      c.connect(ac.destination);
-      BUS=c;
-    }catch(e){ BUS=null; }
-    return BUS||ac.destination;
-  }
-  /* A PERCUSSIVE BODY. Instant attack, no ramp, and a fast downward pitch
-     slide, which is the cue that says something was struck. */
-  function thump(freq,start,dur,gain,drop){
-    play(function(ac){
-    try{
-      var o=ac.createOscillator(), g=ac.createGain(), t0=ac.currentTime+start+0.015;
-      o.type='sine';
-      o.frequency.setValueAtTime(freq*(drop||1.5),t0);
-      o.frequency.exponentialRampToValueAtTime(freq,t0+0.045);
-      g.gain.setValueAtTime(gain,t0);
-      g.gain.exponentialRampToValueAtTime(0.0008,t0+dur);
-      o.connect(g); g.connect(out()||ac.destination);
-      o.start(t0); o.stop(t0+dur+0.03);
-    }catch(e){}
-    });
   }
   var UNLOCKED=false;
   function unlockAudio(){
@@ -2277,36 +2235,9 @@ function applySave(sv){
     g.gain.setValueAtTime(0.0001,t0);
     g.gain.linearRampToValueAtTime(gain||0.2,t0+0.02);
     g.gain.exponentialRampToValueAtTime(0.0006,t0+dur);
-    o.connect(g); g.connect(out()||ac.destination);
+    o.connect(g); g.connect(ac.destination);
     o.start(t0); o.stop(t0+dur+0.05);
     });
-  }
-  /* A WOOD KNOCK IS NOISE, NOT A TONE. Short band-passed white noise with a
-     fast decay: the filter frequency is what makes it read as wood rather
-     than a hiss, and the decay is what makes it a knock rather than a rush. */
-  function noise(start,dur,gain,freq,q){
-    play(function(ac){
-    try{
-      var len=Math.max(1,Math.floor(ac.sampleRate*dur));
-      var buf=ac.createBuffer(1,len,ac.sampleRate), d=buf.getChannelData(0);
-      for(var i=0;i<len;i++)d[i]=Math.random()*2-1;
-      var src=ac.createBufferSource(); src.buffer=buf;
-      var bp=ac.createBiquadFilter(); bp.type='bandpass';
-      bp.frequency.value=freq||320; bp.Q.value=(q==null?1.6:q);
-      var g=ac.createGain(), t0=ac.currentTime+start+0.015;   // same runway as tone()
-      g.gain.setValueAtTime(gain||0.2,t0);
-      g.gain.exponentialRampToValueAtTime(0.0005,t0+dur);
-      src.connect(bp); bp.connect(g); g.connect(out()||ac.destination);
-      src.start(t0); src.stop(t0+dur+0.02);
-    }catch(e){}
-    });
-  }
-  /* One strike of the gavel, in three layers: the crack your ear locates it
-     by, the wood underneath, and the impact that gives it weight. */
-  function knock(at,gain,bright){
-    noise(at,0.030,gain*0.85, bright?2400:1900, 0.7);   // crack
-    noise(at,0.080,gain*1.00, bright?460:360,  0.9);    // wood
-    thump(bright?274:206, at, 0.12, gain*1.05, 1.3);    // the block, tight drop so it lands rather than falls
   }
   function paint(){
     var b=document.getElementById('sfxToggle');
@@ -2316,54 +2247,12 @@ function applySave(sv){
     get on(){return ON;},
     setOn:function(v){ ON=!!v; try{localStorage.setItem('sc_sfx',ON?'1':'0');}catch(e){} paint(); },
     toggle:function(){ this.setOn(!ON); if(ON)tone(660,0,0.12,'sine',0.16); },
-    /* Run SFX.debug() in the console to see what the audio layer actually
-       thinks is going on, rather than guessing from what you can hear. */
-    debug:function(){
-      var up=[];
-      document.querySelectorAll('.modal').forEach(function(m){
-        if(!m.classList.contains('hidden'))up.push(m.id||'?');
-      });
-      return {on:ON, context:(AC?AC.state:'never created'), dead:CTXDEAD,
-        clock:(AC?+AC.currentTime.toFixed(2):null), limiter:!!BUS, unlocked:UNLOCKED,
-        modalsOpen:up, lastDilemmaSound:window._lastDilemmaSound||null,
-        pendingDilemma:(typeof GAME!=='undefined'?GAME.pendingDilemma:null)};
-    },
     win:function(){ if(!ON)return;
       [523.25,659.25,783.99,1046.5].forEach(function(f,i){ tone(f,i*0.11,0.55,'triangle',0.22); });
       tone(1567.98,0.44,0.9,'sine',0.13);
       tone(261.63,0,1.15,'sawtooth',0.045);
     },
     lose:function(){ if(!ON)return; tone(392,0,0.5,'sawtooth',0.13); tone(261.63,0.17,0.7,'sawtooth',0.12); tone(185,0.36,1.05,'sine',0.11); },
-    /* IT CARRIES. Two strikes, the second a touch brighter, the way a gavel
-       actually lands when a chair is calling a result rather than order. */
-    votePass:function(){ if(!ON)return;
-      knock(0,0.62,false); knock(0.125,0.70,true);
-      // the gavel says it happened; this says it went your way
-      tone(659.25,0.26,0.34,'triangle',0.115);
-      tone(987.77,0.38,0.52,'sine',0.095);
-    },
-    /* IT DOES NOT. One strike, lower, and nothing after it. The silence where
-       the second knock would be is the whole point. */
-    /* One strike, lower and deader than either half of the gavel, and nothing
-       after it. Same weight, no resolution. */
-    voteFail:function(){ if(!ON)return;
-      noise(0,0.030,0.42,1100,0.8);
-      noise(0,0.110,0.60,240,0.9);
-      thump(104,0,0.22,0.62,2.1);   // a deeper fall than the gavel, which is the point
-    },
-    /* The quarter turning over. Quietest thing in the set by a wide margin,
-       because it plays on every single turn. */
-    quarter:function(){ if(!ON)return; noise(0,0.045,0.055,210,1.5); tone(96,0,0.07,'sine',0.05); },
-    /* Something is asking you a question. Two notes rising a fourth, warm and
-       unresolved, so it does not sound like either of the gavels. */
-    /* A QUESTION BEING PUT TO YOU. It waits out the quarter tap it shares a
-       tick with, then climbs, so it is not competing with a noise burst for
-       the first 70ms of its life. */
-    dilemma:function(){ if(!ON)return;
-      tone(440.00,0.18,0.40,'triangle',0.17);
-      tone(587.33,0.32,0.46,'triangle',0.16);
-      tone(880.00,0.46,0.70,'sine',0.115);
-    },
     /* TAKING OFFICE. A rising fifth into the octave over a low pad. Warmer and
        slower than the election fanfare, because this one opens a term rather
        than celebrating the end of one. */
@@ -15948,7 +15837,6 @@ function showVoteResult(o){
       : "You whipped and you lost — the political capital is gone either way. Build the margin, weaken the bill, or win the seats."}</div>`}
     <button class="enactbtn" id="voteResOk">${o.ok?"Good":"Understood ▸"}</button>`;
   modal.classList.remove("hidden");
-  if(window.SFX){ try{ o.ok?SFX.votePass():SFX.voteFail(); }catch(e){} }
   const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
   const onKey=e=>{ if(modal.classList.contains("hidden"))return;
     if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); } };
@@ -17282,7 +17170,6 @@ function _runTicks(){
 }
 /* regular quarter advancement — called by the campaign popup "Next Quarter" button */
 function doEndTurn(){
-  if(window.SFX){ try{ SFX.quarter(); }catch(e){} }
   _runTicks();
   tickCoalition();
   _calcCapital();
@@ -22701,53 +22588,6 @@ function renderRailVoters(){
   }).join("");
   el.querySelectorAll('[data-detail]').forEach(b=>b.addEventListener('click',()=>openDetail(b.dataset.detail)));
 }
-/* Wait for the dilemma to be the only thing on screen, then sound its chord
-   once. Gives up if it is resolved, replaced or closed first, and stops
-   after thirty seconds so a report left open all afternoon cannot produce a
-   chord out of nowhere. */
-function dilemmaChordWhenVisible(modal){
-  if(!window.SFX||!modal)return;
-  const id=GAME.pendingDilemma;
-  if(!id||window._lastDilemmaSound===id)return;
-  let covered=false;
-  document.querySelectorAll('.modal').forEach(m=>{
-    if(m===modal || m.classList.contains('hidden'))return;
-    let shown=true;
-    try{ shown=(m.offsetParent!==null)||getComputedStyle(m).display!=='none'; }catch(e){}
-    if(shown)covered=true;
-  });
-  if(!covered){
-    window._lastDilemmaSound=id;
-    try{ SFX.dilemma(); }catch(e){}
-    return;
-  }
-  // STILL BURIED. Do not wait on a timer for it: a sound asked for outside a
-  // user gesture cannot wake a sleeping context, so that is the one way to
-  // guarantee losing it. render() runs when the covering modal is dismissed,
-  // and that dismissal is a click, so the retry rides in on the gesture.
-  // The timer below is only a long-stop for a close that never re-renders.
-  if(!window._dilChordTimer){
-    window._dilChordTimer=setTimeout(function(){
-      window._dilChordTimer=null;
-      try{ if(GAME.pendingDilemma===id && window._lastDilemmaSound!==id){
-        const dm=document.getElementById('dilemmaModal');
-        if(dm && !dm.classList.contains('hidden')){ window._lastDilemmaSound=id; SFX.dilemma(); }
-      } }catch(e){}
-    }, 4000);
-  }
-}
-/* Any click may be the one that uncovers a waiting dilemma. Bubble phase, so
-   the modal's own close handler has already hidden it by the time we look,
-   and we are still inside the gesture the browser needs to wake the audio. */
-document.addEventListener('click',function(){
-  try{
-    if(typeof GAME==='undefined'||!GAME.pendingDilemma)return;
-    if(window._lastDilemmaSound===GAME.pendingDilemma)return;
-    const dm=document.getElementById('dilemmaModal');
-    if(!dm||dm.classList.contains('hidden'))return;
-    dilemmaChordWhenVisible(dm);
-  }catch(e){}
-},false);
 function renderDilemma(){
   const modal=document.getElementById("dilemmaModal"), card=document.getElementById("dilemmaCard");
   if(!modal||!card)return;
@@ -22827,7 +22667,6 @@ function renderDilemma(){
   // DOM. A dilemma is raised in the same tick as End Quarter, so the campaign
   // popup and the quarterly report are usually stacked on top of it and the
   // chord would play to a player who is reading something else.
-  dilemmaChordWhenVisible(modal);
   card.querySelectorAll('[data-opt]').forEach(b=>b.addEventListener('click',()=>resolveDilemma(+b.dataset.opt)));
 }
 /* the sidebar's clickable mini political-compass — a scaled-down grid with the
