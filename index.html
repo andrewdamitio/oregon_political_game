@@ -728,6 +728,9 @@
   @keyframes sddPulse{0%{filter:none}30%{filter:drop-shadow(0 0 9px var(--slate-blue))}100%{filter:none}}
   .boardnode.sddpulse{animation:sddPulse 1.15s ease}
   .webwrap{background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);overflow:auto}
+  /* only worth saying where it is actually true */
+  .webpan{display:none;margin-top:6px}
+  @media (max-width:980px){ .webpan{display:block} }
   #webSvg{width:100%;min-width:900px;display:block}
   .webedge{stroke-opacity:.10;transition:stroke-opacity var(--motion)}
   #webSvg .webvoter circle{transition:stroke-width var(--motion)}
@@ -1002,6 +1005,14 @@
 
   /* ===================== MOBILE / NARROW SCREENS ===================== */
   @media (max-width:820px){
+    /* 41x29 and 39x27 are under the 44px both platforms ask for. These
+       carry inline styles from the markup, so the override has to win
+       on !important rather than on specificity. */
+    header #reportBtn,header #newGameBtn,header #saveBtn,
+    header #sfxToggle,header #themeToggle{
+      min-width:44px!important;min-height:44px!important;
+      padding:5px 12px!important;margin-right:4px!important;
+      display:inline-flex!important;align-items:center;justify-content:center}
     header{flex-wrap:wrap;gap:8px;padding:8px 12px}
     header .brand h1{font-size:18px}
     .hud{gap:12px;flex-wrap:wrap;width:100%;justify-content:space-between}
@@ -1014,7 +1025,13 @@
     nav.rail{display:flex;flex-direction:row;overflow-x:auto;border-right:none;border-bottom:1px solid var(--line);padding:0;-webkit-overflow-scrolling:touch}
     nav.rail .railhdr{display:none}
     .railbloc{display:none}
-    nav.rail button{width:auto;white-space:nowrap;border-left:none;border-bottom:3px solid transparent;padding:12px 16px;flex:none}
+    /* Nine destinations in a 375px strip. Tighter buttons put five on
+       screen instead of three, and the mask fades the right edge so the
+       strip reads as something that keeps going. A mask does not take
+       clicks, so the faded button is still pressable. */
+    nav.rail button{width:auto;white-space:nowrap;border-left:none;border-bottom:3px solid transparent;padding:12px 11px;font-size:13.5px;flex:none}
+    nav.rail{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 22px),transparent);
+             mask-image:linear-gradient(to right,#000 calc(100% - 22px),transparent)}
     nav.rail button.active{border-left:none;border-bottom-color:var(--moss)}
     main{padding:16px 16px 80px;width:100%}
 
@@ -1155,6 +1172,13 @@
     display:flex;align-items:center;justify-content:center;gap:7px;
     transition:transform var(--motion-fast),box-shadow var(--motion-fast),background var(--motion-fast)}
   .camptab:hover{transform:translate(1px,1px);box-shadow:2px 2px 0 var(--ink)}
+  /* Three labels this long cannot share 358px, and flex:1 will not shrink
+     them past their own text. Smaller first, then wrap rather than clip. */
+  @media (max-width:560px){
+    .camptabs{gap:6px}
+    .camptab{flex:1 1 0;min-width:0;padding:8px 5px;font-size:11.5px;letter-spacing:.02em;
+      gap:4px;white-space:normal;text-align:center;line-height:1.15}
+  }
   .camptab.on{background:var(--slate-blue);color:var(--paper);transform:translate(3px,3px);box-shadow:0 0 0 var(--ink)}
   .ct-badge{font-family:var(--font-data);font-size:11.5px;background:var(--clay);color:var(--paper);
     padding:1px 6px;line-height:1.5}
@@ -5477,8 +5501,8 @@ function apptOverhead(){ return +(apptOverheadRaw()-((GAME.apptBase&&GAME.apptBa
    department produces, so it is the same number the engine applies rather
    than a restatement of the trait table. Unlike overhead and capital this
    is absolute, not measured from the slate you inherited: a player reading
-   +6% should be able to conclude policy lands 6% harder, without first
-   working out what the last governor left behind. */
+   106% should be able to conclude a 10-point law returns 10.6 there, without
+   first working out what the last governor left behind. */
 function apptDelivery(){
   const seen={}; let v=0, n=0;
   for(const id in APPT_POSTS)for(const k of APPT_POSTS[id].metrics){
@@ -22351,13 +22375,16 @@ function renderAppointments(){
   // THE PURCHASE COMES FIRST. What the chairs deliver is the reason to fill
   // them; capital and overhead are what it costs, and leading with the cost
   // made the whole page read as a bill.
-  const _dl=Math.round((apptDelivery()-1)*100);
-  h+=`<span class="pill">${ico('muscle')} Policy where they run it lands <b style="color:${_dl>0?'var(--moss)':_dl<0?'var(--clay)':'inherit'}">${_dl>=0?"+":""}${_dl}%</b></span>`;
+  // A PERCENTAGE NEEDS A DENOMINATOR. This read "lands +5%", which is five
+  // per cent of nothing named. It is a multiplier on the policy effect, so
+  // the strength it lands at is the honest way to put it.
+  const _dl=Math.round(apptDelivery()*100);
+  h+=`<span class="pill">${ico('muscle')} Policy lands at <b style="color:${_dl>100?'var(--moss)':_dl<100?'var(--clay)':'inherit'}">${_dl}% strength</b> where they run it</span>`;
   h+=`<span class="pill">${ico('scales')} <b>${apptCapital()>=0?"+":""}${apptCapital().toFixed(1)}</b> capital a quarter</span>`;
   h+=`<span class="pill">${ico('wrench')} <b>${apptOverhead()>=0?"+":""}${apptOverhead().toFixed(1)}</b> administrative overhead</span></div>`;
   // and say what the two figures are measured against, because they are
   // differences from the chairs as you found them and nothing said so
-  h+=`<div class="fnote" style="margin:-4px 0 10px">Delivery is what the departments are actually returning now. Capital and overhead are measured against the slate you took office with, so they read zero until you change somebody.</div>`;
+  h+=`<div class="fnote" style="margin:-4px 0 10px">Strength is the multiplier your appointees put on every policy effect that lands on a statistic their department is responsible for: at ${_dl}%, a law written to move that statistic 10 points moves it ${(_dl/10).toFixed(1)}. It is what the departments are returning now, not a change from what you inherited. Capital and overhead are measured against the slate you took office with, so those read zero until you change somebody.</div>`;
   for(const id in APPT_POSTS){
     const post=APPT_POSTS[id], holder=apptHolder(id);
     h+=`<div class="ebgroup" style="margin-bottom:10px">`;
@@ -22392,7 +22419,7 @@ function renderAppointments(){
         </span><span class="rval">${canRm?`<button class="fcard-btn danger" data-apptrm="${id}" ${(GAME.capital>=rmCost||window.SANDBOX)?"":"disabled"}>${rmCost?`\u25c8${rmCost} `:``}Remove</button>`:`<span class="fnote">fixed term</span>`}</span></div>`;
     } else {
       h+=`<div class="rrow"><span class="rlabel"><b>${ico(post.icon)} ${apptPostLabel(id)}</b> <span class="pill" style="background:var(--gold);color:var(--ink)">vacant</span>
-        <div class="fnote" style="margin-top:3px"><b>Deputy ${apptDeputy(id)||"—"}</b> is keeping it running and brings nothing to it. The seat counts as vacant until somebody is confirmed: everything the department delivers lands ${Math.abs(Math.round(APPT_VACANT_EFF*100))}% softer, overhead is up ${APPT_VACANT_OVERHEAD.toFixed(1)}, and it costs ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter.</div>
+        <div class="fnote" style="margin-top:3px"><b>Deputy ${apptDeputy(id)||"—"}</b> is keeping it running and brings nothing to it. The seat counts as vacant until somebody is confirmed: policy in this department lands at ${Math.round((1+APPT_VACANT_EFF)*100)}% strength instead of 100%, overhead is up ${APPT_VACANT_OVERHEAD.toFixed(1)}, and it costs ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter.</div>
         </span><span class="rval"></span></div>`;
       const slate=apptSlate(id);
       slate.forEach((c,i)=>{
@@ -23030,7 +23057,8 @@ function renderWeb(){
   main.innerHTML=`${BACK_BTN_HTML}<div class="sectionhdr">Issue Web</div>
     <div class="sectionsub">The whole simulation as one map. Hover any bubble to light up everything it pushes and everything pushing it — <span style="color:var(--good)">green</span> helps, <span style="color:var(--clay)">red</span> hurts, the <b>arrow runs from cause to effect</b>, and thicker lines are stronger. Click to open. Left column: <b>voter groups</b> (hover a policy to see who it pleases or angers) · inner ring: state statistics · middle: active crises · outer: your policies &amp; agencies.</div>
     <div class="websearch"><svg class="sbico" aria-hidden="true"><use href="#ic-search"/></svg><input type="search" id="webSearch" placeholder="Search policies, metrics, agencies…" autocomplete="off"></div>
-    <div class="webwrap">${svg}</div>`;
+    <div class="webwrap">${svg}</div>
+    <div class="fnote webpan">The map is wider than the screen. Drag it sideways to reach the rest, or use the search above to jump straight to something.</div>`;
   wireBackBtn();
   // interactions
   const svgEl=document.getElementById("webSvg");
@@ -23299,6 +23327,23 @@ function render(){
   if(currentView!=="policies" && currentView!=="detail" && GAME.polSearch)GAME.polSearch="";
   ({board:renderBoard,detail:renderDetail,policies:renderPolicies,voters:renderVoters,budget:renderBudget,execorders:renderExecOrders,appointments:renderAppointments,web:renderWeb,compass:renderCompass,countymap:renderCountyMap,camphq:renderCampaignHQ}[currentView]||renderBoard)();
   renderDilemma();
+  railScrollActive();
+}
+/* ON A PHONE THE RAIL IS A SCROLLER, and the destination you are standing
+   on can be most of a screen off the right edge with nothing to say so.
+   Bring it into view after every render. On a desktop the rail is taller
+   than it is wide and does not scroll, so this does nothing there. */
+function railScrollActive(){
+  const rail=document.querySelector('nav.rail');
+  if(!rail||rail.scrollWidth<=rail.clientWidth+2)return;
+  const on=rail.querySelector('.active');
+  if(!on)return;
+  const r=on.getBoundingClientRect(), rr=rail.getBoundingClientRect();
+  if(r.left<rr.left+4||r.right>rr.right-4){
+    // instant, not smooth: this runs on every render and an animated
+    // strip sliding under the thumb each time is worse than no animation
+    rail.scrollLeft=Math.max(0, rail.scrollLeft+(r.left-rr.left)-(rr.width-r.width)/2);
+  }
 }
 document.querySelectorAll('nav.rail button').forEach(b=>b.addEventListener('click',()=>{
   settlePending();
