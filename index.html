@@ -1771,7 +1771,7 @@
 <div id="sandboxFrame" class="sbframe hidden" aria-hidden="true">
   <div class="sbbar sbbar-top">
     <span class="sblabel">Sandbox</span>
-    <span class="sbnote">capital never runs out · every vote carries · losing an election does not end the run — every number you see is still the real one</span>
+    <span class="sbnote">Capital never runs out. Every vote carries. Losing an election does not end the run, and every statistic you see is still accurate.</span>
     <button type="button" class="sbexit" id="sandboxExit">Exit</button>
   </div>
   <div class="sbbar sbbar-bottom"><span class="sblabel">Sandbox</span></div>
@@ -1949,6 +1949,7 @@
 <div id="ballotNoticeModal" class="modal hidden" style="z-index:65"><div class="card" id="ballotNoticeCard" style="max-width:540px"></div></div>
 <div id="floorModal" class="modal hidden" style="z-index:66"><div class="card" id="floorCard" style="max-width:680px"></div></div>
 <div id="voteResultModal" class="modal hidden" style="z-index:67"><div class="card" id="voteResultCard" style="max-width:520px"></div></div>
+<div id="sandboxExitModal" class="modal hidden" style="z-index:82"><div class="card" id="sandboxExitCard" style="max-width:480px"></div></div>
 <div id="welcomeModal" class="modal hidden"><div class="card" id="welcomeCard"></div></div>
 <div id="platformModal" class="modal hidden"><div class="camp-popup-card" id="platformCard"></div></div>
 <div id="resumeModal" class="modal hidden"><div class="card" style="max-width:380px;text-align:center">
@@ -12485,12 +12486,13 @@ function showWelcome(onDone){
         <p>Next screen you set your <b>platform</b>: the promises you will be judged against at re-election. Keep them and you get a swing; break them and you pay for it.</p>
 
         <p class="wg-h">If you just want to look around</p>
-        <p>Start a game on the seed <b>sandbox</b> and nothing can stop you: capital never runs out, every floor vote carries, and losing an election does not end the run. Every number still tells you the truth.</p>
+        <p>Press <b>SANDBOX MODE</b> at the foot of the title screen, or start a game on the seed <b>sandbox</b>, and nothing can stop you: capital never runs out, every floor vote carries, and losing an election does not end the run. Every number still tells you the truth.</p>
       </div>
     </details>
     <div class="welcome-seed">
       Seed <code>${window.RUN_SEED||'—'}</code>
-      · <button id="welcomeSeedBtn">play a specific seed</button>
+      · <button id="welcomeSeedBtn">Play a specific seed</button>
+      · <button id="welcomeSandboxBtn">SANDBOX MODE</button>
     </div>
   </div>`;
   const goBtn=document.getElementById("welcomeGo");
@@ -12510,6 +12512,13 @@ function showWelcome(onDone){
   goBtn.onclick=go;
   {const wsb=document.getElementById("welcomeSeedBtn");
    if(wsb)wsb.onclick=()=>newGame();}
+  // Straight into sandbox. No confirm: startSeed's prompt is about losing a
+  // game in progress, and on this screen there is not one.
+  {const sbb=document.getElementById("welcomeSandboxBtn");
+   if(sbb)sbb.onclick=()=>{
+     try{ localStorage.removeItem("sc_nextSeed"); localStorage.setItem("sc_freshGame","1"); }catch(e){}
+     location.href=location.origin+location.pathname+"?seed=SANDBOX";
+   };}
   // Switching coalition rebuilds the world in place — same seed, same opening,
   // no page reload. The reload was invisible on desktop and looked like a
   // crash-and-restart on a phone.
@@ -22838,12 +22847,36 @@ function mountSandboxFrame(){
   const x=document.getElementById("sandboxExit");
   if(x&&!x._wired){
     x._wired=true;
-    x.addEventListener("click",()=>{
-      if(!confirm("Leave sandbox and start a fresh ordinary game? This sandbox run is discarded."))return;
-      try{ localStorage.removeItem("sc_nextSeed"); localStorage.setItem("sc_freshGame","1"); }catch(e){}
-      location.href=location.origin+location.pathname;
-    });
+    x.addEventListener("click",showSandboxExit);
   }
+}
+/* LEAVING SANDBOX. This was a browser confirm() sitting in the middle of a
+   game that themes every other dialogue, so it is a card like the rest, with
+   the same Escape handling. Two native confirms remain, on startSeed and on
+   New Game, and they are worth the same treatment if anyone minds them. */
+function showSandboxExit(){
+  const card=document.getElementById("sandboxExitCard"), modal=document.getElementById("sandboxExitModal");
+  if(!card||!modal){   // markup missing: fall back rather than trap the player
+    try{ localStorage.removeItem("sc_nextSeed"); localStorage.setItem("sc_freshGame","1"); }catch(e){}
+    location.href=location.origin+location.pathname; return;
+  }
+  card.innerHTML=`<div class="sectionhdr">${ico('warning')} Leave sandbox</div>
+    <div class="sectionsub">Sandbox is not a setting you can switch off mid-term, because a run played with unlimited capital and guaranteed votes is not the same run. Leaving starts an ordinary game from the beginning, and this one is discarded.</div>
+    <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
+      <button class="enactbtn" id="sbxGo">Leave and start fresh</button>
+      <button class="enactbtn ghost" id="sbxNo">Stay in sandbox</button>
+    </div>`;
+  modal.classList.remove("hidden");
+  const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
+  const onKey=e=>{ if(modal.classList.contains("hidden"))return;
+    if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); } };
+  document.getElementById("sbxNo").onclick=close;
+  document.getElementById("sbxGo").onclick=()=>{
+    try{ localStorage.removeItem("sc_nextSeed"); localStorage.setItem("sc_freshGame","1"); }catch(e){}
+    location.href=location.origin+location.pathname;
+  };
+  document.addEventListener("keydown",onKey,true);
+  setTimeout(()=>{try{document.getElementById("sbxNo").focus();}catch(e){}},30);
 }
 function render(){
   sandboxTopUp(); mountSandboxFrame();
