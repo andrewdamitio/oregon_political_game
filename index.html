@@ -22669,6 +22669,32 @@ function renderRailVoters(){
   }).join("");
   el.querySelectorAll('[data-detail]').forEach(b=>b.addEventListener('click',()=>openDetail(b.dataset.detail)));
 }
+/* Wait for the dilemma to be the only thing on screen, then sound its chord
+   once. Gives up if it is resolved, replaced or closed first, and stops
+   after thirty seconds so a report left open all afternoon cannot produce a
+   chord out of nowhere. */
+function dilemmaChordWhenVisible(modal){
+  if(!window.SFX||!modal)return;
+  const id=GAME.pendingDilemma;
+  if(!id||window._lastDilemmaSound===id)return;
+  let tries=0;
+  (function check(){
+    if(GAME.pendingDilemma!==id)return;                       // answered or swapped
+    if(modal.classList.contains('hidden'))return;             // no longer up
+    let covered=false;
+    document.querySelectorAll('.modal').forEach(m=>{
+      if(m!==modal && !m.classList.contains('hidden'))covered=true;
+    });
+    if(!covered){
+      if(window._lastDilemmaSound!==id){
+        window._lastDilemmaSound=id;
+        try{ SFX.dilemma(); }catch(e){}
+      }
+      return;
+    }
+    if(++tries<120)setTimeout(check,250);
+  })();
+}
 function renderDilemma(){
   const modal=document.getElementById("dilemmaModal"), card=document.getElementById("dilemmaCard");
   if(!modal||!card)return;
@@ -22744,12 +22770,11 @@ function renderDilemma(){
   h+=`</div><div class="dilemma-foot">You must decide before the quarter ends. There is no clean choice — both sides will remember.</div>`;
   card.innerHTML=h;
   modal.classList.remove("hidden");
-  // renderDilemma runs on every render, so the figure is tied to the dilemma
-  // rather than to the call. It sounds once, when this one first appears.
-  if(window.SFX && window._lastDilemmaSound!==GAME.pendingDilemma){
-    window._lastDilemmaSound=GAME.pendingDilemma;
-    try{ SFX.dilemma(); }catch(e){}
-  }
+  // SOUND IT WHEN IT IS ACTUALLY ON SCREEN, not when it is written to the
+  // DOM. A dilemma is raised in the same tick as End Quarter, so the campaign
+  // popup and the quarterly report are usually stacked on top of it and the
+  // chord would play to a player who is reading something else.
+  dilemmaChordWhenVisible(modal);
   card.querySelectorAll('[data-opt]').forEach(b=>b.addEventListener('click',()=>resolveDilemma(+b.dataset.opt)));
 }
 /* the sidebar's clickable mini political-compass — a scaled-down grid with the
