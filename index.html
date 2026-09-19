@@ -2719,6 +2719,21 @@ const INDICATORS={
       ...(POLICIES.charterSchools?[{name:ico('cap')+" Charter Schools",v:-policyLevel(POLICIES.charterSchools)*10,link:"p_charterSchools"}]:[]),
       ...(POLICIES.schoolChoice?[{name:ico('ticket')+" School Choice",v:-8,link:"p_schoolChoice"}]:[]),
     ],
+    /* WHAT TAKING CONTROL AWAY ACTUALLY DOES. Not in feedback, because
+       feedback is measured from this indicator's own base and divided by the
+       target metric's inertia, while all of these are measured from a fixed
+       60 and divided by nothing. They live in metricTarget and in
+       ruralAlienation's derive; this declares them so the page can show them
+       without the arithmetic moving. */
+    drives:()=>{
+      const taken=60-INDICATORS.localAutonomy.value;   // how much Salem has taken
+      return [
+        {name:"Student Outcomes", link:"m_eduOutcomes", v:taken*0.085, good:true},
+        {name:"Rural Alienation", link:"i_ruralAlienation", v:taken*0.12, good:false},
+        {name:"Public School Attainment", link:"m_education", v:taken*0.035, good:true}
+      ];
+    },
+    drivesNote:"A curriculum mandate from Salem raises outcomes and raises rural alienation at the same time. That is the whole trade. Districts, unions and rural Oregon read every point taken as a loss, and the classroom gets better anyway.",
     feedback:{}},
   transportFunding:{name:"Transportation Revenue Health", icon:"road", value:62,
     desc:"How well-funded Oregon's transportation system is relative to ODOT's maintenance and operations needs. Gas tax is the primary lever but erodes as EVs grow; vehicle registration fees are stable; an EV road usage charge can close the gap. When this falls below ~62 the Transportation Funding Cliff situation activates.",
@@ -10059,6 +10074,18 @@ function blocContribFor(key, sim, sid){
     case "downtown":         return (INDICATORS.downtown.value-50)*0.04;
     case "inMigration":      return (INDICATORS.inMigration.value-50)*0.03;
     case "ruralAlienation":  return (sim.ideology&&sim.ideology.social>0.3)?-(INDICATORS.ruralAlienation.value-45)*0.05*sim.ideology.social:null;
+    // LOCAL CONTROL IS A CULTURE FIGHT, not only an education one. These are
+    // the same coefficients the mood model applies, so the page and the
+    // approval it reports cannot drift apart.
+    case "localAutonomy": {
+      const la=INDICATORS.localAutonomy.value-60;
+      if(sid==="rural"||sid==="conservative")        return la*0.10;
+      if(sid==="timber"||sid==="libertarian")        return la*0.08;
+      if(sid==="publicUnions")                       return la*0.07;
+      if(sid==="parents")                            return la*0.04;
+      if(sid==="collegeEducated"||sid==="liberal")   return -la*0.05;
+      return null;
+    }
     case "taxGrievance":     return (s.taxes!==undefined&&s.taxes>1.2)?-(INDICATORS.taxGrievance.value-42)*0.06*(s.taxes-0.6):null;
     case "govSpend":         {if(s.govSpend===undefined)return null; const spd=budgetBalance().spend; return (spd-20)*1.2*s.govSpend;}
     default: return null;
@@ -20216,6 +20243,21 @@ function renderDetail(){
           h+=effectBar(_lbl, _gap, Math.max(scale,Math.abs(_gap)), {color:'var(--muted-3)', link:null, fmt:v=>(v>=0?'+':'')+v.toFixed(1)});
         }
         h+=`<div class="threshline" style="margin-top:6px;font-style:italic">These add up to the target the gauge is easing toward, which it reaches with some lag.</div></div>`;
+      }
+    }
+    // effects that are hardcoded elsewhere and would otherwise go unnamed
+    if(typeof ind.drives==="function"){
+      let rows=[]; try{ rows=ind.drives()||[]; }catch(e){ rows=[]; }
+      if(rows.length){
+        h+=`<div class="ebgroup-label">What this indicator drives</div><div class="ebgroup">`;
+        const sc=Math.max(0.5,...rows.map(r=>Math.abs(r.v)));
+        for(const r of rows){
+          const pos=r.v>=0, helpful=(r.good===undefined)?pos:(r.good?pos:!pos);
+          h+=effectBar(r.name, r.v, sc, {color:Math.abs(r.v)<0.01?'var(--muted-3)':(helpful?'var(--good)':'var(--clay)'),
+            link:r.link, fmt:v=>(v>=0?'+':'')+v.toFixed(2)});
+        }
+        if(ind.drivesNote)h+=`<div class="threshline" style="margin-top:6px;font-style:italic">${ind.drivesNote}</div>`;
+        h+=`</div>`;
       }
     }
     // what it feeds into
