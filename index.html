@@ -2173,11 +2173,21 @@ function applySave(sv){
   var ON=true;
   try{if(localStorage.getItem('sc_sfx')==='0')ON=false;}catch(e){}
   var AC=null;
+  var CTXDEAD=false;
   function ctx(){
+    if(!AC && !CTXDEAD){
+      try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }
+      catch(e){ AC=null; CTXDEAD=true; return null; }   // the browser is out of contexts; stop asking
+    }
+    if(!AC)return null;
+    // NEVER BIN A WORKING CONTEXT BECAUSE resume() COMPLAINED. It throws for
+    // ordinary reasons (mid transition, no gesture yet, called twice fast),
+    // and the old code treated every one of those as a reason to allocate a
+    // replacement. A page gets about six from Chrome before it refuses, and
+    // after that there is no audio for the rest of the session.
     try{
-      if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)();
       if(AC.state==='suspended'){ var p=AC.resume(); if(p&&p.catch)p.catch(function(){}); }
-    }catch(e){ AC=null; }
+    }catch(e){}
     return AC;
   }
   /* A BROWSER WILL NOT START AN AUDIO CONTEXT UNTIL YOU TOUCH THE PAGE, and
@@ -2296,6 +2306,18 @@ function applySave(sv){
     get on(){return ON;},
     setOn:function(v){ ON=!!v; try{localStorage.setItem('sc_sfx',ON?'1':'0');}catch(e){} paint(); },
     toggle:function(){ this.setOn(!ON); if(ON)tone(660,0,0.12,'sine',0.16); },
+    /* Run SFX.debug() in the console to see what the audio layer actually
+       thinks is going on, rather than guessing from what you can hear. */
+    debug:function(){
+      var up=[];
+      document.querySelectorAll('.modal').forEach(function(m){
+        if(!m.classList.contains('hidden'))up.push(m.id||'?');
+      });
+      return {on:ON, context:(AC?AC.state:'never created'), dead:CTXDEAD,
+        clock:(AC?+AC.currentTime.toFixed(2):null), limiter:!!BUS, unlocked:UNLOCKED,
+        modalsOpen:up, lastDilemmaSound:window._lastDilemmaSound||null,
+        pendingDilemma:(window.GAME?GAME.pendingDilemma:null)};
+    },
     win:function(){ if(!ON)return;
       [523.25,659.25,783.99,1046.5].forEach(function(f,i){ tone(f,i*0.11,0.55,'triangle',0.22); });
       tone(1567.98,0.44,0.9,'sine',0.13);
@@ -22683,7 +22705,11 @@ function dilemmaChordWhenVisible(modal){
     if(modal.classList.contains('hidden'))return;             // no longer up
     let covered=false;
     document.querySelectorAll('.modal').forEach(m=>{
-      if(m!==modal && !m.classList.contains('hidden'))covered=true;
+      if(m===modal || m.classList.contains('hidden'))return;
+      // a modal that is on screen for real, not merely missing a class
+      let shown=true;
+      try{ shown=(m.offsetParent!==null)||getComputedStyle(m).display!=='none'; }catch(e){}
+      if(shown)covered=true;
     });
     if(!covered){
       if(window._lastDilemmaSound!==id){
