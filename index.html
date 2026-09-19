@@ -426,6 +426,15 @@
   .welcome-title .eg-role{font-family:var(--font-display);font-size:16px;letter-spacing:1px;text-transform:uppercase;
     color:var(--muted-1);margin:2px 0 4px}
   .welcome-title .eg-role b{color:var(--ink)}
+  .mandrow{display:flex;gap:9px;justify-content:center;flex-wrap:wrap;margin:2px 0 4px;width:min(700px,94vw)}
+  .mandbtn{flex:1 1 180px;display:flex;flex-direction:column;gap:2px;align-items:center;cursor:pointer;
+    border:var(--rule) solid var(--ink);background:var(--paper-2);color:var(--ink);
+    padding:8px 10px;box-shadow:2px 2px 0 var(--shadow-hard);transition:box-shadow .12s,transform .12s}
+  .mandbtn:hover{box-shadow:4px 4px 0 var(--shadow-hard);transform:translateY(-1px)}
+  .mandbtn.selected{background:var(--ink);color:var(--paper);box-shadow:2px 2px 0 var(--gold)}
+  .mandbtn .mb-name{font-family:var(--font-display);font-size:15px;font-weight:600;letter-spacing:.02em}
+  .mandbtn .mb-seats{font-family:var(--font-data);font-size:11px;letter-spacing:.04em;opacity:.78}
+  @media (max-width:560px){ .mandbtn{flex:1 1 100%} }
   .welcome-grand .welcome-optin{display:flex;align-items:flex-start;gap:8px;justify-content:center;max-width:520px;
     margin:16px auto 2px;font-size:14px;color:var(--muted-2);line-height:1.45;cursor:pointer;text-align:left}
   .welcome-grand .welcome-optin input{margin-top:2px;flex:none}
@@ -12379,10 +12388,10 @@ function showWelcome(onDone){
   const yr=GAME.startYear||2025;
   const chosen=!!GAME._coalitionChosen;
   const cur=STARTS[GAME.startId]?GAME.startId:activeStartId();
+  const curMand=activeMandate(cur);
   const cardFor=(S)=>`<button class="startcard${(chosen&&S.id===cur)?' selected':''}" data-start="${S.id}">
       <div class="sc-name">${S.name}</div>
       <div class="sc-blurb">${S.blurb}</div>
-      <div class="sc-seats">${ico('columns')} Legislature: <b>${S.seats}</b></div>
     </button>`;
   card.innerHTML=`<div class="egrand welcome-grand welcome-title">
     <div class="wm-seal"><img class="seal-lg" src="cropped-oregon-state-seal.webp" alt="Great Seal of the State of Oregon"></div>
@@ -12393,7 +12402,16 @@ function showWelcome(onDone){
     <div class="eg-role">You have been elected <b>Governor</b>. Eight years to leave the state better than you found it.</div>
     <div class="startprompt">First: <b>how did you win?</b></div>
     <div class="startrow">${cardFor(STARTS.liberal)}${cardFor(STARTS.conservative)}</div>
-    <div class="eg-sub startnote">The same Oregon either way, with the same budget hole. How you won decides which seats in Salem are yours and who is already sitting in the chairs when you arrive.</div>
+    <div class="eg-sub startnote">The same Oregon either way, with the same budget hole. How you won decides who is already sitting in the chairs when you arrive, and who is with you in Salem.</div>
+    <div class="startprompt" style="margin-top:2px">And <b>what did you win with you?</b></div>
+    <div class="mandrow">${['supermajority','majority','minority'].map(k=>{
+      const M=START_MANDATE[k], on=(curMand===k);
+      return `<button class="mandbtn${on?' selected':''}" data-mandate="${k}">
+        <span class="mb-name">${M.label}</span>
+        <span class="mb-seats">House ${M.house} of 60 \u00b7 Senate ${M.senate} of 30</span>
+      </button>`;
+    }).join('')}</div>
+    <div class="eg-sub startnote" style="margin-top:-2px">${START_MANDATE[curMand].note}</div>
     <label class="welcome-optin">
       <input type="checkbox" id="welcomeTermLimit" ${GAME.enforceTermLimit!==false?'checked':''}>
       <span>Enforce Oregon's <b>two consecutive-term limit</b>, so your second term is your last unless you amend the constitution. Off means re-election without end.</span>
@@ -12462,6 +12480,20 @@ function showWelcome(onDone){
   // Switching coalition rebuilds the world in place — same seed, same opening,
   // no page reload. The reload was invisible on desktop and looked like a
   // crash-and-restart on a phone.
+  // THE MANDATE. Same shape as the party cards: remember it, rebuild the
+  // world so applyStart lays the seats down, then repaint only the pieces
+  // that changed rather than re-rendering and replaying the title animation.
+  card.querySelectorAll('[data-mandate]').forEach(b=>b.onclick=()=>{
+    const m=b.dataset.mandate;
+    if(!START_MANDATE[m])return;
+    try{ localStorage.setItem("sc_mandate", m); }catch(e){}
+    const keepTL=document.getElementById("welcomeTermLimit");
+    if(keepTL)GAME.enforceTermLimit=!!keepTL.checked;
+    bootWorld(GAME.startId||activeStartId());
+    card.querySelectorAll('.mandbtn').forEach(x=>x.classList.toggle('selected', x.dataset.mandate===m));
+    const note=b.closest('.mandrow')&&b.closest('.mandrow').nextElementSibling;
+    if(note)note.innerHTML=START_MANDATE[m].note;
+  });
   card.querySelectorAll('[data-start]').forEach(b=>b.onclick=()=>{
     const id=b.dataset.start;
     const keepTL=document.getElementById("welcomeTermLimit");
@@ -22865,17 +22897,35 @@ for(const id in SIMULANTS)SIMULANTS[id].id=id;
    measured align -0.97 at turn 0, +0.07 by quarter four and +0.74 by quarter
    twelve, with conservatives at 15. The coalition has to BE the equilibrium.
    ============================================================ */
+/* THE LEGISLATURE YOU ARRIVE WITH. Three points, either party. The seats are
+   measured against LEGIS: a majority is 31 and 16, three-fifths is 36 and 18,
+   and three-fifths is the line Article IV section 25 draws for raising
+   revenue at all. */
+const START_MANDATE={
+  supermajority:{ id:"supermajority", label:"Supermajority", house:36, senate:18,
+    note:"Three-fifths of both chambers, which is the line Article IV \u00a725 sets for raising revenue. You can pass a tax on your own votes." },
+  majority:{ id:"majority", label:"Majority", house:33, senate:17,
+    note:"Both chambers, but short of the three-fifths Article IV \u00a725 requires to raise revenue. A tax needs the other side." },
+  minority:{ id:"minority", label:"Minority", house:27, senate:13,
+    note:"The other party holds both chambers. Nothing reaches your desk they did not want there, and everything you want needs votes you have to go and find." }
+};
+/* The seats each party opened on before this was a choice, so leaving the
+   control alone reproduces the old game exactly. */
+const MANDATE_DEFAULT={ liberal:"supermajority", conservative:"majority" };
+function activeMandate(startId){
+  let m=null; try{ m=localStorage.getItem("sc_mandate"); }catch(e){}
+  if(START_MANDATE[m])return m;
+  return MANDATE_DEFAULT[startId||activeStartId()]||"majority";
+}
 const STARTS={
   liberal:{
     id:"liberal", name:"As a Democrat",
-    blurb:"Oregon almost always elects Democratic governors and legislatures. In this run they hold just enough of each chamber to raise taxes on their own. The constraint on your term is capital and attention, not arithmetic.",
-    seats:"House 36 of 60 · Senate 18 of 30",
+    blurb:"Oregon almost always elects Democratic governors and legislatures, and this run is no exception. What is in front of you is a budget hole and a bench of your own people who each want something different out of you.",
     blocs:{}, legis:{house:36, senate:18}
   },
   conservative:{
     id:"conservative", name:"As a Republican",
-    blurb:"The Oregon GOP takes a legislative majority for the first time in decades, on a clear signal that the state wants a change of direction. Every chair in the executive branch was filled by somebody the other side put there, and what you do about that is the first real decision of the term.",
-    seats:"House 33 of 60 · Senate 17 of 30",
+    blurb:"The Oregon GOP wins statewide for the first time in decades, on a clear signal that the state wants a change of direction. Every chair in the executive branch was filled by somebody the other side put there, and what you do about that is the first real decision of the term.",
     // Balanced so the two starts open on the same overall approval: this is a
     // different coalition, not a bigger one. What moves is WHO likes you.
     blocs:{ conservative:+12, rural:+11, timber:+9, libertarian:+8, businessClass:+8,
@@ -22903,7 +22953,10 @@ function applyStart(id){
     const sim=SIMULANTS[b]; if(!sim)continue;
     sim.approval=clamp(sim.approval+S.blocs[b],0,100);
   }
-  if(S.legis){ GAME.legis.house=S.legis.house; GAME.legis.senate=S.legis.senate; }
+  // the legislature is the player's choice now, not the party's
+  const M=START_MANDATE[activeMandate(S.id)]||START_MANDATE.majority;
+  GAME.startMandate=M.id;
+  GAME.legis.house=M.house; GAME.legis.senate=M.senate;
   GAME.startInds=S.inds||{};
 }
 /* A standing shift on an indicator that comes with the coalition rather than
