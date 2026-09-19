@@ -15201,6 +15201,65 @@ function districtSupport(row, sf, align){
                       : -LEG_TIDE_FLOOR*Math.tanh((-raw*LEG_UNIFORM)/LEG_TIDE_FLOOR);
   return 50+(lean-50)*a*LEG_ANCHOR + coalitionPull(comp,s)*LEG_SPREAD + tide + (GAME.legisCalib||0);
 }
+/* HOW HARD A FLANK BITES. FLANK_CEIL caps either splinter's statewide share,
+   FLANK_FROM_OWN is how much of its vote comes out of the side it walked out
+   of rather than the other one, and FLANK_HOME is how much more it polls at
+   its own end of the state than the far end. */
+const FLANK_CEIL=0.30, FLANK_FROM_OWN=0.82, FLANK_HOME=0.70;
+/* What each pole is polling statewide. Read from how far that end's blocs
+   have fallen away from you, which is the same thing runElection uses to
+   decide who defects, and lifted under ranked choice because a third vote
+   stops being a wasted one. Not taken from runElection itself: the
+   legislature is counted before the governor's race on the same night. */
+function statewideThirds(){
+  const away=sid=>{ const S=SIMULANTS[sid]; return S?clamp((48-S.approval)/30,0,1):0; };
+  const L=Math.max(away("socialist"), away("liberal")*0.7);
+  const R=Math.max(away("conservative"), away("libertarian")*0.7);
+  const rcv=(POLICIES.rankedChoice&&POLICIES.rankedChoice.enabled)?1.35:1;
+  return { L:clamp(L*0.17*rcv,0,FLANK_CEIL), R:clamp(R*0.17*rcv,0,FLANK_CEIL) };
+}
+/* ONE DISTRICT, FOUR WAYS. First past the post: the seat goes to the largest
+   share, which is not the same as the largest side. Either flank can be the
+   one that splits you, depending on which way your coalition points. */
+function districtVote(row, sf, align, th){
+  const s0=(sf==null?stateFeel():sf);
+  const a0=(align==null?coalitionAlignment(s0):align);
+  const t=th||statewideThirds();
+  let you=clamp(districtSupport(row,s0,a0),0,100), opp=100-you;
+  const lean=row[3]!=null?row[3]:50;
+  // each flank polls hardest at its own end of the state
+  const homeL=1-FLANK_HOME+FLANK_HOME*clamp((lean-50)/50,0,1);
+  const homeR=1-FLANK_HOME+FLANK_HOME*clamp((50-lean)/50,0,1);
+  let spL=t.L*100*homeL, spR=t.R*100*homeR;
+  // WHOSE VOTE EACH ONE SPLITS. A flank takes most of its vote from the side
+  // it is a flank of, and your coalition decides which side that is.
+  const govLeft=a0>=0;
+  const bite=(amt,fromYou)=>{
+    const own=amt*FLANK_FROM_OWN, other=amt-own;
+    if(fromYou){ you=Math.max(0,you-own); opp=Math.max(0,opp-other); }
+    else       { opp=Math.max(0,opp-own); you=Math.max(0,you-other); }
+  };
+  bite(spL, govLeft);
+  bite(spR, !govLeft);
+  const tot=you+opp+spL+spR;
+  if(tot>0){ you=you/tot*100; opp=opp/tot*100; spL=spL/tot*100; spR=spR/tot*100; }
+  let win="you", best=you;
+  if(opp>best){ win="opp"; best=opp; }
+  if(spL>best){ win="spL"; best=spL; }
+  if(spR>best){ win="spR"; best=spR; }
+  return {you, opp, spL, spR, win};
+}
+/* Every district in a chamber, scored four ways and ranked by your own share
+   so callers that only want the ranking still get one. */
+function chamberVote(chamber, th){
+  const rows=legCompRows(chamber);
+  const sf=stateFeel(), a=coalitionAlignment(sf);
+  const t=th||statewideThirds();
+  return rows.map(r=>{
+    const v=districtVote(r,sf,a,t);
+    return {id:r[0], comp:r[1], support:v.you, vote:v};
+  }).sort((x,y)=>y.support-x.support);
+}
 /* Composition rows carry the lean alongside, so support() has a baseline. */
 function legCompRows(chamber){
   // Under PR there is one chamber of 100 elected statewide, and no second one.
@@ -15392,6 +15451,10 @@ function legisSeatMap(rows, seats, opts){
   const ranked=chamberSupport(chamber);       // best seat for you first
   const left=coalitionAlignment()>=0;         // only used to shade the map
   const supportOf={}; ranked.forEach(r=>supportOf[r.id]=r.support);
+  // the four-way ballot for each seat, so the map can show what every party
+  // polled rather than one side of a two-party split
+  const voteOf={};
+  try{ chamberVote(chamber).forEach(r=>voteOf[r.id]=r.vote); }catch(e){}
   const compOf={};    ranked.forEach(r=>compOf[r.id]=r.comp);
   // explicit per-seat holders — the Senate after a staggered election, where
   // the ~15 seats not on the ballot keep whoever won them last time
@@ -15400,13 +15463,13 @@ function legisSeatMap(rows, seats, opts){
     const pool=ranked.filter(r=>!opts.contested||opts.contested.has(r.id));
     const lastMine=[...pool].reverse().find(r=>mine.has(r.id));
     const firstNot=pool.find(r=>!mine.has(r.id));
-    return {mine, left, supportOf, compOf, tipping:lastMine?lastMine.id:null, nextUp:firstNot?firstNot.id:null};
+    return {mine, left, supportOf, compOf, voteOf, tipping:lastMine?lastMine.id:null, nextUp:firstNot?firstNot.id:null};
   }
   const mine=new Set();
   for(let i=0;i<Math.min(seats,ranked.length);i++)mine.add(ranked[i].id);
   const held=ranked[Math.min(seats,ranked.length)-1];
   const next=ranked[Math.min(seats,ranked.length)];
-  return {mine, left, supportOf, compOf, tipping:held?held.id:null, nextUp:next?next.id:null};
+  return {mine, left, supportOf, compOf, voteOf, tipping:held?held.id:null, nextUp:next?next.id:null};
 }
 /* One chamber drawn as a real district map: every seat your side holds in
    green, every seat the opposition holds in red. The governor is never
@@ -15434,6 +15497,8 @@ function legMapSVG(rows, seatMap, contested){
     base+=`<path class="leg-d" data-legd="${tag} ${id}" tabindex="0" data-who="${who}"`
       +` data-share="${share==null?'':share}" data-held="${up?'':'1'}"`
       +` data-spl="${isSpl?splinterName(GAME.splinter.side):''}"`
+      +` data-v="${(()=>{ const v=sm.voteOf&&sm.voteOf[id];
+          return v?[v.you,v.opp,v.spL,v.spR].map(x=>Math.round(x)).join(','):''; })()}"`
       +` d="${d}" fill="${fill}" fill-opacity="${up?1:0.32}" stroke="var(--paper)" stroke-width="0.35">`
       +`<title>${tag} ${id} — ${who}${share==null?"":" · "+share+"% support"}${held}</title></path>`;
     if(id===sm.tipping)edge+=`<path d="${d}" fill="none" stroke="var(--gold)" stroke-width="1.4"/>`;
@@ -16916,9 +16981,15 @@ function wireLegReadout(root){
       const show=()=>{
         const id=el.dataset.legd, who=el.dataset.who||'', sh=el.dataset.share, spl=el.dataset.spl;
         let out=`<b>${id}</b>`;
-        if(sh!==''&&sh!=null){
-          // districtSupport is centred on 50, so it is a two-party share and
-          // the other side is simply its complement
+        const v=(el.dataset.v||'').split(',').filter(x=>x!=='').map(Number);
+        if(v.length===4){
+          // ALL FOUR, INCLUDING THE ONES ON NOTHING. A flank polling 0 is
+          // information: it stood and nobody went with it.
+          const names=['Your party','Opposition','Working Families','Independence'];
+          const top=Math.max.apply(null,v);
+          out+=' \u00b7 '+v.map((x,i)=>`${names[i]} ${x===top?`<b>${x}%</b>`:`${x}%`}`).join(' \u00b7 ');
+          if(top<50)out+=` \u00b7 <i>won on a plurality</i>`;
+        } else if(sh!==''&&sh!=null){
           const you=+sh;
           out+=` \u00b7 Your party <b>${you}%</b> \u00b7 Opposition <b>${100-you}%</b>`;
         } else out+=` \u00b7 ${who}`;
@@ -17145,9 +17216,9 @@ function splinterPressure(){
   const raw=depth*(0.4+0.6*flank);
   return raw<0.28 ? null : {side:a>0?"left":"right", raw};
 }
-function splinterSeats(raw){
-  return { house: clamp(Math.round(2+raw*6),2,8), senate: clamp(Math.round(raw*3),0,3) };
-}
+/* splinterSeats() lived here. It handed the flank a quota of seats taken out
+   of the opposition's column; seats are won on the four-way vote now, so
+   nothing allocates them and nothing called it. */
 function splinterName(side){ return side==="left" ? "Working Families" : "Independence"; }
 function runLegislativeElection(approval){
   // An amendment ratified last cycle comes into force at THIS election —
@@ -17188,9 +17259,19 @@ function runLegislativeElection(approval){
   // than the one you inherited.
   const jitter=()=>(Math.random()-0.5)*5.0;   // election-night variance, per seat
 
-  // ---- House: all 60 contested ----
-  const hRank=chamberSupport("house");
-  const hWon=hRank.filter(r=>r.support+grace+jitter()>50).map(r=>r.id);
+  // ---- House: all 60 contested, decided by plurality ----
+  // One reading of the field for the whole night, so every district is
+  // fought on the same four-way ballot.
+  const _th=statewideThirds();
+  const hRank=chamberVote("house", _th);
+  const hWon=[], spHL=[], spHR=[];
+  for(const r of hRank){
+    const you=r.vote.you+grace+jitter(), v=r.vote;
+    const top=Math.max(you, v.opp, v.spL, v.spR);
+    if(top===v.spL) spHL.push(r.id);
+    else if(top===v.spR) spHR.push(r.id);
+    else if(top===you) hWon.push(r.id);
+  }
   L.house=clamp(hWon.length,0,LEGIS.house);
   L.hHeld=hWon;
 
@@ -17201,29 +17282,36 @@ function runLegislativeElection(approval){
   const upSet=new Set(up);
   if(!Array.isArray(L.sHeld))L.sHeld=[...legisSeatMap(OR_SENATE_DISTRICTS, L.senate).mine];
   const notUpMine=L.sHeld.filter(id=>!upSet.has(id));         // held-over seats you keep
-  const sRank=chamberSupport("senate");
-  const wonUp=sRank.filter(r=>upSet.has(r.id) && r.support+grace+jitter()>50).map(r=>r.id);
+  const sRank=chamberVote("senate", _th);
+  const wonUp=[], spSL=[], spSR=[];
+  for(const r of sRank){
+    if(!upSet.has(r.id))continue;
+    const you=r.vote.you+grace+jitter(), v=r.vote;
+    const top=Math.max(you, v.opp, v.spL, v.spR);
+    if(top===v.spL) spSL.push(r.id);
+    else if(top===v.spR) spSR.push(r.id);
+    else if(top===you) wonUp.push(r.id);
+  }
   L.sHeld=notUpMine.concat(wonUp);
   L.senate=L.sHeld.length;
 
   // ---- the splinter: a collapsed coalition's own flank breaks off and takes
   //      a few seats from the mainstream opposition, in the safest districts on
   //      that flank. Recomputed every election; null once you recover.
+  // WON, NOT ALLOCATED. Each flank holds the seats it actually outpolled
+  // everyone in. GAME.splinter records the larger of the two, because
+  // floorMembers and the whip are written against a single splinter bloc and
+  // a chamber holding both would need those rewritten as well.
   GAME.splinter=null;
-  const _sp=splinterPressure();
-  if(_sp && hWon.length < LEGIS.majH){
-    const k=splinterSeats(_sp.raw);
-    const leanH={}; OR_HOUSE_DISTRICTS.forEach(r=>leanH[r[0]]=r[4]);
-    const leanS={}; OR_SENATE_DISTRICTS.forEach(r=>leanS[r[0]]=r[4]);
-    const hMine=new Set(hWon);
-    const oppH=hRank.filter(r=>!hMine.has(r.id)).map(r=>r.id)
-      .sort((x,y)=> _sp.side==="left" ? leanH[y]-leanH[x] : leanH[x]-leanH[y]);
-    const sMine=new Set(L.sHeld);
-    const oppS=sRank.filter(r=>upSet.has(r.id)&&!sMine.has(r.id)).map(r=>r.id)
-      .sort((x,y)=> _sp.side==="left" ? leanS[y]-leanS[x] : leanS[x]-leanS[y]);
-    const spH=oppH.slice(0,Math.min(k.house,oppH.length));
-    const spS=oppS.slice(0,Math.min(k.senate,oppS.length));
-    if(spH.length>=2) GAME.splinter={side:_sp.side, house:spH, senate:spS, formedTurn:GAME.turn};
+  {
+    const nL=spHL.length+spSL.length, nR=spHR.length+spSR.length;
+    if(nL||nR){
+      const leftBigger=nL>=nR;
+      const house=leftBigger?spHL:spHR, senate=leftBigger?spSL:spSR;
+      if(house.length+senate.length>=1)
+        GAME.splinter={side:leftBigger?"left":"right", house, senate,
+          formedTurn:GAME.turn, otherSeats:leftBigger?nR:nL};
+    }
   }
 
   return {before, after:{senate:L.senate,house:L.house}, senateUp:up, senateClass:cls, grace,
