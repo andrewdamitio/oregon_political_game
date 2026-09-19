@@ -5988,7 +5988,17 @@ const IDEO_SHARP=3.4;
 /* How far the makeup of the electorate can be pushed. TILT_CAP bounds what any
    one standing condition may do to a bloc's share; BAND bounds how far the
    result may end up from the electorate the governor inherited. */
-const MAKEUP_TILT_CAP=0.30, MAKEUP_BAND=0.38;
+const MAKEUP_TILT_CAP=0.42, MAKEUP_BAND=0.38;
+/* How far a bloc may move from the electorate you inherited. Fixed, this
+   said a governor of twelve years could change Oregon no more than a
+   governor of one quarter. It opens with the years in office instead, from
+   the band a single term has always had to a ceiling that still leaves the
+   state recognisable. */
+const MAKEUP_BAND_PER_YEAR=0.030, MAKEUP_BAND_MAX=0.72;
+function makeupBand(){
+  const yrs=(GAME.turn||0)/4;
+  return clamp(MAKEUP_BAND+yrs*MAKEUP_BAND_PER_YEAR, MAKEUP_BAND, MAKEUP_BAND_MAX);
+}
 const IDEO_W={socialist:1.72, liberal:1.72, moderate:0.62, conservative:1.30, libertarian:0.72};
 /* Region assignment. Each voter is scored against urban / suburban / rural by
    where their urbanity sits, then normalised so the three sum to 1. Scored
@@ -7451,7 +7461,7 @@ function tickMembership(){
   const allBlocs=["socialist","liberal","moderate","conservative","libertarian","urban","suburban","rural","poor","middleIncome","wealthy"];
   for(const id of allBlocs){
     const target=clamp(swing[id]||0,-MAKEUP_TILT_CAP,MAKEUP_TILT_CAP);
-    GAME.makeupShift[id]=(GAME.makeupShift[id]||0)+(target-(GAME.makeupShift[id]||0))*0.06;
+    GAME.makeupShift[id]=(GAME.makeupShift[id]||0)+(target-(GAME.makeupShift[id]||0))*0.07;
     if(Math.abs(GAME.makeupShift[id])<0.002)GAME.makeupShift[id]=0;
   }
   for(const fam of [["socialist","liberal","moderate","conservative","libertarian"],["urban","suburban","rural"],["poor","middleIncome","wealthy"]]){
@@ -7470,10 +7480,11 @@ function tickMembership(){
     // rewriting Oregon underneath the game.
     const anchor=GAME.sizeAnchor;
     if(anchor){
+      const band=makeupBand();
       let bs=0;
       for(const id of fam){
         const a=anchor[id];
-        if(a>0)SIMULANTS[id].size=clamp(SIMULANTS[id].size, a*(1-MAKEUP_BAND), a*(1+MAKEUP_BAND));
+        if(a>0)SIMULANTS[id].size=clamp(SIMULANTS[id].size, a*(1-band), a*(1+band));
         bs+=SIMULANTS[id].size;
       }
       if(bs>0)for(const id of fam)SIMULANTS[id].size=SIMULANTS[id].size/bs*total;
@@ -8805,6 +8816,9 @@ const GAME={
   ohpEnrollIdx:1.0,     // Oregon Health Plan enrollment vs. baseline (~1.4M). Countercyclical: a recession swells it.
   fedIndex:1.0,         // federal-funds multiplier; shocked by federal events
   pendingKicker:0,
+  // A refund is spent over several quarters, not in the one it is paid, so
+  // what drives growth is a decaying stock rather than the payment itself.
+  kickerStimulus:0,
   corpKickerToK12:0,    // Measure 85: the corporate kicker is dedicated to K-12, not refunded
   sportsBook:null,       // null | "lottery" | "commercial" | "tribal" — how sports wagering runs      // kicker owed, paid out next cycle
   pendingSurplus:null,  // {surplus} — legacy holder, used only to reuse the refund split at settlement
@@ -9429,6 +9443,8 @@ function metricTarget(k, noRecovery){
   }
   // executive orders push metrics directly — weakly, and only while they stand
   t+=eoMetricPush(k);
+  // a kicker refund still being spent is demand, and demand is growth
+  if(k==="gdp")t+=kickerGrowthPush();
   // calibration offset: fixed at init so the default policy mix sustains the
   // REAL Oregon starting values — policy effects are deltas from the status quo
   t+=(m.calib||0);
@@ -9580,6 +9596,8 @@ function metricContributors(k){
     // summing them understates the real target by several points.
     const rec=metricTarget("gdp")-metricTarget("gdp",true);
     if(rec>0.02)out.push({name:ico('chart-up')+" Recovery — cheap capital and labor after a downturn", v:rec});
+    const kick=kickerGrowthPush();
+    if(kick>0.005)out.push({name:ico('cash-fly')+" Kicker refund being spent — $"+(GAME.kickerStimulus||0).toFixed(2)+"B still working through households", v:kick});
   }
   if(k==="attainAll"){
     // A blend, so the two bars are what each sector contributes against the
@@ -11327,6 +11345,20 @@ function showAusterityResult(R){
   const go=document.getElementById("ausrGo");
   if(go)go.onclick=()=>{ modal.classList.add("hidden"); try{render();}catch(e){} };
 }
+/* A kicker refund is a demand injection. KICKER_GDP_MULT is the share of it
+   that turns into Oregon output: well under one, because a rebate is partly
+   saved and partly spent out of state. KICKER_GDP_CAP keeps even a record
+   refund from reading as a boom, and KICKER_GDP_DECAY spreads the spending
+   over about five quarters. */
+const KICKER_GDP_MULT=0.70, KICKER_GDP_CAP=0.8, KICKER_GDP_DECAY=0.55;
+/* The growth, in points, that the refunds still working through the economy
+   are worth this quarter. */
+function kickerGrowthPush(){
+  const stock=GAME.kickerStimulus||0;
+  if(stock<=0.001)return 0;
+  const gsp=(METRICS.gspLevel&&METRICS.gspLevel.value)||305;
+  return clamp(stock/Math.max(1,gsp)*100*KICKER_GDP_MULT, 0, KICKER_GDP_CAP);
+}
 function fiscalCrisisThreshold(){
   const gsp=METRICS.gspLevel ? METRICS.gspLevel.value : 305;
   return +clamp(gsp*0.0026, 0.5, 5).toFixed(2);
@@ -11338,6 +11370,9 @@ function settleFiscal(){
   const {revenue,spend,balance:annualBal}=budgetBalance();
   GAME.pendingKicker=0;        // consumed this cycle
   GAME.corpKickerToK12=0;      // and so is the corporate half that went to schools
+  // the spending of an earlier refund tails off rather than stopping dead
+  GAME.kickerStimulus=+(((GAME.kickerStimulus||0)*KICKER_GDP_DECAY)).toFixed(4);
+  if(GAME.kickerStimulus<0.005)GAME.kickerStimulus=0;
   // CONSTITUTIONAL EARMARK, settled before anything else: a fixed share of net
   // lottery proceeds goes to the Education Stability Fund whether the budget is
   // in surplus or not. It stops at the cap; past that the dedication has nowhere
@@ -11453,7 +11488,14 @@ function settleFiscal(){
    handing victory to the challenger. */
 function runElection(){
   const rcv=POLICIES.rankedChoice&&POLICIES.rankedChoice.enabled;
-  let yes=0,no=0,thirdL=0,thirdR=0,tot=0;
+  let yes=0,no=0,thirdL=0,thirdR=0,thirdC=0,tot=0;
+  // Oregon Forward is on the ballot only while the system that made it
+  // viable is in force.
+  const ctrRuns=centreRuns();
+  // How strongly the middle pulls. CENTRE_POLE is the intensity below which
+  // a voter is a candidate for it at all, the mirror of the 0.42 the flanks
+  // use above it, and CENTRE_PULL is how hard it pulls inside that band.
+  const CENTRE_POLE=0.42, CENTRE_PULL=1.5;
   const camp=GAME.campaign||{};
   const g=govIdeologyPoint();
   const govLeft=(g.economic+g.social)<0;
@@ -11465,12 +11507,12 @@ function runElection(){
   // progressives defect to a left party at a far higher rate than a suburban
   // moderate does, and scoring those defections as lost head-to-head votes
   // had Multnomah landing below the statewide share.
-  const byC=OR_COUNTIES.map(()=>({y:0,n:0,l:0,r:0,hy:0,hn:0,tot:0,elig:0,pl:0}));
+  const byC=OR_COUNTIES.map(()=>({y:0,n:0,l:0,r:0,c:0,hy:0,hn:0,tot:0,elig:0,pl:0}));
   // per-interest-group tallies: membership-weighted, so a voter counts toward
   // every group they belong to (fractionally). Models turnout + first-preference
   // vote for each group.
   const blocAgg={};
-  for(const sid in SIMULANTS){ if(!SIMULANTS[sid].static) blocAgg[sid]={m:0,turn:0,y:0,n:0,thL:0,thR:0}; }
+  for(const sid in SIMULANTS){ if(!SIMULANTS[sid].static) blocAgg[sid]={m:0,turn:0,y:0,n:0,thL:0,thR:0,thC:0}; }
   const blocIds=Object.keys(blocAgg);
   // county campaigning: presence built during the term, indexed to match
   // OR_COUNTIES / v.cw order. ccScale tamps down the aggregate reach in the big
@@ -11512,6 +11554,10 @@ function runElection(){
     // a right party — regardless of which way the governor governs.
     const splinter=((v.econ||0)*0.65 + (v.social||0)*0.55) >= 0 ? "R" : "L";
     const addThird=x=>{ if(splinter==="R")thirdR+=x; else thirdL+=x; };
+    // THE MIRROR OF THE FLANKS. They are reached by intensity; the centre is
+    // reached by the lack of it. A voter this close to the middle who has
+    // gone cool on you is a voter Oregon Forward can have.
+    const centrism=ctrRuns ? Math.max(0, CENTRE_POLE-pole)*CENTRE_PULL : 0;
     // Flatter slope + hard floor/ceiling: no matter how popular you are, a
     // partisan bloc of the electorate will never vote for you, and vice versa.
     const leanGov=Math.random()<clamp(0.5+(app-50)/95,0.08,0.92);
@@ -11520,13 +11566,17 @@ function runElection(){
       // Leans toward governor — strong ideologues may still defect to a purer party
       const lukewarm=clamp((70-app)/25,0,1);                          // 1 near 50, 0 above 70
       const ideoDefect=Math.max(0,pole-0.42)*lukewarm*(rcv?2.4:1.1);
+      const ctrDefect=centrism*lukewarm*(rcv?1.5:1.0);
       if(ideoDefect>(rcv?0.12:0.20)+Math.random()*0.5){ addThird(t); bucket=splinter==="R"?"r":"l"; } // defects to a purer party
+      else if(ctrDefect>0.20+Math.random()*0.5){ thirdC+=t; bucket="c"; }                              // or to the middle
       else{ yes+=t; bucket="y"; }
     } else {
       // Leans against — may defect to a third party or back the challenger
       const disaffection=clamp((50-app)/22,0,1);
       const thirdPull=pole*disaffection*(rcv?2.0:0.7);                // RCV lets them vote conscience without spoiling
+      const ctrPull=centrism*disaffection*(rcv?1.4:1.0);
       if(thirdPull>(rcv?0.18:0.30)+Math.random()*0.35){ addThird(t); bucket=splinter==="R"?"r":"l"; } // defects to a third party
+      else if(ctrPull>0.22+Math.random()*0.4){ thirdC+=t; bucket="c"; }                               // or to the middle
       else { no+=t; bucket="n"; }                                     // backs the challenger
     }
     // fan this voter's ballot out across the counties they belong to
@@ -11535,7 +11585,7 @@ function runElection(){
       if(leanGov)b.hy+=wt; else b.hn+=wt; }
     // and across every interest group they belong to
     for(const sid of blocIds){ const w=v.m[sid]||0; if(w<=0)continue; const B=blocAgg[sid]; B.m+=w; const wt=w*t; B.turn+=wt;
-      if(bucket==="y")B.y+=wt; else if(bucket==="n")B.n+=wt; else if(bucket==="l")B.thL+=wt; else B.thR+=wt; }
+      if(bucket==="y")B.y+=wt; else if(bucket==="n")B.n+=wt; else if(bucket==="l")B.thL+=wt; else if(bucket==="c")B.thC+=wt; else B.thR+=wt; }
   }
   const plMean=plSum/(VOTERS.length||1);
   const yes1=yes;   // first-preference "you" total, before any RCV transfer
@@ -11545,10 +11595,12 @@ function runElection(){
   // RIGHT splinter. Without RCV, splinter votes are simply lost to you.
   let fromThird=0;
   if(rcv){
-    fromThird = thirdL*(govLeft?0.55:0.16) + thirdR*(govLeft?0.16:0.55);
+    // A centrist's second preference is near a coin flip between the two
+    // majors, which is what standing in the middle amounts to.
+    fromThird = thirdL*(govLeft?0.55:0.16) + thirdR*(govLeft?0.16:0.55) + thirdC*0.42;
     yes += fromThird;
   }
-  const third=thirdL+thirdR;
+  const third=thirdL+thirdR+thirdC;
   const eff=yes+no+(rcv?third-fromThird:third);
   let share=clamp(eff>0?yes/eff:0.5,0,1);
   // Realism anchor: how far the governor's record sits from the electorate's
@@ -11582,13 +11634,15 @@ function runElection(){
   // third parties layered on proportionally. This keeps the you/opp ordering
   // stable across counties — ideologically sorted counties concentrate intense
   // voters who bleed to a splinter, and that shouldn't flip the two-way read.
-  const swThL = tot>0 ? thirdL/tot : 0, swThR = tot>0 ? thirdR/tot : 0;
+  const swThL = tot>0 ? thirdL/tot : 0, swThR = tot>0 ? thirdR/tot : 0, swThC = tot>0 ? thirdC/tot : 0;
   const counties=OR_COUNTIES.map((c,ci)=>{
     const b=byC[ci];
     const backL = rcv ? b.l*(govLeft?0.55:0.16) : 0;
     const backR = rcv ? b.r*(govLeft?0.16:0.55) : 0;
-    const y=b.y+backL+backR, thl=Math.max(0,b.l-backL), thr=Math.max(0,b.r-backR);
-    const ctot=y+b.n+thl+thr;
+    const backC = rcv ? b.c*0.42 : 0;
+    const y=b.y+backL+backR+backC, thl=Math.max(0,b.l-backL), thr=Math.max(0,b.r-backR),
+          thc=Math.max(0,b.c-backC);
+    const ctot=y+b.n+thl+thr+thc;
     // the two-way split, taken from the preference rather than from the ballot
     const major=b.hy+b.hn;
     // base consolidation: a county whose actual voters sit closer to the governor
@@ -11605,6 +11659,7 @@ function runElection(){
              _h2h: (major>0 ? b.hy/major : 0.5) + clamp(plGap*0.06,-0.16,0.16) + cAnchor,
              _thL: 0.45*(ctot>0?thl/ctot:0) + 0.55*swThL,
              _thR: 0.45*(ctot>0?thr/ctot:0) + 0.55*swThR,
+             _thC: 0.45*(ctot>0?thc/ctot:0) + 0.55*swThC,
              turnout: b.elig>0 ? b.tot/b.elig : turnoutPct };
   });
   // reconcile the population-weighted county head-to-head mean to the statewide share
@@ -11620,12 +11675,12 @@ function runElection(){
     // Without this the anchor above pushes the reddest counties to one or two
     // per cent in a collapse, which no real county has ever returned.
     const h=clamp(c._h2h+cadj,0.08,0.92);
-    const thd=clamp(c._thL+c._thR,0,0.6);
+    const thd=clamp(c._thL+c._thR+c._thC,0,0.6);
     c.share=h*(1-thd); c.opp=(1-h)*(1-thd);
-    c.thL=c._thL; c.thR=c._thR;
-    delete c._h2h; delete c._thL; delete c._thR;
-    const mx=Math.max(c.share,c.opp,c.thL,c.thR);
-    c.win = mx===c.share ? "you" : mx===c.opp ? "opp" : "third";
+    c.thL=c._thL; c.thR=c._thR; c.thC=c._thC;
+    delete c._h2h; delete c._thL; delete c._thR; delete c._thC;
+    const mx=Math.max(c.share,c.opp,c.thL,c.thR,c.thC);
+    c.win = mx===c.share ? "you" : mx===c.opp ? "opp" : mx===c.thC ? "centre" : "third";
   }
   // ---- per-interest-group results (fractions of each group's members) ----
   const nv=VOTERS.length||1;
@@ -11637,7 +11692,7 @@ function runElection(){
     // the top of the page. Turnout is on the row label; it is not a segment.
     return { sid, name:s.name, cat:s.category||"other", size:B.m/nv,
              turnout:B.turn/m, you:B.y/t, opp:B.n/t,
-             third:(B.thL+B.thR)/t, thirdL:B.thL/t, thirdR:B.thR/t };
+             third:(B.thL+B.thR+B.thC)/t, thirdL:B.thL/t, thirdR:B.thR/t, thirdC:B.thC/t };
   }).sort((a,b)=>b.size-a.size);
   // ...and reconciled to the headline, exactly as the county map is
   {
@@ -11658,27 +11713,29 @@ function runElection(){
   let rcvRounds=null;
   if(rcv){
     const T=tot||1;
-    const r1You=yes1/T, r1Opp=no/T, r1L=thirdL/T, r1R=thirdR/T;
+    const r1You=yes1/T, r1Opp=no/T, r1L=thirdL/T, r1R=thirdR/T, r1C=thirdC/T;
     const cL=govLeft?0.55:0.16, cR=govLeft?0.16:0.55;   // splinter → you, per the model
-    const toYouL=r1L*cL, toYouR=r1R*cR;
-    const remL=r1L-toYouL, remR=r1R-toYouR;
+    const toYouL=r1L*cL, toYouR=r1R*cR, toYouC=r1C*0.42;
+    const remL=r1L-toYouL, remR=r1R-toYouR, remC=r1C-toYouC;
     const toOppL=remL*0.30, toOppR=remR*0.30;           // a minority find the challenger
-    const exhausted=(remL-toOppL)+(remR-toOppR);         // the rest ranked no one else
+    const toOppC=remC*0.62;                             // the middle mostly does
+    const exhausted=(remL-toOppL)+(remR-toOppR)+(remC-toOppC);   // the rest ranked no one else
     // Shift both rounds by whatever the anchor and the challenger's momentum
     // did to the headline, so round two lands on the declared result and
     // round one plus the transfers still equals round two.
-    const radj = share - (r1You+toYouL+toYouR);
+    const radj = share - (r1You+toYouL+toYouR+toYouC);
     const aYou = clamp(r1You+radj, 0.01, 0.98), aOpp = clamp(r1Opp-radj, 0.01, 0.98);
     rcvRounds={
-      r1:{you:aYou, opp:aOpp, spL:r1L, spR:r1R},
-      xfer:{toYou:toYouL+toYouR, toOpp:toOppL+toOppR, exhausted},
-      r2:{you:clamp(aYou+toYouL+toYouR,0,1), opp:clamp(aOpp+toOppL+toOppR,0,1), exhausted}
+      r1:{you:aYou, opp:aOpp, spL:r1L, spR:r1R, spC:r1C},
+      xfer:{toYou:toYouL+toYouR+toYouC, toOpp:toOppL+toOppR+toOppC, exhausted},
+      r2:{you:clamp(aYou+toYouL+toYouR+toYouC,0,1), opp:clamp(aOpp+toOppL+toOppR+toOppC,0,1), exhausted}
     };
   }
   return {won:share>=0.5, share, approval:overallApproval(), intention:votingIntention(),
           turnout:turnoutPct, rcv, counties, blocs, rcvRounds, oppMomentum:oppM, oppSwingPts:+(oppSwing*100).toFixed(1),
           thirdShare:tot>0?third/tot:0,
-          thirdShareL:tot>0?thirdL/tot:0, thirdShareR:tot>0?thirdR/tot:0};
+          thirdShareL:tot>0?thirdL/tot:0, thirdShareR:tot>0?thirdR/tot:0,
+          thirdShareC:tot>0?thirdC/tot:0};
 }
 /* ============================ CAMPAIGN & PROMISES ============================
    The final quarter of each term is a campaign. The player gets a pool of
@@ -13307,6 +13364,8 @@ function _resolveSurplus(fraction, capCost){
     }
     if(persQ>0.001){
       GAME.pendingKicker=persQ*4;   // annualized — the budget ledger runs in $B/yr
+      // and the households that get it spend most of it, over the next year
+      GAME.kickerStimulus=+((GAME.kickerStimulus||0)+persQ*4).toFixed(4);
       GAME.log.push(ico('cash-fly')+" Personal kicker triggered — $"+persQ.toFixed(2)+"B refunds to taxpayers next quarter"+(teachOnce("fiscalBoard")?FISCAL_POINTER:""));
     }
   }
@@ -13619,14 +13678,14 @@ function countyResults(r){
     you:s,opp:1-s,thL:0,thR:0,win:s>=0.5?"you":"opp",turnout:r?r.turnout:0.6}));
 }
 function countyMapSVG(rows){
-  const col={you:"var(--moss)",opp:"var(--clay)",third:"var(--gold)"};
-  const who={you:"you",opp:"the "+oppPartyName(),third:"a third party"};
+  const col={you:"var(--moss)",opp:"var(--clay)",third:"var(--gold)",centre:"#7d6f9c"};
+  const who={you:"you",opp:"the "+oppPartyName(),third:"a third party",centre:centreName()};
   let base="",fills="",labels="";
   const pc=x=>Math.round((x||0)*100);
   rows.forEach((c,i)=>{
     base+=`<path d="${c.d}" fill="var(--paper-2)" stroke="var(--line)" stroke-width="0.5"/>`;
     const tn=c.turnout!=null?` · ${pc(c.turnout)}% turnout`:"";
-    const brk=` — You ${pc(c.you)}% · ${oppPartyName()} ${pc(c.opp)}% · ${splinterName("left")} ${pc(c.thL)}% · ${splinterName("right")} ${pc(c.thR)}%${tn}`;
+    const brk=` — You ${pc(c.you)}% · ${oppPartyName()} ${pc(c.opp)}% · ${splinterName("left")} ${pc(c.thL)}% · ${splinterName("right")} ${pc(c.thR)}%${c.thC>0.001?` · ${centreName()} ${pc(c.thC)}%`:``}${tn}`;
     fills+=`<path class="cty" data-i="${i}" tabindex="0" d="${c.d}" fill="${col[c.win]}" stroke="var(--paper)" stroke-width="0.4" opacity="0"><title>${c.name} County — carried by ${who[c.win]}${brk}</title></path>`;
     labels+=`<text x="${c.cx}" y="${c.cy+2}" text-anchor="middle" font-size="6" font-family="var(--font-data)" fill="#1c1a17" stroke="rgba(255,255,255,0.7)" stroke-width="1.4" paint-order="stroke" style="pointer-events:none">${c.abbr}</text>`;
   });
@@ -13819,19 +13878,21 @@ function egBlocCharts(blocs){
   const seen=new Set();
   const bar=(b)=>{
     const you=clamp(b.you*100,0,100), opp=clamp(b.opp*100,0,100),
-          tl=clamp((b.thirdL||0)*100,0,100), tr=clamp((b.thirdR||0)*100,0,100);
+          tl=clamp((b.thirdL||0)*100,0,100), tr=clamp((b.thirdR||0)*100,0,100),
+          tc=clamp((b.thirdC||0)*100,0,100);
     const seg=(w,col,lbl)=>{ const t=`${b.name} · ${lbl} — ${w.toFixed(1)}%`;
       return `<i style="width:${w}%;background:${col}" data-t="${t}" title="${t}"></i>`; };
-    const full=`You ${you.toFixed(0)}% · ${oppPartyName()} ${opp.toFixed(0)}% · ${splinterName("left")} ${tl.toFixed(0)}% · ${splinterName("right")} ${tr.toFixed(0)}%`;
+    const full=`You ${you.toFixed(0)}% · ${oppPartyName()} ${opp.toFixed(0)}% · ${splinterName("left")} ${tl.toFixed(0)}% · ${splinterName("right")} ${tr.toFixed(0)}%${tc>0.05?` · ${centreName()} ${tc.toFixed(0)}%`:``}`;
     return `<div class="eg-blk">
       <div class="eg-blk-name">${b.name}<span>${(b.size*100).toFixed(0)}% of voters · ${(b.turnout*100).toFixed(0)}% turnout</span></div>
       <div class="eg-blk-bar" title="${full}">
-        ${seg(you,'var(--moss)','You')}${seg(opp,'var(--clay)',oppPartyName())}${seg(tl,'var(--slate-blue)',splinterName("left"))}${seg(tr,'var(--gold)',splinterName("right"))}
+        ${seg(you,'var(--moss)','You')}${seg(opp,'var(--clay)',oppPartyName())}${seg(tl,'var(--slate-blue)',splinterName("left"))}${seg(tr,'var(--gold)',splinterName("right"))}${tc>0.05?seg(tc,'#7d6f9c',centreName()):''}
       </div></div>`;
   };
+  const ctrOn=blocs.some(b=>(b.thirdC||0)>0.0005);
   let h=`<div class="eg-section"><h3 class="eg-h3">How each group voted</h3>
-    <div class="eg-note">How each group's <b>votes</b> split, on the same scale as the statewide result above — each bar is 100% of the ballots that group cast, and its turnout is on the row. The left splinter is Pacific Green / Working Families, the right is Libertarian / Constitution. People belong to several groups at once, so these overlap.</div>
-    <div class="eg-blk-legend"><span><i style="background:var(--moss)"></i>You</span><span><i style="background:var(--clay)"></i>${oppPartyName()}</span><span><i style="background:var(--slate-blue)"></i>${splinterName("left")}</span><span><i style="background:var(--gold)"></i>${splinterName("right")}</span></div>
+    <div class="eg-note">How each group's <b>votes</b> split, on the same scale as the statewide result above — each bar is 100% of the ballots that group cast, and its turnout is on the row. The left splinter is Pacific Green / Working Families, the right is Libertarian / Constitution.${ctrOn?` ${centreName()} is the centre party proportional representation made viable.`:``} People belong to several groups at once, so these overlap.</div>
+    <div class="eg-blk-legend"><span><i style="background:var(--moss)"></i>You</span><span><i style="background:var(--clay)"></i>${oppPartyName()}</span><span><i style="background:var(--slate-blue)"></i>${splinterName("left")}</span><span><i style="background:var(--gold)"></i>${splinterName("right")}</span>${ctrOn?`<span><i style="background:#7d6f9c"></i>${centreName()}</span>`:``}</div>
     <div class="eg-blkread" id="egBlkRead">Hover a bar segment for its exact share</div>`;
   for(const [cat,label] of CAT){
     const rows=blocs.filter(b=>b.cat===cat);
@@ -13847,12 +13908,13 @@ function egRcvTable(r){
   if(!r.rcv||!r.rcvRounds)return"";
   const R=r.rcvRounds, p=x=>(x*100).toFixed(1)+"%", d=x=>(x>0?"+":"")+(x*100).toFixed(1)+"%";
   return `<div class="eg-section"><h3 class="eg-h3">Ranked choice — the second round</h3>
-    <div class="eg-note">No one had a first-round majority. The two splinter parties finished last and were eliminated; their ballots move to each voter's next ranked choice, or exhaust if they ranked no one else.</div>
+    <div class="eg-note">No one had a first-round majority. The minor parties finished last and were eliminated; their ballots move to each voter's next ranked choice, or exhaust if they ranked no one else.</div>
     <table class="eg-rcv"><thead><tr><th>Candidate</th><th>Round 1</th><th>Transfers</th><th>Round 2</th></tr></thead><tbody>
       <tr><td class="you">You</td><td>${p(R.r1.you)}</td><td class="pos">${d(R.xfer.toYou)}</td><td><b>${p(R.r2.you)}</b></td></tr>
       <tr><td class="opp">${oppPartyName()}</td><td>${p(R.r1.opp)}</td><td class="pos">${d(R.xfer.toOpp)}</td><td><b>${p(R.r2.opp)}</b></td></tr>
       <tr class="elim"><td>Pacific Green · Working Families</td><td>${p(R.r1.spL)}</td><td>▼ eliminated</td><td>—</td></tr>
       <tr class="elim"><td>Libertarian · Constitution</td><td>${p(R.r1.spR)}</td><td>▼ eliminated</td><td>—</td></tr>
+      ${(R.r1.spC||0)>0.0005?`<tr class="elim"><td>${centreName()}</td><td>${p(R.r1.spC)}</td><td>▼ eliminated</td><td>—</td></tr>`:``}
       <tr><td>Exhausted — no next choice</td><td>—</td><td class="neg">${d(R.xfer.exhausted)}</td><td>${p(R.r2.exhausted)}</td></tr>
     </tbody></table>
     <div class="eg-note" style="margin:8px 0 0">Round 2 is measured among ballots still live; the headline percentage is measured against every first-preference ballot.</div></div>`;
@@ -14074,7 +14136,8 @@ function showElection(r){
     const bigger=(r.thirdShareL||0)>=(r.thirdShareR||0);
     thirdLine=`<div style="font-size:13.5px;color:#8a7a3a;line-height:1.5">${r.rcv?'Ranked-choice':'Spoiler effect'}: third parties drew <b>${(r.thirdShare*100).toFixed(1)}%</b> of turnout — `
       +`<b style="color:var(--slate-blue)">${tl}%</b> to the left splinter (Pacific Green, Working Families), `
-      +`<b style="color:var(--gold)">${tr}%</b> to the right splinter (Libertarian, Constitution).`
+      +`<b style="color:var(--gold)">${tr}%</b> to the right splinter (Libertarian, Constitution)`
+      +((r.thirdShareC||0)>0.0005?`, and <b style="color:#7d6f9c">${((r.thirdShareC||0)*100).toFixed(1)}%</b> to ${centreName()} in the middle.`:`.`)
       +(r.rcv
         ? ` Under ranked choice most of those later preferences flowed to whichever of you and the challenger sat closer — this time the ${bigger?'left':'right'} splinter was the bigger bloc.`
         : ` Without ranked choice they split both coalitions and helped no one.`)
@@ -14108,10 +14171,11 @@ function showElection(r){
       <i data-w="${(r.share*100).toFixed(1)}" data-t="${who} — ${(r.share*100).toFixed(1)}%" title="${who} — ${(r.share*100).toFixed(1)}%" style="width:0;background:var(--moss)"></i>
       <i data-w="${((r.thirdShareL||0)*100).toFixed(1)}" data-t="${splinterName("left")} — ${((r.thirdShareL||0)*100).toFixed(1)}%" title="${splinterName("left")} — ${((r.thirdShareL||0)*100).toFixed(1)}%" style="width:0;background:var(--slate-blue)"></i>
       <i data-w="${((r.thirdShareR||0)*100).toFixed(1)}" data-t="${splinterName("right")} — ${((r.thirdShareR||0)*100).toFixed(1)}%" title="${splinterName("right")} — ${((r.thirdShareR||0)*100).toFixed(1)}%" style="width:0;background:var(--gold)"></i>
+      ${(r.thirdShareC||0)>0.0005?`<i data-w="${((r.thirdShareC||0)*100).toFixed(1)}" data-t="${centreName()} — ${((r.thirdShareC||0)*100).toFixed(1)}%" title="${centreName()} — ${((r.thirdShareC||0)*100).toFixed(1)}%" style="width:0;background:#7d6f9c"></i>`:``}
       <i data-w="${(oppTotal*100).toFixed(1)}" data-t="${oppPartyName()} — ${(oppTotal*100).toFixed(1)}%" title="${oppPartyName()} — ${(oppTotal*100).toFixed(1)}%" style="width:0;background:var(--clay)"></i>
     </div>
     <div class="eg-barread" id="egBarRead">Hover a segment for its exact share</div>
-    <div class="eg-legend"><span><i style="background:var(--moss)"></i>${who}</span><span><i style="background:var(--slate-blue)"></i>${splinterName("left")}</span><span><i style="background:var(--gold)"></i>${splinterName("right")}</span><span><i style="background:var(--clay)"></i>${oppPartyName()}</span></div>
+    <div class="eg-legend"><span><i style="background:var(--moss)"></i>${who}</span><span><i style="background:var(--slate-blue)"></i>${splinterName("left")}</span><span><i style="background:var(--gold)"></i>${splinterName("right")}</span>${(r.thirdShareC||0)>0.0005?`<span><i style="background:#7d6f9c"></i>${centreName()}</span>`:``}<span><i style="background:var(--clay)"></i>${oppPartyName()}</span></div>
     <div class="eg-sub" style="font-size:14.5px">Turnout <b>${(r.turnout*100).toFixed(0)}%</b> · Final approval <b>${r.approval.toFixed(1)}%</b> · <span id="egReporting">0% reporting</span> · ${succ?'your successor':'you'} carried <b id="egCty">0</b> / 36 counties</div>
     ${(()=>{ const m=r.oppMomentum||25;
       const lvl=m>=78?"surging":m>=60?"high":m>=42?"building":m>=24?"present":"dormant";
@@ -14153,12 +14217,13 @@ function showElection(r){
   const readEl=card.querySelector("#egCtyRead"), readDflt=readEl?readEl.textContent:"";
   const pct=x=>Math.round((x||0)*100);
   const showCty=(c)=>{ if(!readEl)return;
-    const wlab=c.win==="you"?"you":c.win==="opp"?"the "+oppPartyName():"a third party";
+    const wlab=c.win==="you"?"you":c.win==="opp"?"the "+oppPartyName():c.win==="centre"?centreName():"a third party";
     readEl.innerHTML=`<b>${c.name} County</b> — carried by ${wlab} · `
       +`You <b style="color:var(--moss-bright)">${pct(c.you)}%</b> · `
       +`${oppPartyName()} <b style="color:var(--clay)">${pct(c.opp)}%</b> · `
       +`${splinterName("left")} <b style="color:var(--slate-blue)">${pct(c.thL)}%</b> · `
       +`${splinterName("right")} <b style="color:var(--gold)">${pct(c.thR)}%</b> · `
+      +((c.thC||0)>0.001?`${centreName()} <b style="color:#7d6f9c">${pct(c.thC)}%</b> · `:``)
       +`Turnout ${pct(c.turnout)}%`; };
   ctyEls.forEach(el=>{ const c=cRows[+el.dataset.i]; if(!c)return;
     el.addEventListener('mouseenter',()=>showCty(c));
@@ -17278,6 +17343,11 @@ function splinterPressure(){
    of the opposition's column; seats are won on the four-way vote now, so
    nothing allocates them and nothing called it. */
 function splinterName(side){ return side==="left" ? "Working Families" : "Constitution"; }
+/* The centre party, which exists only under proportional representation:
+   under districts a vote for the middle is the wasted vote that produces
+   two parties in the first place. */
+function centreName(){ return "Oregon Forward"; }
+function centreRuns(){ return prOn(); }
 function runLegislativeElection(approval){
   // An amendment ratified last cycle comes into force at THIS election —
   // the first one held under the new rules. Read where you stood BEFORE
@@ -23434,7 +23504,7 @@ function bootWorld(startId){
   GAME.agendaBaseline=0; GAME.compassStart={ec:0,so:0}; GAME.compassEvents={ec:0,so:0};
   GAME.mandateShock=0; GAME.changeAppetite=0; GAME.uturnCount=0; GAME.protestCrackdowns=0;
   GAME.floorFail={}; GAME.enactedAt={}; GAME.senateClass=0; GAME.serviceDisrupt=0;
-  GAME.pendingKicker=0; GAME.corpKickerToK12=0; GAME.pendingSurplus=null; GAME.surplusPool=null; GAME.surplusOut=0; GAME.pendingSurplusBill=null; GAME.elliottResolved=false; GAME.sportsBook=null; GAME.dilemmaDone={}; GAME.offshoreLeased=false;
+  GAME.pendingKicker=0; GAME.kickerStimulus=0; GAME.corpKickerToK12=0; GAME.pendingSurplus=null; GAME.surplusPool=null; GAME.surplusOut=0; GAME.pendingSurplusBill=null; GAME.elliottResolved=false; GAME.sportsBook=null; GAME.dilemmaDone={}; GAME.offshoreLeased=false;
   GAME.legisElections=0;
   // ---- back to the authored data
   for(const k in METRICS){ METRICS[k].value=WORLD_SEED.m[k]; METRICS[k].calib=0; }
