@@ -15433,6 +15433,7 @@ function legMapSVG(rows, seatMap, contested){
     const share=sm.supportOf?Math.round(clamp(sm.supportOf[id],0,100)):null;
     base+=`<path class="leg-d" data-legd="${tag} ${id}" tabindex="0" data-who="${who}"`
       +` data-share="${share==null?'':share}" data-held="${up?'':'1'}"`
+      +` data-spl="${isSpl?splinterName(GAME.splinter.side):''}"`
       +` d="${d}" fill="${fill}" fill-opacity="${up?1:0.32}" stroke="var(--paper)" stroke-width="0.35">`
       +`<title>${tag} ${id} — ${who}${share==null?"":" · "+share+"% support"}${held}</title></path>`;
     if(id===sm.tipping)edge+=`<path d="${d}" fill="none" stroke="var(--gold)" stroke-width="1.4"/>`;
@@ -16913,10 +16914,20 @@ function wireLegReadout(root){
     const dflt=rd.textContent;
     host.querySelectorAll('[data-legd]').forEach(el=>{
       const show=()=>{
-        const id=el.dataset.legd, who=el.dataset.who||'', sh=el.dataset.share;
-        rd.innerHTML=`<b>${id}</b> \u00b7 ${who}`
-          +(sh?` \u00b7 <b>${sh}%</b> support`:``)
-          +(el.dataset.held?` \u00b7 <i>held over, not on this ballot</i>`:``);
+        const id=el.dataset.legd, who=el.dataset.who||'', sh=el.dataset.share, spl=el.dataset.spl;
+        let out=`<b>${id}</b>`;
+        if(sh!==''&&sh!=null){
+          // districtSupport is centred on 50, so it is a two-party share and
+          // the other side is simply its complement
+          const you=+sh;
+          out+=` \u00b7 Your party <b>${you}%</b> \u00b7 Opposition <b>${100-you}%</b>`;
+        } else out+=` \u00b7 ${who}`;
+        // A SPLINTER HAS NO MODELLED SHARE. GAME.splinter holds a list of seats
+        // it took outright, so it is named as the holder above the two-party
+        // figures rather than given a third percentage it does not have.
+        if(spl)out+=` \u00b7 <b>${spl}</b> took the seat`;
+        if(el.dataset.held)out+=` \u00b7 <i>held over, not on this ballot</i>`;
+        rd.innerHTML=out;
       };
       el.addEventListener('mouseenter',show);
       el.addEventListener('focus',show);
