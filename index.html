@@ -727,7 +727,11 @@
   .searchdd .sdd-lbl .ico{width:13px;height:13px;vertical-align:-2px}
   @keyframes sddPulse{0%{filter:none}30%{filter:drop-shadow(0 0 9px var(--slate-blue))}100%{filter:none}}
   .boardnode.sddpulse{animation:sddPulse 1.15s ease}
-  .webwrap{background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);overflow:auto}
+  /* CAPPED, the way .boardgraph is. Without a cap the canvas lays out at
+     its full height and the PAGE scrolls instead of the frame, so zooming
+     in grows the document half a screen under the player's thumb. */
+  .webwrap{background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);
+    overflow:auto;max-height:80vh}
   /* only worth saying where it is actually true */
   .webpan{display:none;margin-top:6px}
   @media (max-width:980px){ .webpan{display:block} }
@@ -1601,6 +1605,7 @@
   #boardSvg{min-width:0;width:100%;display:block;margin:0 auto;transition:width var(--motion) ease}
   .board-zoom{position:sticky;top:8px;z-index:6;display:inline-flex;margin:8px 0 0 8px}
   .board-zoom button{width:30px;height:30px;border:var(--rule) solid var(--ink);background:var(--paper);color:var(--ink);
+    transition:background var(--motion-fast),color var(--motion-fast);
     font-family:var(--font-display);font-size:18px;line-height:1;cursor:pointer}
   .board-zoom button+button{border-left:none}
   .board-zoom button:hover{background:var(--ink);color:var(--paper)}
@@ -23090,6 +23095,18 @@ function renderWeb(){
     const WZ_MIN=Math.max(0.3, Math.min(0.5, wrap.clientWidth/WEB_BASE)),
           WZ_MAX=2.5, WZ_STEP=0.25;
     let _wz=1;
+    /* Hold the frame at the height it has at rest. The stylesheet cap stops
+       it growing without bound, but a cap alone still lets the first press
+       stretch the frame from its resting height up to the ceiling, which
+       moves the page once. Locked, the first press scrolls inside the frame
+       like every press after it and the page never moves at all. */
+    const lockFrame=()=>{
+      if(_wz!==1)return;                       // only measurable at rest
+      wrap.style.height="";
+      wrap.style.height=wrap.getBoundingClientRect().height+"px";
+    };
+    lockFrame();
+    window.addEventListener("resize",lockFrame);
     const read=document.getElementById("webZoomRead");
     const applyWz=keepCentre=>{
       // where the middle of what you are looking at sits in the canvas
@@ -23103,11 +23120,11 @@ function renderWeb(){
       if(zi)zi.disabled=_wz>=WZ_MAX-0.001;
       if(zo)zo.disabled=_wz<=WZ_MIN+0.001;
       if(!keepCentre)return;
-      // put that same point back in the middle, so zooming does not lose your place
-      requestAnimationFrame(()=>{
-        wrap.scrollLeft=Math.max(0, fx*wrap.scrollWidth - wrap.clientWidth/2);
-        wrap.scrollTop =Math.max(0, fy*wrap.scrollHeight - wrap.clientHeight/2);
-      });
+      // Put that same point back in the middle, in THIS turn rather than the
+      // next frame. Reading scrollWidth forces the new layout, so the scroll
+      // lands with the resize: one paint, one movement, no skip.
+      wrap.scrollLeft=Math.max(0, fx*wrap.scrollWidth - wrap.clientWidth/2);
+      wrap.scrollTop =Math.max(0, fy*wrap.scrollHeight - wrap.clientHeight/2);
     };
     document.querySelectorAll(".web-zoombar [data-wz]").forEach(b=>b.addEventListener("click",()=>{
       const a=b.dataset.wz;
