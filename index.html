@@ -2618,6 +2618,7 @@ const INDICATORS={
         const v=(p&&p.tierIndicatorEffects&&p.tierIndicatorEffects[p.tierIndex]&&p.tierIndicatorEffects[p.tierIndex].downtown)||0;
         return Math.abs(v)>0.05?[{name:ico("tent")+" Camping Enforcement",v,link:"p_campingPolicy"}]:[];
       })(),
+      ...(POLICIES.policing&&effLevelOf(POLICIES.policing)*4>0.05?[{name:ico("shield")+" Police Funding",v:effLevelOf(POLICIES.policing)*4,link:"p_policing"}]:[]),
       ...(POLICIES.civilCommitment&&effLevelOf(POLICIES.civilCommitment)*5>0.05?[{name:ico("scales")+" Civil Commitment Ease",v:effLevelOf(POLICIES.civilCommitment)*5,link:"p_civilCommitment"}]:[]),
       ...(POLICIES.homelessServices&&effLevelOf(POLICIES.homelessServices)*8>0.05?[{name:ico('houses')+" Homeless Services",v:effLevelOf(POLICIES.homelessServices)*8,link:"p_homelessServices"}]:[]),
       ...(POLICIES.officeConversion&&effLevelOf(POLICIES.officeConversion)*7>0.05?[{name:ico('factory')+" Office-to-Housing Conversion",v:effLevelOf(POLICIES.officeConversion)*7,link:"p_officeConversion"}]:[]),
@@ -3931,7 +3932,13 @@ const POLICIES={
     ideology:{economic:-0.15}},
   policing:{name:"Police Funding", domain:"social", icon:"shield", enacted:true, mechanic:"slider", noRepeal:true,
     desc:"State police and local law-enforcement grants: patrol, investigation and response. Prosecution is funded separately, through the Judicial Department. Police provide a direct prevention benefit regardless of the rest of the system, through deterrence, patrol and rapid response. But incapacitation (locking people up) requires the full pipeline: arrests must be prosecuted (Judicial Dept.) and sentences must be servable (Corrections). Crime reduction from incapacitation is capped by the weakest of the three pillars. Investing in police without funding courts and prisons produces arrests that don't stick. Watch the Justice Pipeline Effectiveness indicator.",
-    value:0.5, costFull:1.0, capital:5, effects:{violentCrime:{b:0,c:-3,i:2},propertyCrime:{b:0,c:-3,i:2},homelessness:{b:0,c:-3,i:3},drugUse:{b:0,c:-3,i:3}},
+    // A PATROL CAR IS NOT A HOUSE. This used to carry homelessness -3, which
+    // made police funding the third largest pull on the unsheltered count in
+    // the game, behind only the two housing programmes. Enforcement moves
+    // people along; it does not house them. What it buys is order in the
+    // places it is deployed, which is Downtown Vitality.
+    value:0.5, costFull:1.0, capital:5, effects:{violentCrime:{b:0,c:-3,i:2},propertyCrime:{b:0,c:-3,i:2},drugUse:{b:0,c:-3,i:3}},
+    indicatorEffects:{downtown:4},
     blocEffect:{moderate:2, conservative:3, suburban:2, retirees:2, homeowners:1, socialist:-3, liberal:-2},
     ideology:{economic:0.3,social:0.5,govSize:0.4}},
   civilCommitment:{name:"Ease of Civil Commitment", domain:"social", icon:"scales", enacted:true, mechanic:"slider", noRepeal:true,
@@ -3940,7 +3947,10 @@ const POLICIES={
     // homelessness/drug/behavioral effects come from the commitment×beds
     // interaction in metricTarget (scaled by available capacity, with an
     // overcrowding penalty); only the incarceration relief stays here.
-    effects:{incarcerationRate:{b:0,c:-2,i:3}, violentCrime:{b:0,c:-3,i:4}, homelessness:{b:0,c:-4,i:4}},
+    // homelessness was still listed here as well as in the beds interaction,
+    // so the statistic's page showed the same lever twice and charged it
+    // twice. The interaction is the version that knows whether a bed exists.
+    effects:{incarcerationRate:{b:0,c:-2,i:3}, violentCrime:{b:0,c:-3,i:4}},
     indicatorEffects:{downtown:5},
     blocEffect:{conservative:4, moderate:2, suburban:3, homeowners:2, retirees:2, socialist:-5, liberal:-3, libertarian:-4},
     real:{min:0,max:100,unit:"/100 ease",decimals:0,label:"commitment latitude"},
@@ -17916,6 +17926,20 @@ function nextBallotInfo(){
   return {kind:"election", label:"your re-election ballot", quartersAway:Math.max(0,(L-1)-into)};
 }
 
+/* HOW LATE YOU CAN STILL REFER ONE. Oregon refers amendments by joint
+   resolution during a session, and the ballot title, the explanatory
+   statement and the voters' pamphlet all have statutory deadlines months
+   ahead of the election. A governor cannot put a constitutional amendment
+   in front of the voters in the quarter the ballot is being printed. */
+const REFERRAL_DEADLINE=3;   // quarters before a ballot that referrals close
+function referralWindowOpen(){ return nextBallotInfo().quartersAway>=REFERRAL_DEADLINE; }
+/* Why it is shut, in words, or empty when it is open. */
+function referralClosedNote(){
+  if(referralWindowOpen())return "";
+  const nb=nextBallotInfo();
+  return "Referrals for "+nb.label+" have closed. A measure has to be certified, given a ballot title and printed in the voters' pamphlet, which takes "
+    +REFERRAL_DEADLINE+" quarters. Anything referred now waits for the ballot after this one.";
+}
 /* Refer an amendment to the voters. Charges the capital now — getting it on
    the ballot is the part you control — and queues it for the next ballot. */
 /* free=true when the floor has already voted for it and been billed for the
@@ -17923,6 +17947,10 @@ function nextBallotInfo(){
 function referMeasure(id,dir,free){
   const p=dir==="enact"?CATALOG[id]:POLICIES[id];
   if(!p||pendingMeasure(id))return false;
+  if(!referralWindowOpen()){
+    GAME.log.push(ico('ballot')+" Too late to refer "+p.name+" — the ballot is already being printed");
+    render(); return false;
+  }
   const cost=free?0:(dir==="enact"?policyEnactCost(p):(p.repealCost!==undefined?p.repealCost:(p.capital||6)));
   if(!free && GAME.capital<cost){
     GAME.log.push("✗ Not enough capital to refer "+p.name+" to the ballot");render();return false;
@@ -21048,6 +21076,7 @@ function renderPolicies(){
         <br><br>Repealing one works the same way: another floor vote, another trip to the ballot.
         <br><br>Measures are decided only when voters are already at the polls: <b>the midterm</b>, or <b>concurrently with your own re-election</b>. There are no special elections. Campaign for a referred measure from <b>Campaign HQ → Ballot measures</b>, out of the same energy your re-election draws on.</div>
         <div class="rn-f">Next ballot: <b>${nb.label}</b>${nb.quartersAway>0?` — ${nb.quartersAway} quarter${nb.quartersAway===1?'':'s'} away`:` — this quarter`}${nPend?` · ${nPend} measure${nPend===1?'':'s'} already on it`:``}</div>
+        ${referralWindowOpen()?``:`<div class="rn-f" style="color:var(--clay)">${ico('warning')} ${referralClosedNote()}</div>`}
       </div>`;
       h+=`<div class="catgrid">`;for(const id of reforms)h+=renderCard(id);h+=`</div>`;
     }
