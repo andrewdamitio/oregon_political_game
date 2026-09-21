@@ -2910,19 +2910,25 @@ const INDICATORS={
     },
     drivesNote:"A curriculum mandate from Salem raises outcomes and raises rural alienation at the same time. That is the whole trade. Districts, unions and rural Oregon read every point taken as a loss, and the classroom gets better anyway.",
     feedback:{}},
+  /* Paying for the roads out of the General Fund counts. Measured as a
+     departure from the budget you inherited rather than as another
+     weighted share, so the gauge rests exactly where it always did and
+     the crisis line does not shift under a saved game. */
   transportFunding:{name:"Transportation Revenue Health", icon:"road", value:62,
-    desc:"How well-funded Oregon's transportation system is relative to ODOT's maintenance and operations needs. Gas tax is the primary lever but erodes as EVs grow; vehicle registration fees are stable; an EV road usage charge can close the gap. When this falls below ~62 the Transportation Funding Cliff situation activates.",
+    desc:"How well-funded Oregon's transportation system is relative to ODOT's maintenance and operations needs. Gas tax is the primary lever but erodes as EVs grow; vehicle registration fees are stable; an EV road usage charge can close the gap. You can also simply pay for it: money into the ODOT budget line holds the system up the same way a fee does, though a transfer out of the General Fund has to be won again every budget while a dedicated revenue stream does not. When this falls below ~62 the Transportation Funding Cliff situation activates.",
     derive:()=>{
       const g=policyLevel(POLICIES.gasTax??{value:0.5});
       const r=policyLevel(POLICIES.vehicleReg??{value:0.5});
       const e=POLICIES.evFee?policyLevel(POLICIES.evFee):0;
-      const total=g*0.9+r*0.6+e*0.2;
+      const total=g*0.9+r*0.6+e*0.2+odotBudgetLift();
       return clamp(total/1.2*100, 0, 100);
     },
     drivers:()=>[
       {name:ico("fuel")+" Gas Tax",v:(policyLevel(POLICIES.gasTax??{value:0.5}))*75,link:"p_gasTax"},
       {name:ico('road')+" Vehicle Reg. Fees",v:(policyLevel(POLICIES.vehicleReg??{value:0.5}))*50,link:"p_vehicleReg"},
       ...(POLICIES.evFee&&policyLevel(POLICIES.evFee)>0.01?[{name:ico('plug')+" EV Road Charge",v:policyLevel(POLICIES.evFee)*17,link:"p_evFee"}]:[]),
+      ...(Math.abs(odotBudgetLift())>0.004?[{name:ico('road')+" ODOT budget, against the one you inherited",
+          v:odotBudgetLift()/1.2*100, link:"a_odot"}]:[]),
     ],
     feedback:{}},
   infraStrain:{name:"Infrastructure Strain", icon:"road", value:38,
@@ -3364,6 +3370,15 @@ function csfReturnQ(sold){
    dedicated to the Education Stability Fund. REVENUE.lottery models the
    General-Fund-bound share, so this rides on top of it rather than out of it. */
 const LOTTERY_ESF_SHARE=0.18;
+/* What the ODOT budget line is worth to transportation revenue health,
+   as a departure from the funding level the game starts at. Zero at the
+   inherited budget, about +0.275 fully funded and -0.275 at nothing,
+   which is +/-23 points on the gauge once normalised. */
+function odotBudgetLift(){
+  const a=AGENCIES.odot; if(!a)return 0;
+  const base=(a.fundingBase!=null?a.fundingBase:0.5);
+  return ((a.funding??base)-base)*0.55;
+}
 function lotteryEsfDeposit(){
   const p=POLICIES.stateLottery; if(!p)return 0;
   const gross=(REVENUE.lottery?REVENUE.lottery.base:0.9)*(policyLevel(p)/0.62);
