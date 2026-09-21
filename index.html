@@ -15813,6 +15813,28 @@ const VOTE_Z=0.55;         // and the part that scales with the spread of the co
                            // tuned so a quoted whip is a likely win rather than a certain one
                            // and the cushion buttons still have something left to buy
 const BILL_LOY_FLOOR=0.34; // the discipline a caucus brings to a bill nobody is watching
+/* HOW FAR A BILL RUNNING THE OPPOSITION'S WAY DISSOLVES THEIR DISCIPLINE.
+   CROSS_AISLE_PULL is how much one point of ideological alignment with
+   their side is worth against the whip; CROSS_AISLE_FLOOR is what is left
+   when the bill is everything they wanted, because handing the governor a
+   win is a reason to vote no all by itself; CROSS_AISLE_CEIL is how much
+   harder the whip can bite on a bill aimed squarely at them. */
+const CROSS_AISLE_PULL=0.55, CROSS_AISLE_FLOOR=0.30, CROSS_AISLE_CEIL=1.25;
+/* Which way a bill leans, on the same combination of axes the seats are
+   judged on. Negative is left, positive is right; repealing a law is the
+   opposite act to passing it. */
+function billPush(pol, dir){
+  const io=(pol&&pol.ideology)||{};
+  const p=(io.economic||0)+(io.social||0)+(io.environment||0)*0.6+(io.govSize||0)*0.7;
+  return dir==="repeal" ? -p : p;
+}
+/* What the opposition's discipline is actually worth on THIS bill. 1 is the
+   old flat value, which now sits in the middle of a range. */
+function oppDisciplineMult(pol, dir){
+  // positive when the bill runs the opposition's own way
+  const withOpp=(GAME.startId==="conservative" ? -1 : 1)*billPush(pol,dir);
+  return clamp(1-withOpp*CROSS_AISLE_PULL, CROSS_AISLE_FLOOR, CROSS_AISLE_CEIL);
+}
 /* How much of a party marker this bill is. A caucus whips what shows up in a
    mailer: big bloc consequences, a clear ideological direction. It does not
    whip a narrow technical change, and that is precisely why conceding one is
@@ -15912,7 +15934,12 @@ function floorMembers(chamber, pol, dir, ctx){
     // that shows up in a mailer their members are free to vote the district.
     // A member who reached a majority on transfers owes part of their seat to
     // people outside their own party, and the whip knows it.
-    const disc=BILL_LOYALTY*(ctx.disc==null?1:ctx.disc)*(rcvOn()?RCV_DISCIPLINE:1);
+    // A caucus cannot be whipped against its own voters: discipline falls
+    // away on a bill that runs the opposition's way and bites harder on one
+    // aimed at them. Computed from the bill, so it is the same for every
+    // member of the bench.
+    const disc=BILL_LOYALTY*(ctx.disc==null?1:ctx.disc)*(rcvOn()?RCV_DISCIPLINE:1)
+              *oppDisciplineMult(pol,dir);
     // THE CENTRE BENCH, under proportional representation. Elected on not
     // being either of you, so there is no caucus to whip them and nothing to
     // be loyal to. They vote the bill, and they are the votes you have to find.
@@ -16085,7 +16112,12 @@ function votePassOdds(w){
   for(let d=0;d<VOTE_DRAWS;d++){
     let ok=true;
     for(const C of [w.house,w.senate]){
-      const bought=new Set(C.buy.map(m=>m.id));
+      // A PLAN YOU CANNOT PAY FOR IS NOT A PLAN. The buy list is what it
+      // would take; when that costs more than a governor can ever hold, the
+      // operation cannot be run, and quoting its odds as though the votes
+      // were secured reported 100% on a bill sitting 9 votes short. Over
+      // the cap, the odds are the odds of the bill as it stands.
+      const bought=new Set(w.overCap?[]:C.buy.map(m=>m.id));
       let yes=0;
       for(const m of C.members){
         const base=bought.has(m.id)?VOTE_PROMISE:m.incl;
