@@ -3306,26 +3306,51 @@ const PRIVATE_ATTAIN_PREMIUM=14;
    political capital — it is a board posture, not a bill — but it decides how
    hard the unfunded liability swings with the market. alpha is the long-run
    edge over the 6.9% assumption; beta is how much of the cycle lands on it. */
+/* HOW HARD THE NATIONAL ECONOMIC CYCLE DRIVES A PORTFOLIO, against the
+   quarter-to-quarter market term. Equity returns are a bet on the broad
+   economy far more than on the froth, so the cycle carries the weight. */
+const FUND_CYCLE_W=1.1;
+/* AND WHERE THE MIDDLE OF THE CYCLE ACTUALLY SITS. Measured across eight
+   twelve-year runs, econCycle averages -0.042 rather than zero, so a
+   portfolio betting on the raw index carries a permanent headwind: for the
+   aggressive posture that is 0.74%/yr of drag, more than the whole premium
+   it is paid. Betting on the cycle should mean betting on it being better
+   or worse than usual, so the bet is centred on usual. */
+const ECON_TREND=-0.042;
+/* alpha is the excess return a posture earns on a timer, regardless of the
+   economy; beta is how hard the cycle lands on it. An equity portfolio is
+   almost all beta: the premium is payment for bearing the swing, and it
+   arrives when the swing goes your way, not in equal instalments. */
 const PERS_RISK={
-  conservative:{label:"Conservative", alpha:-0.011, beta:0.005,
-    note:"Heavy in bonds and cash. You will not beat the assumed rate, so the liability grinds upward in a normal decade, but a crash barely touches it, and you always know roughly what next biennium's employer rate will be."},
-  balanced:{label:"Balanced", alpha:0, beta:0.012,
-    note:"The inherited posture: roughly the assumed return over a full cycle, with the fund taking real damage in a crash and real gains in a boom."},
-  aggressive:{label:"Aggressive", alpha:0.013, beta:0.027,
-    note:"Weighted to equities, private markets and real assets. Over a good decade this is the single largest lever on the liability, and a serious downturn blows the hole open faster than any benefit reform can close it."}
+  conservative:{label:"Conservative", alpha:-0.011, beta:0.006,
+    note:"Heavy in bonds and cash. You will not beat the assumed 6.9%, so the liability grinds upward in a normal decade whatever the economy does, and that is the price. In exchange a crash barely touches it and you always know roughly what next biennium's employer rate will be."},
+  balanced:{label:"Balanced", alpha:0, beta:0.014,
+    note:"The inherited posture: roughly the assumed return over a full cycle, with the fund taking real damage in a downturn and real gains in a boom."},
+  aggressive:{label:"Aggressive", alpha:0.003, beta:0.040,
+    note:"Weighted to equities, private markets and real assets, so it is a bet on the national economy at close to three times the balanced fund's exposure. It earns almost nothing for simply being held: what it earns, it earns in the quarters the economy is climbing, and it gives back just as fast in the quarters it is not. Over a good decade this is the single largest lever on the liability; a serious downturn blows the hole open faster than any benefit reform can close it."}
 };
 function persRisk(){ return PERS_RISK[GAME.persRisk] || PERS_RISK.balanced; }
+/* The quarter's return above the assumed rate, as a fraction of assets.
+   The tick and both panels that quote a figure all read this, because they
+   used to each recompute it and the panels had dropped the cycle term. */
+function persExcessQ(){
+  const r=persRisk();
+  return r.alpha/4 + GAME.marketLevel*r.beta + (GAME.econCycle-ECON_TREND)*r.beta*FUND_CYCLE_W;
+}
 /* The Common School Fund is run by the same Oregon Investment Council, and
    it is mostly financial assets — the trust land is a small, shrinking slice.
    ret is the long-run return on the corpus over a full cycle; beta is how
    hard a quarter's market move lands on it. */
+/* Same council, same reasoning: the aggressive tilt should not pay a
+   guaranteed 1.5%/yr over the balanced one for being chosen. The spread
+   between the postures narrows and the exposure to the cycle widens. */
 const CSF_RISK={
-  safe:{label:"Safe", ret:0.043, beta:0.004,
+  safe:{label:"Safe", ret:0.046, beta:0.005,
     note:"Bond- and cash-heavy. It lags the school-funding need in a normal decade, since the corpus grows slower than the payout. But a market crash barely dents it and the distribution to K-12 holds steady."},
-  balanced:{label:"Balanced", ret:0.053, beta:0.009,
-    note:"The inherited allocation: a diversified mix that roughly keeps pace with the payout over a full cycle, giving ground in a crash and making it back in a boom."},
-  aggressive:{label:"Aggressive", ret:0.068, beta:0.019,
-    note:"Weighted to equities, private markets and real assets — the same tilt the Council runs for PERS. Over a good decade it grows the corpus fastest and shrinks the General Fund's school bill; a serious downturn cuts the distribution when schools can least afford it."}
+  balanced:{label:"Balanced", ret:0.054, beta:0.011,
+    note:"The inherited allocation: a diversified mix that roughly keeps pace with the payout over a full cycle, giving ground in a downturn and making it back in a boom."},
+  aggressive:{label:"Aggressive", ret:0.059, beta:0.031,
+    note:"Weighted to equities, private markets and real assets, the same tilt the Council runs for PERS. It earns little extra for being held: what it earns comes in the quarters the national economy is climbing, at close to three times the balanced fund's exposure, and it gives it back in the quarters it is not. Over a good decade it grows the corpus fastest and shrinks the General Fund's school bill; a serious downturn cuts the distribution when schools can least afford it."}
 };
 function csfRisk(){ return CSF_RISK[GAME.csfRisk] || CSF_RISK.balanced; }
 /* Quarterly total return on the corpus at the current posture. A sale ends
@@ -3333,7 +3358,7 @@ function csfRisk(){ return CSF_RISK[GAME.csfRisk] || CSF_RISK.balanced; }
 function csfReturnQ(sold){
   const c=csfRisk();
   const soldBonus = sold ? 0.010 : 0;
-  return (c.ret+soldBonus)/4 + GAME.marketLevel*c.beta + GAME.econCycle*c.beta*0.4;
+  return (c.ret+soldBonus)/4 + GAME.marketLevel*c.beta + (GAME.econCycle-ECON_TREND)*c.beta*FUND_CYCLE_W;
 }
 /* Article XV §4(4)(d): this share of net lottery proceeds is constitutionally
    dedicated to the Education Stability Fund. REVENUE.lottery models the
@@ -10687,7 +10712,7 @@ function tickEconomy(){
     const assets   = Math.max(30, 130 - GAME.persUAL);
     const assumedQ = 0.069/4;
     const _pr      = persRisk();
-    const actualQ  = assumedQ + _pr.alpha/4 + GAME.marketLevel*_pr.beta + GAME.econCycle*_pr.beta*0.5;
+    const actualQ  = assumedQ + persExcessQ();
     const invEffect = assets*(actualQ - assumedQ);          // >0 shrinks the UAL
     // The expensive part of PERS is a demographic wave, not a permanent state:
     // Tier 1 and Tier 2 (pre-1996 hires) carry the guaranteed-return benefit that
@@ -22125,7 +22150,7 @@ const FUNDS={
     blurb:"The endowment Oregon received at statehood — roughly 600,000 remaining acres of mostly eastern-Oregon rangeland, held in trust by the State Land Board and pledged to K-12 in perpetuity. The corpus is never spent. Only its earnings are.",
     inflows:()=>{
       const sold=csfLandsSold(), pr=(GAME.csfCorpus||0), cr=csfRisk();
-      const ret=pr*((cr.ret+(sold?0.010:0))+GAME.marketLevel*cr.beta*4);
+      const ret=pr*csfReturnQ(sold)*4;
       const dep=sold?0.004:0.040*(METRICS.loggingRate.value/40)*(GAME.csfElliottMult??1);
       return [
         {name:"Investment return on the corpus — "+cr.label.toLowerCase()+" posture", v:ret,
@@ -22181,7 +22206,8 @@ const FUNDS={
     },
     outflows:()=>{
       const pr=persRisk(), assets=Math.max(30,130-(GAME.persUAL||28));
-      const excess=(pr.alpha+GAME.marketLevel*pr.beta*4)*assets;
+      // annualized, and from the same function the model ticks on
+      const excess=persExcessQ()*4*assets;
       return [{name:"Investment return above the 6.9% assumption", v:excess,
         note:"On about "+"$"+Math.round(assets)+"B of assets under a "+pr.label.toLowerCase()+" posture. Above the assumption the hole shrinks; below it, the hole grows."}];
     },
