@@ -5680,6 +5680,99 @@ function apptProposalPick(){
   }
   return best;
 }
+/* WHAT A DEPARTMENT DOES ON ITS OWN AUTHORITY.
+
+   Each entry is written for one chair and one kind of person in it. `when`
+   reads the holder: their trait, and the interest group they were drawn
+   from, which is what makes putting a conservationist on the Board of
+   Forestry a different decision from putting a timber man there.
+
+   These are not proposals to consider at leisure. The department is
+   already moving; the choice is whether to let it or to spend the capital
+   and the relationship to stop it. Where an option says something is
+   permanent, it is: the lock is checked by the control itself, not merely
+   described. */
+const AGENCY_EVENTS={
+  forestryHCP:{
+    post:"forestry", icon:"tree", title:"The Board of Forestry Has Been Drafting Without You",
+    when:h=>['liberal','socialist','urban','collegeEducated'].indexOf(h.group)>=0,
+    text:h=>"The Board's conservation lead has spent eighteen months on something nobody asked you about, and it is finished.\n\n"
+      +"It is a Habitat Conservation Plan for the state forests, negotiated with the federal service and pitched at seventy years. "
+      +"Oregon's real ones run that long on purpose. It is approved federally under section 10, it binds the Board and every "
+      +"governor after you, and once the incidental take permit is issued there is no mechanism by which a later administration "
+      +"simply changes its mind. "+(h.name||"Your appointee")+" is entirely aware of this and has not hidden it from you.\n\n"
+      +"What it does is set the harvest on state land low and keep it there. The marbled murrelet and coho habitat is secured, "
+      +"the litigation that has followed every harvest plan for thirty years stops, and the Board finally knows what it is allowed "
+      +"to do. The counties that run schools and sheriffs off timber receipts lose that money permanently, and they will not be "
+      +"told it was a difficult decision.\n\n"
+      +"You can stop it. The Board is not yours to command, but the appointment is, and everyone in the room understands the difference.",
+    options:[
+      {label:"Sign it \u2014 and lock the harvest for good",
+       text:"You back the plan and it goes to the federal service with the state behind it. State forest harvest is set at 15% and taken off the board for the rest of your time and everybody else's. The conservation groups have the biggest win they have had in a generation, and the timber counties have a grievance with a date on it.",
+       apply:()=>{
+         const a=AGENCIES.forestry;
+         if(a){ a.logging=0.15; }
+         GAME.loggingLocked={level:0.15, turn:GAME.turn,
+           why:"A seventy-year federal Habitat Conservation Plan governs the state forests. The harvest level is written into the incidental take permit and is not a dial any governor can reach."};
+         GAME.capital=clamp(GAME.capital-4,0,100);
+         for(const b of ['liberal','socialist','urban','collegeEducated'])
+           if(SIMULANTS[b])SIMULANTS[b].approval=clamp(SIMULANTS[b].approval+4.5,0,100);
+         for(const b of ['timber','rural','blueCollar'])
+           if(SIMULANTS[b])SIMULANTS[b].approval=clamp(SIMULANTS[b].approval-9,0,100);
+         createGrudge("i_ruralAlienation",6,0.9,"Locked the state forests under a federal conservation plan");
+         GAME.log.push(ico('tree')+" Signed the Habitat Conservation Plan \u2014 state forest harvest is fixed at 15% permanently");
+       }},
+      {label:"Intervene, and spend what that costs",
+       text:"You tell the Board to withdraw it. They can refuse and you can replace them, and both of you know how that ends, so they withdraw. The harvest stays yours to set. The conservation groups who were about to get a generational win instead watch a governor of their own party take it off the table, and the person who drafted it does not stay.",
+       apply:()=>{
+         GAME.capital=clamp(GAME.capital-9,0,100);
+         if(GAME.appointments)delete GAME.appointments.forestry;
+         GAME.apptVacancies=GAME.apptVacancies||{}; GAME.apptVacancies.forestry=GAME.turn;
+         for(const b of ['liberal','socialist','urban'])
+           if(SIMULANTS[b])SIMULANTS[b].approval=clamp(SIMULANTS[b].approval-6,0,100);
+         for(const b of ['timber','rural'])
+           if(SIMULANTS[b])SIMULANTS[b].approval=clamp(SIMULANTS[b].approval+3.5,0,100);
+         GAME.mandateShock=(GAME.mandateShock||0)-3;
+         GAME.log.push(ico('ban')+" Ordered the Habitat Conservation Plan withdrawn \u2014 \u25c8 9, and the Board seat is empty");
+       }},
+      {label:"Let it go federal without your name on it",
+       text:"You neither sign nor stop it. The Board sends it up as the Board's own document and the state says nothing, which fools nobody and protects you from very little. It is likelier than not to be approved anyway, and if it is, you will have taken the loss without having taken the decision.",
+       apply:()=>{
+         GAME.capital=clamp(GAME.capital-2,0,100);
+         if(Math.random()<0.6){
+           const a=AGENCIES.forestry; if(a)a.logging=0.15;
+           GAME.loggingLocked={level:0.15, turn:GAME.turn,
+             why:"A seventy-year federal Habitat Conservation Plan governs the state forests. The Board referred it without the state's signature and the federal service approved it anyway."};
+           for(const b of ['timber','rural','blueCollar'])
+             if(SIMULANTS[b])SIMULANTS[b].approval=clamp(SIMULANTS[b].approval-7,0,100);
+           GAME.log.push(ico('tree')+" The Habitat Conservation Plan was approved federally without you \u2014 harvest fixed at 15%");
+         } else {
+           for(const b of ['liberal','socialist'])
+             if(SIMULANTS[b])SIMULANTS[b].approval=clamp(SIMULANTS[b].approval-3,0,100);
+           GAME.log.push(ico('doc')+" The Habitat Conservation Plan stalled in federal review \u2014 nobody thanks you for it");
+         }
+         GAME.mandateShock=(GAME.mandateShock||0)-2;
+       }}
+    ]}
+};
+/* Which written event, if any, is live: a chair that is filled, by the kind
+   of person the event is about, who has been there long enough to have done
+   the work, and which has not already happened this run. */
+function agencyEventPick(){
+  const done=GAME.agencyEventsDone||{};
+  const live=[];
+  for(const k in AGENCY_EVENTS){
+    if(done[k])continue;
+    const E=AGENCY_EVENTS[k];
+    const h=apptHolder(E.post); if(!h)continue;
+    if((GAME.turn-(h.since||0))<4)continue;
+    let ok=false; try{ ok=E.when(h); }catch(e){ ok=false; }
+    if(!ok)continue;
+    if(E.blocked&&E.blocked())continue;
+    live.push({key:k, ev:E, holder:h});
+  }
+  return live.length ? live[Math.floor(Math.random()*live.length)] : null;
+}
 /* The discount a director's groundwork is worth on their own proposal. */
 const APPT_PROPOSAL_DISCOUNT=0.55;
 function apptBenchSeats(bench){
@@ -6526,6 +6619,28 @@ const DILEMMAS={
          }
        }}
     ]},
+  /* ---- APPOINTMENTS: a department acts on its own authority ---- */
+  agencyInitiative:{title:"A Department Has Gone Ahead Without You", icon:"warning", cooldown:7,
+    onFire:(ctx)=>{ const p=agencyEventPick(); if(p){ ctx.agKey=p.key; ctx.agName=p.holder.name; } },
+    text:()=>{
+      const c=GAME.dilemmaCtx||{};
+      const E=c.agKey?AGENCY_EVENTS[c.agKey]:null; if(!E)return "";
+      const h=apptHolder(E.post); if(!h)return "";
+      try{ return E.text(h); }catch(e){ return ""; }
+    },
+    influence:()=>{ const p=agencyEventPick(); return p?0.62:-1; },
+    options:[0,1,2].map(i=>({
+      label:(()=>{ const c=GAME.dilemmaCtx||{}; const E=c.agKey?AGENCY_EVENTS[c.agKey]:null;
+                   return (E&&E.options[i])?E.options[i].label:""; }),
+      text:(()=>{ const c=GAME.dilemmaCtx||{}; const E=c.agKey?AGENCY_EVENTS[c.agKey]:null;
+                  return (E&&E.options[i])?E.options[i].text:""; }),
+      apply:()=>{
+        const c=GAME.dilemmaCtx||{}; const E=c.agKey?AGENCY_EVENTS[c.agKey]:null;
+        if(!E||!E.options[i])return;
+        (GAME.agencyEventsDone=GAME.agencyEventsDone||{})[c.agKey]=GAME.turn;
+        E.options[i].apply();
+      }
+    }))},
   /* ---- APPOINTMENTS: a director brings you something ---- */
   apptProposal:{title:"Your Director Has Brought You Something", icon:"doc", cooldown:8,
     onFire:(ctx)=>{ const p=apptProposalPick(); if(p){ ctx.ppost=p.post; ctx.pname=p.holder.name; ctx.ptrait=p.holder.trait; ctx.ppolicy=p.policy; } },
@@ -7519,8 +7634,10 @@ function resolveDilemma(optIndex){
     if(Math.abs(ceDelta.so)>0.01)parts.push(`${ceDelta.so>0?'toward authority':'toward liberty'} ${Math.abs(ceDelta.so).toFixed(1)}`);
     fx.push({who:"Political compass — "+parts.join(", "), val:ceDelta.ec+ceDelta.so, kind:"compass"});
   }
-  GAME.log.push("❖ "+d.title+" — chose: "+d.options[optIndex].label);
-  GAME.lastDilemmaResult={title:d.title, icon:d.icon, choice:d.options[optIndex].label, fx};
+  const _lab=(typeof d.options[optIndex].label==="function")
+    ? d.options[optIndex].label() : d.options[optIndex].label;
+  GAME.log.push("❖ "+d.title+" — chose: "+_lab);
+  GAME.lastDilemmaResult={title:d.title, icon:d.icon, choice:_lab, fx};
   GAME.pendingDilemma=null;
   GAME.dilemmaCtx={};
   render();
@@ -20786,8 +20903,12 @@ function renderDetail(){
     if(a.logging!==undefined){
       h+=`<div class="ctrlbox">
         <span class="mono" style="font-size:12.5px;color:var(--muted-2)">Harvest level</span>
-        <input type="range" min="0" max="1" step="0.05" value="${a.logging}" data-agency-log="${id}">
+        <input type="range" min="0" max="1" step="0.05" value="${a.logging}" data-agency-log="${id}"${(id==="forestry"&&GAME.loggingLocked)?' disabled':''}>
         <span class="mono">${Math.round(a.logging*100)}%</span></div>`;
+      // A harvest level written into a federal permit is not a dial. Say so
+      // where the dial is, rather than only in the log the day it happened.
+      if(id==="forestry"&&GAME.loggingLocked)
+        h+=`<div class="fnote" style="border-left:3px solid var(--moss);padding-left:8px;margin-top:4px">${ico('lock')} <b>Fixed at ${Math.round(GAME.loggingLocked.level*100)}%.</b> ${GAME.loggingLocked.why}</div>`;
     }
     if(pendActive)h+=`<div class="repealrow"><button class="undobtn" id="undoBtn">↩ Undo change (no capital)</button></div>`;
     h+=effectsBreakdownHTML("agency",a);
@@ -22372,7 +22493,9 @@ function wirePolicyControls(){
     if(a)a.funding=parseFloat(e.target.value);render();maybeOpenFloor();}));
   // agency harvest level
   main.querySelectorAll('[data-agency-log]').forEach(el=>el.addEventListener('change',e=>{
-    const a=AGENCIES[e.target.dataset.agencyLog];
+    const id=e.target.dataset.agencyLog, a=AGENCIES[id];
+    // the permit binds the handler too, not just the markup
+    if(id==="forestry"&&GAME.loggingLocked){ render(); return; }
     if(a)a.logging=parseFloat(e.target.value);render();}));
   // land use preset
   main.querySelectorAll('[data-landuse]').forEach(el=>el.addEventListener('change',e=>{
@@ -23667,7 +23790,10 @@ function renderDilemma(){
   d.options.forEach((o,i)=>{
     if(o.avail && !o.avail())return;   // hide options that would be a no-op (e.g. concession already made / policy already passed)
     const otext=(typeof o.text==="function")?o.text():o.text;
-    h+=`<button class="dilemma-opt" data-opt="${i}"><span class="do-label">${o.label}</span><span class="do-sub">${otext}</span></button>`;
+    const olabel=(typeof o.label==="function")?o.label():o.label;
+    // an option with nothing to say belongs to an event that did not fire
+    if(!olabel)return;
+    h+=`<button class="dilemma-opt" data-opt="${i}"><span class="do-label">${olabel}</span><span class="do-sub">${otext}</span></button>`;
   });
   h+=`</div><div class="dilemma-foot">You must decide before the quarter ends. There is no clean choice — both sides will remember.</div>`;
   card.innerHTML=h;
@@ -24078,7 +24204,8 @@ function bootWorld(startId){
   GAME.agendaBaseline=0; GAME.compassStart={ec:0,so:0}; GAME.compassEvents={ec:0,so:0};
   GAME.mandateShock=0; GAME.changeAppetite=0; GAME.uturnCount=0; GAME.protestCrackdowns=0;
   GAME.floorFail={}; GAME.enactedAt={}; GAME.senateClass=0; GAME.serviceDisrupt=0;
-  GAME.pendingKicker=0; GAME.kickerStimulus=0; GAME.corpKickerToK12=0; GAME.apptDiscount={}; GAME.pendingSurplus=null; GAME.surplusPool=null; GAME.surplusOut=0; GAME.pendingSurplusBill=null; GAME.elliottResolved=false; GAME.sportsBook=null; GAME.dilemmaDone={}; GAME.offshoreLeased=false;
+  GAME.pendingKicker=0; GAME.kickerStimulus=0; GAME.corpKickerToK12=0; GAME.apptDiscount={};
+  GAME.loggingLocked=null; GAME.agencyEventsDone={}; GAME.pendingSurplus=null; GAME.surplusPool=null; GAME.surplusOut=0; GAME.pendingSurplusBill=null; GAME.elliottResolved=false; GAME.sportsBook=null; GAME.dilemmaDone={}; GAME.offshoreLeased=false;
   GAME.legisElections=0;
   // ---- back to the authored data
   for(const k in METRICS){ METRICS[k].value=WORLD_SEED.m[k]; METRICS[k].calib=0; }
