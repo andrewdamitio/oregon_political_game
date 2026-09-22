@@ -985,6 +985,16 @@
     border:1px solid var(--line);margin-top:4px}
   .cap-curve .cap-ax{font-family:var(--font-data);font-size:8px;fill:var(--muted-2)}
   .cap-curve .cap-here{font-family:var(--font-data);font-size:8.5px;font-weight:700;fill:var(--ink)}
+  /* who delivers a bill, on the floor screen and the policy page */
+  .apd-row{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:5px 0;
+    border-bottom:1px solid var(--line)}
+  .apd-row:last-of-type{border-bottom:none}
+  .apd-stat{flex:0 0 auto;font-weight:600;font-size:12.5px}
+  .apd-dep{flex:1 1 170px;min-width:0;font-size:12px;color:var(--muted-2)}
+  .apd-mult{flex:0 0 auto;font-family:var(--font-data);font-size:13px;font-weight:700}
+  .apd-num{flex:0 0 auto;font-family:var(--font-data);font-size:12.5px;color:var(--muted-1)}
+  .apd-note{font-size:12.5px;color:var(--muted-2);line-height:1.45;margin-top:8px;
+    border-top:1px solid var(--line);padding-top:7px}
   .cap-ov{font-size:12.5px;color:var(--muted-2);line-height:1.45;margin-top:10px;
     border-top:1px solid var(--line);padding-top:8px}
   .ebnote{font-size:13.5px;color:var(--muted-3);font-style:italic;margin:6px 0}
@@ -5633,6 +5643,70 @@ function apptEffFor(id){
   if(h.trait==="reformer"&&age<APPT_SETTLE)
     return APPT_SETTLE_EFF+(t.eff-APPT_SETTLE_EFF)*(age/APPT_SETTLE);
   return t.eff;
+}
+/* Every statistic a policy moves, whatever shape the policy is. */
+function policyMetricKeys(p){
+  const out={};
+  if(p.effects)for(const k in p.effects)out[k]=1;
+  if(p.tierEffects)for(const t of p.tierEffects)for(const k in t)out[k]=1;
+  if(p.channels)for(const c of p.channels)for(const k in (c.effects||{}))out[k]=1;
+  return Object.keys(out);
+}
+/* WHO DELIVERS A BILL, named where the bill is decided.
+   policyEffect multiplies every effect by apptMetricMult for that
+   statistic, and that multiplier is whoever runs the department producing
+   it. The panel reads the model rather than restating it: delivered is
+   policyEffect, and written is delivered divided by the multiplier, which
+   isolates the bench's contribution exactly. */
+function apptDeliveryPanelHTML(p){
+  if(!p)return "";
+  const rows=[];
+  for(const k of policyMetricKeys(p)){
+    const M=METRICS[k]; if(!M)continue;
+    const mult=apptMetricMult(k);
+    const delivered=policyEffect(p,k);
+    // nothing to say about a statistic this bill barely touches, or one no
+    // department of yours is responsible for
+    if(Math.abs(delivered)<0.02)continue;
+    if(Math.abs(mult-1)<0.004)continue;
+    const benches={};
+    for(const id in APPT_POSTS){
+      if((APPT_POSTS[id].metrics||[]).indexOf(k)<0)continue;
+      const b=apptBenchOf(id); (benches[b]=benches[b]||[]).push(id);
+    }
+    const who=Object.keys(benches).map(b=>{
+      const ids=benches[b], nm=APPT_POSTS[ids[0]].name;
+      const held=ids.filter(id=>apptHolder(id));
+      if(!held.length)return nm+" · <b style=\"color:var(--clay)\">nobody in the chair</b>";
+      if(ids.length>1)return nm+" · <b>"+held.length+" of "+ids.length+"</b> seats filled";
+      const h=apptHolder(ids[0]), t=APPT_TRAITS[h.trait]||APPT_TRAITS.safePick;
+      return nm+" · <b>"+h.name+"</b> ("+t.label+")";
+    }).join(" &amp; ");
+    rows.push({k, name:M.name, mult, delivered, written:mult?delivered/mult:delivered, who});
+  }
+  if(!rows.length)return "";
+  const good=v=>METRICS[v.k].invert ? v.delivered<0 : v.delivered>0;
+  let h=`<div class="ebgroup-label">${ico('muscle')} Who will deliver this</div><div class="ebgroup apd">`;
+  for(const r of rows){
+    const helping=(r.mult>1)===good(r);
+    const col=Math.abs(r.mult-1)<0.004?'var(--muted-2)':(r.mult>1?'var(--good)':'var(--clay)');
+    h+=`<div class="apd-row">
+      <span class="apd-stat">${r.name}</span>
+      <span class="apd-dep">${r.who}</span>
+      <span class="apd-mult" style="color:${col}">×${r.mult.toFixed(2)}</span>
+      <span class="apd-num">${r.written>=0?'+':''}${r.written.toFixed(1)} → <b style="color:${col}">${r.delivered>=0?'+':''}${r.delivered.toFixed(1)}</b></span>
+    </div>`;
+  }
+  const mean=rows.reduce((a,r)=>a+r.mult,0)/rows.length;
+  const pct=Math.round(Math.abs(mean-1)*100);
+  h+=`<div class="apd-note">${
+    Math.abs(mean-1)<0.005
+      ? `The departments that deliver this are staffed exactly as you inherited them.`
+      : mean>1
+      ? `The people you have put in these chairs are worth about <b>${pct}%</b> on what this bill does. Replace them and the bill gets weaker without a word of it changing.`
+      : `This bill loses about <b>${pct}%</b> of what it says to the departments that have to run it. Filling those chairs is worth more than anything you could negotiate on the floor.`
+  }</div></div>`;
+  return h;
 }
 /* How hard policy aimed at one statistic actually lands, given who runs the
    department that delivers it. */
@@ -17400,6 +17474,7 @@ function drawFloor(){
       <button class="enactbtn ghost" id="floorNo">Pull the bill</button>
     </div>
     ${w.possible?"":eoHintHTML(pol)}
+    ${apptDeliveryPanelHTML(pol)}
     <div class="floor-roll">${ico('columns')} The count, seat by seat</div>
     ${whipChamberHTML(w.house,pol,F.dir)}
     ${whipChamberHTML(w.senate,pol,F.dir)}
@@ -21168,6 +21243,7 @@ function renderDetail(){
       h+=`</div>`;
     }
     h+=effectsBreakdownHTML("policy",p);
+    h+=apptDeliveryPanelHTML(p);
   } else if(key.startsWith("a_")){
     const id=key.slice(2), a=AGENCIES[id];
     const spend=agencySpend(a);
