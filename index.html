@@ -5497,6 +5497,14 @@ const APPT_POSTS={
   // serves at the Governor's pleasure. A commission seat here would be a
   // fixed term with no Remove button, which would make the chair one you
   // could never actually appoint.
+  // Five policies run through the OLCC and none of them had anybody
+  // answerable. It owns no statistic on purpose: alcohol consumption is
+  // already the Health Authority's, and two departments on one statistic
+  // is exactly what was wrong with Parks. A chair does not need to own a
+  // statistic to administer a programme.
+  olcc:{title:"Commissioner, Liquor and Cannabis Commission", name:"Liquor & Cannabis Commission", icon:"bottle", agency:null, body:"commission",
+    seat:"the Liquor and Cannabis Commission", metrics:[],
+    pool:["businessClass","moderate","rural","libertarian"], foes:["parents","conservative"]},
   lottery:{title:"Director, Oregon Lottery", name:"Oregon Lottery", icon:"coins", agency:null, body:"department",
     seat:"the Lottery", metrics:["gamblingRate"],
     pool:["businessClass","rural","moderate","retirees"], foes:["socialist","parents"]}
@@ -5704,7 +5712,30 @@ const POLICY_DEPT={
   // income support
   eitc:"dhs", childcareSubsidy:"dhs",
   // gambling
-  stateLottery:"lottery", casinos:"lottery"
+  stateLottery:"lottery", casinos:"lottery",
+  // the Liquor and Cannabis Commission
+  cannabis:"olcc", cannabisTax:"olcc", liquorControl:"olcc", alcoholTax:"olcc",
+  craftBevPromotion:"olcc",
+  // the K-12 department. Higher education is the HECC and is deliberately
+  // absent: universities, the colleges and Oregon Promise are not ODE's.
+  academicTracking:"ode", truancy:"ode", readingCurriculum:"ode",
+  // the Health Authority runs the health programmes, the psilocybin
+  // programme, the commitment standard and the facilities rules
+  civilCommitment:"oha", psilocybin:"oha", safeConsumption:"oha",
+  vaccineMandate:"oha", certificateOfNeedRepeal:"oha",
+  // sentencing is carried out by the department that houses people
+  measure11:"corrections",
+  // the utility commission enforces the standard and sets what a large
+  // load pays
+  renewablePortfolio:"puc1", dataCenterEnergy:"puc1",
+  // DEQ runs the bottle bill and the vehicle incentives
+  bottleBill:"deq", evIncentives:"deq",
+  // the forest department carries the wildfire work
+  wildfireResilience:"forestry",
+  // parks runs the recreation investment
+  outdoorRec:"oprd",
+  // Business Oregon runs the industry programmes
+  smallBizSupport:"bizOregon", rndTaxCredit:"bizOregon"
 };
 /* Stamped onto the policy objects once, so the hot path is a property read
    rather than a table lookup. */
@@ -5739,6 +5770,43 @@ function policyMetricKeys(p){
    it. The panel reads the model rather than restating it: delivered is
    policyEffect, and written is delivered divided by the multiplier, which
    isolates the bench's contribution exactly. */
+/* THE SAME PANEL FOR A FUNDING LEVER. An agency's effects are scaled by
+   apptAgencyMult, which has always been true and has never been said on
+   the page where you move the money. */
+function agencyDeliveryPanelHTML(id){
+  const a=AGENCIES[id]; if(!a)return "";
+  const ids=[]; for(const pid in APPT_POSTS)if(APPT_POSTS[pid].agency===id)ids.push(pid);
+  if(!ids.length)return "";
+  const mult=apptAgencyMult(id);
+  const held=ids.filter(pid=>apptHolder(pid));
+  const nm=APPT_POSTS[ids[0]].name;
+  const who = !held.length
+    ? nm+" · <b style=\"color:var(--clay)\">nobody in the chair</b>"
+    : ids.length>1
+      ? nm+" · <b>"+held.length+" of "+ids.length+"</b> seats filled"
+      : (()=>{ const h=apptHolder(ids[0]), t=APPT_TRAITS[h.trait]||APPT_TRAITS.safePick;
+               return nm+" · <b>"+h.name+"</b> ("+t.label+")"; })();
+  const col=Math.abs(mult-1)<0.004?'var(--muted-2)':(mult>1?'var(--good)':'var(--clay)');
+  let rows="";
+  for(const k in (a.effects||{})){
+    const M=METRICS[k]; if(!M)continue;
+    const d=effExpr(a.effects[k],(a.funding??0.5),"a:"+id+":"+k)*mult;
+    if(Math.abs(d)<0.02)continue;
+    rows+=`<div class="apd-row"><span class="apd-stat">${M.name}</span>
+      <span class="apd-dep"></span>
+      <span class="apd-num">${(d/mult)>=0?'+':''}${(d/mult).toFixed(1)} → <b style="color:${col}">${d>=0?'+':''}${d.toFixed(1)}</b></span></div>`;
+  }
+  return `<div class="ebgroup-label">${ico('muscle')} Who runs this budget</div><div class="ebgroup apd">`
+    +`<div class="apd-row"><span class="apd-dep" style="flex:1 1 auto">${who}</span>`
+    +`<span class="apd-mult" style="color:${col}">×${mult.toFixed(2)}</span></div>`
+    +rows
+    +`<div class="apd-note">${Math.abs(mult-1)<0.005
+      ? `This department is staffed as you inherited it, so the money buys exactly what it says.`
+      : mult>1
+      ? `Every dollar here buys about <b>${Math.round((mult-1)*100)}%</b> more than the figures say, because of who is running it.`
+      : `Every dollar here buys about <b>${Math.round((1-mult)*100)}%</b> less than the figures say. That is the chair, not the budget.`
+    }</div></div>`;
+}
 function apptDeliveryPanelHTML(p){
   if(!p)return "";
   const rows=[];
@@ -21365,6 +21433,7 @@ function renderDetail(){
         h+=`<div class="fnote" style="border-left:3px solid var(--moss);padding-left:8px;margin-top:4px">${ico('lock')} <b>Fixed at ${Math.round(GAME.loggingLocked.level*100)}%.</b> ${GAME.loggingLocked.why}</div>`;
     }
     if(pendActive)h+=`<div class="repealrow"><button class="undobtn" id="undoBtn">↩ Undo change (no capital)</button></div>`;
+    h+=agencyDeliveryPanelHTML(key.replace(/^a_/,""));
     h+=effectsBreakdownHTML("agency",a);
   } else if(key==="landuse"){
     h+=`<div class="sectionhdr">${ico(LANDUSE.icon)} ${LANDUSE.name}</div>
