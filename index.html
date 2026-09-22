@@ -5306,19 +5306,28 @@ const AGENCIES={
    apparatus costs to coordinate, how much of your own capital governing eats,
    and how one interest group feels about you for as long as they serve.
    ============================================================ */
+/* WHO RUNS A DEPARTMENT SHOULD DECIDE WHETHER IT WORKS. The spread here
+   used to run -0.06 to +0.13, which moved the whole bench about six per
+   cent and put choosing well and choosing badly within a rounding error
+   of each other. It is roughly doubled, and the clamp it is measured
+   against opened to match, so both ends are now reachable.
+   `risk` is how likely this kind of person is to become a story: moving
+   fast through an agency's contracting rules is how you trip over them,
+   and knowing exactly which rules exist is how you do not.
+   `brings` is how often they arrive with a proposal of their own. */
 const APPT_TRAITS={
   insider:{ label:"Insider", icon:"columns",
-    blurb:"Came up through the agency. Knows where everything is and whom to call, and will not change any of it.",
-    eff:0.06, overhead:-1.2, capital:0, confirm:0.6 },
+    blurb:"Came up through the agency. Knows where everything is and whom to call, and will not change any of it. Nothing they do will surprise you, in either direction.",
+    eff:0.10, overhead:-1.8, capital:0, confirm:0.6, risk:0.35, brings:0.95 },
   reformer:{ label:"Reformer", icon:"wrench",
-    blurb:"Hired to shake the place up, and does. The department delivers less than it used to for the first year while everything is torn apart, then materially more. The upheaval costs overhead and capital the whole time they serve.",
-    eff:0.13, overhead:1.6, capital:-0.5, confirm:-0.5 },
+    blurb:"Hired to shake the place up, and does. The department delivers less than it used to for the first year while everything is torn apart, then materially more. The upheaval costs overhead and capital the whole time they serve, and somebody moving that fast through an agency's rules is the likeliest of the four to end up in a story about it.",
+    eff:0.22, overhead:2.0, capital:-0.7, confirm:-0.5, risk:1.5, brings:1.6 },
   loyalist:{ label:"Loyalist", icon:"handshake",
-    blurb:"Yours before they were the department's. You stop spending your week persuading your own government, and the department notices, and slows.",
-    eff:-0.06, overhead:0.9, capital:1.0, confirm:0 },
+    blurb:"Yours before they were the department's. You stop spending your week persuading your own government, and the department notices, and slows. They were picked for their politics, and the people who scrutinise appointments know it.",
+    eff:-0.11, overhead:1.4, capital:1.15, confirm:0, risk:1.1, brings:0.5 },
   safePick:{ label:"Safe Pick", icon:"doc",
-    blurb:"Nobody's first choice and nobody's problem. Sails through confirmation because there is nothing in the file worth fighting over, then runs the department exactly as they found it.",
-    eff:-0.02, overhead:0, capital:0.1, confirm:0.9 }
+    blurb:"Nobody's first choice and nobody's problem. Sails through confirmation because there is nothing in the file worth fighting over, then runs the department exactly as they found it, and never once appears in a headline.",
+    eff:-0.04, overhead:0, capital:0.15, confirm:0.9, risk:0.2, brings:0.15 }
 };
 /* The eleven chairs. `agency` ties the post to a budget line; `metrics` are
    the statistics the department actually delivers, so policy aimed at them
@@ -5467,7 +5476,11 @@ function apptBodyName(id){ return APPT_POSTS[id].name; }
    they are there, and the seat stays vacant until you confirm somebody,
    because a department run by a deputy is a department with nobody in charge
    of it. These three numbers are that cost. */
-const APPT_VACANT_EFF=-0.06, APPT_VACANT_OVERHEAD=0.8, APPT_VACANT_CAPITAL=-0.2;
+const APPT_VACANT_EFF=-0.10, APPT_VACANT_OVERHEAD=1.1, APPT_VACANT_CAPITAL=-0.3;
+/* How far the bench can move delivery either way. Opened with the trait
+   spread, so a well-staffed government is meaningfully better at its job
+   than an empty or badly-staffed one rather than a few per cent better. */
+const APPT_MULT_MIN=0.62, APPT_MULT_MAX=1.38;
 /* PEOPLE LEAVE ON THEIR OWN. Very rarely in a first year, and a little more
    each quarter they stay: tiredness, a better offer, a spouse with a job in
    another state. It never becomes likely — the cap is about one chance in
@@ -5538,6 +5551,50 @@ function apptEffFor(id){
    department that delivers it. */
 /* Which body a chair belongs to. A post with no bench is its own. */
 function apptBenchOf(id){ return APPT_POSTS[id].bench||id; }
+/* WHO IS MOST LIKELY TO BECOME A STORY. Trait risk times how long they
+   have had the authority: nobody is caught in their first quarter,
+   because the thing they are caught over has not happened yet. */
+function apptScandalPick(){
+  let best=null, bestW=0;
+  for(const id in APPT_POSTS){
+    const h=apptHolder(id); if(!h)continue;
+    const t=APPT_TRAITS[h.trait]||APPT_TRAITS.safePick;
+    const age=GAME.turn-(h.since||0);
+    if(age<3)continue;
+    const w=(t.risk||0.3)*clamp(age/8,0,1.3);
+    if(w>bestW){ bestW=w; best={post:id, holder:h, trait:t, weight:w}; }
+  }
+  return best;
+}
+/* WHAT A DIRECTOR BRINGS YOU. Something from the catalog aimed at the
+   statistics their own department delivers, which is the only kind of
+   proposal they would actually have a draft of. */
+function apptProposalPick(){
+  let best=null, bestW=0;
+  for(const id in APPT_POSTS){
+    const h=apptHolder(id); if(!h)continue;
+    const t=APPT_TRAITS[h.trait]||APPT_TRAITS.safePick;
+    const age=GAME.turn-(h.since||0);
+    if(age<2)continue;
+    const w=(t.brings||0.3)*clamp(age/6,0,1.2)*(0.6+Math.random()*0.8);
+    if(w<=bestW)continue;
+    // what could they bring? something touching their own metrics
+    const mine=APPT_POSTS[id].metrics||[];
+    const cands=Object.keys(CATALOG).filter(k=>{
+      const c=CATALOG[k];
+      if(!c||c.reform||POLICIES[k])return false;
+      if(pendingMeasure&&pendingMeasure(k))return false;
+      const e=c.effects||{};
+      return mine.some(m=>e[m]!==undefined);
+    });
+    if(!cands.length)continue;
+    const pick=cands[Math.floor(Math.random()*cands.length)];
+    bestW=w; best={post:id, holder:h, trait:t, policy:pick};
+  }
+  return best;
+}
+/* The discount a director's groundwork is worth on their own proposal. */
+const APPT_PROPOSAL_DISCOUNT=0.55;
 function apptBenchSeats(bench){
   const out=[]; for(const id in APPT_POSTS)if(apptBenchOf(id)===bench)out.push(id);
   return out;
@@ -5553,12 +5610,12 @@ function apptMetricMult(k){
   for(const id in APPT_POSTS)if(APPT_POSTS[id].metrics.includes(k))
     (benches[apptBenchOf(id)]=benches[apptBenchOf(id)]||[]).push(id);
   for(const b in benches)m+=apptBenchEff(benches[b]);
-  return clamp(m,0.75,1.25);
+  return clamp(m,APPT_MULT_MIN,APPT_MULT_MAX);
 }
 /* The same, for an agency's own budget line. */
 function apptAgencyMult(agencyId){
   const ids=[]; for(const id in APPT_POSTS)if(APPT_POSTS[id].agency===agencyId)ids.push(id);
-  return ids.length ? clamp(1+apptBenchEff(ids),0.75,1.25) : 1;
+  return ids.length ? clamp(1+apptBenchEff(ids),APPT_MULT_MIN,APPT_MULT_MAX) : 1;
 }
 function apptOverheadRaw(){
   let v=0;
@@ -6321,6 +6378,110 @@ function spendTotal(){let t=0;const sp=spendingByArea();for(const k in sp)t+=sp[
    16-quarter cooldown each.
    ============================================================ */
 const DILEMMAS={
+  /* ---- APPOINTMENTS: one of yours is in the paper ---- */
+  apptScandal:{title:"One of Your Directors Is in the Paper", icon:"warning", cooldown:10,
+    onFire:(ctx)=>{ const p=apptScandalPick(); if(p){ ctx.post=p.post; ctx.name=p.holder.name; ctx.trait=p.holder.trait; } },
+    text:()=>{
+      const c=GAME.dilemmaCtx||{}; if(!c.post||!APPT_POSTS[c.post])return "";
+      const post=APPT_POSTS[c.post];
+      const what = c.trait==="reformer"
+        ? "Three contracts were moved without going out to bid. Your director says the agency's procurement rules would have taken eleven months and the point of hiring them was to stop taking eleven months, which is true, and is not a defence."
+        : c.trait==="loyalist"
+        ? "A reporter has the hiring file. Four of the six people brought into the front office since your director arrived worked on a campaign, and one of them is a relative of somebody who did. Nothing in it is illegal. All of it reads exactly as badly as it sounds."
+        : c.trait==="insider"
+        ? "An audit of a programme your director ran before you appointed them has come back, and it is not good. The findings predate their promotion. The signature on the memo does not."
+        : "An expenses review turned up eighteen months of travel that was booked correctly and justified thinly. It is small money and a very easy story to tell.";
+      return "The call came from the newsroom, not from the building, which tells you how long they have had it.\n\n"
+        +what+"\n\n"
+        +"Your director at "+post.name+", "+(c.name||"your appointee")+", is not offering to resign and is not denying anything either. "
+        +"The question in front of you is not whether this is fair. It is whether you would rather spend the next three weeks defending somebody else's judgement or explaining why you appointed them.";
+    },
+    influence:()=>{
+      const p=apptScandalPick(); if(!p)return -1;
+      return clamp(p.weight*0.30,0.05,0.62);
+    },
+    options:[
+      {label:"Stand by them",
+       text:"You go out and say it plainly: they have your confidence, the work they were hired to do is the work they are doing, and you are not going to hand a department to whoever shouts loudest. The department keeps the person who knows how to run it. You keep the story for as long as the story wants to run, and the people who were already looking for a reason now have one.",
+       apply:()=>{
+         const c=GAME.dilemmaCtx||{}; const post=APPT_POSTS[c.post];
+         GAME.capital=clamp(GAME.capital-6,0,100);
+         GAME.mandateShock=(GAME.mandateShock||0)-5;
+         for(const b of ['moderate','collegeEducated','suburban'])
+           if(SIMULANTS[b])SIMULANTS[b].approval=clamp(SIMULANTS[b].approval-3.2,0,100);
+         GAME.log.push(ico('shield')+" Stood by "+(c.name||"your director")+" at "+(post?post.name:"the department")+" \u2014 \u25c8 6 and a fortnight of it");
+       }},
+      {label:"Ask for the resignation",
+       text:"It is on your desk by the end of the day, which tells you they knew. The story lasts two days instead of three weeks and the second day is about you acting quickly. What you have bought is an empty chair: a deputy holds the department together, brings nothing to it, and everything that department delivers runs softer until somebody is confirmed.",
+       apply:()=>{
+         const c=GAME.dilemmaCtx||{}; const post=APPT_POSTS[c.post];
+         GAME.capital=clamp(GAME.capital-2,0,100);
+         if(c.post&&GAME.appointments)delete GAME.appointments[c.post];
+         if(c.post){ GAME.apptVacancies=GAME.apptVacancies||{}; GAME.apptVacancies[c.post]=GAME.turn; }
+         for(const b of ['moderate'])
+           if(SIMULANTS[b])SIMULANTS[b].approval=clamp(SIMULANTS[b].approval+1.4,0,100);
+         GAME.log.push(ico('ban')+" "+(c.name||"Your director")+" resigned from "+(post?post.name:"the department")+" \u2014 the chair is empty");
+       }},
+      {label:"Say nothing and let it burn out",
+       text:"No statement, no defence, no resignation. Sometimes this works: the story needs a second day and you decline to provide one. Sometimes it does not, and the absence of a position becomes the position. Either way the department spends the quarter reading the paper instead of working, and everybody in the building learns what your backing is worth.",
+       apply:()=>{
+         const c=GAME.dilemmaCtx||{}; const post=APPT_POSTS[c.post];
+         GAME.capital=clamp(GAME.capital-3,0,100);
+         GAME.mandateShock=(GAME.mandateShock||0)-3;
+         if(Math.random()<0.45){
+           if(c.post&&GAME.appointments)delete GAME.appointments[c.post];
+           if(c.post){ GAME.apptVacancies=GAME.apptVacancies||{}; GAME.apptVacancies[c.post]=GAME.turn; }
+           GAME.log.push(ico('warning')+" Said nothing, and "+(c.name||"your director")+" went anyway \u2014 "+(post?post.name:"the department")+" is vacant");
+         } else {
+           for(const b of ['moderate','collegeEducated'])
+             if(SIMULANTS[b])SIMULANTS[b].approval=clamp(SIMULANTS[b].approval-1.8,0,100);
+           GAME.log.push(ico('doc')+" Rode out the story about "+(c.name||"your director")+" \u2014 it ran out of road");
+         }
+       }}
+    ]},
+  /* ---- APPOINTMENTS: a director brings you something ---- */
+  apptProposal:{title:"Your Director Has Brought You Something", icon:"doc", cooldown:8,
+    onFire:(ctx)=>{ const p=apptProposalPick(); if(p){ ctx.ppost=p.post; ctx.pname=p.holder.name; ctx.ptrait=p.holder.trait; ctx.ppolicy=p.policy; } },
+    text:()=>{
+      const c=GAME.dilemmaCtx||{};
+      if(!c.ppost||!APPT_POSTS[c.ppost]||!c.ppolicy||!CATALOG[c.ppolicy])return "";
+      const post=APPT_POSTS[c.ppost], pol=CATALOG[c.ppolicy];
+      const how = c.ptrait==="reformer"
+        ? "They did not ask for the meeting to float an idea. They have a drafted bill, a fiscal note, and the names of the two legislators who will carry it."
+        : c.ptrait==="insider"
+        ? "They have been carrying this one around for about nine years, through three governors who did not want it, and they have every objection to it already answered in the margins."
+        : "They brought it up at the end, almost as an afterthought, having clearly rehearsed the afterthought.";
+      return how+"\n\n"
+        +(c.pname||"Your director")+" runs "+post.name+", which means they spend their week inside the problem this is aimed at. "
+        +"The proposal is <b>"+pol.name+"</b>.\n\n"
+        +"What a director actually buys you here is the groundwork. The drafting is done, the agency is already behind it, and the people who would have to implement it helped write it, so it reaches the floor for materially less than the same idea costs from a standing start. What it costs you is that you did not choose it, and once you have taken a department's bill to the legislature you own it.";
+    },
+    influence:()=>{
+      const p=apptProposalPick(); if(!p)return -1;
+      return clamp((p.trait.brings||0.3)*0.55,0.06,0.78);
+    },
+    options:[
+      {label:"Take it to the floor",
+       text:"You put the department's bill in front of the legislature with your name on it. It goes to a vote like anything else, at the discount their groundwork earned.",
+       apply:()=>{
+         const c=GAME.dilemmaCtx||{};
+         if(!c.ppolicy||!CATALOG[c.ppolicy])return;
+         // the discount is real and it is theirs: it rides on the policy so the
+         // floor screen and the catalog both price it the same way
+         GAME.apptDiscount=GAME.apptDiscount||{};
+         GAME.apptDiscount[c.ppolicy]=APPT_PROPOSAL_DISCOUNT;
+         GAME.log.push(ico('doc')+" "+(c.pname||"Your director")+" brought you "+CATALOG[c.ppolicy].name
+           +" \u2014 it is in New Policies at "+Math.round(APPT_PROPOSAL_DISCOUNT*100)+"% of the usual capital");
+       }},
+      {label:"Thank them and leave it in the drawer",
+       text:"You tell them it is good work and that this is not the quarter. It is not the quarter, and they have heard that before from people who meant it and from people who did not. Nothing is spent and nothing is gained, except that the person running that department now knows where they stand with you.",
+       apply:()=>{
+         const c=GAME.dilemmaCtx||{};
+         const h=c.ppost?apptHolder(c.ppost):null;
+         if(h)h.rebuffed=(h.rebuffed||0)+1;
+         GAME.log.push(ico('doc')+" Left "+(c.ppolicy&&CATALOG[c.ppolicy]?CATALOG[c.ppolicy].name:"the proposal")+" in the drawer");
+       }}
+    ]},
   /* ---- COALITION: the ultimatum ---- */
   coalUltimatum:{title:"An Ultimatum from Your Own Government", icon:"handshake", cooldown:6,
     text:()=>{
@@ -9079,9 +9240,24 @@ function minFloorCost(id, dir){
   _minCostCache.map[ck]=best;
   return best;   // null = there is no version of this that can pass
 }
+/* A proposal a director brought you is cheaper to enact, because the
+   drafting, the fiscal note and the agency's agreement are already done.
+   Keyed by policy id so the catalog card and the floor screen quote the
+   same number. */
+function apptDiscountFor(id){
+  const d=(GAME.apptDiscount||{})[id];
+  return (typeof d==="number"&&d>0&&d<1)?d:1;
+}
 function policyEnactCost(p){
   const base=(p&&p.enactCapital!==undefined)?p.enactCapital:8;
-  return Math.round(base*oppositionCapitalMult());
+  // A bill a director brought you is cheaper because the drafting, the
+  // fiscal note and the agency's agreement already exist. The discount is
+  // keyed by id and this is handed the object, so walk the discounted ids
+  // (there are never more than a couple) and match on identity.
+  let disc=1;
+  const d=GAME.apptDiscount;
+  if(p&&d)for(const k in d){ if(CATALOG[k]===p){ disc=apptDiscountFor(k); break; } }
+  return Math.max(1, Math.round(base*oppositionCapitalMult()*disc));
 }
 function policyNetCost(p){
   if(!p)return 0;
@@ -23811,7 +23987,7 @@ function bootWorld(startId){
   GAME.agendaBaseline=0; GAME.compassStart={ec:0,so:0}; GAME.compassEvents={ec:0,so:0};
   GAME.mandateShock=0; GAME.changeAppetite=0; GAME.uturnCount=0; GAME.protestCrackdowns=0;
   GAME.floorFail={}; GAME.enactedAt={}; GAME.senateClass=0; GAME.serviceDisrupt=0;
-  GAME.pendingKicker=0; GAME.kickerStimulus=0; GAME.corpKickerToK12=0; GAME.pendingSurplus=null; GAME.surplusPool=null; GAME.surplusOut=0; GAME.pendingSurplusBill=null; GAME.elliottResolved=false; GAME.sportsBook=null; GAME.dilemmaDone={}; GAME.offshoreLeased=false;
+  GAME.pendingKicker=0; GAME.kickerStimulus=0; GAME.corpKickerToK12=0; GAME.apptDiscount={}; GAME.pendingSurplus=null; GAME.surplusPool=null; GAME.surplusOut=0; GAME.pendingSurplusBill=null; GAME.elliottResolved=false; GAME.sportsBook=null; GAME.dilemmaDone={}; GAME.offshoreLeased=false;
   GAME.legisElections=0;
   // ---- back to the authored data
   for(const k in METRICS){ METRICS[k].value=WORLD_SEED.m[k]; METRICS[k].calib=0; }
