@@ -5481,19 +5481,24 @@ const APPT_POSTS={
   bizOregon:{title:"Director, Business Oregon", name:"Business Oregon", icon:"factory", agency:null, body:"department",
     seat:"Business Oregon", metrics:["gdp","unemployment"],
     pool:["businessClass","wealthy","blueCollar","moderate"], foes:["socialist","publicUnions"]},
-  // This was metrics:[], which made it a chair you could fill, pay overhead
-  // and capital for, and which multiplied nothing whatsoever. OPRD holds a
-  // large share of the conserved land in the state; its stewardship is
-  // environmental quality as surely as DEQ's permitting is.
+  // This chair works through the parks budget rather than through a
+  // statistic of its own: apptAgencyMult scales what OPRD's funding buys,
+  // which is environment +3 and gdp +0.08 at full. Measured at x0.960 with
+  // a holder against x0.900 with the chair empty. Giving it "environment"
+  // outright was what put two departments on one statistic.
   oprd:{title:"Member, State Parks and Recreation Commission", name:"Parks & Recreation", icon:"tree", agency:"oprd", body:"commission",
-    seat:"State Parks and Recreation Commission", metrics:["environment"],
+    seat:"State Parks and Recreation Commission", metrics:[],
     pool:["rural","moderate","collegeEducated","urban"], foes:["timber"]},
   // Five people the governor appoints and the Senate confirms, running the
   // second largest source of state revenue. The game has three gambling
   // policies and a gambling statistic, and had nobody answerable for any
   // of it.
-  lottery:{title:"Director, Oregon Lottery", name:"Oregon Lottery", icon:"coins", agency:null, body:"commission",
-    seat:"the Lottery Commission", metrics:["gamblingRate"],
+  // ORS 461.150: appointed by the Governor, confirmed by the Senate, and
+  // serves at the Governor's pleasure. A commission seat here would be a
+  // fixed term with no Remove button, which would make the chair one you
+  // could never actually appoint.
+  lottery:{title:"Director, Oregon Lottery", name:"Oregon Lottery", icon:"coins", agency:null, body:"department",
+    seat:"the Lottery", metrics:["gamblingRate"],
     pool:["businessClass","rural","moderate","retirees"], foes:["socialist","parents"]}
 };
 const APPT_FIRST=["Marisol","Dale","Renata","Hollis","Imani","Gordon","Priya","Waylon","Beatriz","Soren",
@@ -5661,6 +5666,65 @@ function apptEffFor(id){
     return APPT_SETTLE_EFF+(t.eff-APPT_SETTLE_EFF)*(age/APPT_SETTLE);
   return t.eff;
 }
+/* WHICH DEPARTMENT RUNS A PROGRAMME.
+
+   A policy that names one is administered by that department, and that
+   department's competence scales the whole programme rather than only the
+   statistic the department happens to own. A carbon price is DEQ's to run,
+   so DEQ being well or badly led moves everything the price does.
+
+   Untagged policies fall back to per-statistic ownership, which is the
+   right default: nobody administers inequality, and a bill that moves it
+   is delivered by whoever delivers the programmes underneath it. */
+const POLICY_DEPT={
+  // environmental quality and the vehicle rules
+  carbonTax:"deq", carbonProgram:"deq", cleanFuels:"deq", forestCarbon:"deq",
+  // the forests. The Common School Trust lands are deliberately absent:
+  // they are the Land Board's, through State Lands, not the Board of
+  // Forestry's.
+  forestPractices:"forestry", countyPayments:"forestry",
+  // health and behavioural health
+  ohpCoverage:"oha", ohpBlockGrant:"oha", medicaidWork:"oha", behavioralHealth:"oha",
+  // the deflection programme is the Health Authority's to run; the
+  // possession law itself is criminal law and has no administering
+  // department here
+  deflectionProgram:"oha",
+  // housing
+  homelessServices:"ohcs", affordableHousing:"ohcs", officeConversion:"ohcs",
+  housingPackage:"ohcs", rentStabilization:"ohcs", middleHousing:"ohcs",
+  // the schools
+  stateSchoolFund:"ode", charterSchools:"ode", schoolChoice:"ode", universalMeals:"ode",
+  preschoolForAll:"ode", sexEd:"ode", phoneBanSchools:"ode", parentalRights:"ode",
+  // prisons. Policing is absent on purpose: the Oregon State Police is its
+  // own department under its own superintendent and is not a chair here, so
+  // police funding falls back to the statistics it moves.
+  prisonRegimen:"corrections", truthInSentencing:"corrections",
+  // transport
+  modeSplit:"odot", transitInvestment:"odot", evFee:"odot",
+  // income support
+  eitc:"dhs", childcareSubsidy:"dhs",
+  // gambling
+  stateLottery:"lottery", casinos:"lottery"
+};
+/* Stamped onto the policy objects once, so the hot path is a property read
+   rather than a table lookup. */
+(function(){ for(const k in POLICY_DEPT){
+  if(typeof CATALOG!=="undefined"&&CATALOG[k])CATALOG[k]._dept=POLICY_DEPT[k];
+  if(typeof POLICIES!=="undefined"&&POLICIES[k])POLICIES[k]._dept=POLICY_DEPT[k];
+} })();
+/* What one chair's bench is worth, for a programme that chair administers. */
+function apptPostMult(postId){
+  if(!APPT_POSTS[postId])return 1;
+  const b=apptBenchOf(postId), ids=[];
+  for(const id in APPT_POSTS)if(apptBenchOf(id)===b)ids.push(id);
+  return ids.length ? clamp(1+apptBenchEff(ids),APPT_MULT_MIN,APPT_MULT_MAX) : 1;
+}
+/* The multiplier that actually applies to this policy's effect on this
+   statistic: the administering department where one is named, and the
+   statistic's own owners where one is not. */
+function apptPolicyMult(p,k){
+  return (p&&p._dept) ? apptPostMult(p._dept) : apptMetricMult(k);
+}
 /* Every statistic a policy moves, whatever shape the policy is. */
 function policyMetricKeys(p){
   const out={};
@@ -5680,14 +5744,18 @@ function apptDeliveryPanelHTML(p){
   const rows=[];
   for(const k of policyMetricKeys(p)){
     const M=METRICS[k]; if(!M)continue;
-    const mult=apptMetricMult(k);
+    const mult=apptPolicyMult(p,k);
     const delivered=policyEffect(p,k);
     // nothing to say about a statistic this bill barely touches, or one no
     // department of yours is responsible for
     if(Math.abs(delivered)<0.02)continue;
     if(Math.abs(mult-1)<0.004)continue;
     const benches={};
-    for(const id in APPT_POSTS){
+    if(p._dept){
+      // one department runs this programme, so it is the only one named
+      const b=apptBenchOf(p._dept);
+      for(const id in APPT_POSTS)if(apptBenchOf(id)===b)(benches[b]=benches[b]||[]).push(id);
+    } else for(const id in APPT_POSTS){
       if((APPT_POSTS[id].metrics||[]).indexOf(k)<0)continue;
       const b=apptBenchOf(id); (benches[b]=benches[b]||[]).push(id);
     }
@@ -9996,7 +10064,7 @@ function policyEffect(p,k){
   } else {
     raw=(p.effects&&p.effects[k]!==undefined)?effExpr(p.effects[k],eff,"p:"+(p._id||p.name)+":"+k):0;
   }
-  return raw*efficacy()*apptMetricMult(k)*(p.revenueFull||p.noOverhead?1:serviceStrainMult())*nonprofitDragMult(p,k);
+  return raw*efficacy()*apptPolicyMult(p,k)*(p.revenueFull||p.noOverhead?1:serviceStrainMult())*nonprofitDragMult(p,k);
 }
 function tickPhase(){
   // Large public unions slow implementation: institutional resistance and bargaining requirements
