@@ -2730,8 +2730,14 @@ const INDICATORS={
       return items;
     },
     feedback:{gdp:0.016, alcoholUse:0.02}},               // tourism dollars grow the economy; more visitors → more bars, tasting rooms, festivals
-  digitization:{name:"Gov. Digitization", icon:"monitor", value:40,
-    desc:"The modernization and capacity of Oregon's state government: IT infrastructure, data systems, and delivery competence. Oregon's baseline is weak (the Cover Oregon exchange collapse is the cautionary tale).\n\nIt plays two roles:\n1. Efficacy multiplier: low digitization means every policy delivers weaker outcomes than its stated effect. A policy that says it cuts homelessness by 10 might only cut it by 7 if the systems to implement it are broken. High digitization lets policies land at or above full strength.\n2. Overhead reducer: better systems handle larger program portfolios without coordination meltdown, directly lowering Administrative Overhead.\n\nRaised by Government Operations (slowly, over 10 quarters) and by the Digital Government Modernization policy (directly). Crises and system disruptions can push it down.",
+  /* THE STATE-CAPACITY GAUGE. Still keyed digitization, because ten
+     policies, two situations and every save in existence refer to it by
+     that name, but it has never only been about computers: procurement,
+     contract management, permitting, consolidation and hiring all feed
+     it, and what it decides is whether anything the state does actually
+     works. */
+  digitization:{name:"State Capacity", icon:"monitor", value:40,
+    desc:"Whether Oregon's government can actually deliver what it decides to do. Not what it spends or intends: whether the contract gets written with deliverables in it, whether somebody reads the invoice, whether the permit comes back, whether the job gets filled, whether the system works on launch day. Oregon's baseline is weak, and the Cover Oregon exchange collapse is the cautionary tale everybody here still remembers.\n\nIt plays two roles:\n1. Efficacy multiplier: low capacity means every policy delivers less than it says. A policy written to cut homelessness by 10 might deliver 7 if the machinery to run it is broken. High capacity lets policies land at or above full strength.\n2. Overhead reducer: an administration that works handles a bigger portfolio without coordination meltdown, directly lowering Administrative Overhead.\n\nFour things build it, and only one of them is computers. Government Operations funds the procurement officers and contract managers. Civil Service Merit Exams decides whether the state can hire, and how fast. Outcome-Based Contracting decides whether providers are paid for results. Digital Government Modernization is the systems themselves, and the largest single input. Permitting reform, agency consolidation and the sunset commission each add a little. Crises, ransomware and a collapsing budget push it down.",
     derive:()=>{
       // erodes toward a low ~40 baseline unless the digitalGov policy props it up
       let v=40+indPolicyBoost("digitization")+sitIndicatorPush("digitization")+execIndicatorPush("digitization");
@@ -2766,7 +2772,7 @@ const INDICATORS={
       {name:ico(METRICS.taxBurden.icon)+" Tax Burden",v:(METRICS.taxBurden.value-12)*0.9,link:"m_taxBurden"},
       {name:ico(METRICS.gasPrice.icon)+" Gas Price",v:(METRICS.gasPrice.value-3.6)*3,link:"m_gasPrice"},
       ...(POLICIES.salesTax&&policyLevel(POLICIES.salesTax)>0?[{name:ico('cart')+" Sales Tax (on top of income tax)",v:8,link:"p_salesTax"}]:[]),
-      {name:ico(INDICATORS.digitization.icon)+" Gov. Digitization (friction)",v:-(INDICATORS.digitization.value-40)*0.05,link:"i_digitization"},
+      {name:ico(INDICATORS.digitization.icon)+" State Capacity (friction)",v:-(INDICATORS.digitization.value-40)*0.05,link:"i_digitization"},
     ],
     feedback:{gdp:-0.014, unemployment:0.006}},              // high grievance drags growth and pushes jobs out
   ruralAlienation:{name:"Rural Alienation", icon:"tractor", value:45,
@@ -3089,7 +3095,7 @@ const INDICATORS={
     ],
     feedback:{health:0.025, violentCrime:-0.018, propertyCrime:-0.012, homelessness:-0.015}},
   adminOverhead:{name:"Administrative Overhead", icon:"folder", value:87,
-    desc:"Every dollar of active program spending directly raises this gauge: each $1B/yr of policy cost adds 5 points. Large programs dominate; the breakdown below shows which of your programs contribute most. Agencies count too, but only for funding you dial above or below their inherited default. The standing bureaucracy itself is priced into the base floor below; ramping an agency's budget up is what adds new coordination burden. Two levers bring it down: Government Digitization (every point subtracts 0.8) and the Government Operations policy (direct −8 reduction plus long-run Digitization gains).\n\nAt 85 or below: all programs run at full strength. Above 85, Administrative Strain activates and, scaling toward overhead ~100: policy effectiveness on the statistics erodes up to −15%, voters give up to that much less approval for the programs you fund, and every program area's cost inflates up to ~+18%. Above 95, Administrative Overload adds GDP damage and −1 capital/turn on top. A one-off operational shock (e.g. a ransomware rebuild) piles an extra acute penalty on for a few quarters.",
+    desc:"Every dollar of active program spending directly raises this gauge: each $1B/yr of policy cost adds 5 points. Large programs dominate; the breakdown below shows which of your programs contribute most. Agencies count too, but only for funding you dial above or below their inherited default. The standing bureaucracy itself is priced into the base floor below; ramping an agency's budget up is what adds new coordination burden. Two levers bring it down: State Capacity (every point subtracts 0.8) and the Government Operations policy (direct −8 reduction plus long-run Digitization gains).\n\nAt 85 or below: all programs run at full strength. Above 85, Administrative Strain activates and, scaling toward overhead ~100: policy effectiveness on the statistics erodes up to −15%, voters give up to that much less approval for the programs you fund, and every program area's cost inflates up to ~+18%. Above 95, Administrative Overload adds GDP damage and −1 capital/turn on top. A one-off operational shock (e.g. a ransomware rebuild) piles an extra acute penalty on for a few quarters.",
     derive:()=>{
       let policySpend=0;
       const eff=govOpsEffMult();
@@ -3141,7 +3147,7 @@ const INDICATORS={
         ...policyItems,
         ...(otherCt>0?[{name:"⊕ "+otherCt+" smaller programs", v:Math.round(otherPts)}]:[]),
         ...agencyItems,
-        {name:ico('monitor')+" Gov. Digitization (reduces overhead)", v:-Math.round(INDICATORS.digitization.value*0.8), link:"i_digitization"},
+        {name:ico('monitor')+" State Capacity (reduces overhead)", v:-Math.round(INDICATORS.digitization.value*0.8), link:"i_digitization"},
         ...Object.entries(POLICIES).filter(([,p])=>p.indicatorEffects?.adminOverhead)
           .map(([pid,p])=>({name:ico(p.icon)+" "+p.name+" (structural)", v:Math.round(p.indicatorEffects.adminOverhead*effLevelOf(p)), link:"p_"+pid}))
           .filter(x=>Math.abs(x.v)>0.1),
@@ -3627,7 +3633,7 @@ function outcomeContractingFactor(){
   return clamp(Math.tanh((q-4)/4.5), -0.85, 1);
 }
 /* 0..1 — how far the state has re-taken control of the contract layer.
-   Government Operations (competent procurement), Government Digitization (you can
+   Government Operations (competent procurement), State Capacity (you can
    see what you're buying), and MATURE Outcome-Based Contracting (providers paid
    on results) each help; any one, given enough of it, is a route out. */
 function nonprofitControl(){
@@ -4621,7 +4627,7 @@ const POLICIES={
   // noRepeal: this is the state's own operating budget. Its size is a choice;
   // abolishing it is not one a government can make.
   govOps:{name:"Government Operations and Workforce Budget", domain:"economy", icon:"folder", enacted:true, mechanic:"slider", phaseIn:10, noOverhead:true, noRepeal:true,
-    desc:"The state's capacity to buy things competently: procurement officers, contract managers, agency staffing, training, coordination and IT management. Unglamorous, and the highest-leverage line in the budget.\n\nOregon buys most of its social outcomes through contracts. Staffing that function properly means real bid competition, contracts written with deliverables in them, and somebody on the state side reading the invoices. It cuts the operating cost of every other spending policy by up to 12% at full investment, and lowers Administrative Overhead by 8 directly.\n\nIt also builds Government Digitization over ten quarters, which cuts overhead further and makes every policy land harder.\n\nAnd it is the most direct of the three routes out of the nonprofit complex, because competent procurement is how the state takes the contract layer back. Operations supplies 40% of State Control and the Digitization it builds another 28%. At the default 30% Oregon is underinvested and overhead sits just above the penalty threshold.",
+    desc:"The state's capacity to buy things competently: procurement officers, contract managers, agency staffing, training, coordination and IT management. Unglamorous, and the highest-leverage line in the budget.\n\nOregon buys most of its social outcomes through contracts. Staffing that function properly means real bid competition, contracts written with deliverables in them, and somebody on the state side reading the invoices. It cuts the operating cost of every other spending policy by up to 12% at full investment, and lowers Administrative Overhead by 8 directly.\n\nIt also builds State Capacity over ten quarters, which cuts overhead further and makes every policy land harder.\n\nAnd it is the most direct of the three routes out of the nonprofit complex, because competent procurement is how the state takes the contract layer back. Operations supplies 40% of State Control and the Digitization it builds another 28%. At the default 30% Oregon is underinvested and overhead sits just above the penalty threshold.",
     value:0.3, costFull:1.2, capital:7,
     indicatorEffects:{digitization:12, adminOverhead:-8},
     blocEffect:{publicUnions:4, blueCollar:1, moderate:1},
@@ -5066,6 +5072,7 @@ const CATALOG={
     effects:{education:4,eduOutcomes:2,inequality:-3}, indicatorEffects:{taxGrievance:1},
     blocEffect:{parents:6, poor:4, liberal:3, publicUnions:3, socialist:2, collegeEducated:2, moderate:1, businessClass:-2, conservative:-2, wealthy:-1, libertarian:-2},
     ideology:{economic:-0.4,govSize:-0.5}},
+  /* Civil Service Merit Exams, further down, is the hiring lever. */
   outcomeContracting:{name:"Outcome-Based Contracting", domain:"social", icon:"handshake", mechanic:"law", phaseIn:4,
     desc:"Rewrite every homelessness, childcare and behavioral-health contract so providers are paid on results, meaning people housed and kept housed and kids enrolled and progressing, instead of on beds staffed and cases opened. It attacks the nonprofit complex at its business model rather than its budget, which is why it is the strongest single route out: matured, it supplies 82% of State Control on its own, enough to clear the crisis without cutting a dollar of service spending.\n\nIt gets worse before it gets better. This is a J-curve, not a switch. For roughly four quarters providers scramble to retool, some drop out, coverage gaps open and service effectiveness measurably declines, so the crisis briefly deepens. It crosses back to neutral around a year in and reaches full strength after about three years. Enact it early in a term or you will eat the pain and hand your successor the payoff.\n\nThe sector fights it with everything it has, so the political cost is steep and the progressive coalition will not forgive it quickly.",
     enabled:true, costFull:0.12, capital:9, enactCapital:15, repealCost:12,
@@ -8318,7 +8325,7 @@ const SITUATIONS={
   // ran — a backlog making the systems older, which made the next backlog
   // likelier. A pile of unprocessed renewals does not age the state's IT.
   benefitsBacklog:{name:"Benefits Eligibility Backlog", kind:"bad", category:"condition",
-    desc:"Understaffed, paper-bound eligibility systems leave Medicaid and SNAP renewals languishing. Thousands lose coverage to administrative churn rather than policy — a quiet failure of state capacity.\n\nIt is a queue, and a queue grows when work arrives faster than the office can clear it. How fast it arrives is mostly unemployment: every lost job is an application. How fast it clears is how modern the eligibility systems are, how many caseworkers Human Services can pay for, and how well the state funds its own operations. A recession on paper systems is the classic recipe. So is a cut to Human Services in a stabilization package.\n\n→ To fix it: bring the strain below 18. Fund Human Services or the Government Operations budget, build Gov. Digitization (Digital Government Modernization is the direct route), or let unemployment come down. Each force and its current size is listed below.",
+    desc:"Understaffed, paper-bound eligibility systems leave Medicaid and SNAP renewals languishing. Thousands lose coverage to administrative churn rather than policy — a quiet failure of state capacity.\n\nIt is a queue, and a queue grows when work arrives faster than the office can clear it. How fast it arrives is mostly unemployment: every lost job is an application. How fast it clears is how modern the eligibility systems are, how many caseworkers Human Services can pay for, and how well the state funds its own operations. A recession on paper systems is the classic recipe. So is a cut to Human Services in a stabilization package.\n\n→ To fix it: bring the strain below 18. Fund Human Services or the Government Operations budget, build State Capacity (Digital Government Modernization is the direct route), or let unemployment come down. Each force and its current size is listed below.",
     trigger:()=>eligibilityStrain().score>BACKLOG_START,
     clear:()=>eligibilityStrain().score<BACKLOG_CLEAR,
     sev01:()=>sitNear(eligibilityStrain().score, BACKLOG_START, BACKLOG_CLEAR),
@@ -8457,14 +8464,14 @@ const SITUATIONS={
     moodMag:1,
     groupMood:{businessClass:5,liberal:3,collegeEducated:5,urban:3}},
   adminStrain:{name:"Administrative Strain", kind:"bad", category:"condition",
-    desc:"Administrative Overhead has crossed 85 and the apparatus is buckling. Three things happen at once, all scaling with how far over 85 you are (maxing around overhead 100):\n\n1. Delivery weakens. Every active policy (except revenue and Government Operations itself) moves the statistics less than its stated level, up to ~15% weaker.\n2. Credit dries up. Voters give less approval for the programs you fund, because the benefit isn't reaching them.\n3. Costs inflate. Every program area's budget rises (overtime, duplicated work, emergency contractors, coordination failures), up to ~+18%.\n\n→ To fix it: raise the Government Operations & Workforce budget (it builds Gov. Digitization capacity, which is what actually drives overhead down), enact Business Deregulation or Civil Service Merit Exams (both cut red tape directly), or trim lower-priority program spending. Overhead rises with every dollar you spend, and large programs like the State School Fund are the biggest contributors. Past overhead 95, Administrative Overload activates on top.",
+    desc:"Administrative Overhead has crossed 85 and the apparatus is buckling. Three things happen at once, all scaling with how far over 85 you are (maxing around overhead 100):\n\n1. Delivery weakens. Every active policy (except revenue and Government Operations itself) moves the statistics less than its stated level, up to ~15% weaker.\n2. Credit dries up. Voters give less approval for the programs you fund, because the benefit isn't reaching them.\n3. Costs inflate. Every program area's budget rises (overtime, duplicated work, emergency contractors, coordination failures), up to ~+18%.\n\n→ To fix it: raise the Government Operations & Workforce budget (it builds State Capacity, which is what actually drives overhead down), enact Business Deregulation or Civil Service Merit Exams (both cut red tape directly), or trim lower-priority program spending. Overhead rises with every dollar you spend, and large programs like the State School Fund are the biggest contributors. Past overhead 95, Administrative Overload activates on top.",
     trigger:()=>INDICATORS.adminOverhead.value>85,
     clear:()=>INDICATORS.adminOverhead.value<82, onClear:{capital:1},
     watch:{indicator:"adminOverhead", startAt:85, clearAt:82, badHigh:true},   // starts at 85, which is what the trigger says
     moodAxes:{govSize:-0.2}, moodMag:1,
     groupMood:{businessClass:-3, moderate:-2, poor:-2, parents:-2, suburban:-1}},
   adminCrisis:{name:"Administrative Overload", kind:"bad", category:"condition",
-    desc:"Administrative Overhead has crossed 95, and the strain that was already eroding policy effectiveness has broken into a full operational crisis. Inter-agency coordination has collapsed, permit backlogs have paralyzed DEQ, and enrollment failures are spreading through ODHS. On top of the policy effectiveness penalty already in effect, you are now losing 1 capital per turn to bureaucratic friction and the economic drag is visible in GDP and employer confidence.\n\n→ To fix it: this will not self-correct. It persists until Administrative Overhead falls below 88. Raise the Government Operations & Workforce budget (builds Gov. Digitization), cut active program spending, or pass Business Deregulation / Civil Service Merit Exams.",
+    desc:"Administrative Overhead has crossed 95, and the strain that was already eroding policy effectiveness has broken into a full operational crisis. Inter-agency coordination has collapsed, permit backlogs have paralyzed DEQ, and enrollment failures are spreading through ODHS. On top of the policy effectiveness penalty already in effect, you are now losing 1 capital per turn to bureaucratic friction and the economic drag is visible in GDP and employer confidence.\n\n→ To fix it: this will not self-correct. It persists until Administrative Overhead falls below 88. Raise the Government Operations & Workforce budget (builds State Capacity), cut active program spending, or pass Business Deregulation / Civil Service Merit Exams.",
     trigger:()=>INDICATORS.adminOverhead.value>95,
     clear:()=>INDICATORS.adminOverhead.value<88, onClear:{capital:2},
     watch:{indicator:"adminOverhead", startAt:95, clearAt:88, badHigh:true},
@@ -8502,7 +8509,7 @@ function eligibilityStrain(){
   const u=METRICS.unemployment.value;
   const oh=INDICATORS.adminOverhead.value;
   const parts=[
-    {name:ico(INDICATORS.digitization.icon)+" Paper-bound systems (Gov. Digitization "+Math.round(dig)+")", v:(55-dig)*0.8, link:"i_digitization"},
+    {name:ico(INDICATORS.digitization.icon)+" Paper-bound systems (State Capacity "+Math.round(dig)+")", v:(55-dig)*0.8, link:"i_digitization"},
     {name:ico('handshake')+" Caseworkers (Human Services funded at "+Math.round(dhs*100)+"%)", v:(0.55-dhs)*24, link:"a_dhs"},
     {name:ico('folder')+" Government Operations budget ("+Math.round(ops*100)+"%)", v:(0.55-ops)*14, link:"p_govOps"},
     {name:ico(METRICS.unemployment.icon)+" Applications arriving (unemployment "+u.toFixed(1)+"%)", v:(u-4.5)*2.6, link:"m_unemployment"},
@@ -8835,7 +8842,7 @@ const EVENT_POOL=[
    hint:"Ending nonmedical exemptions takes this off the board entirely."},
   {id:"federalShock", prob:0.04, gate:()=>true},
   {id:"cyberattack", prob:0.055, gate:()=>INDICATORS.digitization.value<55,
-   why:()=>[[ fc("Gov. Digitization below 55 — unpatched systems are the way in", _sn(INDICATORS.digitization.value), INDICATORS.digitization.value<55, "i_digitization") ]],
+   why:()=>[[ fc("State Capacity below 55 — unpatched systems are the way in", _sn(INDICATORS.digitization.value), INDICATORS.digitization.value<55, "i_digitization") ]],
    hint:"Building Digitization past 55 closes the door. The Government Operations budget is the slow route; Digital Government Modernization is the direct one."},
   // Digitization is the slow route — it takes ten quarters to build even
   // after Government Operations is fully funded. A governor who has
@@ -8844,7 +8851,7 @@ const EVENT_POOL=[
   {id:"unemploymentSystemFailure", prob:0.06, gate:()=>INDICATORS.digitization.value<48
     && policyLevel(POLICIES.govOps||{value:0.3})<0.75
     && (GAME.activeSituations.recession||METRICS.unemployment.value>7),
-   why:()=>[[ fc("Gov. Digitization below 48", _sn(INDICATORS.digitization.value), INDICATORS.digitization.value<48, "i_digitization"),
+   why:()=>[[ fc("State Capacity below 48", _sn(INDICATORS.digitization.value), INDICATORS.digitization.value<48, "i_digitization"),
               fc("Government Operations budget under 75% — the mainframe nobody funded the replacement for", plevelTxt("govOps"), policyLevel(POLICIES.govOps||{value:0.3})<0.75, plink("govOps")),
               fc("A claims surge: a recession, or unemployment above 7%", METRICS.unemployment.value.toFixed(1)+"%"+(GAME.activeSituations.recession?", recession running":""), !!GAME.activeSituations.recession||METRICS.unemployment.value>7, "m_unemployment") ]],
    hint:"Funding Government Operations past 75% blocks this outright, without waiting out Digitization's ten-quarter build."},
@@ -20862,10 +20869,10 @@ function renderDetail(){
         h+=npBar("1. Starve it — cut routed spend, drop homelessness with direct levers", starve,
           `Routed spend <b>$${spend.toFixed(2)}B</b> must fall under <b>$0.70B</b> (${Math.round(starveSpend*100)}% there) AND homelessness <b>${Math.round(METRICS.homelessness.value)}</b> under <b>48</b> (${Math.round(starveHl*100)}% there). Use housing supply, land use, shelter and treatment instead of contracts.`);
         h+=npBar("2. Take the contract layer back — State Control past 78%", ctlF/0.78,
-          `State Control <b>${ctl}%</b> of the 78% needed. Fed by <b>Government Operations &amp; procurement</b> (at ${Math.round(admin*100)}% of its 40% share), <b>Gov. Digitization</b> (${Math.round(dig*100)}% of its 28%), and <b>matured Outcome-Based Contracting</b> (${Math.round(obc*100)}% of its 82% — the strongest single lever).`);
+          `State Control <b>${ctl}%</b> of the 78% needed. Fed by <b>Government Operations &amp; procurement</b> (at ${Math.round(admin*100)}% of its 40% share), <b>State Capacity</b> (${Math.round(dig*100)}% of its 28%), and <b>matured Outcome-Based Contracting</b> (${Math.round(obc*100)}% of its 82% — the strongest single lever).`);
         h+=npBar("3. Prosecution — indict the executives", (GAME.turn>3?1:0),
           `If the DOJ task force brings you the case, indicting breaks the sector by force — fast and brutal, and it freezes the service network for about a year.`);
-        h+=`<div class="ebnote" style="margin-top:4px">Go to: <span data-detail="p_govOps" style="color:var(--slate-blue);cursor:pointer">Government Operations →</span> · <span data-detail="p_digitalGov" style="color:var(--slate-blue);cursor:pointer">Gov. Digitization →</span> · <span data-detail="p_outcomeContracting" style="color:var(--slate-blue);cursor:pointer">Outcome-Based Contracting →</span></div>`;
+        h+=`<div class="ebnote" style="margin-top:4px">Go to: <span data-detail="p_govOps" style="color:var(--slate-blue);cursor:pointer">Government Operations →</span> · <span data-detail="p_digitalGov" style="color:var(--slate-blue);cursor:pointer">State Capacity →</span> · <span data-detail="p_outcomeContracting" style="color:var(--slate-blue);cursor:pointer">Outcome-Based Contracting →</span></div>`;
       }
     }
     // overall + per-group opinion impact — only if this situation actually
