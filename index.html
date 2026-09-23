@@ -10765,7 +10765,20 @@ function protestGrudges(list){ (list||[]).forEach(g=>createGrudge("v_"+g[0], g[1
    social → Y (personal / cultural freedom vs state coercion of individuals).
    Raw weighted sums over enacted policies + agency posture, left unscaled —
    renderCompass scales to the grid. */
+/* How much more your own changes count than the state you inherited. */
+// 1.75, not more: every dial pushed to one end already reaches the edge of
+// the chart once it phases in, and more than this pins it there
+const AGENDA_OWN_WEIGHT=1.75;
 function agendaVector(){
+  const raw=agendaRaw();
+  // the inherited agenda, fixed at boot; a save written before this existed
+  // takes its current position as the baseline
+  if(!GAME.agendaBase)GAME.agendaBase={ec:raw.ec, so:raw.so};
+  const b=GAME.agendaBase, ce=GAME.compassEvents||{}, k=AGENDA_OWN_WEIGHT;
+  return {ec: b.ec+(raw.ec-b.ec)*k+(ce.ec||0)*k, so: b.so+(raw.so-b.so)*k+(ce.so||0)*k};
+}
+/* The enacted agenda summed as it stands, before your changes are weighted. */
+function agendaRaw(){
   let ec=0, so=0;
   const add=(io,w)=>{
     if(!io||!w)return;
@@ -10781,9 +10794,8 @@ function agendaVector(){
     const a=AGENCIES[id]; if(!a)continue;
     add(a.ideology,((a.funding??0.5)-0.5)*2);
   }
-  // dilemma / event choices leave a lasting mark on the record
-  const ce=GAME.compassEvents||{};
-  return {ec: ec+(ce.ec||0), so: so+(ce.so||0)};
+  // dilemma and event choices are added, weighted, in agendaVector
+  return {ec, so};
 }
 /* record that a decision moved the administration's ideological position.
    ec: economic left(−) / right(+)   so: personal-liberty(−) / state-authority(+) */
@@ -13090,8 +13102,9 @@ function runElection(){
   // govern far from it and that edge erodes. Blended in so a strong record
   // wins comfortably (~55-70%) rather than in a landslide, and a weak one
   // still holds a floor.
-  let emEc=0,emSo=0; for(const vv of VOTERS){emEc+=vv.econ||0;emSo+=vv.social||0;}
-  emEc/=VOTERS.length||1; emSo/=VOTERS.length||1;
+  // the electorate as it now is: the same weighted centre the compass chart
+  // draws, which moves as coalitions grow and shrink
+  const _ecNow=ecCentroidAt(GAME.turn), emEc=_ecNow.ec, emSo=_ecNow.so;
   const misfit=Math.abs(g.economic-emEc)*0.6 + Math.abs(g.social-emSo)*0.4;
   const anchor=clamp(0.55 - misfit*0.14, 0.42, 0.54);
   // the opposition: a strong challenger (high momentum) shaves your margin AND
@@ -15465,9 +15478,9 @@ function ecWeights(t){
   }
   return out;
 }
-/* The electorate's centre of gravity: the weighted mean of the cloud. At
-   t=0 this is exactly the emEc/emSo that runElection measures your record
-   against, so the marker on this chart is the thing costing you vote share. */
+/* The electorate's centre of gravity: the weighted mean of the cloud. This
+   is what runElection measures your record against, so the marker on this
+   chart is the thing costing you vote share. */
 function ecCentroidAt(t, wts){
   const w=wts||ecWeights(t);
   let ec=0, so=0, tot=0;
@@ -25434,6 +25447,7 @@ function bootWorld(startId){
   GAME.prevIndicators={};for(const id in INDICATORS)GAME.prevIndicators[id]=INDICATORS[id].value;
   GAME.agendaBaseline=agendaConservatism();   // the inherited status quo — protests measure drift FROM here
   applyProtestSide();                          // whose base is in revolt depends on whose base elected you
+  GAME.agendaBase=null;                        // re-taken from the world as dealt
   GAME.compassStart=agendaVector();            // where the mandate sits on the political compass
   // the electorate as inherited — every later size is held in a band round this
   GAME.sizeAnchor={}; for(const sid in SIMULANTS)GAME.sizeAnchor[sid]=SIMULANTS[sid].size;
