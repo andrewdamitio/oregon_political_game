@@ -2847,6 +2847,7 @@ const INDICATORS={
     derive:()=>{
       // erodes toward a low ~40 baseline unless the digitalGov policy props it up
       let v=40+indPolicyBoost("digitization")+sitIndicatorPush("digitization")+execIndicatorPush("digitization");
+      v+=civilCommitmentBurden().total;
       return clamp(v,0,100);
     },
     drivers:()=>{
@@ -2854,6 +2855,9 @@ const INDICATORS={
       for(const pid in POLICIES){const p=POLICIES[pid];if(p.indicatorEffects?.digitization){const v=Math.round(p.indicatorEffects.digitization*effLevelOf(p)*10)/10;if(Math.abs(v)>0.05)items.push({name:ico(p.icon)+" "+p.name,v,link:"p_"+pid});}}
       const sip=Math.round(sitIndicatorPush("digitization")*10)/10;
       if(Math.abs(sip)>0.05)items.push({name:ico('warning')+" Active crisis (system disruption)",v:sip});
+      const cb=civilCommitmentBurden();
+      if(Math.abs(cb.caseload)>0.05)items.push({name:ico('scales')+" Civil commitment caseload (hearings, examiners, transport)",v:Math.round(cb.caseload*10)/10,link:"p_civilCommitment"});
+      if(Math.abs(cb.overflow)>0.05)items.push({name:ico('warning')+" Commitment past bed capacity (ER boarding, jail holds)",v:Math.round(cb.overflow*10)/10,link:"p_civilCommitment"});
       return items;
     },
     feedback:{gdp:0.002}},             // better systems cut the friction that drags business
@@ -4169,7 +4173,7 @@ const POLICIES={
     blocEffect:{moderate:2, conservative:3, suburban:2, retirees:2, homeowners:1, socialist:-3, liberal:-2},
     ideology:{economic:0.3,social:0.5,govSize:0.4}},
   civilCommitment:{name:"Ease of Civil Commitment", domain:"social", icon:"scales", enacted:true, mechanic:"slider", noRepeal:true,
-    desc:"How readily the state can compel treatment for people in severe psychiatric or addiction crisis (Oregon's commitment standard is famously strict). Loosening it moves people off the street, but only into CARE if a bed exists to receive them.\n\nPast that point the person is still compelled, just into an emergency department or a cell. The street gets quieter and drug use falls a little, because someone in custody is not using in a doorway. What pays for it is the care system, which boards patients in hallways and stops working for everyone in it, and the jail, which becomes the psychiatric ward of last resort. The way out of that trade is beds, not a stricter standard.\n\nCivil-liberties advocates fight every loosening.",
+    desc:"How readily the state can compel treatment for people in severe psychiatric or addiction crisis (Oregon's commitment standard is famously strict). Loosening it moves people off the street, but only into CARE if a bed exists to receive them.\n\nPast that point the person is still compelled, just into an emergency department or a cell. The street gets quieter and drug use falls a little, because someone in custody is not using in a doorway. What pays for it is the care system, which boards patients in hallways and stops working for everyone in it, and the jail, which becomes the psychiatric ward of last resort. The way out of that trade is beds, not a stricter standard.\n\nLoosening past today's standard also costs State Capacity: every commitment is a petition, an examiner, a hearing and a transport. Past the bed count it costs a great deal more, in ER boarding, jail holds and court orders.\n\nCivil-liberties advocates fight every loosening.",
     value:0.35, costFull:0.2, capital:7,
     // homelessness/drug/behavioral effects come from the commitment×beds
     // interaction in metricTarget (scaled by available capacity, with an
@@ -10789,6 +10793,24 @@ const GDP_RECOVERY=0.55;
    needs the numbers and the statistic's own page needs to name them. They
    used to be separate pieces of arithmetic, which is how four metrics came to
    be moved by a lever that appeared on none of their pages. */
+/* EASY COMMITMENT IS WORK FOR THE STATE. Every person compelled into
+   treatment is a petition, an examiner, a hearing with appointed counsel and
+   a sheriff's transport; past the bed count it is ER boarding, jail holds and
+   the kind of federal court order that ran the State Hospital for years.
+   Measured from the standard Oregon starts with, so the opening is
+   unchanged, and one-sided: tightening past it hands no capacity back,
+   because the crisis it leaves untreated lands on the police and the
+   emergency rooms instead, and the game already charges for that there. */
+const COMMIT_BASE=0.35, COMMIT_LOAD=9, COMMIT_OVERFLOW_LOAD=12;
+function civilCommitmentBurden(){
+  const p=POLICIES.civilCommitment; if(!p)return {caseload:0, overflow:0, total:0};
+  const ease=policyLevel(p), beds=clamp(METRICS.psychBeds.value/100,0,1);
+  // only the commitment the loosening added, and only past the beds
+  const over=Math.max(0, ease-Math.max(COMMIT_BASE, beds*1.1));
+  const caseload=-Math.max(0, ease-COMMIT_BASE)*COMMIT_LOAD;
+  const overflow=-over*COMMIT_OVERFLOW_LOAD;
+  return {caseload, overflow, total:caseload+overflow};
+}
 function psychCommitmentTerms(){
   if(!POLICIES.civilCommitment)return null;
   const ease=policyLevel(POLICIES.civilCommitment);            // 0..1, how many we try to commit
@@ -20779,23 +20801,43 @@ function effectsBreakdownHTML(kind,obj){
   }
   let h=`<div class="ebsection"><div class="charttitle">Effects</div>`;
 
-  // 1. Direct metric effects
-  const dKeys=Object.keys(direct);
-  if(dKeys.length){
-    h+=`<div class="ebgroup-label">Direct effects on metrics</div><div class="ebgroup">`;
-    // scale = largest magnitude among direct effects (min 1)
-    const scale=Math.max(1,...dKeys.map(k=>Math.abs(direct[k])));
-    for(const k of dKeys){
-      const m=METRICS[k];
-      const good = m && m.invert ? direct[k]<0 : direct[k]>0;
-      h+=effectBar(m?m.name:k, direct[k], scale, {color: good?'var(--good)':'var(--clay)',
-        link:m?("m_"+k):null,
-        fmt:v=>(v>=0?'+':'')+v.toFixed(1)+(m&&m.fmt==='pctRaw'?' pts':''),
-        target:phaseRatio!=null ? direct[k]*phaseRatio : undefined});
+  // 1. EVERYTHING IT MOVES, IN ONE BOX. Metrics and indicators are the same
+  // kind of thing to the player, so they are gathered first and drawn together:
+  // statistics, then gauges, on one scale.
+  {
+    const indMap={};
+    if(kind==="policy"){
+      const lvl=policyLevel(obj);
+      if(obj.indicatorEffects){for(const k in obj.indicatorEffects){const v=obj.indicatorEffects[k]*lvl;if(Math.abs(v)>0.01)indMap[k]=(indMap[k]||0)+v;}}
+      if(obj.mechanic==="tier"&&obj.tierIndicatorEffects&&obj.tierIndicatorEffects[obj.tierIndex]){
+        for(const k in obj.tierIndicatorEffects[obj.tierIndex]){const v=obj.tierIndicatorEffects[obj.tierIndex][k];if(Math.abs(v)>0.01)indMap[k]=(indMap[k]||0)+v;}
+      }
+      if(obj===POLICIES.civilCommitment){ const cb=civilCommitmentBurden(); if(Math.abs(cb.total)>0.01)indMap.digitization=(indMap.digitization||0)+cb.total; }
+    } else if(kind==="agency"){
+      const fund=obj.funding??0.5;
+      if(obj.indicatorEffects){for(const k in obj.indicatorEffects){const v=obj.indicatorEffects[k]*fund;if(Math.abs(v)>0.01)indMap[k]=(indMap[k]||0)+v;}}
+      const log=obj.logging??0.5;
+      if(obj.loggingIndicatorEffects){for(const k in obj.loggingIndicatorEffects){const v=obj.loggingIndicatorEffects[k]*log;if(Math.abs(v)>0.01)indMap[k]=(indMap[k]||0)+v;}}
     }
-    h+=`</div>`;
-  } else {
-    h+=`<div class="ebnote">No direct metric effects.</div>`;
+    const dKeys=Object.keys(direct);
+    const ik=Object.keys(indMap).filter(k=>Math.abs(indMap[k])>0.01);
+    if(dKeys.length||ik.length){
+      h+=`<div class="ebgroup-label">Direct effects</div><div class="ebgroup">`;
+      const scale=Math.max(1,...dKeys.map(k=>Math.abs(direct[k])),...ik.map(k=>Math.abs(indMap[k])));
+      for(const k of dKeys){
+        const m=METRICS[k];
+        const good = m && m.invert ? direct[k]<0 : direct[k]>0;
+        h+=effectBar(m?m.name:k, direct[k], scale, {color: good?'var(--good)':'var(--clay)',
+          link:m?("m_"+k):null,
+          fmt:v=>(v>=0?'+':'')+v.toFixed(1)+(m&&m.fmt==='pctRaw'?' pts':''),
+          target:phaseRatio!=null ? direct[k]*phaseRatio : undefined});
+      }
+      for(const k of ik){const ind=INDICATORS[k];const val=indMap[k];
+        h+=effectBar(ind?ind.name:k, val, scale, {color:indDeltaGood(k,val)?'var(--good)':'var(--clay)', link:"i_"+k, fmt:v=>(v>=0?'+':'')+v.toFixed(1)+(indHigherIsBad(k)&&val>0?' pts — worsens':indHigherIsBad(k)?' pts — eases':' pts')});}
+      h+=`</div>`;
+    } else {
+      h+=`<div class="ebnote">No direct effect on any statistic.</div>`;
+    }
   }
 
   // 1a. EVERY SETTING, SIDE BY SIDE. A tier policy's inherited setting is the
@@ -20822,30 +20864,6 @@ function effectsBreakdownHTML(kind,obj){
     h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Measured against the setting Oregon starts on, which is why one row is always level. Moving the slider is what turns these on.</div></div>`;
   }
 
-  // 1b. Direct effects on indicators — policies and agencies
-  {
-    const indMap={};
-    if(kind==="policy"){
-      const lvl=policyLevel(obj);
-      if(obj.indicatorEffects){for(const k in obj.indicatorEffects){const v=obj.indicatorEffects[k]*lvl;if(Math.abs(v)>0.01)indMap[k]=(indMap[k]||0)+v;}}
-      if(obj.mechanic==="tier"&&obj.tierIndicatorEffects&&obj.tierIndicatorEffects[obj.tierIndex]){
-        for(const k in obj.tierIndicatorEffects[obj.tierIndex]){const v=obj.tierIndicatorEffects[obj.tierIndex][k];if(Math.abs(v)>0.01)indMap[k]=(indMap[k]||0)+v;}
-      }
-    } else if(kind==="agency"){
-      const fund=obj.funding??0.5;
-      if(obj.indicatorEffects){for(const k in obj.indicatorEffects){const v=obj.indicatorEffects[k]*fund;if(Math.abs(v)>0.01)indMap[k]=(indMap[k]||0)+v;}}
-      const log=obj.logging??0.5;
-      if(obj.loggingIndicatorEffects){for(const k in obj.loggingIndicatorEffects){const v=obj.loggingIndicatorEffects[k]*log;if(Math.abs(v)>0.01)indMap[k]=(indMap[k]||0)+v;}}
-    }
-    const ik=Object.keys(indMap).filter(k=>Math.abs(indMap[k])>0.01);
-    if(ik.length){
-      h+=`<div class="ebgroup-label">Direct effects on indicators</div><div class="ebgroup">`;
-      const scale=Math.max(1,...ik.map(k=>Math.abs(indMap[k])));
-      for(const k of ik){const ind=INDICATORS[k];const val=indMap[k];
-        h+=effectBar(ind?ind.name:k, val, scale, {color:indDeltaGood(k,val)?'var(--good)':'var(--clay)', link:"i_"+k, fmt:v=>(v>=0?'+':'')+v.toFixed(1)+(indHigherIsBad(k)&&val>0?' pts — worsens':indHigherIsBad(k)?' pts — eases':' pts')});}
-      h+=`</div>`;
-    }
-  }
 
   // 2. Budget impact
   let budget=0, budgetLabel="";
