@@ -9115,8 +9115,8 @@ const SITUATIONS={
     groupMood:{blueCollar:6, liberal:5, businessClass:4, timber:3, moderate:2, urban:2, rural:-3}},
   healthEmergency:{name:"Public Health Emergency", kind:"bad", category:"condition",
     desc:"Public health has collapsed under the combined weight of untreated addiction, obesity, alcohol use, and strained clinical capacity. Hospitals ration elective care, life expectancy gains stall, and the crisis becomes a standing political liability until sustained investment turns it around.",
-    trigger:()=>METRICS.health.value<45, clear:()=>METRICS.health.value>55, onClear:{capital:3},
-    watch:{metric:"health", startAt:45, clearAt:55, badHigh:false},
+    trigger:()=>METRICS.health.value<45, clear:()=>METRICS.health.value>50, onClear:{capital:3},
+    watch:{metric:"health", startAt:45, clearAt:50, badHigh:false},
     metricEffect:{gdp:-0.15}, mandateShock:-4, moodAxes:{social:0.2}, moodMag:2,
     groupMood:{poor:-7,blueCollar:-5,parents:-4,liberal:-3,retirees:-3}},
   nonprofitComplex:{name:"Nonprofit Industrial Complex", kind:"bad", category:"chronic",
@@ -9161,7 +9161,10 @@ const SITUATIONS={
     // was orange is not real, so the statewide anger comes down to a quarter
     // of what it was and the damage moves into the forest, the smoke and the
     // summer's lost output, where it belongs.
-    metricEffect:{environment:-11,health:-6,gdp:-0.55,loggingRate:-6}, moodAxes:{environment:-0.2}, moodMag:0.5, minTurns:2,
+    // Smoke is a real health cost, but it is a per-quarter push divided by
+    // health's 0.15 inertia: -6 was -40 on the target, the largest single
+    // driver of the health collapse. Now -3, the same as a heat dome.
+    metricEffect:{environment:-11,health:-3,gdp:-0.55,loggingRate:-6}, moodAxes:{environment:-0.2}, moodMag:0.5, minTurns:2,
     onTrigger:{capital:-2, metrics:{environment:-12},
       grudges:[{target:"m_environment", value:-3, decay:0.9, label:"Burn scars — forests & watersheds regrowing"}],
       countyMood:{spec:COUNTY_GROUPS.fireCountry, value:-5, decay:0.9, label:"Fire-country counties — evacuations & smoke"}}, mandateShock:-1.5,
@@ -9558,7 +9561,7 @@ const SITUATIONS={
     // A heat dome is weather. It docks statistics, not constituencies: this
     // used to take six points off the poor and four off blue-collar voters
     // for something no governor causes and none can prevent.
-    metricEffect:{health:-7, gdp:-0.18, electricRate:0.5}, moodMag:0, minTurns:1,
+    metricEffect:{health:-3, gdp:-0.18, electricRate:0.5}, moodMag:0, minTurns:1,
     indicatorEffect:{tourism:-8, infraStrain:6},
     groupMood:{}},
   cyberattack:{name:"State Systems Cyberattack", kind:"bad", category:"event",
@@ -10083,7 +10086,7 @@ const EVENT_POOL=[
   // A fire season is fuel, heat and drought. Its odds used to read
   // Environmental Quality — which a fire knocks down by 23 points, so every
   // fire bought the next one. They now read what actually loads a season.
-  {id:"wildfireSeason", prob:0.08, gate:()=>true, seasonal:[2,3],
+  {id:"wildfireSeason", prob:0.08, gate:()=>true, seasonal:[2,3], seasonOnly:true,
    mult:()=>{ const resil=POLICIES.wildfireResilience?policyLevel(POLICIES.wildfireResilience):0.5;
      return [{name:"A drought already under way", x:GAME.activeSituations.droughtWater?1.35:1, link:"s_droughtWater"},
              {name:"A heat dome already under way", x:GAME.activeSituations.heatDome?1.25:1, link:"s_heatDome"},
@@ -10101,7 +10104,7 @@ const EVENT_POOL=[
    hint:"Water rights reform cuts these odds directly; a Data-Center Energy Framework cuts the growth strain that raises them."},
   {id:"scandal", prob:0.035, gate:()=>true},
   {id:"cascadiaQuake", prob:0.0023, gate:()=>true},
-  {id:"heatDome", prob:0.07, gate:()=>true, seasonal:[2],
+  {id:"heatDome", prob:0.07, gate:()=>true, seasonal:[2], seasonOnly:true,
    mult:()=>{ const gs=growthResourceStrain();
      return [{name:"Growth pressing on water and power ("+Math.round(gs*100)+"%) — more load, more people, less slack when it hits", x:1+gs*0.5, link:plink("dataCenterEnergy")}]; }},
   {id:"oilShock", prob:0.05, gate:()=>true},
@@ -11277,6 +11280,8 @@ function rollEvents(){
     if(GAME.activeSituations[e.id])continue;       // already active
     if(GAME.turn < ((GAME.eventCooldown||{})[e.id]||0))continue;   // still cooling down from the last one
     if(e.gate&&!e.gate())continue;                 // condition not met
+    // weather that only happens in one season does not happen in the others
+    if(e.seasonOnly&&!(e.seasonal&&e.seasonal.includes(q)))continue;
     let p=e.prob;
     if(e.mult)p*=clamp(eventMultTotal(e),0.4,1.6);   // the same factors the event's page prints
     else if(e.probMult)p*=clamp(e.probMult(),0.4,1.6);  // policy preparedness nudges odds up/down
@@ -20442,10 +20447,10 @@ function eventOddsHTML(sid){
   const q=GAME.turn%4, inSeason=!!(e.seasonal&&e.seasonal.includes(q));
   const vw=RUN_HISTORY.weight(sid);
   const cool=Math.max(0,((GAME.eventCooldown||{})[sid]||0)-GAME.turn);
-  const now=open?e.prob*totC*(inSeason?1.8:1)*vw:0;
+  const now=(open&&(!e.seasonOnly||inSeason))?e.prob*totC*(inSeason?1.8:1)*vw:0;
   let h='<div class="ebgroup-label">'+(active?"Why it happened, and the odds of another":"The odds of it")+'</div><div class="ebgroup">';
   h+='<div class="threshline">Base chance <b>'+_oddsPct(e.prob)+' a quarter</b>'
-    +(e.seasonal?(', and \u00d71.8 in season ('+_seasonTxt(e.seasonal)+')'):'')+'.</div>';
+    +(e.seasonal?(e.seasonOnly?(', \u00d71.8, and only in '+_seasonTxt(e.seasonal)):(', and \u00d71.8 in season ('+_seasonTxt(e.seasonal)+')')):'')+'.</div>';
   if(e.why){
     let rs=[]; try{ rs=e.why()||[]; }catch(err){ rs=[]; }
     if(rs.length)h+='<div class="sf-any">'+(rs.length>1
