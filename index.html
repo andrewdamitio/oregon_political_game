@@ -5320,7 +5320,7 @@ const CATALOG={
     blocEffect:{liberal:3, urban:3, publicUnions:3, collegeEducated:2, socialist:2, moderate:1, conservative:-7, libertarian:-5, rural:-8, timber:-5, businessClass:-2},
     ideology:{govSize:0.2, economic:-0.1}},
   cabinetGovernment:{name:"Cabinet Government", domain:"economy", icon:"columns", binary:true, mechanic:"law", reform:true,
-    desc:"Oregon has no cabinet. Boards and commissions sit between the governor and the agencies: the Environmental Quality Commission over DEQ, the Transportation Commission over ODOT, the Health Policy Board over OHA. Their members hold fixed terms and set each department's policy, so a governor who wants change waits for seats to open or persuades people who do not work for them.\n\nThis amendment ends that. Directors serve at the governor's pleasure, subject to Senate confirmation, and the commissions become advisory. Sitting commissioners carry on as directors, so nothing falls empty, but you can now replace any of them for 2 capital. Every department delivers 8% more while it stands, and you gain 2 capital a quarter because you stop spending it persuading your own government. Any department a coalition partner held is lost to them, which breaks that agreement.\n\nThe objection is speed. Commissions are slow on purpose: a rule survives a governor who dislikes it, and an industry that captured one governor still has to get past a board. The left sees this as putting the state's regulatory machinery in one pair of hands.",
+    desc:"Oregon has no cabinet. Boards and commissions sit between the governor and the agencies: the Environmental Quality Commission over DEQ, the Transportation Commission over ODOT, the Health Policy Board over OHA. Their members hold fixed terms and set each department's policy, so a governor who wants change waits for seats to open or persuades people who do not work for them.\n\nThis amendment ends that. Directors serve at the governor's pleasure, subject to Senate confirmation, and the commissions become advisory. Sitting commissioners carry on as directors, so nothing falls empty, but you can now replace any of them for 2 capital. Every department delivers 8% more while it stands, and you gain 2 capital a quarter because you stop spending it persuading your own government. Coalition partners keep the departments their agreement gave them.\n\nThe objection is speed. Commissions are slow on purpose: a rule survives a governor who dislikes it, and an industry that captured one governor still has to get past a board. The left sees this as putting the state's regulatory machinery in one pair of hands.",
     enabled:true, capital:18, enactCapital:20, repealCost:14,
     effects:{}, indicatorEffects:{adminOverhead:-12, ruralAlienation:4},
     blocEffect:{businessClass:5, moderate:3, collegeEducated:1, conservative:1, socialist:-7, publicUnions:-6, liberal:-5, libertarian:-3, rural:-3, urban:-2},
@@ -6936,7 +6936,9 @@ function apptCabinetReorg(){
   for(const id in APPT_POSTS){
     const h=GAME.appointments[id];
     if(!h)continue;
-    if(h.side==="partner")partners++;
+    // a coalition partner's minister carries on as they are: the agreement
+    // gave them the department and the amendment does not take it back
+    if(h.side==="partner"){ partners++; continue; }
     delete GAME.appointments[id];
     delete GAME.apptVacancies[id];
     const slate=apptSlate(id);
@@ -6960,8 +6962,7 @@ function apptCabinetReorg(){
   }
   if(cleared)GAME.log.push(ico('columns')+" The commissions are abolished — "+cleared
     +" seats become departments answering to you, and every one of them is now yours to replace at will");
-  if(partners)GAME.log.push(ico('warning')+" The offices your coalition partners were given no longer exist — "
-    +"the agreement is broken until the government is formed again");
+  if(partners)GAME.log.push(ico('handshake')+" Your coalition partners keep the "+partners+" department"+(partners===1?"":"s")+" the agreement gave them");
 }
 /* Terms end, and people leave. Checked once a quarter. */
 function tickAppointments(){
@@ -16755,7 +16756,8 @@ const RCV_MODERATION=0.30, RCV_DISCIPLINE=0.85;
    registration does. The seat's lean is untouched — elections still run on
    it — this is only who it sends. */
 function memberLean(lean){
-  return rcvOn() ? 50+(lean-50)*(1-RCV_MODERATION) : lean;
+  // a district effect: under proportional representation there are no districts
+  return (rcvOn()&&!prOn()) ? 50+(lean-50)*(1-RCV_MODERATION) : lean;
 }
 const LEG_SPREAD=1.05;    // pts of district swing per pt of coalition differential
 const LEG_UNIFORM=0.45;   // pts of uniform swing per pt of statewide standing
@@ -17444,7 +17446,7 @@ function floorMembers(chamber, pol, dir, ctx){
     // away on a bill that runs the opposition's way and bites harder on one
     // aimed at them. Computed from the bill, so it is the same for every
     // member of the bench.
-    const disc=BILL_LOYALTY*(ctx.disc==null?1:ctx.disc)*(rcvOn()?RCV_DISCIPLINE:1)
+    const disc=BILL_LOYALTY*(ctx.disc==null?1:ctx.disc)*((rcvOn()&&!prOn())?RCV_DISCIPLINE:1)
               *oppDisciplineMult(pol,dir);
     // THE CENTRE BENCH, under proportional representation. Elected on not
     // being either of you, so there is no caucus to whip them and nothing to
@@ -22662,7 +22664,7 @@ function _applyEnact(id, level, via){
   // Proportional representation does not reseat the chamber on the night it
   // passes. The election printed on the same ballot was counted under the
   // old rules and stands; the new rules govern the next one.
-  if(id==="cabinetGovernment")apptCabinetReorg();   // every chair falls vacant at once
+  if(id==="cabinetGovernment")apptCabinetReorg();   // commissioners become directors; partners keep theirs
   if(id==="propRep"){
     GAME.prPending=true;
     GAME.log.push(ico('columns')+" Proportional representation is ratified — it governs the next legislative election, not tonight's");
