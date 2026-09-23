@@ -5565,7 +5565,14 @@ function apptPartnerWalked(pid){
     const h=apptHolder(id);
     if(h&&h.party===pid){
       delete GAME.appointments[id];
-      GAME.log.push(ico('ban')+" "+h.name+" resigns from "+APPT_POSTS[id].name+" with "+prParty(pid).short);
+      // the chair does not just empty quietly: open the slate so it is a
+      // decision waiting for you rather than a line in the log
+      delete GAME.apptVacancies[id];
+      apptSlate(id);
+      if(GAME.apptVacancies[id])GAME.apptVacancies[id].opened=GAME.turn;
+      GAME.log.push(ico('ban')+" "+h.name+" leaves "+APPT_POSTS[id].name+" \u2014 "
+        +prParty(pid).short+" has walked out of the government and taken the department with it. "
+        +"The chair is vacant and everything it delivers runs softer until you fill it.");
     }
   }
 }
@@ -5618,6 +5625,15 @@ const APPT_VACANT_EFF=-0.10, APPT_VACANT_OVERHEAD=1.1, APPT_VACANT_CAPITAL=-0.3;
    spread, so a well-staffed government is meaningfully better at its job
    than an empty or badly-staffed one rather than a few per cent better. */
 const APPT_MULT_MIN=0.62, APPT_MULT_MAX=1.38;
+/* WHAT CABINET GOVERNMENT BUYS. A commission answers to itself and to a
+   fixed term; a department answers to the governor on Monday. The whole
+   argument for the amendment is that direct accountability delivers
+   better, so it does: every department gains this on what it delivers,
+   for as long as the amendment stands. */
+const CABINET_DELIVERY_BONUS=0.08;
+function cabinetBonus(){
+  return (POLICIES.cabinetGovernment&&POLICIES.cabinetGovernment.enacted)?CABINET_DELIVERY_BONUS:0;
+}
 /* PEOPLE LEAVE ON THEIR OWN. Very rarely in a first year, and a little more
    each quarter they stay: tiredness, a better offer, a spouse with a job in
    another state. It never becomes likely — the cap is about one chance in
@@ -5766,7 +5782,7 @@ function apptPostMult(postId){
   if(!APPT_POSTS[postId])return 1;
   const b=apptBenchOf(postId), ids=[];
   for(const id in APPT_POSTS)if(apptBenchOf(id)===b)ids.push(id);
-  return ids.length ? clamp(1+apptBenchEff(ids),APPT_MULT_MIN,APPT_MULT_MAX) : 1;
+  return ids.length ? clamp(1+apptBenchEff(ids)+cabinetBonus(),APPT_MULT_MIN,APPT_MULT_MAX) : 1;
 }
 /* The multiplier that actually applies to this policy's effect on this
    statistic: the administering department where one is named, and the
@@ -5887,16 +5903,27 @@ function apptBenchOf(id){ return APPT_POSTS[id].bench||id; }
    have had the authority: nobody is caught in their first quarter,
    because the thing they are caught over has not happened yet. */
 function apptScandalPick(){
-  let best=null, bestW=0;
+  /* NOT AN ARGMAX. Picking the highest risk-times-tenure holder every
+     time made this predictable and made long service the main
+     determinant, when what should decide it is the kind of person you
+     appointed. Tenure only gates it: three quarters before anybody can
+     be caught, because the thing they are caught over has not happened
+     yet, and a little more likely after that. The draw itself is
+     weighted almost entirely by trait risk. */
+  const pool=[]; let total=0;
   for(const id in APPT_POSTS){
     const h=apptHolder(id); if(!h)continue;
     const t=APPT_TRAITS[h.trait]||APPT_TRAITS.safePick;
     const age=GAME.turn-(h.since||0);
     if(age<3)continue;
-    const w=(t.risk||0.3)*clamp(age/8,0,1.3);
-    if(w>bestW){ bestW=w; best={post:id, holder:h, trait:t, weight:w}; }
+    const w=Math.pow(t.risk||0.3,1.6)*(0.8+clamp(age/14,0,0.4));
+    if(w<=0)continue;
+    pool.push({post:id, holder:h, trait:t, weight:w}); total+=w;
   }
-  return best;
+  if(!pool.length)return null;
+  let r=Math.random()*total;
+  for(const p of pool){ r-=p.weight; if(r<=0)return Object.assign({},p,{total}); }
+  return Object.assign({},pool[pool.length-1],{total});
 }
 /* WHAT A DIRECTOR BRINGS YOU. Something from the catalog aimed at the
    statistics their own department delivers, which is the only kind of
@@ -5912,11 +5939,19 @@ function apptProposalPick(){
     if(w<=bestW)continue;
     // what could they bring? something touching their own metrics
     const mine=APPT_POSTS[id].metrics||[];
-    const cands=Object.keys(CATALOG).filter(k=>{
-      const c=CATALOG[k];
+    const open=k=>{ const c=CATALOG[k];
       if(!c||c.reform||POLICIES[k])return false;
-      if(pendingMeasure&&pendingMeasure(k))return false;
-      const e=c.effects||{};
+      return !(pendingMeasure&&pendingMeasure(k)); };
+    // What this department actually administers comes first. Matching on
+    // statistic overlap alone had the Corrections director turning up with
+    // Safe Consumption Sites, because Corrections owns property crime and a
+    // consumption site moves it.
+    let cands=Object.keys(CATALOG).filter(k=>open(k)&&CATALOG[k]._dept===id);
+    if(!cands.length)cands=Object.keys(CATALOG).filter(k=>{
+      if(!open(k))return false;
+      // and never something another department is named as running
+      if(CATALOG[k]._dept&&CATALOG[k]._dept!==id)return false;
+      const e=CATALOG[k].effects||{};
       return mine.some(m=>e[m]!==undefined);
     });
     if(!cands.length)continue;
@@ -6328,12 +6363,12 @@ function apptMetricMult(k){
   for(const id in APPT_POSTS)if(APPT_POSTS[id].metrics.includes(k))
     (benches[apptBenchOf(id)]=benches[apptBenchOf(id)]||[]).push(id);
   for(const b in benches)m+=apptBenchEff(benches[b]);
-  return clamp(m,APPT_MULT_MIN,APPT_MULT_MAX);
+  return clamp(m+cabinetBonus(),APPT_MULT_MIN,APPT_MULT_MAX);
 }
 /* The same, for an agency's own budget line. */
 function apptAgencyMult(agencyId){
   const ids=[]; for(const id in APPT_POSTS)if(APPT_POSTS[id].agency===agencyId)ids.push(id);
-  return ids.length ? clamp(1+apptBenchEff(ids),APPT_MULT_MIN,APPT_MULT_MAX) : 1;
+  return ids.length ? clamp(1+apptBenchEff(ids)+cabinetBonus(),APPT_MULT_MIN,APPT_MULT_MAX) : 1;
 }
 function apptOverheadRaw(){
   let v=0;
@@ -6628,10 +6663,19 @@ function apptCabinetReorg(){
       slate.unshift({name:h.name, trait:h.trait, group:h.group, foe:h.foe,
         side:"incumbent", loyalty:h.loyalty, since:h.since, served:GAME.turn-(h.since||0)});
     GAME.apptVacancies[id].opened=GAME.turn;
+    // NO GAP. A commissioner who becomes a director on Monday is the same
+    // person doing the same job, so they carry straight on unless you
+    // decide otherwise. Without this, the reform whose argument is that
+    // direct accountability delivers better made delivery worse for a year.
+    if(h.side!=="partner"){
+      GAME.appointments[id]={name:h.name, trait:h.trait, group:h.group, foe:h.foe,
+        side:h.side, loyalty:h.loyalty, since:h.since, term:GAME.turn+12+Math.floor(Math.random()*8)};
+      delete GAME.apptVacancies[id];
+    }
     cleared++;
   }
   if(cleared)GAME.log.push(ico('columns')+" The commissions are abolished — "+cleared
-    +" chairs fall vacant at once, and every one of them is yours to fill");
+    +" seats become departments answering to you, and every one of them is now yours to replace at will");
   if(partners)GAME.log.push(ico('warning')+" The offices your coalition partners were given no longer exist — "
     +"the agreement is broken until the government is formed again");
 }
@@ -7097,7 +7141,7 @@ function spendTotal(){let t=0;const sp=spendingByArea();for(const k in sp)t+=sp[
    ============================================================ */
 const DILEMMAS={
   /* ---- APPOINTMENTS: one of yours is in the paper ---- */
-  apptScandal:{title:"One of Your Directors Is in the Paper", icon:"warning", cooldown:10,
+  apptScandal:{title:"One of Your Directors Is in the News", icon:"warning", cooldown:14,
     onFire:(ctx)=>{ const p=apptScandalPick(); if(p){ ctx.post=p.post; ctx.name=p.holder.name; ctx.trait=p.holder.trait; } },
     text:()=>{
       const c=GAME.dilemmaCtx||{}; if(!c.post||!APPT_POSTS[c.post])return "";
@@ -7116,7 +7160,10 @@ const DILEMMAS={
     },
     influence:()=>{
       const p=apptScandalPick(); if(!p)return -1;
-      return clamp(p.weight*0.30,0.05,0.62);
+      // read off the whole bench rather than one holder, so a government
+      // staffed with safe hands is genuinely quiet and one staffed with
+      // reformers is genuinely not
+      return clamp((p.total||p.weight)*0.16,0.03,0.42);
     },
     options:[
       {label:"Stand by them",
@@ -7146,6 +7193,14 @@ const DILEMMAS={
          const c=GAME.dilemmaCtx||{}; const post=APPT_POSTS[c.post];
          GAME.capital=clamp(GAME.capital-3,0,100);
          GAME.mandateShock=(GAME.mandateShock||0)-3;
+         // DECLINING TO HAVE A POSITION IS A POSITION, and it is not only
+         // the commentariat who notice. This lands whether or not the
+         // story runs out of road, because the thing being judged is the
+         // silence rather than the outcome.
+         createGrudge("v_moderate",-4,0.92,"Would not say whether their own director had their confidence");
+         createGrudge("v_suburban",-3,0.91,"Would not say whether their own director had their confidence");
+         createGrudge("v_collegeEducated",-3,0.91,"Would not say whether their own director had their confidence");
+         createGrudge("i_mandate",-3,0.92,"Declined to take a position on their own appointment");
          if(Math.random()<0.45){
            if(c.post&&GAME.appointments)delete GAME.appointments[c.post];
            if(c.post){ GAME.apptVacancies=GAME.apptVacancies||{}; GAME.apptVacancies[c.post]=GAME.turn; }
@@ -23078,8 +23133,8 @@ function renderVoters(){
   {
     const picks=[];
     for(let i=0;i<5;i++)picks.push(VOTERS[(i*397+GAME.turn*13)%VOTERS.length]);
-    h+=`<div class="sectionhdr">Focus Group</div>
-      <div class="sectionsub">A snapshot of five of the 2,000 simulated Oregonians who make up your electorate. Real people don't fit one box — each of these voters holds <b>several identities at once</b> (an ideology, an income tier, a region, plus the interest groups they belong to), and their vote is a blend of how all of those identities feel about you. The bar next to each identity shows <b>how strongly that voter belongs to it</b> — a lifelong union member is a stronger "public-sector worker" than someone who just took a government job. Exclusive identities like ideology and income tend to sit near 100%; overlapping ones vary. Colors mark the identity type.</div>`;
+    h+=`<div class="sectionhdr">Focus Groups</div>
+      <div class="sectionsub">Five snapshots, one voter each, from the 2,000 simulated Oregonians who make up your electorate. Real people don't fit one box — each of these voters holds <b>several identities at once</b> (an ideology, an income tier, a region, plus the interest groups they belong to), and their vote is a blend of how all of those identities feel about you. The bar next to each identity shows <b>how strongly that voter belongs to it</b> — a lifelong union member is a stronger "public-sector worker" than someone who just took a government job. Exclusive identities like ideology and income tend to sit near 100%; overlapping ones vary. Colors mark the identity type.</div>`;
     // legend
     h+=`<div class="focuslegend">`;
     for(const c in CAT_NAME)h+=`<span class="fl-item"><i style="background:${CAT_COLOR[c]}"></i>${CAT_NAME[c]}</span>`;
