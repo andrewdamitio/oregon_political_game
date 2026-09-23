@@ -1297,6 +1297,10 @@
     padding:1px 6px;line-height:1.5}
   .camptab.on .ct-badge{background:var(--gold);color:var(--ink)}
 
+  .coal-trust{font-size:13px;margin:4px 0 2px;color:var(--muted-1)}
+  .coal-trust.no{color:var(--clay)}
+  .coal-trust.wary{color:var(--gold)}
+  .coal-p.refuse{opacity:.6;cursor:not-allowed}
   .meas-group{margin-top:14px}
   .meas-group>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:6px 0;font-family:var(--font-display);font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink);border-bottom:1px solid var(--line);margin-bottom:10px}
   .meas-group>summary::-webkit-details-marker{display:none}
@@ -12558,6 +12562,7 @@ function drawCoalition(next){
   if(!prOn()||!GAME.legis||!GAME.legis.prCounts){ GAME.pendingCoalition=null; if(next)next(); return; }
   if(next!==undefined)GAME._coalNext=next;
   if(!GAME.coalPick)GAME.coalPick=[];
+  GAME.coalPick=GAME.coalPick.filter(coalitionWillTalk);
   const c=(GAME.legis&&GAME.legis.prCounts)||{};
   const mine=prMyParty(), own=c[mine]||0;
   let seats=own; for(const pid of GAME.coalPick)seats+=(c[pid]||0);
@@ -12580,11 +12585,16 @@ function drawCoalition(next){
         +'<span>'+d.why+'</span></li>';
     }).join("");
     const owedTag=owed?'<span class="coal-owed">'+owed+' of these is not true today</span>':'';
-    rows+='<div class="coal-p'+(on?' on':'')+'" data-coal="'+p.id+'">'
+    const tr=Math.round(partyTrust(p.id)), talks=coalitionWillTalk(p.id), sm=coalitionStartMood(p.id);
+    const trustLine='<div class="coal-trust '+(!talks?'no':sm>=COAL_GOOD?'yes':'wary')+'">Their voters give you <b>'+tr+'%</b>. '
+      +(!talks?'They will not talk to you.'
+        :sm>=COAL_GOOD?'They would vote with you from the start.'
+        :'They would join, but not vote with you until you keep enough of their promises.')+'</div>';
+    rows+='<div class="coal-p'+(on?' on':'')+(talks?'':' refuse')+'"'+(talks?' data-coal="'+p.id+'"':'')+'>'
       +'<div class="coal-h"><span class="coal-sw" style="background:'+p.col+'"></span>'
       +'<span class="coal-n">'+p.name+'</span>'
       +'<span class="coal-s">'+nS+' seats</span>'
-      +'<span class="coal-btn">'+(on?"In government ✓":"Invite")+'</span></div>'
+      +'<span class="coal-btn">'+(!talks?"Won't talk":on?"In government ✓":"Invite")+'</span></div>'+trustLine
       +'<div class="coal-price">Their price'+owedTag+'<ul>'+dem+'</ul></div></div>';
   }
   card.innerHTML='<div class="sectionhdr">'+ico('handshake')+' Forming a Government</div>'
@@ -16588,6 +16598,24 @@ const COAL_GOOD=55, COAL_WALK=22;
 // far enough gone that they will say so out loud, while there is still
 // something you can do about it
 const COAL_WARN=40;
+/* How far a party trusts you: how its voters rate you. Every bloc counts,
+   weighted by its size and by how near it sits to the party, so a party
+   out at the edge (Constitution) is read off the blocs closest to it. */
+const COAL_REFUSE_TRUST=30;
+function partyTrust(pid){
+  const p=prParty(pid); let s=0, w=0;
+  for(const b in SIMULANTS){
+    const S=SIMULANTS[b]; if(!S||S.approval==null)continue;
+    const d=Math.abs(p.z+apptBlocLean(b)*0.5)/0.35;
+    const wt=(S.size||0.01)*Math.exp(-d*d);
+    s+=wt*S.approval; w+=wt;
+  }
+  return w>1e-9 ? s/w : 50;
+}
+function coalitionWillTalk(pid){ return partyTrust(pid)>=COAL_REFUSE_TRUST; }
+/* Where a partner's mood starts: 68 at even trust, as it always did, lower
+   as its voters sour on you. Below COAL_GOOD they join and do not vote. */
+function coalitionStartMood(pid){ return +clamp(20+partyTrust(pid)*0.95, 22, 85).toFixed(1); }
 function coalitionOn(){ return prOn() && GAME.coalition && GAME.coalition.partners.length>0; }
 function coalitionPartners(){ return coalitionOn() ? GAME.coalition.partners.slice() : []; }
 function coalitionMood(pid){ return (GAME.coalition&&GAME.coalition.mood&&GAME.coalition.mood[pid])||0; }
@@ -16619,7 +16647,7 @@ function formCoalition(partners){
     snap[pid]={};
     for(const d of (PR_DEMANDS[pid]||[]))snap[pid][d.id]=d.snap();
   }
-  const mood={}; for(const pid of partners)mood[pid]=68;
+  const mood={}; for(const pid of partners)mood[pid]=coalitionStartMood(pid);
   GAME.coalition={partners:partners.slice(), snap, mood, formedTurn:GAME.turn, walked:[]};
   apptInstallPartners(partners);   // the departments the agreement promised
   GAME.pendingCoalition=null;
@@ -16645,7 +16673,8 @@ function tickCoalition(){
     const kept=rows.filter(r=>r.ok).length, tot=Math.max(1,rows.length);
     // a partnership where everything is being honoured drifts up toward 92;
     // one where nothing is drifts down toward 8, and the walk-out is at 22
-    const target=8+84*(kept/tot);
+    // what their own voters think of you pulls on it too
+    const target=clamp(8+84*(kept/tot)+(partyTrust(pid)-50)*0.5, 4, 96);
     const cur=C.mood[pid]==null?68:C.mood[pid];
     C.mood[pid]=+clamp(cur+clamp(target-cur,-11,11),0,100).toFixed(1);
     if(C.mood[pid]<COAL_WALK)gone.push(pid);
@@ -16689,7 +16718,7 @@ function coalitionCandidates(){
   const c=GAME.legis.prCounts, mine=prMyParty();
   const inGov=new Set(coalitionPartners());
   const walked=new Set((GAME.coalition&&GAME.coalition.walked)||[]);
-  return PR_PARTIES.filter(p=>p.id!==mine&&!inGov.has(p.id)&&!walked.has(p.id)&&(c[p.id]||0)>0)
+  return PR_PARTIES.filter(p=>p.id!==mine&&!inGov.has(p.id)&&!walked.has(p.id)&&(c[p.id]||0)>0&&coalitionWillTalk(p.id))
                    .map(p=>p.id);
 }
 /* Would adding this party actually build a majority? */
