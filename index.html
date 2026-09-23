@@ -2321,6 +2321,10 @@ function applySave(sv){
         if(CATALOG[id]){ POLICIES[id]=CATALOG[id]; delete CATALOG[id]; }
         const p=POLICIES[id]; if(p){ p.enacted=true; if(st.v!=null)p.value=st.v; if(st.eff!=null)p.eff=st.eff; if(st.ti!=null)p.tierIndex=st.ti; if(st.en!=null)p.enabled=st.en;
           if(st.it!=null)p.intensity=st.it; if(st.nw!=null)p.narrowed=st.nw;
+          // a tier policy that was saved when it was still a law: its strength
+          // becomes the matching rung, and a full-strength law the top one
+          if(p.mechanic==="tier"&&st.ti==null&&Array.isArray(p.tiers))
+            p.tierIndex=Math.max(1,Math.round((st.nw!=null?st.nw:1)*(p.tiers.length-1)));
           // an unrepealable programme has no off switch: one saved switched off
           // comes back on at zero, which is the same thing
           if(p.mechanic==="intensity"&&p.noRepeal&&p.enabled===false){ p.enabled=true; p.intensity=0; } }
@@ -2887,7 +2891,7 @@ const INDICATORS={
       // Portland tax stacking: each additional layer (Measure 5 reform, Preschool for All) amplifies the grievance
       {const stackLayers=[
         POLICIES.propTaxReform&&POLICIES.propTaxReform.enabled,
-        POLICIES.preschoolForAll&&POLICIES.preschoolForAll.enabled,
+        POLICIES.preschoolForAll&&(POLICIES.preschoolForAll.tierIndex||0)>0,
       ].filter(Boolean).length; if(stackLayers>=2)v+=8;}
       v-=(INDICATORS.digitization.value-40)*0.05;          // smoother digital interactions with the state cool day-to-day friction
       v+=indPolicyBoost("taxGrievance")+sitIndicatorPush("taxGrievance")+execIndicatorPush("taxGrievance");
@@ -4256,7 +4260,7 @@ const POLICIES={
       {social:0.3, govSize:0.2},
       {social:0.6, govSize:0.4}
     ]},
-  carbonProgram:{name:"Climate Protection Program", domain:"envInfra", icon:"globe", enacted:true, mechanic:"law", phaseIn:5,
+  carbonProgram:{name:"Climate Protection Program", domain:"envInfra", icon:"globe", enacted:true, binary:true, mechanic:"law", phaseIn:5,
     desc:"Oregon's cap-and-reduce program for large emitters — a declining pollution ceiling with allowance trading. Revenue is reinvested in clean energy, low-income utility assistance, and transit. The program survived a 2024 repeal attempt; weakening it draws national climate backlash and destabilizes forward revenue projections.",
     enabled:true, revenue:0.6, capital:10, effects:{environment:{b:2,c:7,i:5},gdp:-0.25,electricRate:0.7},
     ideology:{economic:-0.5,social:-0.3,environment:-0.9,govSize:-0.5}},
@@ -5021,33 +5025,33 @@ const CATALOG={
     blocEffect:{businessClass:7, wealthy:3, collegeEducated:3, moderate:2, libertarian:2, socialist:-5, liberal:-3, publicUnions:-2, poor:-2},
     effects:{gdp:0.35,unemployment:-0.5,environment:-3}, ideology:{economic:0.4,govSize:0.2,environment:0.3}},
   // ---- Oregon-flavored slate ----
-  sexWorkDecrim:{name:"Sex Work Decriminalization", domain:"social", icon:"handshake", mechanic:"law", niche:true,
+  sexWorkDecrim:{name:"Sex Work Decriminalization", domain:"social", icon:"handshake", binary:true, mechanic:"law", niche:true,
     desc:"Decriminalize consensual adult sex work, redirecting enforcement toward trafficking and offering health and exit services. Polarizing; frees court capacity.",
     enabled:true, costFull:0.15, capital:9, enactCapital:14,
     effects:{violentCrime:-2,propertyCrime:-2,health:4},
     blocEffect:{socialist:4, libertarian:4, liberal:2, conservative:-5, rural:-3, parents:-2, retirees:-2},
     ideology:{social:-0.8,govSize:-0.4}},
-  psilocybin:{name:"Psilocybin Therapy Program", domain:"eduHealth", icon:"mushroom", mechanic:"law", niche:true,
+  psilocybin:{name:"Psilocybin Therapy Program", domain:"eduHealth", icon:"mushroom", binary:true, mechanic:"law", niche:true,
     desc:"Build out Measure 109 supervised psilocybin therapy — a national first. Mental-health upside; licensing revenue; culturally divisive.",
     enabled:true, revenue:0.05, capital:6, enactCapital:9,
     effects:{behavioralHealth:{b:1,c:5,i:4},health:{b:1,c:3,i:4}}, indicatorEffects:{tourism:3,businessClimate:1},
     blocEffect:{liberal:3, socialist:2, libertarian:2, conservative:-3, rural:-2, retirees:-2},
     ideology:{social:-0.6,govSize:-0.2}},
-  rightToRepair:{name:"Right to Repair", domain:"economy", icon:"wrench", mechanic:"law",
+  rightToRepair:{name:"Right to Repair", domain:"economy", icon:"wrench", binary:true, mechanic:"law",
     desc:"Require manufacturers to provide parts and manuals (Oregon's 2024 law bans parts-pairing). Consumer win; mild business friction.",
     enabled:true, costFull:0.05, capital:5, enactCapital:7,
     effects:{disposableIncome:1.5,gdp:-0.05}, indicatorEffects:{businessClimate:-1}, ideology:{economic:-0.3,govSize:-0.3}},
   // Its legislative effect is in memberLean(): under RCV a seat sends
   // somebody closer to its own middle, because a plurality of your own side
   // stops being enough to win it.
-  rankedChoice:{name:"Ranked-Choice Voting", domain:"social", icon:"ballot", mechanic:"law", niche:true,
+  rankedChoice:{name:"Ranked-Choice Voting", domain:"social", icon:"ballot", binary:true, mechanic:"law", niche:true,
     desc:"Adopt RCV for state elections (Oregon voters rejected Measure 117 in 2024). Cheap to run; lifts turnout and civic trust over time, eases the spoiler effect, and crucially makes third-party and independent candidacies viable, reshaping who can splinter the vote at election time.",
     enabled:true, costFull:0.08, capital:7, enactCapital:10,
     effects:{},
     indicatorEffects:{ruralAlienation:-2},
     blocEffect:{liberal:2, socialist:2, libertarian:3, moderate:1},
     ideology:{social:-0.4,govSize:-0.2}},
-  gunStorage:{name:"Secure Gun Storage Law", domain:"social", icon:"lock", mechanic:"law",
+  gunStorage:{name:"Secure Gun Storage Law", domain:"social", icon:"lock", binary:true, mechanic:"law",
     desc:"Mandate locked storage and require reporting of lost or stolen firearms (echoes Measure 114). Reduces accidental shootings, youth suicides by firearm, and stolen-gun crime without restricting legal ownership. Effects build over time as household storage practices change. Fierce rural and libertarian opposition frames it as the first step toward confiscation — gun rights are a top-tier Greater Idaho grievance, and county sheriffs east of the Cascades openly refuse to enforce laws like it.",
     enabled:true, costFull:0.05, capital:9, enactCapital:13,
     effects:{violentCrime:{b:-1,c:-5,i:4},health:{b:1,c:4,i:4}}, indicatorEffects:{ruralAlienation:7}, ideology:{social:-0.7,govSize:-0.5}},
@@ -5126,7 +5130,7 @@ const CATALOG={
     sizeEffect:{publicUnions:-0.15},
     blocEffect:{publicUnions:-22, blueCollar:-10, liberal:-7, socialist:-14, businessClass:13, libertarian:9, wealthy:5, rural:3},
     ideology:{economic:0.7,social:0.3,govSize:0.4}},
-  eVerify:{name:"Mandatory E-Verify & Immigration Enforcement", domain:"social", icon:"id-card", mechanic:"law",
+  eVerify:{name:"Mandatory E-Verify & Immigration Enforcement", domain:"social", icon:"id-card", binary:true, mechanic:"law",
     desc:"Require employers to verify work eligibility and expand state cooperation with federal immigration enforcement — reversing Oregon's sanctuary-state posture. Fierce backlash from progressive and Latino communities; labor shortages in agriculture.",
     enabled:true, costFull:0.1, capital:11, enactCapital:15,
     effects:{gdp:-0.3,unemployment:0.3},
@@ -5136,7 +5140,7 @@ const CATALOG={
     // come, and some of the ones already here leave.
     indicatorEffects:{inMigration:-9},
     ideology:{social:0.8,economic:0.3,govSize:0.3}},
-  medicaidWork:{name:"Medicaid Work Requirements", domain:"eduHealth", icon:"muscle", mechanic:"law",
+  medicaidWork:{name:"Medicaid Work Requirements", domain:"eduHealth", icon:"muscle", binary:true, mechanic:"law",
     desc:"Require able-bodied adult Medicaid recipients to complete work, job training, or community service hours to maintain eligibility. Saves ~$350M/year in state health spending and aligns with federal waiver programs; but coverage losses hit the working poor hardest and modestly worsen public health outcomes over time. Federal courts have repeatedly struck down similar requirements — implementation risk is high.",
     enabled:true, costFull:-0.35, capital:8, enactCapital:11, repealCost:12,
     effects:{health:{b:-2,c:-6,i:4}, unemployment:-0.5},
@@ -5272,11 +5276,17 @@ const CATALOG={
     effects:{health:{b:1,c:3,i:3}, publicEnrollment:-2.2},
     blocEffect:{libertarian:-9, conservative:-4, rural:-2, moderate:-1, liberal:4, socialist:2, parents:2},
     ideology:{social:-0.3,govSize:-0.5}},
-  persReform:{name:"PERS Benefit Reform", domain:"economy", icon:"bank", mechanic:"law",
-    desc:"Trim future pension accruals against the ~$27–28B unfunded liability. The honest math: SB 1049-style reform saves only ~$150M/biennium near-term, since most 'savings' just re-amortize the debt, and Moro v. State (2015) bars touching already-earned benefits. Unions will sue, and they sometimes win.",
-    enabled:true, revenue:0.08, capital:12, enactCapital:14,
-    effects:{}, ideology:{economic:0.4,govSize:0.3},
-    blocEffect:{publicUnions:-18, socialist:-4, liberal:-3, blueCollar:-2, moderate:2, businessClass:4, wealthy:3, conservative:4, libertarian:2}},
+  // Tiers, not a strength dial: the pension's new accrual reads the tier
+  // (PERS_ACCRUAL), so each rung is a different reform, not a fraction of one.
+  persReform:{name:"PERS Benefit Reform", domain:"economy", icon:"bank", mechanic:"tier", enabled:true,
+    desc:"Slow the growth of pension costs against the ~$27–28B unfunded liability. Moro v. State (2015) bars touching benefits already earned, so any reform only slows new accrual, and the unions will sue and sometimes win.\n\nContribution Redirect is the SB 1049 approach: part of each member's own retirement contribution goes to the pension fund, and the salary counted toward a pension is capped. It cuts new accrual by about a fifth and saves ~$150M/biennium near-term, because most savings only re-amortize the debt. Adding Defined Contribution for New Hires moves future employees to a 401(k)-style plan, which cuts new accrual by about 40% in all and draws the full weight of the unions.",
+    tiers:["No Reform","Contribution Redirect (SB 1049-style)","+ Defined Contribution for New Hires"],
+    tierIndex:0, costByTier:[0,-0.05,-0.08], capital:12, enactCapital:14,
+    effects:{}, tierEffects:[{},{},{}],
+    tierBlocEffects:[{},
+      {publicUnions:-10, socialist:-2, liberal:-2, moderate:1, businessClass:2, wealthy:2, conservative:2, libertarian:1},
+      {publicUnions:-18, socialist:-4, liberal:-3, blueCollar:-2, moderate:2, businessClass:4, wealthy:3, conservative:4, libertarian:2}],
+    tierIdeology:[{},{economic:0.25,govSize:0.2},{economic:0.4,govSize:0.3}]},
   // ---- constitutional reforms: generational fights, huge capital ----
   propTaxReform:{name:"Reform Measure 5/50 Property Tax Caps", domain:"economy", icon:"tent", mechanic:"law", reform:true,
     desc:"Unwind Measures 5 and 50, the 1990s constitutional property-tax caps. They cost local governments an estimated $41 billion in their first 16 years and moved school funding off local property tax (a 28.6% state share in 1990) onto the volatile state income tax (70.6% by 1999). That is the root of Oregon's boom-and-bust budgets.\n\nThe caps hit counties hardest, and a county's core job is public safety. Josephine and Curry ran out of money for sheriff patrols, Josephine lost round-the-clock coverage and released people from its jail for lack of beds, and the district attorney's office shrank with it. County health departments run on the same starved base, and several counties have considered handing public health back to the state. Libraries, parks and extension come off the same levy, and compression cuts local option levies first in the poorest high-rate districts.\n\nMeasure 50 also froze assessed value at 1995 levels less 10% and capped its growth at 3% a year. As market values rise, the effective rate on a house falls, which subsidises holding property and pushes up prices. Unwinding it pushes prices down.\n\nAgainst it: every homeowner's bill goes up, retirees on fixed incomes were the people the caps were meant to protect, and it adds to Oregon's tax-stacking complaint.",
@@ -5320,19 +5330,30 @@ const CATALOG={
     blocEffect:{liberal:3, urban:3, publicUnions:3, collegeEducated:2, socialist:2, moderate:1, conservative:-7, libertarian:-5, rural:-8, timber:-5, businessClass:-2},
     ideology:{govSize:0.2, economic:-0.1}},
   cabinetGovernment:{name:"Cabinet Government", domain:"economy", icon:"columns", binary:true, mechanic:"law", reform:true,
-    desc:"Oregon has no cabinet. Boards and commissions sit between the governor and the agencies: the Environmental Quality Commission over DEQ, the Transportation Commission over ODOT, the Health Policy Board over OHA. Their members hold fixed terms and set each department's policy, so a governor who wants change waits for seats to open or persuades people who do not work for them.\n\nThis amendment ends that. Directors serve at the governor's pleasure, subject to Senate confirmation, and the commissions become advisory. Sitting commissioners carry on as directors, so nothing falls empty, but you can now replace any of them for 2 capital. Every department delivers 8% more while it stands, and you gain 2 capital a quarter because you stop spending it persuading your own government. Coalition partners keep the departments their agreement gave them.\n\nThe objection is speed. Commissions are slow on purpose: a rule survives a governor who dislikes it, and an industry that captured one governor still has to get past a board. The left sees this as putting the state's regulatory machinery in one pair of hands.",
+    desc:"Oregon has no cabinet. Boards and commissions sit between the governor and the agencies: the Environmental Quality Commission over DEQ, the Transportation Commission over ODOT, the Health Policy Board over OHA. Their members hold fixed terms and set each department's policy, so a governor who wants change waits for seats to open or persuades people who do not work for them.\n\nThis amendment ends that. Directors serve at the governor's pleasure, subject to Senate confirmation, and the commissions become advisory. Department heads were always removable. What changes is that the nine commission seats (Environmental Quality, Forestry, the three Utility Commission seats, Parks, Higher Education, Fish & Wildlife, Liquor & Cannabis) become removable too, and removal costs 2 capital instead of 3. Sitting commissioners carry on as directors, so nothing falls empty. Every department delivers 8% more while it stands, and you gain 2 capital a quarter because you stop spending it persuading your own government. Coalition partners keep the departments their agreement gave them.\n\nThe objection is speed. Commissions are slow on purpose: a rule survives a governor who dislikes it, and an industry that captured one governor still has to get past a board. The left sees this as putting the state's regulatory machinery in one pair of hands.",
     enabled:true, capital:18, enactCapital:20, repealCost:14,
     effects:{}, indicatorEffects:{adminOverhead:-12, ruralAlienation:4},
     blocEffect:{businessClass:5, moderate:3, collegeEducated:1, conservative:1, socialist:-7, publicUnions:-6, liberal:-5, libertarian:-3, rural:-3, urban:-2},
     ideology:{social:0.45, govSize:0.15}},
-  preschoolForAll:{name:"Universal Preschool", domain:"economy", icon:"cap", mechanic:"law",
-    desc:"State-funded universal pre-K for all Oregon 3- and 4-year-olds. The evidence base is strong: high-quality early childhood education produces the highest return of any education investment, raising graduation rates, reducing crime, and compressing lifetime inequality. But it is expensive, over $1B/biennium, and like Multnomah's Preschool for All it is delivered through a patchwork of contracted providers, so it feeds the Nonprofit Industrial Complex: while that crisis runs, a large share of the appropriation is skimmed by overhead and its outcomes are dragged down.",
-    enabled:true, costFull:1.2, enactCapital:12, repealCost:11,
-    effects:{education:4,eduOutcomes:2,inequality:-3}, indicatorEffects:{taxGrievance:1},
-    blocEffect:{parents:6, poor:4, liberal:3, publicUnions:3, socialist:2, collegeEducated:2, moderate:1, businessClass:-2, conservative:-2, wealthy:-1, libertarian:-2},
-    ideology:{economic:-0.4,govSize:-0.5}},
+  // Tiers by who is covered. The targeted rung buys the most inequality
+  // reduction per dollar; the top rung is the old full program.
+  preschoolForAll:{name:"Universal Preschool", domain:"economy", icon:"cap", mechanic:"tier", enabled:true,
+    desc:"State-funded pre-K, from a targeted program for low-income 4-year-olds up to universal pre-K for all 3- and 4-year-olds. The evidence is strong: high-quality early education has the highest return of any education investment, raising graduation rates, reducing crime and narrowing lifetime inequality. The targeted option buys the most of that per dollar.\n\nThe full program costs over $1B/biennium, and like Multnomah's Preschool for All it runs through a patchwork of contracted providers, so it feeds the Nonprofit Industrial Complex: while that crisis runs, a large share of the money goes to overhead and its results are dragged down.",
+    tiers:["No State Program","4-Year-Olds, Low-Income First","All 4-Year-Olds","All 3- and 4-Year-Olds"],
+    tierIndex:0, costByTier:[0,0.45,0.75,1.2], capital:8, enactCapital:12, repealCost:11,
+    effects:{},
+    tierEffects:[{},
+      {education:1.5, eduOutcomes:1, inequality:-2},
+      {education:2.5, eduOutcomes:1.3, inequality:-2.4},
+      {education:4, eduOutcomes:2, inequality:-3}],
+    tierIndicatorEffects:[{},{},{taxGrievance:0.5},{taxGrievance:1}],
+    tierBlocEffects:[{},
+      {poor:4, liberal:2, socialist:2, parents:2, publicUnions:1, conservative:-1, libertarian:-1},
+      {parents:4, poor:4, liberal:2, publicUnions:2, socialist:2, collegeEducated:1, businessClass:-1, conservative:-1, libertarian:-1},
+      {parents:6, poor:4, liberal:3, publicUnions:3, socialist:2, collegeEducated:2, moderate:1, businessClass:-2, conservative:-2, wealthy:-1, libertarian:-2}],
+    tierIdeology:[{},{economic:-0.25,govSize:-0.25},{economic:-0.3,govSize:-0.4},{economic:-0.4,govSize:-0.5}]},
   /* Civil Service Merit Exams, further down, is the hiring lever. */
-  outcomeContracting:{name:"Outcome-Based Contracting", domain:"social", icon:"handshake", mechanic:"law", phaseIn:4,
+  outcomeContracting:{name:"Outcome-Based Contracting", domain:"social", icon:"handshake", binary:true, mechanic:"law", phaseIn:4,
     desc:"Rewrite every homelessness, childcare and behavioral-health contract so providers are paid for results, such as people housed and kept housed or children enrolled and progressing, instead of for beds staffed and cases opened. It targets the nonprofit complex's business model rather than its budget. Fully in place, it supplies 82% of State Control by itself, enough to end that crisis without cutting any service spending.\n\nIt gets worse before it gets better. For about four quarters providers retool, some drop out, gaps open and services get measurably worse, so the crisis briefly deepens. It is back to neutral after about a year and at full strength after about three. Enact it early in a term, or your successor gets the payoff.\n\nThe sector fights it hard, the capital cost is steep, and the progressive coalition will not forgive it quickly.",
     enabled:true, costFull:0.12, capital:9, enactCapital:15, repealCost:12,
     effects:{}, indicatorEffects:{digitization:6},
@@ -5371,13 +5392,13 @@ const CATALOG={
     indicatorEffects:{inMigration:-5, businessClimate:-2},
     blocEffect:{conservative:9, rural:7, moderate:2, libertarian:-2, businessClass:-2, liberal:-8, socialist:-9, urban:-7, collegeEducated:-4, blueCollar:-2},
     ideology:{social:0.8, govSize:0.3}},
-  parentalRights:{name:"Parents' Bill of Rights", domain:"eduHealth", icon:"book", mechanic:"law",
+  parentalRights:{name:"Parents' Bill of Rights", domain:"eduHealth", icon:"book", binary:true, mechanic:"law",
     desc:"Mandatory curriculum posting, opt-outs from sex ed and 'controversial' material, and parental-notification rules for schools. Sold as transparency; teachers' unions and LGBTQ advocates read it as a chilling effect and a gateway to book challenges.",
     enabled:true, costFull:0.05, capital:8, enactCapital:11, repealCost:8,
     effects:{education:-1},
     blocEffect:{conservative:7, rural:5, parents:3, suburban:2, moderate:1, publicUnions:-6, liberal:-5, collegeEducated:-3, urban:-3, students:-2, socialist:-3},
     ideology:{social:0.7, govSize:0.1}},
-  policeShield:{name:"Law Enforcement Protection Act", domain:"social", icon:"shield", mechanic:"law",
+  policeShield:{name:"Law Enforcement Protection Act", domain:"social", icon:"shield", binary:true, mechanic:"law",
     desc:"Restore qualified immunity in state courts, set a funding floor for police agencies, and stiffen penalties for interfering with officers. Back-the-blue politics; civil-rights groups and the urban left see a green light for impunity.",
     enabled:true, costFull:0.2, capital:9, enactCapital:12, repealCost:10,
     effects:{violentCrime:-1.5, propertyCrime:-2},
@@ -5420,14 +5441,14 @@ const CATALOG={
     // Reachable only from real popularity plus a campaign you commit to.
     ballotLean:{libertarian:-5, conservative:-3, moderate:-2, rural:-2, collegeEducated:-1.5, socialist:-1.5, publicUnions:1},
     ideology:{govSize:0.2}},
-  occupationalLicensing:{name:"Occupational Licensing Reform", domain:"economy", icon:"wrench", mechanic:"law",
+  occupationalLicensing:{name:"Occupational Licensing Reform", domain:"economy", icon:"wrench", binary:true, mechanic:"law",
     desc:"Sunset or scale back Oregon's occupational-licensing regime — universal recognition of out-of-state licenses, a right to practice your trade, and a hard look at boards that mostly protect incumbents. It opens the trades and the service economy to entrants and lifts low-end mobility; the licensing boards and the professional guilds and unions that sit on them push back.",
     enabled:true, costFull:0, capital:8, enactCapital:10, repealCost:8,
     effects:{gdp:0.25, unemployment:-0.5, inequality:-1.5},
     indicatorEffects:{businessClimate:5, digitization:1},
     blocEffect:{libertarian:8, businessClass:6, blueCollar:4, poor:3, rural:2, moderate:1, publicUnions:-6, collegeEducated:-4, liberal:-2},
     ideology:{economic:0.5, govSize:0.5}},
-  civilServiceReform:{name:"Civil Service Merit Exams", domain:"eduHealth", icon:"doc", mechanic:"law",
+  civilServiceReform:{name:"Civil Service Merit Exams", domain:"eduHealth", icon:"doc", binary:true, mechanic:"law",
     desc:"Strip the four-year-degree requirement from most state job classifications and hire on competitive civil-service examinations instead — skills over credentials. It widens the applicant pool, fills vacant desks with competent people faster, and measurably improves service delivery and state capacity. Current state employees see their credential premium erased, and the college-educated professional class treats it as an assault on expertise.",
     enabled:true, costFull:0.05, capital:9, enactCapital:12, repealCost:10,
     effects:{},
@@ -5448,14 +5469,14 @@ const CATALOG={
     indicatorEffects:{businessClimate:4, transportFunding:5},
     blocEffect:{businessClass:8, conservative:5, wealthy:4, libertarian:3, rural:2, publicUnions:-12, blueCollar:-9, liberal:-5, socialist:-6},
     ideology:{economic:0.6, govSize:0.3}},
-  localPreemption:{name:"Local Preemption Act", domain:"economy", icon:"columns", mechanic:"law",
+  localPreemption:{name:"Local Preemption Act", domain:"economy", icon:"columns", binary:true, mechanic:"law",
     desc:"Bar cities and counties from enacting their own minimum-wage floors, rent-control ordinances, paid-leave mandates, plastic and gas bans, and gig-worker rules — one statewide standard, set in Salem. Business gets a single rulebook instead of 240; Portland, Eugene, and the tenant movement lose their venue for going further than the state will.",
     enabled:true, costFull:0, capital:12, enactCapital:16, repealCost:12,
     effects:{gdp:0.2, inequality:{b:0,c:2,i:6}},
     indicatorEffects:{businessClimate:6, housingAffordability:-2, ruralAlienation:-2},
     blocEffect:{businessClass:8, conservative:4, suburban:3, wealthy:3, rural:2, moderate:1, urban:-7, liberal:-6, socialist:-8, renters:-5, publicUnions:-4},
     ideology:{economic:0.5, social:0.4, govSize:0.2}},
-  truthInSentencing:{name:"Truth in Sentencing", domain:"social", icon:"scales", mechanic:"law",
+  truthInSentencing:{name:"Truth in Sentencing", domain:"social", icon:"scales", binary:true, mechanic:"law",
     desc:"Require violent offenders to serve at least 85% of the sentence handed down — no discretionary early release. It keeps the highest-risk people incapacitated longer and reads as a promise kept to victims, but it swells the prison population and its costs for years, and the reform coalition fights it as a return to mass incarceration.",
     enabled:true, costFull:0.3, capital:9, enactCapital:12, repealCost:11,
     effects:{violentCrime:{b:0,c:-2,i:6}, incarcerationRate:{b:2,c:6,i:5}},
@@ -10408,6 +10429,9 @@ function policyEnactCost(p){
   if(p&&d)for(const k in d){ if(CATALOG[k]===p){ disc=apptDiscountFor(k); break; } }
   return Math.max(1, Math.round(base*oppositionCapitalMult()*disc));
 }
+/* PERS reform's tiers, as new service cost added each quarter. */
+const PERS_ACCRUAL=[0.28,0.22,0.16];
+function persReformLevel(){ const p=POLICIES.persReform; return (p&&p.enacted)?(p.tierIndex||0):0; }
 function policyNetCost(p){
   if(!p)return 0;
   if(p.revenueFull)return -(p.value*p.revenueFull);
@@ -12117,7 +12141,7 @@ function tickEconomy(){
   // hit when a recession actually fires — see startSituation). New service cost
   // is added every quarter; PERS Reform (SB 1049-style) trims it modestly.
   {
-    const persReformed = !!(POLICIES.persReform && POLICIES.persReform.enacted);
+    const persLvl = persReformLevel();
     const assets   = Math.max(30, 130 - GAME.persUAL);
     const assumedQ = 0.069/4;
     const _pr      = persRisk();
@@ -12131,7 +12155,7 @@ function tickEconomy(){
     // the market does not blow it open again first.
     const wave      = 0.28 + 0.72*Math.exp(-(GAME.turn||0)/46);   // 1.00 now → ~0.40 in 20 years
     GAME.persWave   = +wave.toFixed(3);
-    const accrual   = (persReformed ? 0.16 : 0.28)*wave;    // new service cost added each quarter
+    const accrual   = PERS_ACCRUAL[persLvl]*wave;          // new service cost added each quarter, by reform tier
     GAME.persUAL = +clamp(GAME.persUAL - invEffect + accrual, 3, 70).toFixed(3);
     GAME.persMarketSwing = +(-invEffect*4).toFixed(2);       // annualized, − = fund gaining
     GAME.persRate = +clamp(5.26 + GAME.persUAL*0.075, 5.26, 11.5).toFixed(3);
@@ -13429,9 +13453,9 @@ const PROMISES={
   fixPERS:{label:"Fix PERS before it eats the budget", bloc:["conservative","moderate","businessClass","homeowners"],
     criteria:[
       {label:"Pension burden held below its drift (≤ 57)", check:()=>INDICATORS.pensionBurden.value<=57},
-      {label:"PERS Benefit Reform enacted and pension burden ≤ 49", check:()=>!!(POLICIES.persReform&&POLICIES.persReform.enacted) && INDICATORS.pensionBurden.value<=49}
+      {label:"PERS Benefit Reform enacted and pension burden ≤ 49", check:()=>persReformLevel()>0 && INDICATORS.pensionBurden.value<=49}
     ],
-    check:()=>!!(POLICIES.persReform&&POLICIES.persReform.enacted) && INDICATORS.pensionBurden.value<=49},
+    check:()=>persReformLevel()>0 && INDICATORS.pensionBurden.value<=49},
   defendGunRights:{label:"Defend the Second Amendment", defensive:true, bloc:["rural","conservative","libertarian","timber"],
     criteria:[
       {label:"No new firearm-storage mandate enacted", check:()=>!(POLICIES.gunStorage&&POLICIES.gunStorage.enacted)},
@@ -23675,9 +23699,9 @@ const FUNDS={
     val:()=>GAME.persUAL||0,
     blurb:"Not a fund you hold — a hole you owe. PERS is the Public Employees Retirement System, the pensions Oregon has promised the people who work for it: teachers and school staff, state agency employees, police and firefighters, and city and county workers. This is the gap between what those retirements will cost and what has been set aside to pay for them. It is the only line here where a smaller number is better, and it drives the employer contribution rate that every public payroll in Oregon pays.",
     inflows:()=>{
-      const pr=persRisk(), reformed=!!(POLICIES.persReform&&POLICIES.persReform.enacted);
+      const pr=persRisk(), reformed=persReformLevel()>0;
       const wave=(GAME.persWave!=null?GAME.persWave:1);
-      return [{name:"New benefits earned this year", v:(reformed?0.16:0.28)*wave*4,
+      return [{name:"New benefits earned this year", v:PERS_ACCRUAL[persReformLevel()]*wave*4,
         note:"Service cost accruing at "+Math.round(wave*100)+"% of its starting pace — Tier 1 and Tier 2 members are retiring out and everyone hired since 1996 is on the cheaper OPSRP tier."+(reformed?" PERS Reform has bent the curve further.":"")}];
     },
     outflows:()=>{
