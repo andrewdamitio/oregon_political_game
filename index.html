@@ -2335,6 +2335,7 @@ function applySave(sv){
     }
     for(const id in POLICIES)POLICIES[id]._id=id;
     for(const id in CATALOG)CATALOG[id]._id=id;
+    applyVoterDrift();
     if(sv.voters&&sv.voters.length===VOTERS.length){
       if(sv.vKeys&&sv.vKeys.length){
         // v2: one key list, one packed string per voter
@@ -7258,7 +7259,7 @@ function buildVoters(){
     const urban=clamp(0.65-(econ+social)*0.12+gauss()*0.22,0,1);   // Oregon skews urban/progressive
     const age=clamp(Math.random(),0,1);
     const innateIncome=clamp(0.5+gauss()*0.2+(urban-0.5)*0.08,0.02,0.98);
-    const v={econ,social,urban,age,innateIncome,adjIncome:innateIncome,m:{},innate:{},approval:50};
+    const v={econ,social,econ0:econ,social0:social,urban,age,innateIncome,adjIncome:innateIncome,m:{},innate:{},approval:50};
     for(const id in TRAIT_TMPL){
       const t=TRAIT_TMPL[id];
       let a=(t.base||0);
@@ -8942,6 +8943,34 @@ function tickMembership(){
   }
 }
 /* per-voter approval = membership-weighted blend of group approvals */
+/* VOTERS MOVE WITH HOW THEIR GROUPS SEE YOU. A voter's approval is the blend
+   of their groups' approval; above 50 they drift toward your place on the
+   compass, below it away, faster the further from 50. Bounded by DRIFT_CAP
+   from where they started, and easing back toward it by DRIFT_RETURN a
+   quarter, so it follows the government without running away. */
+const DRIFT_RATE=0.03, DRIFT_RETURN=0.015, DRIFT_CAP=0.30;
+function tickVoterDrift(){
+  const g=govIdeologyPoint(), N=VOTERS.length;
+  let D=GAME.voterDrift;
+  if(!D||!D.ec||D.ec.length!==N)D=GAME.voterDrift={ec:new Array(N).fill(0), so:new Array(N).fill(0)};
+  for(let i=0;i<N;i++){
+    const v=VOTERS[i];
+    if(v.econ0===undefined){ v.econ0=v.econ; v.social0=v.social; }
+    const pull=clamp(((v.approval==null?50:v.approval)-50)/50,-1,1);
+    const dEc=clamp(D.ec[i]+DRIFT_RATE*pull*(g.economic-v.econ)-DRIFT_RETURN*D.ec[i],-DRIFT_CAP,DRIFT_CAP);
+    const dSo=clamp(D.so[i]+DRIFT_RATE*pull*(g.social-v.social)-DRIFT_RETURN*D.so[i],-DRIFT_CAP,DRIFT_CAP);
+    D.ec[i]=+dEc.toFixed(4); D.so[i]=+dSo.toFixed(4);
+    v.econ=clamp(v.econ0+D.ec[i],-1,1); v.social=clamp(v.social0+D.so[i],-1,1);
+  }
+}
+/* After a load: the voters are rebuilt from the seed, so put the drift back. */
+function applyVoterDrift(){
+  const D=GAME.voterDrift; if(!D||!D.ec)return;
+  VOTERS.forEach((v,i)=>{
+    if(v.econ0===undefined){ v.econ0=v.econ; v.social0=v.social; }
+    v.econ=clamp(v.econ0+(D.ec[i]||0),-1,1); v.social=clamp(v.social0+(D.so[i]||0),-1,1);
+  });
+}
 function tickVoterApproval(){
   for(const v of VOTERS){
     let num=0,den=0;
@@ -10803,9 +10832,9 @@ function protestGrudges(list){ (list||[]).forEach(g=>createGrudge("v_"+g[0], g[1
    Raw weighted sums over enacted policies + agency posture, left unscaled —
    renderCompass scales to the grid. */
 /* How much more your own changes count than the state you inherited. */
-// 1.75, not more: every dial pushed to one end already reaches the edge of
-// the chart once it phases in, and more than this pins it there
-const AGENDA_OWN_WEIGHT=1.75;
+// 2.5, read through a soft edge (tanh) in govIdeologyPoint, so hard
+// governing reaches toward the edge of the chart without pinning there
+const AGENDA_OWN_WEIGHT=2.5;
 function agendaVector(){
   const raw=agendaRaw();
   // the inherited agenda, fixed at boot; a save written before this existed
@@ -10848,7 +10877,9 @@ function shiftCompass(ec,so){
    Oregon status quo lands around center-left (~-0.39 econ, ~-0.26 social). */
 function govIdeologyPoint(){
   const v=agendaVector();
-  return { economic: clamp(v.ec/24, -1, 1), social: clamp(v.so/12, -1, 1) };
+  // a soft edge rather than a clamp: near the centre this is v/24 exactly,
+  // and it approaches but never flattens against the edge
+  return { economic: Math.tanh(v.ec/24), social: Math.tanh(v.so/12) };
 }
 /* metricTarget: the level metric k settles toward. EVERYTHING shapes the
    target — policies, agencies, land use, inter-metric links, active
@@ -15499,7 +15530,7 @@ function ecAgendaAt(t){
   let v=null;
   for(const p of h){ if(p.turn<=t)v=p; else break; }
   if(!v){ const a=agendaVector(); v={ec:a.ec,so:a.so}; }
-  return { ec: clamp(v.ec/24,-1,1), so: clamp(v.so/12,-1,1) };
+  return { ec: Math.tanh(v.ec/24), so: Math.tanh(v.so/12) };
 }
 /* How much each voter counts at quarter t. Nobody changes their mind in this
    model, so a voter's position is fixed; what moves is how many people like
@@ -19137,7 +19168,7 @@ function _runTicks(){
      && GAME.turn-(GAME.lastAusterity??-99) >= 6) openAusterity();
   tickIndicators(); tickGrudges(); tickCynComp(); tickExpectations(); tickGroundGame(); tickCountyCamp();
   tickBallotCampaign();
-  tickApproval(); tickVoterApproval(); checkActivistTriggers();
+  tickApproval(); tickVoterApproval(); tickVoterDrift(); checkActivistTriggers();
   if((GAME.serviceDisrupt||0)>0)GAME.serviceDisrupt--;   // acute operational disruption bleeds off
   // a favour owed is worked off over about a year and a half
   if(GAME.legis&&GAME.legis.favors){
@@ -25520,6 +25551,7 @@ function bootWorld(startId){
   GAME.agendaBaseline=agendaConservatism();   // the inherited status quo — protests measure drift FROM here
   applyProtestSide();                          // whose base is in revolt depends on whose base elected you
   GAME.agendaBase=null;                        // re-taken from the world as dealt
+  GAME.voterDrift=null;                        // a new electorate starts where it was built
   GAME.compassStart=agendaVector();            // where the mandate sits on the political compass
   // the electorate as inherited — every later size is held in a band round this
   GAME.sizeAnchor={}; for(const sid in SIMULANTS)GAME.sizeAnchor[sid]=SIMULANTS[sid].size;
