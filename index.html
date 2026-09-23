@@ -5344,7 +5344,7 @@ const CATALOG={
     blocEffect:{liberal:3, urban:3, publicUnions:3, collegeEducated:2, socialist:2, moderate:1, conservative:-7, libertarian:-5, rural:-8, timber:-5, businessClass:-2},
     ideology:{govSize:0.2, economic:-0.1}},
   cabinetGovernment:{name:"Cabinet Government", domain:"economy", icon:"columns", binary:true, mechanic:"law", reform:true,
-    desc:"Oregon has no cabinet. Boards and commissions sit between the governor and the agencies: the Environmental Quality Commission over DEQ, the Transportation Commission over ODOT, the Health Policy Board over OHA. Their members hold fixed terms and set each department's policy, so a governor who wants change waits for seats to open or persuades people who do not work for them.\n\nThis amendment ends that. Directors serve at the governor's pleasure, subject to Senate confirmation, and the commissions become advisory. Department heads were always removable. What changes is that the nine commission seats (Environmental Quality, Forestry, the three Utility Commission seats, Parks, Higher Education, Fish & Wildlife, Liquor & Cannabis) become removable too, and removal costs 2 capital instead of 3. Sitting commissioners carry on as directors, so nothing falls empty. Every department delivers 8% more while it stands, and you gain 2 capital a quarter because you stop spending it persuading your own government. Coalition partners keep the departments their agreement gave them.\n\nThe objection is speed. Commissions are slow on purpose: a rule survives a governor who dislikes it, and an industry that captured one governor still has to get past a board. The left sees this as putting the state's regulatory machinery in one pair of hands.",
+    desc:"Oregon has no cabinet. Boards and commissions sit between the governor and the agencies: the Environmental Quality Commission over DEQ, the Transportation Commission over ODOT, the Health Policy Board over OHA. Their members hold fixed terms and set each department's policy, so a governor who wants change waits for seats to open or persuades people who do not work for them.\n\nThis amendment ends that. Directors serve at the governor's pleasure, subject to Senate confirmation, and the commissions become advisory. Department heads were always removable. What changes is that the nine commission seats (Environmental Quality, Forestry, the three Utility Commission seats, Parks, Higher Education, Fish & Wildlife, Liquor & Cannabis) become removable too, and removal costs 2 capital instead of 3. Sitting commissioners carry on as directors, so nothing falls empty. Every department delivers 8% more while it stands, and you gain 2 capital a quarter because you stop spending it persuading your own government. Coalition partners keep the departments their agreement gave them. Under proportional representation, each party forming a government can then also claim one former commission seat.\n\nThe objection is speed. Commissions are slow on purpose: a rule survives a governor who dislikes it, and an industry that captured one governor still has to get past a board. The left sees this as putting the state's regulatory machinery in one pair of hands.",
     enabled:true, capital:18, enactCapital:20, repealCost:14,
     effects:{}, indicatorEffects:{adminOverhead:-12, ruralAlienation:4},
     blocEffect:{businessClass:5, moderate:3, collegeEducated:1, conservative:1, socialist:-7, publicUnions:-6, liberal:-5, libertarian:-3, rural:-3, urban:-2},
@@ -5728,11 +5728,12 @@ const APPT_LAST=["Okonkwo","Vasquez","Ferriday","Stroud","Batiste","Nakagawa","O
   "Duvall","Whitlock","Amador","Ptaszek","Redfeather","Calloway","Sanderlin","Moreau","Krivosheev","Bexar","Ocampo"];
 function apptName(){ return APPT_FIRST[Math.floor(Math.random()*APPT_FIRST.length)]+" "+APPT_LAST[Math.floor(Math.random()*APPT_LAST.length)]; }
 /* The department each PR party expects to be handed for joining a government,
-   and the bloc their appointee comes from. */
+   and the bloc their appointee comes from. Always a department: a commission
+   seat is a fixed term, so there is no chair to hand over. */
 const APPT_PARTY_POST={
-  left:{post:"deq", group:"liberal",
-    label:"The Environmental Quality chair is ours",
-    why:"You will sign what we negotiated. Our person will be the one enforcing it."},
+  left:{post:"ohcs", group:"liberal",
+    label:"Housing & Community Services is ours",
+    why:"Housing is where this state fails people first. Our person will run it."},
   dem:{post:"oha", group:"publicUnions",
     label:"The Health Authority is ours",
     why:"The biggest thing the state does with a budget, run by somebody we trust with it."},
@@ -5742,16 +5743,61 @@ const APPT_PARTY_POST={
   gop:{post:"corrections", group:"conservative",
     label:"Corrections is ours",
     why:"You may run the rest of it. Public safety answers to somebody we chose."},
-  right:{post:"puc1", group:"libertarian",
-    label:"The Public Utility Commission is ours",
-    why:"Every rate case in this state, decided by somebody who reads the bill like a ratepayer."}
+  right:{post:"das", group:"libertarian",
+    label:"Administrative Services is ours",
+    why:"Every contract and every hire in this state crosses that desk. Somebody should read them like a taxpayer."}
 };
+/* Once Cabinet Government has made the commissions removable, each party
+   also claims one former commission seat. */
+const APPT_PARTY_CAB_POST={
+  left:{post:"deq", group:"liberal", also:"the Environmental Quality Commission",
+    why:"You will sign what we negotiated on the environment. Our person will enforce it."},
+  dem:{post:"hecc", group:"publicUnions", also:"the Higher Education Commission",
+    why:"The universities run on faculty and staff who vote for us."},
+  centre:{post:"puc2", group:"businessClass", also:"a Utility Commission seat",
+    why:"Rates are a cost of doing business, and somebody at that table should have paid them."},
+  gop:{post:"forestry", group:"rural", also:"the Board of Forestry",
+    why:"The harvest plan should be decided by somebody who lives in a timber town."},
+  right:{post:"puc1", group:"libertarian", also:"a Utility Commission seat",
+    why:"Every rate case, decided by somebody who reads the bill like a ratepayer."}
+};
+/* What a party would claim if it signed today. */
+function apptPartyOffer(pid){
+  const out=[]; if(APPT_PARTY_POST[pid])out.push(APPT_PARTY_POST[pid]);
+  if(POLICIES.cabinetGovernment&&APPT_PARTY_CAB_POST[pid])out.push(APPT_PARTY_CAB_POST[pid]);
+  return out.filter(d=>APPT_POSTS[d.post]);
+}
+/* What a party holds under the agreement it signed. Recorded at signature,
+   so Cabinet Government passing mid-term adds nothing they did not negotiate. */
+function apptPartyDeals(pid){
+  const C=GAME.coalition, find=post=>[APPT_PARTY_POST[pid],APPT_PARTY_CAB_POST[pid]].find(d=>d&&d.post===post)
+    ||{post, group:(APPT_PARTY_POST[pid]||{}).group, label:APPT_POSTS[post].name+" is ours", why:""};
+  if(C&&(C.partners||[]).indexOf(pid)>=0){
+    if(C.posts&&C.posts[pid])return C.posts[pid].filter(p=>APPT_POSTS[p]).map(find);
+    // an agreement signed before the record existed: whatever they hold
+    const held=Object.keys(APPT_POSTS).filter(id=>{ const h=apptHolder(id); return h&&h.party===pid; });
+    if(held.length)return held.map(find);
+  }
+  return apptPartyOffer(pid);
+}
+/* The seat demand every party makes, read from whatever it was promised. */
+const apptDealLabel=d=>d.length?d[0].label+(d[1]?`, and ${d[1].also} too`:""):"A department of our own";
+const apptDealWhy=d=>d.map(x=>x.why).filter(Boolean).join(" ");
+function coalPostDemand(pid){
+  return {id:"post",
+    get label(){ return apptDealLabel(apptPartyDeals(pid)); },
+    get why(){ return apptDealWhy(apptPartyDeals(pid)); },
+    // the negotiation screen: what they would claim if they signed today
+    get offerLabel(){ return apptDealLabel(apptPartyOffer(pid)); },
+    get offerWhy(){ return apptDealWhy(apptPartyOffer(pid)); },
+    snap:()=>1,
+    met:()=>apptPartyDeals(pid).every(d=>{ const h=apptHolder(d.post); return !!(h&&h.party===pid); })};
+}
 function apptHolder(id){ return (GAME.appointments||{})[id]||null; }
 /* Signing a coalition agreement hands over the departments it promised. The
    sitting appointee steps down the same day — that is what the agreement is. */
 function apptInstallPartners(partners){
-  for(const pid of (partners||[])){
-    const deal=APPT_PARTY_POST[pid]; if(!deal||!APPT_POSTS[deal.post])continue;
+  for(const pid of (partners||[])) for(const deal of apptPartyDeals(pid)){
     const c=apptMakeCandidate(deal.post,"partner");
     const out=apptHolder(deal.post);
     GAME.appointments=GAME.appointments||{};
@@ -7631,6 +7677,9 @@ const DILEMMAS={
          const pid=GAME.coalOfferId; if(!pid||!GAME.coalition)return;
          const p=prParty(pid);
          GAME.coalition.partners.push(pid);
+         GAME.coalition.posts=GAME.coalition.posts||{};
+         GAME.coalition.posts[pid]=apptPartyOffer(pid).map(d=>d.post);
+         apptInstallPartners([pid]);   // the seats come with the agreement
          GAME.coalition.snap=GAME.coalition.snap||{};
          GAME.coalition.snap[pid]={};
          for(const d of (PR_DEMANDS[pid]||[])){ try{ GAME.coalition.snap[pid][d.id]=d.snap(); }catch(e){ GAME.coalition.snap[pid][d.id]=0; } }
@@ -12624,11 +12673,13 @@ function drawCoalition(next){
     // and fix something rather than a promise to leave it alone.
     let owed=0;
     const dem=(PR_DEMANDS[p.id]||[]).map(d=>{
-      const ok=(()=>{ try{ return !!d.met(d.snap()); }catch(e){ return true; } })();
+      // a seat is not something to fix later: signing hands it over
+      const seat=d.id==="post";
+      const ok=seat||(()=>{ try{ return !!d.met(d.snap()); }catch(e){ return true; } })();
       if(!ok)owed++;
-      return '<li class="'+(ok?'held':'owed')+'"><b>'+d.label+'</b>'
-        +'<em>'+(ok?'✓ true today':'✗ not true today — you would be signing up to fix it')+'</em>'
-        +'<span>'+d.why+'</span></li>';
+      return '<li class="'+(ok?'held':'owed')+'"><b>'+(seat?d.offerLabel:d.label)+'</b>'
+        +'<em>'+(seat?'✓ handed over when you sign':ok?'✓ true today':'✗ not true today — you would be signing up to fix it')+'</em>'
+        +'<span>'+(seat?d.offerWhy:d.why)+'</span></li>';
     }).join("");
     const owedTag=owed?'<span class="coal-owed">'+owed+' of these is not true today</span>':'';
     const tr=Math.round(partyTrust(p.id)), talks=coalitionWillTalk(p.id), sm=coalitionStartMood(p.id);
@@ -16550,10 +16601,7 @@ function prChamberHTML(){
    signature; met() is the question they ask afterwards. */
 const PR_DEMANDS={
   left:[
-    {id:"post", label:APPT_PARTY_POST.left.label,
-     why:APPT_PARTY_POST.left.why,
-     snap:()=>1,
-     met:()=>{ const h=apptHolder(APPT_PARTY_POST.left.post); return !!(h&&h.party==="left"); }},
+    coalPostDemand("left"),
     {id:"corpTax", label:"The corporate tax stays where we found it",
      why:"The Corporate Activity Tax funds the schools. It is the whole reason we exist.",
      snap:()=>POLICIES.corpTax?policyLevel(POLICIES.corpTax):0,
@@ -16568,10 +16616,7 @@ const PR_DEMANDS={
      met:v=>METRICS.environment.value>=v-2.5},
   ],
   dem:[
-    {id:"post", label:APPT_PARTY_POST.dem.label,
-     why:APPT_PARTY_POST.dem.why,
-     snap:()=>1,
-     met:()=>{ const h=apptHolder(APPT_PARTY_POST.dem.post); return !!(h&&h.party==="dem"); }},
+    coalPostDemand("dem"),
     {id:"schools", label:"Not one dollar off the State School Fund",
      why:"It is the largest thing the state does and the first thing a shortfall reaches.",
      snap:()=>POLICIES.stateSchoolFund?policyLevel(POLICIES.stateSchoolFund):1,
@@ -16586,10 +16631,7 @@ const PR_DEMANDS={
      met:v=>METRICS.taxBurden.value>=v-4},
   ],
   centre:[
-    {id:"post", label:APPT_PARTY_POST.centre.label,
-     why:APPT_PARTY_POST.centre.why,
-     snap:()=>1,
-     met:()=>{ const h=apptHolder(APPT_PARTY_POST.centre.post); return !!(h&&h.party==="centre"); }},
+    coalPostDemand("centre"),
     {id:"balance", label:"Balance the budget and keep it balanced",
      why:"We were elected by people who think both of you are unserious about money.",
      snap:()=>0,
@@ -16604,10 +16646,7 @@ const PR_DEMANDS={
      met:v=>INDICATORS.businessClimate.value>=v-6},
   ],
   gop:[
-    {id:"post", label:APPT_PARTY_POST.gop.label,
-     why:APPT_PARTY_POST.gop.why,
-     snap:()=>1,
-     met:()=>{ const h=apptHolder(APPT_PARTY_POST.gop.post); return !!(h&&h.party==="gop"); }},
+    coalPostDemand("gop"),
     {id:"taxCap", label:"The tax burden goes no higher than it is today",
      why:"Not one point. We will be watching the number, not the speech.",
      snap:()=>METRICS.taxBurden.value,
@@ -16622,10 +16661,7 @@ const PR_DEMANDS={
      met:v=>((AGENCIES.corrections?AGENCIES.corrections.funding:0.5)+(AGENCIES.judiciary?AGENCIES.judiciary.funding:0.5))>=v-0.04},
   ],
   right:[
-    {id:"post", label:APPT_PARTY_POST.right.label,
-     why:APPT_PARTY_POST.right.why,
-     snap:()=>1,
-     met:()=>{ const h=apptHolder(APPT_PARTY_POST.right.post); return !!(h&&h.party==="right"); }},
+    coalPostDemand("right"),
     {id:"cutTax", label:"The tax burden comes DOWN, not sideways",
      why:"We did not join a government to hold the line. Hold it and we leave.",
      snap:()=>METRICS.taxBurden.value,
@@ -16701,7 +16737,8 @@ function formCoalition(partners){
     for(const d of (PR_DEMANDS[pid]||[]))snap[pid][d.id]=d.snap();
   }
   const mood={}; for(const pid of partners)mood[pid]=coalitionStartMood(pid);
-  GAME.coalition={partners:partners.slice(), snap, mood, formedTurn:GAME.turn, walked:[]};
+  const posts={}; for(const pid of partners)posts[pid]=apptPartyOffer(pid).map(d=>d.post);
+  GAME.coalition={partners:partners.slice(), snap, mood, posts, formedTurn:GAME.turn, walked:[]};
   apptInstallPartners(partners);   // the departments the agreement promised
   GAME.pendingCoalition=null;
   if(partners.length)
@@ -24214,7 +24251,7 @@ function renderAppointments(){
   // what needs you, and only that
   const needs=apptNeeds(), notes=[];
   if(prOn()&&coalitionPartners().length){
-    const deals=coalitionPartners().filter(p=>APPT_PARTY_POST[p]).map(p=>prParty(p).short+" holds "+APPT_POSTS[APPT_PARTY_POST[p].post].name);
+    const deals=coalitionPartners().filter(p=>apptPartyDeals(p).length).map(p=>prParty(p).short+" holds "+apptPartyDeals(p).map(d=>APPT_POSTS[d.post].name).join(" and "));
     if(deals.length)notes.push(`The coalition agreement gave away ${deals.join("; ")}. Taking one back breaks it.`);
   } else if(!prOn()&&(GAME.legis.senate||0)<LEGIS.majS){
     notes.push(`You do not hold the Senate, so your nominees need votes from the other side.`);
