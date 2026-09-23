@@ -2264,7 +2264,7 @@ function saveGame(btn){
     const aSnap={}; for(const id in AGENCIES)aSnap[id]={f:AGENCIES[id].funding,l:AGENCIES[id].logging,fb:AGENCIES[id].fundingBase};
     const sSnap={}; for(const id in SIMULANTS)sSnap[id]={a:SIMULANTS[id].approval,c:SIMULANTS[id].calib,s:SIMULANTS[id].size,cy:SIMULANTS[id].cynicism||0};
     const pSnap={};
-    for(const id in POLICIES)pSnap[id]={on:1,v:POLICIES[id].value,eff:POLICIES[id].eff,ti:POLICIES[id].tierIndex,en:POLICIES[id].enabled};
+    for(const id in POLICIES)pSnap[id]={on:1,v:POLICIES[id].value,eff:POLICIES[id].eff,ti:POLICIES[id].tierIndex,en:POLICIES[id].enabled,it:POLICIES[id].intensity,nw:POLICIES[id].narrowed};
     for(const id in CATALOG)pSnap[id]={on:0,v:CATALOG[id].value,ti:CATALOG[id].tierIndex,en:CATALOG[id].enabled};
     // every voter has the same trait keys, so they are written once and each
     // voter is a flat string in that order, then approval, then income
@@ -2315,7 +2315,11 @@ function applySave(sv){
       const st=sv.policies[id];
       if(st.on){
         if(CATALOG[id]){ POLICIES[id]=CATALOG[id]; delete CATALOG[id]; }
-        const p=POLICIES[id]; if(p){ p.enacted=true; if(st.v!=null)p.value=st.v; if(st.eff!=null)p.eff=st.eff; if(st.ti!=null)p.tierIndex=st.ti; if(st.en!=null)p.enabled=st.en; }
+        const p=POLICIES[id]; if(p){ p.enacted=true; if(st.v!=null)p.value=st.v; if(st.eff!=null)p.eff=st.eff; if(st.ti!=null)p.tierIndex=st.ti; if(st.en!=null)p.enabled=st.en;
+          if(st.it!=null)p.intensity=st.it; if(st.nw!=null)p.narrowed=st.nw;
+          // an unrepealable programme has no off switch: one saved switched off
+          // comes back on at zero, which is the same thing
+          if(p.mechanic==="intensity"&&p.noRepeal&&p.enabled===false){ p.enabled=true; p.intensity=0; } }
       } else if(POLICIES[id]&&!POLICIES[id].startActive){
         CATALOG[id]=POLICIES[id]; delete CATALOG[id].enacted; delete POLICIES[id];
         const p=CATALOG[id]; if(st.v!=null)p.value=st.v; if(st.ti!=null)p.tierIndex=st.ti; if(st.en!=null)p.enabled=st.en;
@@ -22455,7 +22459,7 @@ function policyControlHTML(id,p){
     return s+`</div>`;
   }
   if(p.mechanic==="intensity")
-    return `<div class="toggle ${p.enabled?'on':''}" data-pol="${id}" data-kind="toggle"><i></i></div><input type="range" min="0" max="1" step="0.05" value="${p.intensity}" data-pol="${id}" data-kind="intensity" ${p.enabled?'':'disabled'}><span class="mono">${p.enabled?policyRealLabel(p):'off'}</span>`;
+    return `${p.noRepeal?"":`<div class="toggle ${p.enabled?'on':''}" data-pol="${id}" data-kind="toggle"><i></i></div>`}<input type="range" min="0" max="1" step="0.05" value="${p.intensity}" data-pol="${id}" data-kind="intensity" ${(p.enabled||p.noRepeal)?'':'disabled'}><span class="mono">${p.enabled?policyRealLabel(p):'off'}</span>`;
   if(p.mechanic==="toggle")
     return `<div class="toggle ${p.enabled?'on':''}" data-pol="${id}" data-kind="toggle"><i></i></div><span class="mono">${p.enabled?'active':'inactive'}</span>`;
   if(p.mechanic==="law")
