@@ -5497,12 +5497,22 @@ const APPT_POSTS={
   // serves at the Governor's pleasure. A commission seat here would be a
   // fixed term with no Remove button, which would make the chair one you
   // could never actually appoint.
-  // Five policies run through the OLCC and none of them had anybody
-  // answerable. It owns no statistic on purpose: alcohol consumption is
-  // already the Health Authority's, and two departments on one statistic
-  // is exactly what was wrong with Parks. A chair does not need to own a
-  // statistic to administer a programme.
-  olcc:{title:"Commissioner, Liquor and Cannabis Commission", name:"Liquor & Cannabis Commission", icon:"bottle", agency:null, body:"commission",
+  // The next four own no statistic of their own, which is deliberate.
+  // Attainment is the Department of Education's, alcohol consumption is
+  // the Health Authority's, the administrative gauges are indicators
+  // rather than statistics, and wildlife has no statistic at all. Two
+  // departments on one statistic is what was wrong with Parks; a chair
+  // does not need to own one to administer a programme.
+  hecc:{title:"Commissioner, Higher Education Coordinating Commission", name:"Higher Education Commission", icon:"cap", agency:null, body:"commission",
+    seat:"the Higher Education Coordinating Commission", metrics:[],
+    pool:["collegeEducated","students","publicUnions","moderate"], foes:["rural","conservative"]},
+  das:{title:"Director, Department of Administrative Services", name:"Administrative Services", icon:"folder", agency:null, body:"department",
+    seat:"Administrative Services", metrics:[],
+    pool:["moderate","collegeEducated","businessClass","publicUnions"], foes:["libertarian","conservative"]},
+  odfw:{title:"Commissioner, Fish and Wildlife Commission", name:"Fish & Wildlife Commission", icon:"leaf", agency:null, body:"commission",
+    seat:"the Fish and Wildlife Commission", metrics:[],
+    pool:["rural","collegeEducated","moderate","urban"], foes:["timber","businessClass"]},
+  olcc:{title:"Commissioner, Liquor and Cannabis Commission", name:"Liquor & Cannabis Commission", icon:"cannabis", agency:null, body:"commission",
     seat:"the Liquor and Cannabis Commission", metrics:[],
     pool:["businessClass","moderate","rural","libertarian"], foes:["parents","conservative"]},
   lottery:{title:"Director, Oregon Lottery", name:"Oregon Lottery", icon:"coins", agency:null, body:"department",
@@ -5716,9 +5726,17 @@ const POLICY_DEPT={
   // the Liquor and Cannabis Commission
   cannabis:"olcc", cannabisTax:"olcc", liquorControl:"olcc", alcoholTax:"olcc",
   craftBevPromotion:"olcc",
-  // the K-12 department. Higher education is the HECC and is deliberately
-  // absent: universities, the colleges and Oregon Promise are not ODE's.
-  academicTracking:"ode", truancy:"ode", readingCurriculum:"ode",
+  // the K-12 department. Oregon Promise sits here rather than with the
+  // Higher Education Commission: it is a completion promise made to a
+  // school leaver and administered as the end of the K-12 pipeline.
+  academicTracking:"ode", truancy:"ode", readingCurriculum:"ode", oregonPromise:"ode",
+  // higher education
+  universities:"hecc", stateColleges:"hecc", communityColleges:"hecc", higherEd:"hecc",
+  // central administration
+  digitalGov:"das", adminSimplification:"das", outcomeContracting:"das",
+  civilServiceReform:"das", govOps:"das",
+  // fish and wildlife
+  wolfRecovery:"odfw", wildlifeManagement:"odfw",
   // the Health Authority runs the health programmes, the psilocybin
   // programme, the commitment standard and the facilities rules
   civilCommitment:"oha", psilocybin:"oha", safeConsumption:"oha",
@@ -9141,8 +9159,13 @@ const SITUATIONS={
     trigger:()=>{
       if(GAME.turn<=2)return false;
       const fired=GAME.laborFired=GAME.laborFired||{};
-      const rtw=!!(POLICIES.rightToWork&&POLICIES.rightToWork.enacted);
-      const ban=!!(POLICIES.collectiveBargaining&&POLICIES.collectiveBargaining.tierIndex===0);
+      // "You took on organized labor directly" is the first line of this
+      // card, so it has to have been you. An initiative the electorate
+      // passed over your objection does not bring them to the building.
+      const rtw=!!(POLICIES.rightToWork&&POLICIES.rightToWork.enacted)
+                && !enactedViaBallot("rightToWork");
+      const ban=!!(POLICIES.collectiveBargaining&&POLICIES.collectiveBargaining.tierIndex===0)
+                && !enactedViaBallot("collectiveBargaining");
       // one occupation per provocation; putting it back re-arms it
       if(!rtw)delete fired.rtw;
       if(!ban)delete fired.ban;
@@ -19180,7 +19203,7 @@ function resolveBallot(kind){
     const share=clamp(poll+noise,0.01,0.99);
     const passed=share>0.5;
     if(passed){
-      if(m.dir==="enact")_applyEnact(m.id, clamp(0.15+(share-0.5)*1.4, 0.15, 0.55));
+      if(m.dir==="enact")_applyEnact(m.id, clamp(0.15+(share-0.5)*1.4, 0.15, 0.55), "ballot");
       else if(m.dir==="set")_applySetMeasure(m.id,m.target);
       else {
         // a citizen repeal you campaigned FOR is yours to answer for like any
@@ -22095,8 +22118,13 @@ function wirePolSearch(){
 /* The mechanical half of enacting — moving the policy onto the board. Split
    out from enactPolicy so the ballot can call it when voters ratify an
    amendment, without charging capital a second time. */
-function _applyEnact(id, level){
+/* Did the voters do this, or did you? An occupation of the Capitol is a
+   response to a governor, and an initiative passed over your objection is
+   not your doing however much you end up owning it. */
+function enactedViaBallot(id){ return (GAME.enactedVia||{})[id]==="ballot"; }
+function _applyEnact(id, level, via){
   const src=CATALOG[id]; if(!src)return;
+  (GAME.enactedVia=GAME.enactedVia||{})[id]=via||"floor";
   const p=Object.assign({},src); delete p.enactCapital; p.enacted=true;
   p.eff=0;                       // effects phase in from zero
   // A policy the voters just passed is a mandate to DO the thing, not to
@@ -24728,7 +24756,7 @@ function bootWorld(startId){
   GAME.mandateShock=0; GAME.changeAppetite=0; GAME.uturnCount=0; GAME.protestCrackdowns=0;
   GAME.floorFail={}; GAME.enactedAt={}; GAME.senateClass=0; GAME.serviceDisrupt=0;
   GAME.pendingKicker=0; GAME.kickerStimulus=0; GAME.corpKickerToK12=0; GAME.apptDiscount={};
-  GAME.loggingLocked=null; GAME.agencyEventsDone={}; GAME.pendingSurplus=null; GAME.surplusPool=null; GAME.surplusOut=0; GAME.pendingSurplusBill=null; GAME.elliottResolved=false; GAME.sportsBook=null; GAME.dilemmaDone={}; GAME.offshoreLeased=false;
+  GAME.loggingLocked=null; GAME.agencyEventsDone={}; GAME.enactedVia={}; GAME.pendingSurplus=null; GAME.surplusPool=null; GAME.surplusOut=0; GAME.pendingSurplusBill=null; GAME.elliottResolved=false; GAME.sportsBook=null; GAME.dilemmaDone={}; GAME.offshoreLeased=false;
   GAME.legisElections=0;
   // ---- back to the authored data
   for(const k in METRICS){ METRICS[k].value=WORLD_SEED.m[k]; METRICS[k].calib=0; }
