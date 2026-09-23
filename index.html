@@ -5279,9 +5279,11 @@ const CATALOG={
   // Tiers, not a strength dial: the pension's new accrual reads the tier
   // (PERS_ACCRUAL), so each rung is a different reform, not a fraction of one.
   persReform:{name:"PERS Benefit Reform", domain:"economy", icon:"bank", mechanic:"tier", enabled:true,
-    desc:"Slow the growth of pension costs against the ~$27–28B unfunded liability. Moro v. State (2015) bars touching benefits already earned, so any reform only slows new accrual, and the unions will sue and sometimes win.\n\nContribution Redirect is the SB 1049 approach: part of each member's own retirement contribution goes to the pension fund, and the salary counted toward a pension is capped. It cuts new accrual by about a fifth and saves ~$150M/biennium near-term, because most savings only re-amortize the debt. Adding Defined Contribution for New Hires moves future employees to a 401(k)-style plan, which cuts new accrual by about 40% in all and draws the full weight of the unions.",
+    desc:"Slow the growth of pension costs against the ~$27–28B unfunded liability. Moro v. State (2015) bars touching benefits already earned, so any reform only slows new accrual, and the unions will sue and sometimes win.\n\nContribution Redirect is the SB 1049 approach: part of each member's own retirement contribution goes to the pension fund, and the salary counted toward a pension is capped. It cuts new accrual by about a fifth and pays ~$150M/biennium of member contributions into the pension fund, shrinking the hole and so the employer rate every agency pays. Adding Defined Contribution for New Hires moves future employees to a 401(k)-style plan, which cuts new accrual by about 40% in all and draws the full weight of the unions.",
     tiers:["No Reform","Contribution Redirect (SB 1049-style)","+ Defined Contribution for New Hires"],
-    tierIndex:0, costByTier:[0,-0.05,-0.08], capital:12, enactCapital:14,
+    // no General Fund line: the savings are paid into the pension fund
+    // (PERS_REDIRECT), and reach the budget through a lower employer rate
+    tierIndex:0, costByTier:[0,0,0], capital:12, enactCapital:14,
     effects:{}, tierEffects:[{},{},{}],
     tierBlocEffects:[{},
       {publicUnions:-10, socialist:-2, liberal:-2, moderate:1, businessClass:2, wealthy:2, conservative:2, libertarian:1},
@@ -10431,6 +10433,9 @@ function policyEnactCost(p){
 }
 /* PERS reform's tiers, as new service cost added each quarter. */
 const PERS_ACCRUAL=[0.28,0.22,0.16];
+/* Member contributions the reform redirects into the pension fund, $B a year:
+   about $150M a biennium, the SB 1049 figure, on either reform tier. */
+const PERS_REDIRECT=[0,0.075,0.075];
 function persReformLevel(){ const p=POLICIES.persReform; return (p&&p.enacted)?(p.tierIndex||0):0; }
 function policyNetCost(p){
   if(!p)return 0;
@@ -12156,7 +12161,8 @@ function tickEconomy(){
     const wave      = 0.28 + 0.72*Math.exp(-(GAME.turn||0)/46);   // 1.00 now → ~0.40 in 20 years
     GAME.persWave   = +wave.toFixed(3);
     const accrual   = PERS_ACCRUAL[persLvl]*wave;          // new service cost added each quarter, by reform tier
-    GAME.persUAL = +clamp(GAME.persUAL - invEffect + accrual, 3, 70).toFixed(3);
+    // and what the reform pays in comes straight off the hole
+    GAME.persUAL = +clamp(GAME.persUAL - invEffect + accrual - PERS_REDIRECT[persLvl]/4, 3, 70).toFixed(3);
     GAME.persMarketSwing = +(-invEffect*4).toFixed(2);       // annualized, − = fund gaining
     GAME.persRate = +clamp(5.26 + GAME.persUAL*0.075, 5.26, 11.5).toFixed(3);
   }
@@ -23708,8 +23714,12 @@ const FUNDS={
       const pr=persRisk(), assets=Math.max(30,130-(GAME.persUAL||28));
       // annualized, and from the same function the model ticks on
       const excess=persExcessQ()*4*assets;
-      return [{name:"Investment return above the 6.9% assumption", v:excess,
+      const rows=[{name:"Investment return above the 6.9% assumption", v:excess,
         note:"On about "+"$"+Math.round(assets)+"B of assets under a "+pr.label.toLowerCase()+" posture. Above the assumption the hole shrinks; below it, the hole grows."}];
+      const rd=PERS_REDIRECT[persReformLevel()];
+      if(rd>0)rows.push({name:"Member contributions redirected by PERS reform", v:rd,
+        note:"Part of each member's own retirement contribution, paid into the pension fund instead of their individual account."});
+      return rows;
     },
     note:"The employer rate is derived from this number, so paying the hole down cuts what every service pays, and letting it grow raises the bill on all of them at once."},
 
