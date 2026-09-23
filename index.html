@@ -149,7 +149,7 @@
   .hud .stat .label{font-size:10.5px;text-transform:var(--label-transform);letter-spacing:.05em;color:#c9d3d8;font-weight:700}
   .hud .stat .val{font-family:var(--font-data);font-size:17px;font-weight:600}
   .val.gold{color:var(--gold)} .val.blue{color:#9fc0e0}
-  .val.debt{color:#e59a8c} .val.ok{color:#93c98d}
+  .val.debt{color:#e59a8c} .val.ok{color:#93c98d} .val.warn{color:#e3c07a}
   /* term-progress bar tucked under the Turn / quarter readout in the topbar */
   .hud .stat-turn{min-width:152px}
   .hud .hud-termbar{position:relative;height:4px;background:rgba(255,255,255,.16);border-radius:var(--radius);margin-top:6px;overflow:hidden}
@@ -14833,6 +14833,14 @@ const SURPLUS_DEST={
         blocs:{moderate:5, businessClass:4, wealthy:2, retirees:2, socialist:-2}},
   // no shortfall entry: a surplus left alone pays it down first, for free
 };
+/* Reserves minus the shortfall: the state's fiscal position as one number.
+   The colour reads the shortfall too, because the Structural Deficit Crisis
+   is triggered by the shortfall alone, whatever the net. */
+function netReserves(){
+  const res=(GAME.rainyDay||0)+(GAME.eduStability||0), debt=GAME.structuralDebt||0;
+  return {res, debt, net:res-debt, tone: debt>0.005 ? (res-debt>=0 ? "warn" : "bad") : "good"};
+}
+function fmtSignedB(v,dp){ return (v<0?"\u2212$":"$")+Math.abs(v).toFixed(dp==null?1:dp)+"B"; }
 function surplusPoolAmount(){ return (GAME.surplusPool&&GAME.surplusPool.amount)||0; }
 function surplusNeedsVote(){ return !!(GAME.surplusPool&&GAME.surplusPool.kicker); }
 /* The price climbs with the share. Taking a refund off taxpayers costs far
@@ -24295,7 +24303,7 @@ function renderBudget(){
       <div class="mcard"><div class="mname">Revenue / Yr</div><div class="mval" style="color:var(--good)">$${b.revenue.toFixed(1)}B</div></div>
       <div class="mcard"><div class="mname">Spending / Yr</div><div class="mval" style="color:var(--clay)">$${b.spend.toFixed(1)}B</div></div>
       <div class="mcard"><div class="mname">Balance / Yr</div><div class="mval" style="color:${b.balance>=0?'var(--good)':'var(--bad)'}">${b.balance>=0?'+':''}$${b.balance.toFixed(1)}B</div></div>
-      <div class="mcard"><div class="mname">${debt>0.005?'Accumulated Shortfall':'Total Reserves'}</div><div class="mval" style="color:${debt>0.005?'var(--bad)':'var(--good)'}">${debt>0.005?'−$'+debt.toFixed(1)+'B':'$'+res.toFixed(1)+'B'}</div></div>
+      <div class="mcard"><div class="mname">Net Reserves</div><div class="mval" style="color:var(--${netReserves().tone})">${fmtSignedB(netReserves().net)}</div></div>
     </div>`;
     // The discretionary half, stated plainly. The headline totals above carry
     // the federal Medicaid match (earmarked in, straight back out) and the
@@ -24317,12 +24325,20 @@ function renderBudget(){
     h+=`<div class="fiscal-panel"><div class="fiscal-title">Fiscal Machinery</div>
       <div class="fnote" style="margin:-2px 0 12px">How the money moves between quarters. A shortfall hits <b>reserves</b> first, then becomes <b>structural debt</b>. Two pots are <b>dedicated to schools</b> and cannot be spent on anything else.</div>
       <div class="fiscal-grid">`;
-    // --- reserves cluster ---
+    // --- reserves and the shortfall: one position, both parts shown ---
     {
-      const totRes=(GAME.rainyDay||0)+(GAME.eduStability||0);
-      const trCol=totRes>2?'var(--good)':totRes>0.6?'var(--warn)':'var(--bad)';
-      h+=`<div class="fcard"><div class="fname">${ico('bank')} Total Reserves</div><div class="fval" style="color:${trCol}">$${totRes.toFixed(2)}B</div>
-        <div class="fnote">The cushion a deficit hits before it turns into debt. The Rainy Day Fund and the Education Stability Fund, added together.</div></div>`;
+      const N=netReserves(), thr=fiscalCrisisThreshold(), ds=GAME.deficitStreak||0;
+      const row=(k,v,c)=>`<div class="prop-row"><span class="prop-k">${k}</span><span class="prop-v" style="${c?'color:'+c:''}">${v}</span></div>`;
+      h+=`<div class="fcard"${N.debt>thr*0.5?' style="border-left-color:var(--clay)"':''}><div class="fname">${ico('bank')} Net Reserves</div>
+        <div class="fval" style="color:var(--${N.tone})">${fmtSignedB(N.net,2)}</div>
+        <div class="prop-facts" style="margin:6px 0">
+          ${row('Rainy Day','$'+(GAME.rainyDay||0).toFixed(2)+'B')}
+          ${row('Schools','$'+(GAME.eduStability||0).toFixed(2)+'B')}
+          ${row('Shortfall',N.debt>0.005?'\u2212$'+N.debt.toFixed(2)+'B':'none','var(--'+(N.debt>0.005?'bad':'muted-2')+')')}
+        </div>
+        <div class="fnote">A deficit is met from the Rainy Day Fund first. Once that is empty the gap is carried as shortfall, and every surplus pays it down first. The schools reserve is the Education Stability Fund, which cushions school cuts but cannot close the general gap.${N.debt>0.005
+          ? ` A <b>Structural Deficit Crisis</b> starts if the shortfall passes <b>\u2212$${thr.toFixed(2)}B</b> or after four straight deficit quarters${ds?` (now <b>${ds}</b>)`:''}.${(GAME.rainyDay||0)>0.3?' A deliberate draw on the Rainy Day Fund can pay it down.':''}`
+          : ''}</div>${N.debt>0.005?`<button class="fcard-btn" data-fund="debt">${ico('wrench')} Shortfall \u2192</button>`:''}</div>`;
     }
     {
       const cd=GAME.turn-(GAME.lastReserveDraw??-99);
@@ -24345,19 +24361,6 @@ function renderBudget(){
     h+=`<div class="fcard"><div class="fname">${ico('cap')} Education Stability Fund</div><div class="fval">$${GAME.eduStability.toFixed(2)}B</div>
       <div class="fnote">IN: ${(LOTTERY_ESF_SHARE*100).toFixed(0)}% of net lottery proceeds, constitutionally dedicated — <b>$${((GAME.esfLottoIn||0)*1000).toFixed(0)}M/yr</b>${GAME.eduStability>=+(budgetBalance().spend*0.055).toFixed(2)?' (at the cap, so the dedication is idle)':''} — plus 40% of any surplus that escapes the kicker. Capped near 5.5% of the budget.
       OUT: one purpose. When a deficit drains the Rainy Day Fund and forces a cut, this absorbs up to <b>85%</b> of the hit to schools. Nothing else, and never on your say-so.</div><button class="fcard-btn" data-fund="esf">${ico('wrench')} Manage →</button></div>`;
-    // --- shortfall / crisis ---
-    {
-      const debt=GAME.structuralDebt||0, ds=GAME.deficitStreak||0;
-      const thr=fiscalCrisisThreshold();
-      const dCol=debt>thr?'var(--bad)':debt>thr*0.5?'var(--warn)':'#8a8270';
-      const near=debt>0.005||ds>0;
-      h+=`<div class="fcard"${debt>thr*0.5?' style="border-left-color:var(--clay)"':''}><div class="fname">${ico('warning')} Accumulated Shortfall</div>
-        <div class="fval" style="color:${dCol}">${debt>0.005?'−$'+debt.toFixed(2)+'B':'$0.00B'}</div>
-        <div class="fnote">${near
-          ? `Deficits carried past an exhausted Rainy Day Fund${ds?` — <b>${ds}</b> consecutive deficit ${ds===1?'quarter':'quarters'}`:''}. Every surplus pays this down first.`
-          : `Nothing carried — every quarter's gap has been met by revenue or the Rainy Day Fund.`}
-          A <b>Structural Deficit Crisis</b> triggers past <b>−$${thr.toFixed(2)}B</b> (≈0.26% of the state's $${Math.round((METRICS.gspLevel?METRICS.gspLevel.value:305))}B GDP — the bar rises as the economy grows) or four straight deficit quarters. ${(near&&GAME.rainyDay>0.3)?'Draw on the Rainy Day Fund above to pay it down.':''}</div><button class="fcard-btn" data-fund="debt">${ico('wrench')} Manage →</button></div>`;
-    }
     // PERS belongs with the funds — it has a page and a portfolio control.
     {
       const ual=GAME.persUAL||28, funded=clamp((130-ual)/130,0,1);
@@ -24558,17 +24561,12 @@ function renderHUD(){
   // fiscal position: the accumulated shortfall if we're carrying one, otherwise total reserves
   {
     const fEl=document.getElementById("hudFiscal"), flEl=document.getElementById("hudFiscalLabel");
-    const debt=GAME.structuralDebt||0;
+    const N=netReserves();
     if(fEl&&flEl){
-      if(debt>0.005){
-        flEl.textContent="Structural Debt";
-        fEl.textContent="−$"+debt.toFixed(1)+"B";
-        fEl.className="val debt";
-      } else {
-        flEl.textContent="Reserves";
-        fEl.textContent="$"+((GAME.rainyDay||0)+(GAME.eduStability||0)).toFixed(1)+"B";
-        fEl.className="val ok";
-      }
+      flEl.textContent="Net Reserves";
+      fEl.textContent=fmtSignedB(N.net);
+      fEl.className="val "+(N.tone==="good"?"ok":N.tone==="warn"?"warn":"debt");
+      fEl.title="Reserves $"+N.res.toFixed(2)+"B, shortfall $"+N.debt.toFixed(2)+"B";
     }
   }
   // term-progress bar under the Turn readout
