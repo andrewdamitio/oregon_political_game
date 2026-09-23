@@ -1297,6 +1297,12 @@
     padding:1px 6px;line-height:1.5}
   .camptab.on .ct-badge{background:var(--gold);color:var(--ink)}
 
+  .meas-group{margin-top:14px}
+  .meas-group>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:6px 0;font-family:var(--font-display);font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink);border-bottom:1px solid var(--line);margin-bottom:10px}
+  .meas-group>summary::-webkit-details-marker{display:none}
+  .meas-group .mg-caret{display:inline-block;transition:transform var(--motion-fast)}
+  .meas-group[open] .mg-caret{transform:rotate(90deg)}
+  .meas-group .mg-count{font-family:var(--font-data);font-size:12px;padding:1px 7px;border-radius:var(--radius);background:var(--paper-2);border:1px solid var(--line);letter-spacing:0}
   .meascard{border:var(--rule) solid var(--ink);background:var(--paper-2);
     box-shadow:4px 4px 0 var(--shadow-hard);padding:13px 15px;margin-top:13px}
   /* a citizen initiative reads as somebody else's business landing on your desk */
@@ -20042,7 +20048,15 @@ function ballotCampaignHTML(){
   }
   const CATS=[["ideology","Ideology"],["region","Region"],["income","Income"],["housing","Housing"],
               ["lifestage","Life stage"],["sector","Work & lifestyle"],["universal","Everyone"]];
-  for(const m of pend){
+  const _groups=[
+    ["mine","Your ballot measures",pend.filter(m=>m.source!=="citizen"),"Nothing you have referred is on this ballot."],
+    ["citizen","Citizen initiatives",pend.filter(m=>m.source==="citizen"),"No citizen initiative has qualified for this ballot."]];
+  const _gOpen=GAME.ballotGroupOpen=GAME.ballotGroupOpen||{};
+  for(const [gk,gl,gm,gnone] of (pend.length?_groups:[])){
+  h+=`<details class="meas-group" data-measgroup="${gk}"${_gOpen[gk]===false?"":" open"}>
+    <summary><span class="mg-caret">\u25b8</span> ${gl} <span class="mg-count">${gm.length}</span></summary>`;
+  if(!gm.length)h+=`<div class="ebnote" style="margin:4px 0 10px">${gnone}</div>`;
+  for(const m of gm){
     const citizen=m.source==="citizen";
     const bd=measureBreakdown(m), poll=bd.yes, pct=Math.round(poll*100);
     const lead=poll>=0.5;
@@ -20143,6 +20157,8 @@ function ballotCampaignHTML(){
     }
     h+=`</div></div>`;   /* close .meas-body and .meascard */
   }
+  h+=`</details>`;
+  }
   if(hist.length){
     h+=`<div class="camp-sec" style="margin-top:18px">${ico('doc')} Past measures</div><div class="ebgroup" style="margin-top:8px">`;
     for(const r of hist.slice(-8).reverse())
@@ -20224,6 +20240,8 @@ function wireCampHQ(root){
   }));
   wireForecast(root);
   root.querySelectorAll('[data-measbloc]').forEach(el=>el.addEventListener('click',()=>campMeasureBloc(el.dataset.measbloc, el.dataset.sid)));
+  root.querySelectorAll('[data-measgroup]').forEach(el=>el.addEventListener('toggle',()=>{
+    (GAME.ballotGroupOpen=GAME.ballotGroupOpen||{})[el.dataset.measgroup]=el.open; }));
   root.querySelectorAll('[data-meastoggle]').forEach(el=>{
     const tog=()=>{ const m=pendingMeasure(el.dataset.meastoggle); if(!m)return; m._open=(m._open===false); campRedraw(); };
     el.addEventListener('click',tog);
