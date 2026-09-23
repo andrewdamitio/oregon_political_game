@@ -9711,9 +9711,11 @@ const SITUATIONS={
     moodMag:2, moodAxes:{economic:0.1},
     groupMood:{businessClass:-8, motorists:-5, rural:-4, suburban:-3, moderate:-3, homeowners:-2, blueCollar:-2}},
   surplusFight:{name:"The Fight Over the Surplus", kind:"bad", category:"condition",
-    desc:"Three quarters closed in the black and the money is still sitting there, which means it now belongs to whoever wins the argument about it. The caucus that wants it returned has the simplest case and makes it loudest — it is their money, the state took too much, give it back. The advocates have a decade of deferred maintenance, waitlists and cost-of-living asks and cannot believe you would refund a surplus while any of it stands. Your own budget office wants it banked before the next downturn erases it.\n\nNothing about this is a crisis, and that is exactly what makes it dangerous: a surplus you refuse to spend, refund or bank is read by everyone as a surplus you are hoarding, and the tax-grievance case writes itself while you deliberate. Tax cuts get materially easier to pass on the floor while it runs.\n\n→ To end it: put the money somewhere. Cut a tax, fund the capital and service backlog, or take the surplus dilemma when it comes.",
-    trigger:()=>GAME.turn>5 && (GAME.surplusStreak||0)>=3 && GAME.lastBalance>0.5,
-    clear:()=>GAME.lastBalance<0.2 || (GAME.surplusStreak||0)<2,
+    desc:"With the kicker reformed, three quarters closed in the black and the money is still sitting there, so it now belongs to whoever wins the argument about it. The caucus that wants it returned has the simplest case and makes it loudest — it is their money, the state took too much, give it back. The advocates have a decade of deferred maintenance, waitlists and cost-of-living asks and cannot believe you would refund a surplus while any of it stands. Your own budget office wants it banked before the next downturn erases it.\n\nNothing about this is a crisis, and that is exactly what makes it dangerous: a surplus you refuse to spend, refund or bank is read by everyone as a surplus you are hoarding, and the tax-grievance case writes itself while you deliberate. Tax cuts get materially easier to pass on the floor while it runs.\n\n→ To end it: put the money somewhere. Cut a tax, fund the capital and service backlog, or take the surplus dilemma when it comes.",
+    // only once the kicker is reformed: while it is law, the surplus goes back
+    // to taxpayers on its own and there is nothing left to fight over
+    trigger:()=>!!POLICIES.kickerReform && GAME.turn>5 && (GAME.surplusStreak||0)>=3 && GAME.lastBalance>0.5,
+    clear:()=>!POLICIES.kickerReform || GAME.lastBalance<0.2 || (GAME.surplusStreak||0)<2,
     watch:{metric:"balance", startAt:0.5, clearAt:0.2, badHigh:true},
     minTurns:2, capitalDrain:-1,
     metricEffect:{},
@@ -9978,10 +9980,12 @@ function _sitAge(sid){ return (GAME.situationAge&&GAME.situationAge[sid])||0; }
   };
 
   S.surplusFight.feeds=()=>({
-    begin:[[ fc("Three straight quarters of surplus", (GAME.surplusStreak||0)+" in a row", (GAME.surplusStreak||0)>=3, "budget"),
+    begin:[[ fc("The kicker has been reformed, so a surplus stays with the state", POLICIES.kickerReform?"reformed":"in force", !!POLICIES.kickerReform, "p_kickerReform"),
+             fc("Three straight quarters of surplus", (GAME.surplusStreak||0)+" in a row", (GAME.surplusStreak||0)>=3, "budget"),
              fc("A surplus above $0.5B", "$"+(GAME.lastBalance||0).toFixed(2)+"B", (GAME.lastBalance||0)>0.5, "budget") ]],
     end:[[ fc("The surplus falls under $0.2B", "$"+(GAME.lastBalance||0).toFixed(2)+"B", (GAME.lastBalance||0)<0.2, "budget") ],
-         [ fc("The run of surpluses breaks", (GAME.surplusStreak||0)+" in a row", (GAME.surplusStreak||0)<2, "budget") ]]});
+         [ fc("The run of surpluses breaks", (GAME.surplusStreak||0)+" in a row", (GAME.surplusStreak||0)<2, "budget") ],
+         [ fc("The kicker is restored, and the surplus goes back to taxpayers", POLICIES.kickerReform?"reformed":"in force", !POLICIES.kickerReform, "p_kickerReform") ]]});
 
   S.kickerPayout.feeds=()=>({
     begin:[[ fc("A surplus above $2.2B", "$"+(GAME.lastBalance||0).toFixed(2)+"B", (GAME.lastBalance||0)>2.2, "budget"),
@@ -23925,14 +23929,15 @@ function apptTileEffect(id, trait){
   if(T.capital)bits.push(apptSigned(T.capital)+" capital a quarter");
   return bits.join(" \u00b7 ");
 }
-/* The things that want a decision from you, and only those. */
+/* The things that want a decision from you, and only those: empty chairs. */
 function apptNeeds(){
   const out=[];
   for(const id in APPT_POSTS){
     const post=APPT_POSTS[id], h=apptHolder(id);
     if(!h){ out.push({id, text:`<b>${post.name}${post.benchSeat?" ("+post.benchSeat+")":""}</b> is empty. Policy there lands at ${Math.round((1+APPT_VACANT_EFF)*100)}%.`, act:"Choose a nominee"}); continue; }
-    const left=apptTermLeft(id);
-    if(left!=null&&left<=2)out.push({id, text:`${h.name}'s term at <b>${post.name}</b> ends ${left===0?"this quarter":"in "+left+" quarter"+(left===1?"":"s")}.`, act:"Open"});
+    // an ending term is not listed: nothing can be done about it, the chair
+    // empties on its own and appears here as a vacancy then, and the tile's
+    // term bar already turns gold in its last two quarters
   }
   return out;
 }
