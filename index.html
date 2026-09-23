@@ -4384,6 +4384,11 @@ const POLICIES={
   cannabis:{name:"Cannabis Program (Measure 91)", domain:"economy", icon:"cannabis", enacted:true, mechanic:"tier", noRepeal:true,
     desc:"Oregon legalized recreational cannabis in 2014. Choose the access tier: full prohibition, home cultivation only, medical dispensaries, or full recreational retail. Higher tiers generate tax revenue and shrink the illicit market but raise public-health and youth-access concerns.",
     tiers:["Prohibited","Home Growing Only","Medical Dispensaries","Recreational Dispensaries"],
+    // the ladder has a direction and it was not written down: prohibition is
+    // the authoritarian end, retail the liberal one, and a tier move cannot
+    // be aimed without this
+    tierIdeology:[{social:0.70,govSize:0.30},{social:0.25,govSize:0.10},
+                  {social:-0.10},{social:-0.45,economic:0.10}],
     tierIndex:3, capital:6,
     costByTier:[0, 0, 0, 0],
     tierEffects:[
@@ -5950,18 +5955,25 @@ function apptProposalPick(){
     // share one bench and decide as a body, so a policy tagged to any of
     // them belongs to all three.
     const myBench=apptBenchOf(id);
-    const sameBench=k=>CATALOG[k]._dept&&apptBenchOf(CATALOG[k]._dept)===myBench;
-    let cands=Object.keys(CATALOG).filter(k=>open(k)&&sameBench(k));
-    if(!cands.length)cands=Object.keys(CATALOG).filter(k=>{
-      if(!open(k))return false;
-      // and never something another department is named as running
-      if(CATALOG[k]._dept&&!sameBench(k))return false;
-      const e=CATALOG[k].effects||{};
-      return mine.some(m=>e[m]!==undefined);
-    });
-    if(!cands.length)continue;
-    const pick=cands[Math.floor(Math.random()*cands.length)];
-    bestW=w; best={post:id, holder:h, trait:t, policy:pick};
+    const sameBench=k=>(CATALOG[k]||POLICIES[k]||{})._dept
+      && apptBenchOf((CATALOG[k]||POLICIES[k])._dept)===myBench;
+    const lean=apptLean(h);
+    // WHAT THIS PERSON WOULD ACTUALLY ARGUE FOR. A commissioner out of the
+    // timber industry does not arrive with an environmental programme.
+    const wants=pol=>Math.abs(lean)<0.3 || billPush(pol,"enact")*lean>0.05;
+    const opts=[];
+    for(const k of Object.keys(CATALOG))
+      if(open(k)&&sameBench(k)&&wants(CATALOG[k]))opts.push({kind:"enact", policy:k});
+    // and moving something the department already runs is a proposal too,
+    // which is most of what a director actually brings you
+    for(const k of Object.keys(POLICIES)){
+      if(!sameBench(k))continue;
+      const adj=apptAdjustFor(POLICIES[k], lean);
+      if(adj)opts.push({kind:"adjust", policy:k, adj});
+    }
+    if(!opts.length)continue;
+    const pick=opts[Math.floor(Math.random()*opts.length)];
+    bestW=w; best=Object.assign({post:id, holder:h, trait:t}, pick);
   }
   return best;
 }
@@ -6333,6 +6345,49 @@ const AGENCY_EVENTS={
        }}
     ]}
 };
+/* Which way an appointee leans, from the group they were drawn out of.
+   Negative is left, the same convention billPush uses. */
+function apptLean(h){ return (h&&h.group) ? apptBlocLean(h.group) : 0; }
+/* The ideological direction of a policy AT a setting. A tier policy carries
+   its ideology per tier rather than on the policy, which is why billPush
+   reads zero for every one of them. */
+function policyPushAt(p, idx){
+  if(p&&p.mechanic==="tier"&&p.tierIdeology){
+    const io=p.tierIdeology[idx]||{};
+    return (io.economic||0)+(io.social||0)+(io.environment||0)*0.6+(io.govSize||0)*0.7;
+  }
+  return billPush(p,"enact");
+}
+/* THE CHANGE THIS PERSON WOULD ARGUE FOR on something their department
+   already runs, or null if there is nothing they would move. A tier goes to
+   whichever setting within a couple of steps sits furthest in their
+   direction; a dial goes up if the programme pushes their way and down if
+   it does not. */
+function apptAdjustFor(p, lean){
+  if(!p||Math.abs(lean)<0.3)return null;
+  if(p.mechanic==="tier"&&Array.isArray(p.tiers)&&p.tierIdeology){
+    const cur=p.tierIndex||0;
+    let best=null, bestScore=policyPushAt(p,cur)*lean;
+    for(let i=Math.max(0,cur-2);i<=Math.min(p.tiers.length-1,cur+2);i++){
+      if(i===cur)continue;
+      const sc=policyPushAt(p,i)*lean;
+      if(sc>bestScore+0.05){ bestScore=sc; best=i; }
+    }
+    return best==null?null:{kind:"tier", target:best, label:p.tiers[best], from:p.tiers[cur]};
+  }
+  if(p.mechanic==="slider"||p.mechanic==="intensity"){
+    const cur=(p.mechanic==="intensity")?(p.intensity||0):(p.value||0);
+    const push=billPush(p,"enact");
+    if(Math.abs(push)<0.15)return null;
+    const up=(push*lean)>0;
+    if(up&&cur>0.92)return null;
+    if(!up&&cur<0.08)return null;
+    const target=clamp(cur+(up?0.25:-0.25),0,1);
+    return {kind:"level", target, up,
+      label:Math.round(target*100)+"%", from:Math.round(cur*100)+"%"};
+  }
+  return null;
+}
 /* Which written event, if any, is live: a chair that is filled, by the kind
    of person the event is about, who has been there long enough to have done
    the work, and which has not already happened this run. */
@@ -7241,30 +7296,57 @@ const DILEMMAS={
     }))},
   /* ---- APPOINTMENTS: a director brings you something ---- */
   apptProposal:{title:"Your Director Has Brought You Something", icon:"doc", cooldown:8,
-    onFire:(ctx)=>{ const p=apptProposalPick(); if(p){ ctx.ppost=p.post; ctx.pname=p.holder.name; ctx.ptrait=p.holder.trait; ctx.ppolicy=p.policy; } },
+    onFire:(ctx)=>{ const p=apptProposalPick(); if(!p)return;
+      ctx.ppost=p.post; ctx.pname=p.holder.name; ctx.ptrait=p.holder.trait;
+      ctx.ppolicy=p.policy; ctx.pkind=p.kind; ctx.padj=p.adj||null; },
     text:()=>{
       const c=GAME.dilemmaCtx||{};
-      if(!c.ppost||!APPT_POSTS[c.ppost]||!c.ppolicy||!CATALOG[c.ppolicy])return "";
-      const post=APPT_POSTS[c.ppost], pol=CATALOG[c.ppolicy];
+      if(!c.ppost||!APPT_POSTS[c.ppost]||!c.ppolicy)return "";
+      const adjusting=c.pkind==="adjust";
+      const pol=adjusting?POLICIES[c.ppolicy]:CATALOG[c.ppolicy];
+      if(!pol)return "";
+      const post=APPT_POSTS[c.ppost];
       const how = c.ptrait==="reformer"
         ? "They have a drafted bill, a fiscal note, and the names of the two legislators who will carry it."
         : c.ptrait==="insider"
         ? "They have been carrying this one around for about nine years, through three governors who did not want it, and they have every objection to it already answered in the margins."
         : "They brought it up at the end, almost as an afterthought, having clearly rehearsed the afterthought.";
+      const what = adjusting
+        ? "The proposal is not a bill. It is <b>"+pol.name+"</b>, which they already run, moved from <b>"
+          +(c.padj?c.padj.from:"where it sits")+"</b> to <b>"+(c.padj?c.padj.label:"somewhere else")+"</b>."
+        : "The proposal is <b>"+pol.name+"</b>.";
+      const cost = adjusting
+        ? "A department can move its own settings a great deal more cheaply than you can move them from outside, because the people who would have to administer the change are the ones asking for it and nobody inside will be briefing against it. What it costs you is that it is now your decision and not theirs, and the groups who liked it where it was will know exactly whose idea it was."
+        : "What a director actually buys you here is the groundwork. The drafting is done, the agency is already behind it, and the people who would have to implement it helped write it, so it reaches the floor for materially less than the same idea costs from a standing start. What it costs you is that you did not choose it, and once you have taken a department's bill to the legislature you own it.";
       return how+"\n\n"
         +(c.pname||"Your director")+" runs "+post.name+", which means they spend their week inside the problem this is aimed at. "
-        +"The proposal is <b>"+pol.name+"</b>.\n\n"
-        +"What a director actually buys you here is the groundwork. The drafting is done, the agency is already behind it, and the people who would have to implement it helped write it, so it reaches the floor for materially less than the same idea costs from a standing start. What it costs you is that you did not choose it, and once you have taken a department's bill to the legislature you own it.";
+        +what+"\n\n"+cost;
     },
     influence:()=>{
       const p=apptProposalPick(); if(!p)return -1;
       return clamp((p.trait.brings||0.3)*0.55,0.06,0.78);
     },
     options:[
-      {label:"Take it to the floor",
-       text:"You put the department's bill in front of the legislature with your name on it. It goes to a vote like anything else, at the discount their groundwork earned.",
+      {label:()=>((GAME.dilemmaCtx||{}).pkind==="adjust")?"Tell them to go ahead":"Take it to the floor",
+       text:()=>((GAME.dilemmaCtx||{}).pkind==="adjust")
+         ? "You tell them to do it. The change is made inside the department this quarter, which is what makes it cheap, and it is yours from the moment it is announced."
+         : "You put the department's bill in front of the legislature with your name on it. It goes to a vote like anything else, at the discount their groundwork earned.",
        apply:()=>{
          const c=GAME.dilemmaCtx||{};
+         if(c.pkind==="adjust"){
+           const p=POLICIES[c.ppolicy], a=c.padj;
+           if(!p||!a)return;
+           // a department moving its own setting is a fraction of what the
+           // same move costs a governor reaching in from outside
+           const cost=Math.max(2,Math.round((p.capital||6)*0.45));
+           GAME.capital=clamp(GAME.capital-cost,0,100);
+           if(a.kind==="tier")p.tierIndex=a.target;
+           else if(p.mechanic==="intensity")p.intensity=a.target;
+           else p.value=a.target;
+           GAME.log.push(ico('doc')+" "+(c.pname||"Your director")+" moved "+p.name
+             +" to "+a.label+" \u2014 \u25c8 "+cost);
+           return;
+         }
          if(!c.ppolicy||!CATALOG[c.ppolicy])return;
          // the discount is real and it is theirs: it rides on the policy so the
          // floor screen and the catalog both price it the same way
@@ -7273,7 +7355,7 @@ const DILEMMAS={
          GAME.log.push(ico('doc')+" "+(c.pname||"Your director")+" brought you "+CATALOG[c.ppolicy].name
            +" \u2014 it is in New Policies at "+Math.round(APPT_PROPOSAL_DISCOUNT*100)+"% of the usual capital");
        }},
-      {label:"Thank them and leave it in the drawer",
+      {label:()=>((GAME.dilemmaCtx||{}).pkind==="adjust")?"Tell them to leave it alone":"Thank them and leave it in the drawer",
        text:"You tell them it is good work and that this is not the quarter. It is not the quarter, and they have heard that before from people who meant it and from people who did not. Nothing is spent and nothing is gained, except that the person running that department now knows where they stand with you.",
        apply:()=>{
          const c=GAME.dilemmaCtx||{};
