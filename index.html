@@ -408,6 +408,8 @@
   .at-bar{flex:1 1 40px;max-width:70px;height:4px;background:var(--line);border-radius:2px;overflow:hidden}
   .at-bar i{display:block;height:100%;background:var(--slate-blue)}
   .at-term{font-size:11.5px;color:var(--muted-2);font-family:var(--font-data)}
+  .at-fx{font-size:12px;line-height:1.35;color:var(--muted-1)}
+  .at-fx .amult{font-size:13px;margin-right:2px}
   .at-cta{font-size:12.5px;font-weight:600;color:var(--ink)}
   .atag{font-size:10.5px;padding:1px 6px;border-radius:var(--radius);border:1px solid var(--line);color:var(--muted-1);white-space:nowrap}
   .atag.clay{background:var(--clay);border-color:var(--clay);color:var(--paper)}
@@ -23844,13 +23846,6 @@ const APPT_TRAIT_LOOK={
   safePick:{col:"var(--muted-2)", short:"Easy to confirm, changes nothing, never in the news."}
 };
 function apptLook(t){ return APPT_TRAIT_LOOK[t]||APPT_TRAIT_LOOK.safePick; }
-function apptInitials(name){
-  const p=String(name||"?").trim().split(/\s+/);
-  return ((p[0]||"?")[0]+(p.length>1?p[p.length-1][0]:"")).toUpperCase();
-}
-function apptAvatar(name, trait, big){
-  return `<span class="aav${big?" big":""}" style="background:${apptLook(trait).col}">${apptInitials(name)}</span>`;
-}
 // what one chair is worth on its own: the person in it, not the bench average
 function apptChairMult(id){
   if(apptVacant(id))return 1+APPT_VACANT_EFF;
@@ -23864,9 +23859,22 @@ function apptSigned(v,dp){ return (v>0?"+":v<0?"−":"")+Math.abs(v).toFixed(dp=
 function apptSideTag(h){
   if(!h)return "";
   if(h.side==="opposition")return `<span class="atag clay">⇄ cross-aisle</span>`;
-  if(h.side==="sitting")return `<span class="atag">inherited</span>`;
+  // from whom: on the Republican start every one of them is the other party's
+  if(h.side==="sitting")return `<span class="atag">Inherited from ${GAME.startId==="conservative"?"Democratic ":""}predecessor</span>`;
   if(h.side==="partner")return `<span class="atag gold">${prParty(h.party).short}</span>`;
   return "";
+}
+/* What the person in a chair is doing, short enough for a tile: what it
+   lands on and what it costs. The panel carries the full version. */
+function apptTileEffect(id, trait){
+  const post=APPT_POSTS[id], T=APPT_TRAITS[trait]||APPT_TRAITS.safePick;
+  const pct=Math.round(apptEffFor(id)*100);
+  const names=(post.metrics||[]).filter(k=>METRICS[k]).map(k=>METRICS[k].name);
+  const what=names.length ? names.slice(0,2).join(", ")+(names.length>2?` +${names.length-2} more`:"") : "the programmes it runs";
+  const bits=[(pct>=0?"+":"\u2212")+Math.abs(pct)+"% on "+what];
+  if(T.overhead)bits.push(apptSigned(T.overhead)+" overhead");
+  if(T.capital)bits.push(apptSigned(T.capital)+" capital a quarter");
+  return bits.join(" \u00b7 ");
 }
 /* The things that want a decision from you, and only those. */
 function apptNeeds(){
@@ -23886,20 +23894,22 @@ function apptTileHTML(id){
   if(!h){
     return `<button class="atile vacant" data-apptopen="${id}">
       <div class="at-head">${head}</div>
-      <div class="at-who"><span class="aav empty">?</span><span class="at-name">Vacant</span></div>
-      <div class="at-row"><span class="at-trait">Deputy holding</span>${apptMultHTML(1+APPT_VACANT_EFF)}</div>
+      <div class="at-who"><span class="at-name">Vacant</span></div>
+      <div class="at-row"><span class="at-trait">A deputy is holding it</span></div>
+      <div class="at-fx">${apptMultHTML(1+APPT_VACANT_EFF)} Policy here lands at ${Math.round((1+APPT_VACANT_EFF)*100)}% until someone is confirmed</div>
       <div class="at-foot"><span class="at-cta">Choose a nominee ▸</span></div></button>`;
   }
   const T=APPT_TRAITS[h.trait]||APPT_TRAITS.safePick;
   const left=apptTermLeft(id), settling=apptSettlingLeft(id);
   const fresh=(h.since===GAME.turn&&h.side!=="sitting")?" fresh":"";
   const bar=left==null?`<span class="at-term">no fixed term</span>`
-    :`<span class="at-bar"><i style="width:${Math.round(clamp(left/20,0,1)*100)}%;${left<=2?"background:var(--gold)":""}"></i></span><span class="at-term">${left}q left</span>`;
-  return `<button class="atile${fresh}" data-apptopen="${id}">
+    :`<span class="at-bar"><i style="width:${Math.round(clamp(left/20,0,1)*100)}%;${left<=2?"background:var(--gold)":""}"></i></span><span class="at-term">${left}Q left</span>`;
+  return `<button class="atile${fresh}" data-apptopen="${id}" style="border-left-color:${apptLook(h.trait).col}">
     <div class="at-head">${head}</div>
-    <div class="at-who">${apptAvatar(h.name,h.trait)}<span class="at-name">${h.name}</span></div>
-    <div class="at-row"><span class="at-trait">${ico(T.icon)} ${T.label}</span>${apptMultHTML(apptChairMult(id))}</div>
-    <div class="at-foot">${bar}${apptSideTag(h)}${settling?`<span class="atag clay">settling ${settling}q</span>`:""}</div></button>`;
+    <div class="at-who"><span class="at-name">${h.name}</span></div>
+    <div class="at-row"><span class="at-trait">${ico(T.icon)} ${T.label}</span></div>
+    <div class="at-fx">${apptMultHTML(apptChairMult(id))} ${apptTileEffect(id,h.trait)}</div>
+    <div class="at-foot">${bar}${apptSideTag(h)}${settling?`<span class="atag clay">Reorganizing ${settling}Q</span>`:""}</div></button>`;
 }
 /* What a chair actually runs: its programmes, its budget line, its statistics. */
 function apptRunsHTML(id){
@@ -23926,7 +23936,7 @@ function apptCompareHTML(id){
   const cell=(on,html)=>`<td${on?' class="best"':""}>${html}</td>`;
   const chamber=cols.length?cols[0].w.chamberName.replace("the ","").replace(/^./,x=>x.toUpperCase()):"Senate";
   let h=`<div class="acmp-wrap"><table class="acmp"><thead><tr><th></th>`;
-  cols.forEach(x=>{ h+=`<th>${apptAvatar(x.c.name,x.c.trait,true)}<div class="acmp-name">${x.c.name}</div></th>`; });
+  cols.forEach(x=>{ h+=`<th style="border-top:3px solid ${apptLook(x.c.trait).col}"><div class="acmp-name">${x.c.name}</div></th>`; });
   h+=`</tr></thead><tbody>`;
   h+=`<tr><th>Trait</th>`+cols.map(x=>`<td title="${String(x.T.blurb||"").replace(/"/g,"&quot;")}">${ico(x.T.icon)} ${x.T.label}</td>`).join("")+`</tr>`;
   h+=`<tr><th>From</th>`+cols.map(x=>`<td>${x.c.side==="opposition"?'<span class="atag clay">⇄ other party</span>':x.c.side==="incumbent"?`<span class="atag">reappoint, ${x.c.served||0}q</span>`:"your party"}</td>`).join("")+`</tr>`;
@@ -23951,26 +23961,27 @@ function openApptPanel(id){
     <div class="prop-kicker">${ico(post.icon)} ${apptPostLabel(id)}</div>`;
   if(h){
     const T=APPT_TRAITS[h.trait]||APPT_TRAITS.safePick, left=apptTermLeft(id), settling=apptSettlingLeft(id);
-    x+=`<h2 class="prop-who">${apptAvatar(h.name,h.trait,true)} ${h.name} ${apptTraitChip(h.trait)} ${apptSideTag(h)}</h2>
+    x+=`<h2 class="prop-who">${h.name} ${apptTraitChip(h.trait)} ${apptSideTag(h)}</h2>
       <div class="dilemma-text">${T.blurb||""}</div>
       <div class="ebgroup prop-facts">
         <div class="prop-row"><span class="prop-k">Delivery</span><span class="prop-v">${apptMultHTML(apptChairMult(id))} ${apptEffectLine(id,h.trait,true)}</span></div>
         <div class="prop-row"><span class="prop-k">Interests</span><span class="prop-v">${apptGroupLine(h)||"—"}</span></div>
-        <div class="prop-row"><span class="prop-k">Tenure</span><span class="prop-v">${post.body==="commission"&&!POLICIES.cabinetGovernment?`A fixed term on the ${post.seat}. You cannot cut it short.`:"Serves at your pleasure."}${left!=null?` ${left} quarter${left===1?"":"s"} left.`:""}${settling?` Settling in: weaker for ${settling} more quarter${settling===1?"":"s"}.`:""}</span></div>
+        <div class="prop-row"><span class="prop-k">Tenure</span><span class="prop-v">${post.body==="commission"&&!POLICIES.cabinetGovernment?`A fixed term on the ${post.seat}. You cannot cut it short.`:"Serves at your pleasure."}${left!=null?` ${left} quarter${left===1?"":"s"} left.`:""}${settling?` <b style="color:var(--clay)">Weaker for ${settling} more quarter${settling===1?"":"s"}</b> while they reorganize the department, then ${apptMultHTML(clamp(1+(T.eff||0)+cabinetBonus(),APPT_MULT_MIN,APPT_MULT_MAX))}.`:""}</span></div>
       </div>`;
     x+=apptRunsHTML(id);
     const canRm=apptCanRemove(id), rmCost=apptRemoveCost(id);
-    if(canRm)x+=`<div class="apanel-act"><button class="fcard-btn danger" data-apptrm="${id}" ${(GAME.capital>=rmCost||window.SANDBOX)?"":"disabled"}>${rmCost?`◈${rmCost} `:""}Remove</button><span class="acmp-key">The chair falls vacant and a slate of three is drawn.</span></div>`;
+    x+=`<div class="apanel-act"><button class="fcard-btn" data-apptclose>Keep</button>`+(canRm?`<button class="fcard-btn danger" data-apptrm="${id}" ${(GAME.capital>=rmCost||window.SANDBOX)?"":"disabled"}>${rmCost?`◈${rmCost} `:""}Remove</button><span class="acmp-key">The chair falls vacant and a slate of three is drawn.</span>`:`<span class="acmp-key">A fixed term: they stay until it ends.</span>`)+`</div>`;
   } else {
     x+=`<h2 class="prop-who">Vacant</h2>
       <div class="dilemma-text">Deputy <b>${apptDeputy(id)||"—"}</b> keeps it running and adds nothing. Until somebody is confirmed, policy here lands at <b>${Math.round((1+APPT_VACANT_EFF)*100)}%</b>, overhead is up ${APPT_VACANT_OVERHEAD.toFixed(1)}, and it costs ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter.</div>`;
     x+=`<div class="ebgroup-label">The nominees</div>`+apptCompareHTML(id);
     x+=apptRunsHTML(id);
+    x+=`<div class="apanel-act"><button class="fcard-btn" data-apptclose>Not now</button></div>`;
   }
   card.innerHTML=x;
   modal.classList.remove("hidden");
   const close=()=>{ modal.classList.add("hidden"); if(window._apKey){ document.removeEventListener("keydown",window._apKey,true); window._apKey=null; } };
-  card.querySelector('[data-apptclose]').addEventListener('click',close);
+  card.querySelectorAll('[data-apptclose]').forEach(b=>b.addEventListener('click',close));
   modal.onclick=e=>{ if(e.target===modal)close(); };
   if(window._apKey)document.removeEventListener("keydown",window._apKey,true);
   window._apKey=e=>{ if(e.key==="Escape"){ e.preventDefault(); close(); } };
@@ -24025,7 +24036,7 @@ function renderAppointments(){
   // the reference material, folded away
   h+=`<details class="ahow"><summary>What the traits mean</summary><div class="ahow-body">`+
     Object.keys(APPT_TRAITS).map(t=>{ const T=APPT_TRAITS[t];
-      return `<div class="atrait">${apptAvatar(T.label,t)}<div><b>${ico(T.icon)} ${T.label}</b> <span class="acmp-note">×${(1+(T.eff||0)).toFixed(2)} · capital ${apptSigned(T.capital||0)}/q · overhead ${apptSigned(T.overhead||0)}</span><div>${apptLook(t).short}</div></div></div>`;
+      return `<div class="atrait" style="border-left:3px solid ${apptLook(t).col};padding-left:10px"><div><b>${ico(T.icon)} ${T.label}</b> <span class="acmp-note">×${(1+(T.eff||0)).toFixed(2)} · capital ${apptSigned(T.capital||0)}/q · overhead ${apptSigned(T.overhead||0)}</span><div>${apptLook(t).short}</div></div></div>`;
     }).join("")+`</div></details>`;
   h+=`<details class="ahow"><summary>How appointments work</summary><div class="ahow-body">
     <p>Every appointee brings a trait, which sets how their department runs, and an interest group that stays pleased for as long as they hold the post.${apptInheritedLine()}</p>
