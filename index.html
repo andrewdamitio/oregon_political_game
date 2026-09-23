@@ -3946,6 +3946,10 @@ const SECTION_OF={
   drugPossession:"laworder", sanctuaryRepeal:"laworder", parentalRights:"pubservices", policeShield:"laworder", spendingCap:"taxes",
   occupationalLicensing:"economy", civilServiceReform:"pubservices", certificateOfNeedRepeal:"health", prevailingWageRepeal:"economy",
   localPreemption:"economy", truthInSentencing:"laworder", electionAdmin:"pubservices", assetForfeiture:"laworder",
+  // how Oregon is governed sits with the other democracy reforms, not
+  // wherever the domain fallback happened to guess
+  propRep:"pubservices", cabinetGovernment:"pubservices", termLimitRepeal:"pubservices",
+  ohpCoverage:"health",
 };
 function sectionFor(id){
   if(SECTION_OF[id])return SECTION_OF[id];
@@ -7359,7 +7363,7 @@ const DILEMMAS={
        }}
     ]},
   /* ---- APPOINTMENTS: a department acts on its own authority ---- */
-  agencyInitiative:{title:"A Department Has Gone Ahead Without You", icon:"warning", cooldown:7,
+  agencyInitiative:{title:"A Department Has Gone Ahead Without You", icon:"warning", cooldown:8,
     onFire:(ctx)=>{ const p=agencyEventPick(); if(p){ ctx.agKey=p.key; ctx.agName=p.holder.name; } },
     text:()=>{
       const c=GAME.dilemmaCtx||{};
@@ -7367,7 +7371,7 @@ const DILEMMAS={
       const h=apptHolder(E.post); if(!h)return "";
       try{ return E.text(h); }catch(e){ return ""; }
     },
-    influence:()=>{ const p=agencyEventPick(); return p?0.62:-1; },
+    influence:()=>{ const p=agencyEventPick(); return p?0.57:-1; },
     options:[0,1,2].map(i=>({
       label:(()=>{ const c=GAME.dilemmaCtx||{}; const E=c.agKey?AGENCY_EVENTS[c.agKey]:null;
                    return (E&&E.options[i])?E.options[i].label:""; }),
@@ -7718,7 +7722,12 @@ const DILEMMAS={
     influence:()=>{
       const climate=clamp((INDICATORS.businessClimate.value-25)/35,0,1);
       const strict=POLICIES.dataCenterEnergy?policyLevel(POLICIES.dataCenterEnergy):0;
-      return 0.28 + climate*0.22 + (GAME.activeSituations.techBoom?0.15:0) - strict*0.25;
+      // AND THE APPLICATIONS PILE UP. Every quarter nobody answers one, the
+      // next is more certain to land on your desk; a strict framework is
+      // what thins the pile, because it is what makes them apply elsewhere.
+      const since=GAME.turn-(GAME.dilemmaCooldown.dataCenter??0);
+      const backlog=clamp((since-4)*0.02,0,0.28)*(1-strict*0.6);
+      return 0.28 + climate*0.22 + backlog + (GAME.activeSituations.techBoom?0.15:0) - strict*0.25;
     },
     options:[
       {label:"Approve the deal", text:"The data center is approved.",
