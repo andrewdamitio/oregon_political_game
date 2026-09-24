@@ -1090,6 +1090,12 @@
   .opp-issue:last-child{border-bottom:none}
   .opp-issue b{flex:0 0 170px;font-weight:600}
   .opp-net{border-top:1px solid var(--line);margin-top:4px;padding-top:6px}
+  .prv{margin:8px 0 10px}
+  .prv-h{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted-3);font-weight:600;margin-bottom:5px}
+  .prv-opt{all:unset;box-sizing:border-box;display:block;width:100%;cursor:pointer;border:1px solid var(--line);padding:7px 10px;margin:5px 0;font-size:13px;color:var(--muted-1);background:var(--paper)}
+  .prv-opt b{display:block;color:var(--ink);font-weight:600;margin-bottom:2px}
+  .prv-opt.on{border-color:var(--moss);box-shadow:inset 3px 0 0 var(--moss)}
+  .prv-opt:hover{border-color:var(--muted-2)}
   .eo-sec{font-family:var(--font-display);font-weight:500;font-size:15px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink);margin:22px 0 4px;padding-bottom:5px;border-bottom:1px solid var(--ink)}
   .eo-area{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-3);font-weight:600;margin:16px 0 6px}
   .eo-card{border:1px solid var(--line);background:var(--paper-2);padding:12px 14px;margin:8px 0}
@@ -2247,6 +2253,7 @@
 <div id="termLimitModal" class="modal hidden" style="z-index:65"><div class="card" id="termLimitCard" style="max-width:460px"></div></div>
 <div id="ballotNoticeModal" class="modal hidden" style="z-index:65"><div class="card" id="ballotNoticeCard" style="max-width:540px"></div></div>
 <div id="nomineeModal" class="modal hidden" style="z-index:65"><div class="card" id="nomineeCard" style="max-width:540px"></div></div>
+<div id="noGovModal" class="modal hidden" style="z-index:80"><div class="card" id="noGovCard" style="max-width:540px"></div></div>
 <div id="floorModal" class="modal hidden" style="z-index:66"><div class="card" id="floorCard" style="max-width:680px"></div></div>
 <div id="voteResultModal" class="modal hidden" style="z-index:67"><div class="card" id="voteResultCard" style="max-width:520px"></div></div>
 <div id="sandboxExitModal" class="modal hidden" style="z-index:82"><div class="card" id="sandboxExitCard" style="max-width:480px"></div></div>
@@ -5360,7 +5367,7 @@ const CATALOG={
     blocEffect:{renters:4, urban:4, businessClass:3, blueCollar:3, liberal:2, wealthy:-1},
     ideology:{economic:-0.2,govSize:-0.2}},
   propRep:{name:"Proportional Representation", domain:"social", icon:"columns", mechanic:"law", reform:true, noRepeal:true,
-    desc:"Abolish the House and the Senate and replace them with one 100-member chamber elected statewide by party vote share, with a 4% threshold for seats.\n\nSingle-member districts produce two parties, because a vote for anyone else is wasted. Without districts, 5% of the vote is five seats instead of none. The Working Families and Constitution votes each become a bench, and the moderate middle gets a party of its own that takes enough from both sides to hold the balance.\n\nNo party will hold 51 seats alone again. Every bill needs a coalition, and the centre bench has no party discipline: it votes on the bill in front of it. Something defensible passes with votes from three parties. Something ideological dies in the middle.\n\nThis cannot be undone. The parties it creates will not vote to abolish themselves.",
+    desc:"Abolish the House and the Senate and replace them with one 100-member chamber elected statewide by party vote share, with a 4% threshold for seats. You choose, when you refer it, whether the governor is still elected separately or chosen by the new Assembly.\n\nSingle-member districts produce two parties, because a vote for anyone else is wasted. Without districts, 5% of the vote is five seats instead of none. The Working Families and Constitution votes each become a bench, and the moderate middle gets a party of its own that takes enough from both sides to hold the balance.\n\nNo party will hold 51 seats alone again. Every bill needs a coalition, and the centre bench has no party discipline: it votes on the bill in front of it. Something defensible passes with votes from three parties. Something ideological dies in the middle.\n\nThis cannot be undone. The parties it creates will not vote to abolish themselves.",
     enabled:true, capital:16, enactCapital:18,
     effects:{}, indicatorEffects:{localAutonomy:-4},
     blocEffect:{socialist:9, libertarian:9, moderate:6, collegeEducated:4, students:3, urban:2,
@@ -11845,7 +11852,7 @@ function tickOpposition(){
   o.barb = oppositionBarb();
 }
 function oppositionBarb(){
-  const o=GAME.opposition, m=o.momentum, nm=o.name;
+  const o=GAME.opposition, m=o.momentum, nm=oppLeaderName();
   const debt=(GAME.structuralDebt||0), t=agendaRightwardShift();
   const bank=[];
   if(m<24) bank.push(`With your numbers holding, ${nm}'s bench looks thin — no serious challenger has stepped up.`);
@@ -11887,7 +11894,12 @@ const CHAL_ROLES={
          fire:["a Portland tenant organizer on the city council","a union organizer from Eugene","a climate campaigner in the state house"]}
 };
 // the other party's side of the compass: +1 right, -1 left
-function chalSide(){ return GAME.startId==="conservative" ? -1 : 1; }
+function chalSide(){
+  // under PR the field comes from the largest opposition party, on its side
+  const id=(typeof prOppPartyId==="function")?prOppPartyId():null;
+  if(id&&Math.abs(prParty(id).z)>0.3)return prParty(id).z>0?-1:1;
+  return GAME.startId==="conservative" ? -1 : 1;
+}
 function chalInto(){ return GAME.turn-(GAME.term-1)*GAME.termLengthTurns; }
 function chalPts(m){ const r=Math.max(1,Math.round(m)); return r+" point"+(r===1?"":"s"); }
 function chalPick(a){ return a[Math.floor(Math.random()*a.length)]; }
@@ -11958,6 +11970,7 @@ function chalLikability(c,bruise){
 /* Every quarter: form the field after the midterm, move support, hold the
    primary on its date. */
 function tickChallenger(){
+  if(prParliament()){ GAME.challenger=null; return; }   // no governor's race: the Assembly chooses
   const into=chalInto();
   if(into<CHAL_FIELD_AT){ if(GAME.challenger&&GAME.challenger.term!==GAME.term)GAME.challenger=null; return; }
   const fresh=!GAME.challenger||GAME.challenger.term!==GAME.term;
@@ -11982,6 +11995,7 @@ function chalVoterPull(v,c){
 const CHAL_LIKE_PTS=0.04;   // share moved by likability at either extreme
 /* One line on Your re-election pointing at the full picture. */
 function challengerPointerHTML(){
+  if(prParliament())return `<div class="opp-pointer">${ico('columns')} There is no governor's race: the Assembly elected at the general chooses the governor. Your party must finish in the top two and build a government of ${LEGIS.majH}.</div>`;
   const C=GAME.challenger&&GAME.challenger.term===GAME.term?GAME.challenger:null, opp=oppPartyName();
   const who=C&&C.nominee!=null?`Your opponent is <b>${C.field[C.nominee].name}</b>, ${C.field[C.nominee].role} (${CHAL_STYLES[C.field[C.nominee].style].label.toLowerCase()}).`
     :C?`The ${opp} primary is under way.`:`The ${opp} field forms after the midterm.`;
@@ -12047,7 +12061,7 @@ function oppositionTabHTML(){
   const frac=clamp((m-30)/70,0,1), capM=oppositionCapitalMult();
   let h=`<div class="camp-sec">${ico('warning')} ${prOn()?"The opposition in the Assembly":`The ${opp} opposition`}</div>`;
   if(prOn())h+=prPartiesHTML();
-  h+=`<div class="opp-head"><div><div class="opp-k">${prOn()?`Leading the ${opp} Party`:"Led in the legislature by"}</div><div class="opp-v">${o.name}</div></div>`
+  h+=`<div class="opp-head"><div><div class="opp-k">${prOn()?`Largest opposition party: ${opp}`:"Led in the legislature by"}</div><div class="opp-v">${oppLeaderName()}</div></div>`
     +`<div class="opp-mom"><div class="opp-k">Momentum</div><div class="opp-v" style="color:${col}">${Math.round(m)} <span>${lvl}</span></div>`
     +`<div class="opp-bar"><i style="width:${clamp(m,0,100)}%;background:${col}"></i><b style="left:60%"></b></div>`
     +`<div class="opp-k">${Math.abs(d)>=0.1?sg(d)+" last quarter":"unchanged last quarter"}</div></div></div>`;
@@ -12073,7 +12087,7 @@ function oppositionTabHTML(){
   h+=`<div class="rsection"><div class="rsec-h">Organising against you</div>`
     +(against.length?against.map(a=>`<div class="rrow"><span class="rlabel">${a.label}</span><span class="rval">${a.turnsLeft} quarter${a.turnsLeft===1?"":"s"} left</span></div>`).join("")
       :`<div class="sectionsub" style="margin:0">No group is mobilised against you. Groups organise in reaction to what you enact.</div>`)+`</div>`;
-  return h+challengerHTML();
+  return h+(prParliament()?"":challengerHTML());
 }
 /* The challenger panel, on The opposition tab. */
 function challengerHTML(){
@@ -12104,7 +12118,7 @@ function challengerHTML(){
   } else {
     const c=challengerForElection(), pts=(50-c.like)/50*CHAL_LIKE_PTS*100;
     h+=`<div class="sectionsub" style="margin-top:0">${c.name} is the ${opp} nominee. `
-      +(c.style==="fire"?"Against a hardliner, centrist voters lean your way.":c.style==="mod"?"A moderate competes for the middle, so centrists will not break your way.":"A mainstream nominee: the middle is open to both of you.")
+      +(c.style==="fire"?"Against a hardliner, centrist voters lean your way.":c.style==="mod"?"A moderate will contest the middle with you, so centrists are up for grabs.":"A mainstream nominee: the middle is open to both of you.")
       +` Their likability is worth <b>${sg(pts)} points</b> to you on election night.</div>`;
   }
   return h+`<div class="chal-grid">`+C.field.map(card).join("")+`</div>`;
@@ -13203,12 +13217,27 @@ function drawCoalExit(){
     +'<div class="ausr-arrow">\u2192</div>'
     +'<div><span>It is now</span><b style="color:var(--clay)">'+now+' / '+PR_SEATS+'</b></div></div>'
     +'<div class="lg-verdict '+st.tier+'" style="margin:12px 0"><b>'+st.label+'.</b> '+st.note+'</div>'
-    +'<div class="fnote">There is no second negotiation with them this parliament — a party that has walked out once does not come back to the same agreement. '
+    +'<div class="fnote">'+(prParliament()&&now<LEGIS.majH?'Under a legislatively elected governor a government without a majority has fallen. You must build a new one from the parties still at the table, or the Assembly will choose someone else. ':'')+'There is no second negotiation with them this parliament — a party that has walked out once does not come back to the same agreement. '
     +'What is left is whoever else is in the chamber, and whether any of them want something you can still afford to give.</div>'
     +'<button class="enactbtn" id="coalExitOk" style="margin-top:12px">Carry on \u25b8</button>';
   modal.classList.remove("hidden");
   const go=document.getElementById("coalExitOk");
-  if(go)go.onclick=()=>{ GAME.pendingCoalExit=null; modal.classList.add("hidden"); try{render();}catch(e){} };
+  if(go)go.onclick=()=>{
+    GAME.pendingCoalExit=null; modal.classList.add("hidden");
+    // under a legislatively elected governor a government without a majority
+    // has fallen: rebuild one from whoever is left, or the Assembly replaces you
+    if(prParliament()&&coalitionSeats(false)<LEGIS.majH){
+      GAME._coalWalked=((GAME.coalition&&GAME.coalition.walked)||[]).slice();
+      GAME.coalition=null; GAME.coalPick=null; GAME.coalOffer=null;
+      GAME._coalMust=true;
+      drawCoalition(()=>{ GAME._coalMust=false;
+        if(coalitionSeats(false)>=LEGIS.majH){ GAME.log.push(ico('handshake')+" A new government is formed"); render(); }
+        else showNoGovernment("noMajority",{my:((GAME.legis&&GAME.legis.prCounts)||{})[prMyParty()]||0});
+      });
+      return;
+    }
+    try{render();}catch(e){}
+  };
 }
 /* The negotiation. You are shown every party that is not yours, what it
    would bring, and what it would charge, and you build 51 out of it. */
@@ -13220,7 +13249,8 @@ function drawCoalition(next){
   if(!prOn()||!GAME.legis||!GAME.legis.prCounts){ GAME.pendingCoalition=null; if(next)next(); return; }
   if(next!==undefined)GAME._coalNext=next;
   if(!GAME.coalPick)GAME.coalPick=[];
-  GAME.coalPick=GAME.coalPick.filter(coalitionWillTalk);
+  const walkedOut=GAME._coalWalked||[];
+  GAME.coalPick=GAME.coalPick.filter(p=>coalitionWillTalk(p)&&walkedOut.indexOf(p)<0);
   const c=(GAME.legis&&GAME.legis.prCounts)||{};
   const mine=prMyParty(), own=c[mine]||0;
   // only a party that has said yes brings its seats
@@ -13235,13 +13265,19 @@ function drawCoalition(next){
   for(const p of PR_PARTIES){
     if(p.id===mine)continue;
     const nS=c[p.id]||0; if(!nS)continue;
-    const on=GAME.coalPick.indexOf(p.id)>=0, talks=coalitionWillTalk(p.id), tr=Math.round(partyTrust(p.id));
+    const on=GAME.coalPick.indexOf(p.id)>=0, talks=coalitionWillTalk(p.id)&&walkedOut.indexOf(p.id)<0, tr=Math.round(partyTrust(p.id));
     const ids=coalOfferIds(p.id), S=coalSupport(p.id,ids,GAME.coalPick);
+    // the last party outside the government stays there
+    const lastOut=!on&&GAME.coalPick.length+1>=prOtherSeated().length;
     const head='<div class="coal-h"'+(talks?' data-coal="'+p.id+'"':'')+'><span class="coal-sw" style="background:'+p.col+'"></span>'
       +'<span class="coal-n">'+p.name+'</span><span class="coal-s">'+nS+' seats</span>'
-      +'<span class="coal-btn">'+(!talks?"Won't talk":on?(S.agree?"Agreed ✓":"Invited"):"Invite")+'</span></div>';
+      +'<span class="coal-btn">'+(!talks?"Won't talk":on?(S.agree?"Agreed ✓":"Invited"):lastOut?"Must stay in opposition":"Invite")+'</span></div>';
     if(!talks){
-      rows+='<div class="coal-p refuse">'+head+'<div class="coal-trust no">Their voters give you <b>'+tr+'%</b>. Below '+COAL_REFUSE_TRUST+'% they will not talk to you.</div></div>';
+      rows+='<div class="coal-p refuse">'+head+'<div class="coal-trust no">'+(walkedOut.indexOf(p.id)>=0?'They walked out of your government this parliament and will not come back.':'Their voters give you <b>'+tr+'%</b>. Below '+COAL_REFUSE_TRUST+'% they will not talk to you.')+'</div></div>';
+      continue;
+    }
+    if(!on&&lastOut){
+      rows+='<div class="coal-p refuse">'+head+'<div class="coal-trust">One party must stay in opposition, and with everyone else invited this is it.</div></div>';
       continue;
     }
     if(!on){
@@ -13286,10 +13322,12 @@ function drawCoalition(next){
     // The button sits with the tally it depends on, above the benches.
     +'<button class="enactbtn" id="coalGo" style="margin-top:10px">'
       +(have?('Form a government with '+(agreeing.length?agreeing.map(p=>prParty(p).short).join(" and "):"nobody")+(bonus?' (◈'+bonus+')':'')+' ▸')
-           :'Govern as a minority ▸')+'</button>'
+           :(GAME._coalMust?'Concede: no government can be formed ▸':'Govern as a minority ▸'))+'</button>'
     +(holdouts.length?'<div class="fnote" style="margin-top:6px;color:var(--clay)">'+holdouts.map(p=>prParty(p).short).join(" and ")
       +(holdouts.length===1?" has not agreed, so its seats do not count yet.":" have not agreed, so their seats do not count yet.")+'</div>':'')
-    +(have?'':'<div class="fnote" style="margin-top:6px;color:var(--clay)">You can refuse to deal. A minority governor keeps the veto and the executive order and passes almost nothing else.</div>')
+    +(have?'':(GAME._coalMust
+      ? '<div class="fnote" style="margin-top:6px;color:var(--clay)">The Assembly chooses the governor. Without a government of '+LEGIS.majH+' your governorship ends.</div>'
+      : '<div class="fnote" style="margin-top:6px;color:var(--clay)">You can refuse to deal. A minority governor keeps the veto and the executive order and passes almost nothing else.</div>'))
     +'<div class="fnote" style="margin:12px 0 2px">Invite a party, then build its offer. Each promise adds support, and a party signs once support reaches zero with its red line included. '
     +'Every promise except a payment up front is a standing condition, checked each quarter for the rest of the term. Keep them and partners whip their benches and pay you capital. '
     +'Break them and the partnership sours until they leave, with no second negotiation before the next election. A pledged law has a deadline, and missing it counts double.</div>'
@@ -13299,7 +13337,10 @@ function drawCoalition(next){
   card.querySelectorAll('[data-coal]').forEach(el=>el.addEventListener('click',e=>{
     const id=e.currentTarget.dataset.coal;
     const i=GAME.coalPick.indexOf(id);
-    if(i>=0)GAME.coalPick.splice(i,1); else GAME.coalPick.push(id);
+    if(i>=0)GAME.coalPick.splice(i,1);
+    // one party must stay in opposition
+    else if(GAME.coalPick.length+1<prOtherSeated().length)GAME.coalPick.push(id);
+    else return;
     drawCoalition();
   }));
   card.querySelectorAll('[data-coalitem]').forEach(el=>el.addEventListener('click',e=>{
@@ -13319,7 +13360,7 @@ function drawCoalition(next){
   }));
   const go=document.getElementById("coalGo");
   if(go)go.onclick=()=>{
-    formCoalition(have?agreeing:[], GAME.coalOffer);
+    formCoalition(have?agreeing:[], GAME.coalOffer, GAME._coalWalked);
     GAME.coalPick=null; GAME.coalOffer=null;
     modal.classList.add("hidden");
     render();
@@ -16737,7 +16778,7 @@ function showNominee(next){
   const pts=(50-ce.like)/50*CHAL_LIKE_PTS*100;
   const qLeft=Math.max(1,(GAME.termLengthTurns-1)-chalInto());
   const pos=c.style==="fire"?"A hardliner, well out from the centre. Centrist voters will lean your way."
-    :c.style==="mod"?"A moderate who will compete for the middle. Centrist voters will not break your way."
+    :c.style==="mod"?"A moderate who will contest the middle with you. Centrist voters are up for grabs."
     :"Mainstream for their party. The middle is open to both of you.";
   card.innerHTML=`<div class="sectionhdr">${ico('people')} ${c.name} Wins the ${opp} Primary</div>`
     +`<div class="sectionsub">${c.name}, ${c.role}, is the ${opp} nominee for governor. They beat ${runner?runner.name+" ("+CHAL_STYLES[runner.style].label.toLowerCase()+")":"the field"} by ${chalPts(C.margin)}${C.bruise?", and the fight left them bruised":""}. The election is ${qLeft} quarter${qLeft===1?"":"s"} away.</div>`
@@ -16963,6 +17004,85 @@ function fmtB(v,dp,plus){
   return (neg?"−":(plus?"+":""))+"$"+a+"B";
 }
 function prOn(){ return !!GAME.prMode; }
+/* Under a legislatively elected governor: after an Assembly election, is
+   your party in the top two, and can you build a majority? onGovern runs
+   when you can; otherwise the governorship ends. */
+function parliamentCheck(onGovern){
+  GAME.parlCheckPending=false;
+  const c=(GAME.legis&&GAME.legis.prCounts)||{}, mine=prMyParty(), my=c[mine]||0;
+  const ahead=Object.keys(c).filter(p=>p!==mine&&(c[p]||0)>my).sort((a,b)=>c[b]-c[a]);
+  if(ahead.length>=2)return showNoGovernment("third",{my, ahead});
+  GAME.pendingCoalition=null;
+  if(my>=LEGIS.majH){ GAME.log.push(ico('columns')+" The Assembly elects you governor: your party holds a majority on its own"); onGovern(); return; }
+  GAME._coalMust=true;
+  drawCoalition(()=>{
+    GAME._coalMust=false;
+    if(coalitionSeats(false)>=LEGIS.majH){ GAME.log.push(ico('columns')+" The Assembly elects you governor at the head of a coalition"); onGovern(); }
+    else showNoGovernment("noMajority",{my});
+  });
+}
+/* The governorship ends because the Assembly will not seat you. */
+function showNoGovernment(why,d){
+  const card=document.getElementById("noGovCard"), modal=document.getElementById("noGovModal");
+  const me=prParty(prMyParty()), c=(GAME.legis&&GAME.legis.prCounts)||{};
+  if(window.SANDBOX){ GAME.log.push(ico('warning')+" No government could be formed. Outside the sandbox, the Assembly would choose another governor"); render(); return; }
+  GAME.gameOver=true;
+  const place=["first","second","third","fourth","fifth"][(d.ahead||[]).length]||"last";
+  const head=why==="third"?`The ${me.name} Party Came ${place.replace(/^./,x=>x.toUpperCase())}`:"No Government Can Be Formed";
+  const body=why==="third"
+    ? `Under a legislatively elected governor the Assembly chooses the governor, and only one of the two largest parties can build a government. Your party holds <b>${d.my}</b> seats, behind ${d.ahead.slice(0,2).map(p=>`${prParty(p).name} with <b>${c[p]}</b>`).join(" and ")}. The Assembly has chosen someone else, and your governorship ends.`
+    : `Under a legislatively elected governor you must command a majority of the Assembly. Your party holds <b>${d.my}</b> seats and no combination of partners would take you to ${LEGIS.majH}. The Assembly has chosen someone else, and your governorship ends.`;
+  card.innerHTML=`<div class="sectionhdr">${ico('ban')} ${head}</div><div class="sectionsub">${body}</div>`
+    +`<button class="enactbtn" id="noGovOk" style="margin-top:12px">Start a new game ▸</button>`;
+  modal.classList.remove("hidden");
+  document.getElementById("noGovOk").onclick=()=>{ try{ localStorage.setItem("sc_freshGame","1"); }catch(e){} location.href=location.origin+location.pathname; };
+}
+/* A new term, begun by the Assembly rather than by a statewide vote. */
+function parliamentBeginTerm(){
+  GAME.term++; GAME.capital=clamp(GAME.capital+15,0,100); GAME.log.push("★ Term "+GAME.term+" begins");
+  GAME.skipReport=false; GAME.skipCampaign=false;
+  GAME.campaign={effort:{},promises:[],pool:10}; GAME._platformDraft=[]; GAME.countyCamp={};
+  render(); showPlatformModal();
+}
+/* Election night with no governor's race: the Assembly result, then the check. */
+function showAssemblyNight(legis){
+  const card=document.getElementById("electionCard"), modal=document.getElementById("electionModal");
+  const c=GAME.legis.prCounts||{}, mine=prMyParty(), my=c[mine]||0;
+  const rank=1+Object.keys(c).filter(p=>p!==mine&&(c[p]||0)>my).length;
+  const yr=GAME.startYear+GAME.term*4;
+  const verdict=rank>2?`Your party came ${["","first","second","third","fourth","fifth"][rank]||"last"}. Only the two largest can form a government.`
+    :my>=LEGIS.majH?`A majority of your own: ${my} of ${PR_SEATS}. The Assembly will elect you governor.`
+    :`Your party came ${rank===1?"first":"second"} with ${my} seats. To stay governor you must build a government of ${LEGIS.majH}.`;
+  card.innerHTML=`<div class="egrand"><div class="eg-kicker">ASSEMBLY ELECTION · ${yr} · STATE OF OREGON</div>`
+    +`<div class="eg-result ${rank<=2?"win":"lose"}">${rank>2?"OUT":my>=LEGIS.majH?"MAJORITY":"NO MAJORITY"}</div><div class="wm-rule"></div>`
+    +`<div class="eg-sub" style="font-size:17px">${verdict}</div>`
+    +`<div class="eg-sub" style="font-size:13.5px;color:var(--muted-2)">Under a legislatively elected governor there is no governor's race: the Assembly chooses.</div>`
+    +`<div style="text-align:left;margin-top:12px">${prChamberHTML()}</div>`
+    +`<button id="electionContinue" class="enactbtn">${rank>2?"Continue ▸":my>=LEGIS.majH?"Begin next term ▸":"Form a government ▸"}</button></div>`;
+  modal.classList.remove("hidden"); modal.classList.add("grand");
+  document.getElementById("electionContinue").onclick=()=>{
+    modal.classList.add("hidden"); modal.classList.remove("grand");
+    GAME.coalition=null;
+    parliamentCheck(parliamentBeginTerm);
+  };
+}
+/* Which proportional system: "independent" (the governor is elected on their
+   own) or "parliament" (the Assembly chooses the governor). */
+function prParliament(){ return prOn()&&GAME.prGovMode==="parliament"; }
+const PR_VARIANTS={
+  independent:{label:"Independently elected governor",
+    note:"You are still elected statewide on your own ballot line. If coalition talks fail you can govern as a minority."},
+  parliament:{label:"Legislatively elected governor",
+    note:"There is no governor's race. After each Assembly election your party must be one of the two largest and you must build a government of 51, a coalition if you need one. If you cannot, the Assembly chooses someone else and your governorship ends."}
+};
+/* The choice on the Proportional Representation card. */
+function prVariantPickHTML(){
+  const cur=GAME.prVariantDraft||"independent";
+  return `<div class="prv"><div class="prv-h">How is the governor chosen?</div>`
+    +Object.keys(PR_VARIANTS).map(k=>`<button class="prv-opt${k===cur?" on":""}" onclick="setPrVariant('${k}')"><b>${PR_VARIANTS[k].label}</b><span>${PR_VARIANTS[k].note}</span></button>`).join("")
+    +`</div>`;
+}
+function setPrVariant(v){ if(PR_VARIANTS[v]){ GAME.prVariantDraft=v; renderInPlace(); } }
 /* Where a bill has to carry, named for the system in force. Under
    proportional representation the House and the Senate no longer exist. */
 function floorPlace(){ return prOn() ? "the Assembly" : "both chambers"; }
@@ -16972,7 +17092,29 @@ function prMyParty(){ return GAME.startId==="conservative" ? "gop" : "dem"; }
 /* Who you are and who is across from you, by name. The same two strings the
    PR party table uses, so a run reads the same under either system. */
 function myPartyName(){ return GAME.startId==="conservative" ? "Republican" : "Democratic"; }
-function oppPartyName(){ return GAME.startId==="conservative" ? "Democratic" : "Republican"; }
+/* Under proportional representation the opposition is the largest party
+   with seats that is neither yours nor in your government. */
+function prOppPartyId(){
+  if(!prOn()||!GAME.legis||!GAME.legis.prCounts)return null;
+  const c=GAME.legis.prCounts, gov=new Set([prMyParty()].concat(coalitionPartners()));
+  return Object.keys(c).filter(p=>!gov.has(p)&&(c[p]||0)>0).sort((a,b)=>c[b]-c[a])[0]||null;
+}
+function oppPartyName(){
+  const id=prOppPartyId(); if(id)return prParty(id).name;
+  return GAME.startId==="conservative" ? "Democratic" : "Republican";
+}
+/* Who leads the opposition: under PR the largest opposition party's leader,
+   a fixed name per party; otherwise the minority leader. */
+function oppLeaderName(){
+  const id=prOppPartyId();
+  if(id){ const i=PR_PARTIES.findIndex(p=>p.id===id); return prParty(id).name+" leader "+APPT_FIRST[(i*5+2)%APPT_FIRST.length]+" "+APPT_LAST[(i*3+7)%APPT_LAST.length]; }
+  return (GAME.opposition&&GAME.opposition.name)||"the opposition leader";
+}
+/* Parties with seats that are not yours: the ones a government can draw on. */
+function prOtherSeated(){
+  const c=(GAME.legis&&GAME.legis.prCounts)||{}, mine=prMyParty();
+  return Object.keys(c).filter(p=>p!==mine&&(c[p]||0)>0);
+}
 function myPartyPlural(){ return GAME.startId==="conservative" ? "Republicans" : "Democrats"; }
 function oppPartyPlural(){ return GAME.startId==="conservative" ? "Democrats" : "Republicans"; }
 /* Where a voter sits on the seat lean scale. econ and social are the same
@@ -17566,7 +17708,7 @@ function coalitionSeatIds(){
   return out;
 }
 /* Sign the agreement: record what every promise was measured against. */
-function formCoalition(partners,offers){
+function formCoalition(partners,offers,walked){
   const terms={}, posts={}, snap={}, mood={};
   let bonus=0;
   for(const pid of partners){
@@ -17575,7 +17717,8 @@ function formCoalition(partners,offers){
     if(ids.indexOf("bonus")>=0)bonus+=COAL_BONUS_CAP;
     mood[pid]=coalitionStartMood(pid, coalSupport(pid,ids,partners).total);
   }
-  GAME.coalition={partners:partners.slice(), snap, mood, posts, terms, formedTurn:GAME.turn, walked:[]};
+  GAME.coalition={partners:partners.slice(), snap, mood, posts, terms, formedTurn:GAME.turn, walked:(walked||[]).slice()};
+  GAME._coalWalked=null;
   // record what every promise is measured against
   for(const pid of partners){
     snap[pid]={};
@@ -17652,6 +17795,8 @@ function coalitionCandidates(){
   const c=GAME.legis.prCounts, mine=prMyParty();
   const inGov=new Set(coalitionPartners());
   const walked=new Set((GAME.coalition&&GAME.coalition.walked)||[]);
+  // one party must stay in opposition
+  if(inGov.size+1>=prOtherSeated().length)return [];
   return PR_PARTIES.filter(p=>p.id!==mine&&!inGov.has(p.id)&&!walked.has(p.id)&&(c[p.id]||0)>0&&coalitionWillTalk(p.id))
                    .map(p=>p.id);
 }
@@ -19912,6 +20057,8 @@ function runLegislativeElection(approval){
     // the parliament that signed it
     GAME.coalition=null;
     GAME.pendingCoalition=(GAME.legis.house<LEGIS.majH);
+    // under a legislatively elected governor the new Assembly must seat you
+    GAME.parlCheckPending=prParliament();
     return {before, after, sSwing:0, hSwing:after.house-before.house, senateUp:[],
             converted:!!_preConversion,
             standingBefore, standingAfter:legisStanding(after),
@@ -20136,6 +20283,7 @@ function doEndTurn(){
   if(GAME.log.length>8)GAME.log=GAME.log.slice(-8);
   render();
   const afterReport=()=>{
+    if(GAME.parlCheckPending){ parliamentCheck(()=>render()); return; }   // a converting midterm seated a new Assembly
     const showTL=()=>{ if(GAME.pendingTermLimitWarn){ const w=GAME.pendingTermLimitWarn; GAME.pendingTermLimitWarn=null; showTermLimitWarning(w); } };
     const showBN=()=>{ if(GAME.pendingBallotNotice){ const bn=GAME.pendingBallotNotice; GAME.pendingBallotNotice=null; showBallotNotice(bn, showTL); } else showTL(); };
     if(GAME.pendingNominee){ GAME.pendingNominee=false; showNominee(showBN); }
@@ -20187,6 +20335,8 @@ function doElectionTurn(){
   const legis=runLegislativeElection(overallApproval());
   GAME.log.push(ico('columns')+" Legislature: Senate "+legis.after.senate+"/30, House "+legis.after.house+"/60"
     +(legis.hSwing||legis.sSwing?" ("+(legis.sSwing>=0?"+":"")+legis.sSwing+" / "+(legis.hSwing>=0?"+":"")+legis.hSwing+")":""));
+  // the Assembly chooses the governor: no race of your own tonight
+  if(prParliament()&&!flippedByMeasure){ render(); showAssemblyNight(legis); return; }
   const res=runElection(); res.measures=measures; res.legis=legis;
   if(flippedByMeasure){
     res.successor=true; res.flippedByMeasure=true;
@@ -20394,7 +20544,9 @@ function referMeasure(id,dir,free){
     ? (nb.kind==="midterm" ? {kind:"election", label:"your re-election ballot"} : {kind:"midterm", label:"the next midterm ballot"})
     : {kind:nb.kind, label:nb.label};
   GAME.ballot.pending.push({id,dir,name:p.name,icon:p.icon||"ballot",
-    referredTurn:GAME.turn, kind:on.kind, energy:0, waitBallots:late?1:0});
+    referredTurn:GAME.turn, kind:on.kind, energy:0, waitBallots:late?1:0,
+    // proportional representation goes to the voters in the form you chose
+    variant:id==="propRep"?(GAME.prVariantDraft||"independent"):undefined});
   GAME.log.push(ico('ballot')+" Referred to the voters: "+measureTitle({id,dir,target:undefined})
     +(late ? " \u2014 too late for "+nb.label+", so it goes on "+on.label
            : " \u2014 on "+nb.label+(nb.quartersAway>0?" in "+nb.quartersAway+"q":" this quarter")));
@@ -20415,6 +20567,7 @@ function measureTargetLabel(m){
 /* The proposition in plain words — used everywhere a measure is named. */
 function measureTitle(m){
   const p=measureFor(m.id), nm=(p&&p.name)||m.name;
+  if(m.id==="propRep"&&m.variant&&m.dir!=="repeal")return nm+" ("+PR_VARIANTS[m.variant].label.toLowerCase()+")";
   if(m.dir==="repeal")return "Repeal — "+nm;
   if(m.dir==="set")return nm+" → "+measureTargetLabel(m);
   return nm;
@@ -20648,6 +20801,7 @@ function resolveBallot(kind){
     if(window.SANDBOX&&!citizen)share=Math.max(share,0.505);
     const passed=share>0.5;
     if(passed){
+      if(m.id==="propRep"&&m.dir==="enact")GAME.prGovMode=m.variant||"independent";   // the system the voters chose
       if(m.dir==="enact")_applyEnact(m.id, clamp(0.15+(share-0.5)*1.4, 0.15, 0.55), "ballot");
       else if(m.dir==="set")_applySetMeasure(m.id,m.target);
       else {
@@ -23479,6 +23633,7 @@ function renderPolicies(){
         <div><div class="cat-name">${p.name}</div><div class="cat-dom">${DOMAINS[p.domain].name}</div></div></div>
       ${beaten?`<div class="cat-beaten">${ico('ban')} Defeated on the floor — it cannot be brought back for ${back} more quarter${back===1?'':'s'}.</div>`:''}
       <div class="cat-desc">${descHTML(p.desc)}</div>
+      ${id==="propRep"?prVariantPickHTML():""}
       <div class="cat-meta"><span class="pill ${isRevPol?'rev':'spend'}">${costLabel}</span>
         ${floorPol
           ? `<span class="pill cap">${floorMin===null?'No version of this can pass the floor'
