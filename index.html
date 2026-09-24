@@ -15973,7 +15973,10 @@ function renderCountyMap(){
     labels+=`<text class="cm-lbl" x="${r[3]}" y="${r[4]+1.8}" text-anchor="middle">${r[1]}</text>`;
   });
   const svg=`<svg class="cmap-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Oregon county map">${paths}${labels}</svg>`;
-  const modes=[["electorate","Electorate"],["approval","Your approval"],["bloc","Where a group lives"],["lean","Political lean"],["urban","Urban–rural"]];
+  // no "Political lean" view: the electorate map already shows who lives
+  // where, and each county's lean is in its own panel
+  const modes=[["electorate","Electorate"],["approval","Your approval"],["bloc","Where a group lives"],["urban","Urban–rural"]];
+  if(cmapMode==="lean")cmapMode="electorate";
   const modeBtns=modes.map(([k,l])=>`<button data-mode="${k}" class="${k===cmapMode?"on":""}">${l}</button>`).join("");
   // the group picker only matters in bloc mode
   const blocOpts=Object.keys(SIMULANTS).filter(sid=>SIMULANTS[sid]&&!SIMULANTS[sid].static&&SIMULANTS[sid].size)
@@ -20579,6 +20582,7 @@ function resolveBallot(kind){
              blocs:(()=>{ const o={}; for(const sid in (bd.blocs||{})){
                const B=bd.blocs[sid]; if(B&&B.weight>0.5)o[sid]=clamp((B.yes!=null?B.yes:0.5)+noise,0.01,0.99);
              } return o; })()};
+    r.decided=GAME.turn;   // Campaign HQ shows it for the quarter after the vote only
     results.push(r);
     GAME.ballot.history.push(r);
     GAME.log.push((passed?ico('ballot')+" Measure PASSED — ":ico('ban')+" Measure failed — ")
@@ -21097,9 +21101,11 @@ function ballotCampaignHTML(){
   }
   h+=`</details>`;
   }
-  if(hist.length){
-    h+=`<div class="camp-sec" style="margin-top:18px">${ico('doc')} Past measures</div><div class="ebgroup" style="margin-top:8px">`;
-    for(const r of hist.slice(-8).reverse())
+  // just decided: shown for the quarter after the vote, then left to the record
+  const fresh=hist.filter(r=>r.decided!=null&&GAME.turn-r.decided<=1);
+  if(fresh.length){
+    h+=`<div class="camp-sec" style="margin-top:18px">${ico('doc')} Just decided</div><div class="ebgroup" style="margin-top:8px">`;
+    for(const r of fresh.slice().reverse())
       h+=`<div class="ci-row"><span>${r.source==="citizen"?"Citizen — ":""}${measureTitle(r)}</span>
         <span style="color:${r.passed?'var(--good)':'var(--bad)'}">${r.passed?"passed":"failed"} ${Math.round(r.share*100)}%</span></div>`;
     h+=`</div>`;
