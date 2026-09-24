@@ -2105,6 +2105,18 @@
   /* the fold on long intros */
   .prose-btn{all:unset;cursor:pointer;color:var(--slate-blue);font-weight:600;font-size:.95em;margin-left:6px;text-decoration:underline;text-underline-offset:2px}
   .prose-more[hidden]{display:none!important}
+  /* the quarterly briefing */
+  .brief-sec{font-family:var(--font-display);font-weight:500;font-size:14px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink);margin:16px 0 4px;padding-bottom:5px;border-bottom:1px solid var(--ink)}
+  .brief-n{font-family:var(--font-body);font-size:12px;letter-spacing:0;text-transform:none;color:var(--clay);font-weight:600;margin-left:6px}
+  .brief-row{display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--line-faint);font-size:14px}
+  .brief-row .fcard-btn{margin-top:0;margin-left:auto}
+  .brief-ico .ico{width:17px;height:17px;color:var(--muted-3)}
+  .brief-t{flex:1;min-width:0}
+  .brief-row.done .brief-t{color:var(--muted-3)}
+  .brief-done{margin-left:auto;font-size:12.5px;color:var(--moss);font-weight:600;white-space:nowrap}
+  .brief-quiet{font-size:14px;color:var(--muted-3);margin:12px 0}
+  .brief-report{margin-top:16px}
+  .brief-report summary{cursor:pointer;font-family:var(--font-display);font-size:14px;letter-spacing:.08em;text-transform:uppercase;padding:6px 0;border-bottom:1px solid var(--ink)}
 </style>
 </head>
 <body>
@@ -2229,7 +2241,7 @@
     <div class="hudmenu">
       <button class="hudmenu-btn" id="hudMenuBtn" aria-haspopup="true" aria-expanded="false">Menu ▾</button>
       <div class="hudmenu-list" id="hudMenuList" hidden>
-        <button id="reportBtn"><svg class="ico" aria-hidden="true"><use href="#ic-doc"/></svg><span>Last quarterly report</span></button>
+        <button id="reportBtn"><svg class="ico" aria-hidden="true"><use href="#ic-doc"/></svg><span>Quarterly briefing</span></button>
         <button id="saveBtn"><svg class="ico" aria-hidden="true"><use href="#ic-floppy"/></svg><span>Save game</span></button>
         <button id="newGameBtn"><svg class="ico" aria-hidden="true"><use href="#ic-sparkle"/></svg><span>New game</span></button>
         <button id="sfxToggle"><svg class="ico" aria-hidden="true"><use href="#ic-volume"/></svg><span>Sound effects: <b>on</b></span></button>
@@ -2284,6 +2296,7 @@
 <div id="proposalModal" class="modal hidden"><div class="card" id="proposalCard"></div></div>
 <div id="apptPanelModal" class="modal hidden"><div class="card" id="apptPanelCard"></div></div>
 <div id="reportModal" class="modal hidden"><div class="card reportcard" id="reportCard"></div></div>
+<div id="briefingModal" class="modal hidden" style="z-index:45"><div class="card reportcard" id="briefingCard"></div></div>
 <div id="midtermModal" class="modal hidden"><div class="card" id="midtermCard"></div></div>
 <div id="surplusModal" class="modal hidden"><div class="card" id="surplusCard"></div></div>
 <div id="eoEventModal" class="modal hidden"><div class="card" id="eoEventCard" style="max-width:520px"></div></div>
@@ -8854,6 +8867,7 @@ function renderProposal(){
   // a dilemma, and the result card after it, go first
   if(!c||GAME.pendingDilemma||GAME.lastDilemmaResult){ modal.classList.add("hidden"); return; }
   if(!proposalLive(c)){ GAME.pendingProposal=null; modal.classList.add("hidden"); return; }
+  if(GAME.briefing&&!GAME._openProposal&&GAME.briefing.items.some(i=>i.kind==="proposal"&&i.key===c.turn+"|"+c.ppost)){ modal.classList.add("hidden"); return; }
   const post=APPT_POSTS[c.ppost], pol=proposalPolicy(c), cost=proposalCosts(c);
   const adjusting=c.pkind==="adjust";
   const pitch = c.ptrait==="reformer"
@@ -8888,7 +8902,7 @@ function renderProposal(){
   <div class="dilemma-foot">Your departments bring proposals separately from the quarter's dilemmas. Declining one costs nothing.</div>`;
   card.innerHTML=h;
   modal.classList.remove("hidden");
-  card.querySelectorAll('[data-prop]').forEach(b=>b.addEventListener('click',()=>resolveProposal(b.dataset.prop==="1")));
+  card.querySelectorAll('[data-prop]').forEach(b=>b.addEventListener('click',()=>{ const fromBrief=GAME._openProposal; resolveProposal(b.dataset.prop==="1"); if(fromBrief)briefReturn(); }));
 }
 function maybeFireDilemma(){
   if(GAME.pendingDilemma)return;
@@ -15107,7 +15121,90 @@ function reopenQuarterReport(){
   document.addEventListener("keydown",onKey,true);
   setTimeout(()=>{try{document.getElementById("reportContinue").focus({preventScroll:true});card.scrollTop=0;}catch(e){}},30);
 }
-function showQuarterReport(){
+/* What the quarter left on your desk. Decisions are closed by the game state
+   they wait on; information is closed by reading it. */
+function briefCollect(){
+  const items=[], nm=x=>(x&&x.name)||"";
+  for(const ev of (GAME.pendingEoEvents||[])){
+    const E=EXEC_ORDERS[ev.id]; if(!E)continue;
+    items.push({kind:"eo", ev, icon:"gavel", title:ev.kind==="ruling"?(ev.upheld?"A court upheld ":"A court struck down ")+E.name:"A lawsuit was filed against "+E.name});
+  }
+  GAME.pendingEoEvents=[];
+  if(GAME.pendingOppBill)items.push({kind:"oppBill", decision:true, icon:"doc", title:"The legislature sent you "+(nm(CATALOG[GAME.pendingOppBill.id])||"a bill")+": sign it or veto it"});
+  if(GAME.pendingShortfall)items.push({kind:"shortfall", decision:true, icon:"warning", title:"The budget came in short: decide how to cover it"});
+  if(GAME.pendingSurplus)items.push({kind:"surplus", decision:true, icon:"cash", title:"The budget came in over: decide where the surplus goes"});
+  if(GAME.pendingDilemma){
+    const d=DILEMMAS[GAME.pendingDilemma]||{}; let t=d.title; try{ if(typeof t==="function")t=t(); }catch(e){}
+    items.push({kind:"dilemma", decision:true, id:GAME.pendingDilemma, icon:d.icon||"warning", title:t||"A decision is waiting"});
+  }
+  if(GAME.pendingProposal){
+    const c=GAME.pendingProposal, pol=proposalPolicy(c);
+    items.push({kind:"proposal", decision:true, key:c.turn+"|"+c.ppost, icon:"doc", title:c.pname+" ("+APPT_POSTS[c.ppost].name+") has a proposal"+(pol?": "+pol.name:"")});
+  }
+  if(GAME.pendingNominee){ GAME.pendingNominee=false; const C=GAME.challenger; if(C&&C.nominee!=null)items.push({kind:"nominee", icon:"people", title:C.field[C.nominee].name+" is the "+oppPartyName()+" nominee"}); }
+  if(GAME.pendingBallotNotice){ const bn=GAME.pendingBallotNotice; GAME.pendingBallotNotice=null; items.push({kind:"ballot", bn, icon:"ballot", title:bn.measures.length+" citizen initiative"+(bn.measures.length===1?" has":"s have")+" qualified for the ballot"}); }
+  if(GAME.pendingTermLimitWarn){ const w=GAME.pendingTermLimitWarn; GAME.pendingTermLimitWarn=null; items.push({kind:"termlimit", w, icon:"warning", title:"Your second term ends after the next election"}); }
+  return items;
+}
+function briefDone(it){
+  if(it.kind==="oppBill")return !GAME.pendingOppBill;
+  if(it.kind==="shortfall")return !GAME.pendingShortfall;
+  if(it.kind==="surplus")return !GAME.pendingSurplus;
+  if(it.kind==="dilemma")return GAME.pendingDilemma!==it.id;
+  if(it.kind==="proposal"){ const c=GAME.pendingProposal; return !c||(c.turn+"|"+c.ppost)!==it.key; }
+  return !!it.read;
+}
+function briefOpenDecisions(){ const B=GAME.briefing; return B?B.items.filter(i=>i.decision&&!briefDone(i)):[]; }
+/* Come back to the briefing after handling one of its items. */
+function briefReturn(){ if(GAME.briefing)openBriefing(false); }
+function openBriefing(fresh){
+  const modal=document.getElementById("briefingModal"), card=document.getElementById("briefingCard");
+  if(!modal||!card)return;
+  if(fresh){
+    GAME.briefing={turn:GAME.turn, items:briefCollect()};
+    showQuarterReport(true);
+    if(GAME.skipReport&&!GAME.briefing.items.length){ render(); return; }   // nothing needs you and you asked not to be briefed
+  }
+  const B=GAME.briefing; if(!B){ reopenQuarterReport(); return; }
+  GAME._openDilemma=false; GAME._openProposal=false;
+  const dec=B.items.map((it,i)=>({it,i})).filter(x=>x.it.decision), info=B.items.map((it,i)=>({it,i})).filter(x=>!x.it.decision);
+  const openN=dec.filter(x=>!briefDone(x.it)).length;
+  const row=(x,verb)=>{ const done=briefDone(x.it);
+    return `<div class="brief-row${done?" done":""}"><span class="brief-ico">${ico(x.it.icon||"doc")}</span><span class="brief-t">${x.it.title}</span>`
+      +(done?`<span class="brief-done">${x.it.decision?"Decided":"Read"} ✓</span>`:`<button class="fcard-btn" data-brief="${x.i}">${verb} ›</button>`)+`</div>`; };
+  const m=GAME.lastReportHead||{};
+  card.innerHTML=`<div class="rhead"><h2>Quarterly Briefing</h2><div class="sectionsub">Q${m.qtr||""} ${m.yr||""} · Term ${m.term||GAME.term}, quarter ${m.into||""} of ${GAME.termLengthTurns}.</div></div>`
+    +(dec.length?`<div class="brief-sec">Needs a decision${openN?` <span class="brief-n">${openN} open</span>`:""}</div>`+dec.map(x=>row(x,"Decide")).join(""):"")
+    +(info.length?`<div class="brief-sec">For your information</div>`+info.map(x=>row(x,"Read")).join(""):"")
+    +(!B.items.length?`<div class="brief-quiet">Nothing needs you this quarter.</div>`:"")
+    +`<details class="brief-report" open><summary>How the state moved</summary>${GAME.lastReportBody||""}</details>`
+    +`<label class="rskip"><input type="checkbox" id="briefSkip" ${GAME.skipReport?"checked":""}> Skip the briefing on quarters when nothing needs me</label>`
+    +`<button id="briefClose" class="enactbtn">${openN?"Back to the Capitol: "+openN+" decision"+(openN===1?"":"s")+" still open":"Back to the Capitol"} ▸</button>`
+    +(openN?`<div class="fnote" style="margin-top:6px">End Quarter will bring you back here until every decision is made.</div>`:"");
+  modal.classList.remove("hidden");
+  const close=()=>{ const k=document.getElementById("briefSkip"); if(k)GAME.skipReport=k.checked; modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); render(); };
+  const onKey=e=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); } };
+  document.getElementById("briefClose").onclick=close;
+  document.addEventListener("keydown",onKey,true);
+  card.querySelectorAll("[data-brief]").forEach(b=>b.addEventListener("click",()=>{
+    const it=B.items[+b.dataset.brief]; if(!it)return;
+    modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true);
+    if(!it.decision)it.read=true;
+    switch(it.kind){
+      case "eo":        showExecOrderEvent(it.ev, briefReturn); break;
+      case "oppBill":   showOppBill(briefReturn); break;
+      case "shortfall": showShortfallChoice(briefReturn); break;
+      case "surplus":   showSurplusChoice(briefReturn); break;
+      case "dilemma":   GAME._openDilemma=true; render(); break;       // returns from its result screen
+      case "proposal":  GAME._openProposal=true; render(); break;      // returns when answered
+      case "nominee":   showNominee(briefReturn); break;
+      case "ballot":    showBallotNotice(it.bn, briefReturn); break;
+      case "termlimit": showTermLimitWarning(it.w, briefReturn); break;
+      default: briefReturn();
+    }
+  }));
+}
+function showQuarterReport(quiet){
   const card=document.getElementById("reportCard");
   const into=GAME.turn-(GAME.term-1)*GAME.termLengthTurns;
   const yr=GAME.startYear+Math.floor((GAME.turn)/4), qtr=(GAME.turn%4)+1;
@@ -15205,6 +15302,7 @@ function showQuarterReport(){
     ${emergBlock}`;
   GAME.lastReportBody=body;
   GAME.lastReportHead={qtr,yr,term:GAME.term,into:into+1};
+  if(quiet)return body;   // the briefing shows it; no popup of its own
   card.innerHTML=`<div class="rhead"><h2>Quarterly Report</h2>
     <div class="sectionsub">Q${qtr} ${yr} · Term ${GAME.term}, quarter ${into+1} of ${GAME.termLengthTurns}. How the state moved last quarter.</div></div>
     ${body}
@@ -20418,30 +20516,19 @@ function doEndTurn(){
   }
   if(GAME.log.length>8)GAME.log=GAME.log.slice(-8);
   render();
-  const afterReport=()=>{
-    if(GAME.parlCheckPending){ parliamentCheck(()=>render()); return; }   // a converting midterm seated a new Assembly
-    const showTL=()=>{ if(GAME.pendingTermLimitWarn){ const w=GAME.pendingTermLimitWarn; GAME.pendingTermLimitWarn=null; showTermLimitWarning(w); } };
-    const showBN=()=>{ if(GAME.pendingBallotNotice){ const bn=GAME.pendingBallotNotice; GAME.pendingBallotNotice=null; showBallotNotice(bn, showTL); } else showTL(); };
-    if(GAME.pendingNominee){ GAME.pendingNominee=false; showNominee(showBN); }
-    else showBN();
+  // THE QUARTERLY BRIEFING: everything the quarter produced, on one screen.
+  // The midterm and the quake are moments of their own and come first; the
+  // briefing waits underneath them.
+  const brief=()=>{
+    if(GAME.parlCheckPending){ parliamentCheck(()=>{ render(); openBriefing(true); }); return; }
+    openBriefing(true);
   };
-  const afterSurplus=()=>{
-    if(GAME.pendingMidterm){ const mt=GAME.pendingMidterm; GAME.pendingMidterm=null; showMidterm(mt); afterReport(); }
-    else if(!GAME.skipReport){ showQuarterReport(); afterReport(); }
-    else afterReport();
+  const afterQuake=()=>{
+    if(GAME.pendingMidterm){ const mt=GAME.pendingMidterm; GAME.pendingMidterm=null; showMidterm(mt); }
+    brief();
   };
-  const afterEo=()=>{
-    if(GAME.pendingSurplus) showSurplusChoice(afterSurplus);   // legacy path, no longer reached from the pool
-    else if(GAME.pendingShortfall) showShortfallChoice(afterSurplus);
-    else afterSurplus();
-  };
-  const afterOpp=()=>{
-    if(GAME.pendingOppBill) showOppBill(afterEo);
-    else afterEo();
-  };
-  // nothing else that happened this quarter outranks the state falling down
-  if(GAME.pendingQuake) showQuakeScreen(()=>drainEoEvents(afterOpp));
-  else drainEoEvents(afterOpp);
+  if(GAME.pendingQuake) showQuakeScreen(afterQuake);
+  else afterQuake();
 }
 /* election quarter — ticks run for the campaign quarter, then the election fires */
 function doElectionTurn(){
@@ -21686,8 +21773,11 @@ function endTurn(){
   if(GAME.pendingCoalExit){ drawCoalExit(); return; }
   if(GAME.pendingCoalition){ drawCoalition(); return; }
   if(GAME.pendingAusterity){ drawAusterity(); return; }
-  if(GAME.pendingDilemma){GAME.log.push("❖ Resolve the dilemma before ending the quarter");render();return;}
-  if(GAME.pendingProposal){GAME.log.push(ico('doc')+" Answer your director's proposal before ending the quarter");render();return;}
+  // the briefing's decisions come first: End Quarter opens it until they are made
+  if(briefOpenDecisions().length){ openBriefing(false); return; }
+  if(GAME.pendingDilemma){GAME.log.push("❖ Resolve the dilemma before ending the quarter");GAME._openDilemma=true;render();return;}
+  if(GAME.pendingProposal){GAME.log.push(ico('doc')+" Answer your director's proposal before ending the quarter");GAME._openProposal=true;render();return;}
+  GAME.briefing=null;   // a new quarter, a new briefing
   // A change you dialled in but never voted gets its floor before the quarter
   // ends. Ending the quarter used to settle it silently, which meant a tax
   // rise could pass or die on a roll you were never shown — the one case where
@@ -26323,6 +26413,7 @@ function renderDilemma(){
     const closeSplash=()=>{
       if(window._splashKey){document.removeEventListener("keydown",window._splashKey,true);window._splashKey=null;}
       GAME.lastDilemmaResult=null; render();
+      if(GAME.briefing&&GAME._openDilemma)briefReturn();   // back to the briefing it was opened from
     };
     const ok=document.getElementById("splashOk");
     if(ok)ok.addEventListener('click',closeSplash);
@@ -26333,6 +26424,8 @@ function renderDilemma(){
     return;
   }
   if(!GAME.pendingDilemma){modal.classList.add("hidden");return;}
+  // a dilemma the briefing lists waits for you to open it from there
+  if(GAME.briefing&&!GAME._openDilemma&&GAME.briefing.items.some(i=>i.kind==="dilemma"&&i.id===GAME.pendingDilemma)){ modal.classList.add("hidden"); return; }
   const d=DILEMMAS[GAME.pendingDilemma];
   // A dilemma whose subject has gone — the coalition partner that was issuing
   // the ultimatum is no longer in the government, the crisis it was about has
@@ -26552,7 +26645,7 @@ document.querySelectorAll('nav.rail button').forEach(b=>b.addEventListener('clic
   b.classList.add('active');currentView=b.dataset.view;render();
 }));
 document.getElementById("endTurn").addEventListener('click',endTurn);
-{const rb=document.getElementById("reportBtn"); if(rb)rb.addEventListener('click',reopenQuarterReport);}
+{const rb=document.getElementById("reportBtn"); if(rb)rb.addEventListener('click',()=>{ if(GAME.briefing)openBriefing(false); else reopenQuarterReport(); });}
 // the seal and the wordmark are the obvious way home, on a phone especially
 {const bh=document.getElementById("brandHome");
  if(bh)bh.addEventListener("click",()=>{ settlePending(); currentView="board"; detailKey=null; render(); });}
