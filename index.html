@@ -2116,6 +2116,16 @@
   .brief-done{margin-left:auto;font-size:12.5px;color:var(--moss);font-weight:600;white-space:nowrap}
   .brief-quiet{font-size:14px;color:var(--muted-3);margin:12px 0}
   .brief-report{margin-top:16px}
+  .brief-dec{border:1px solid var(--line);border-left:3px solid var(--clay);background:var(--paper-2);padding:10px 12px;margin:10px 0}
+  .brief-dec.done{border-left-color:var(--moss)}
+  .brief-dec-h{font-weight:600;font-size:15px;display:flex;align-items:center;gap:8px}
+  .brief-dec-h .brief-done{margin-left:auto}
+  .brief-dec-t{margin:6px 0 8px!important;font-size:13.5px!important}
+  .brief-dec .dilemma-opts{display:flex;flex-direction:column;gap:8px}
+  .brief-btns{display:flex;gap:8px;flex-wrap:wrap}
+  .brief-choice{font-size:13.5px;margin-top:5px}
+  .brief-fxs{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:6px;font-size:12.5px}
+  #briefClose:disabled{opacity:.55;cursor:not-allowed}
   .brief-report summary{cursor:pointer;font-family:var(--font-display);font-size:14px;letter-spacing:.08em;text-transform:uppercase;padding:6px 0;border-bottom:1px solid var(--ink)}
 </style>
 </head>
@@ -15154,6 +15164,45 @@ function briefDone(it){
   if(it.kind==="proposal"){ const c=GAME.pendingProposal; return !c||(c.turn+"|"+c.ppost)!==it.key; }
   return !!it.read;
 }
+/* A decision drawn inside the briefing. Dilemmas and proposals are decided
+   in place; the bill and the budget keep their own screens. */
+const BRIEF_BAD_HIGH=new Set(["adminOverhead","taxGrievance","ruralAlienation","pensionBurden","incarcerationRate"]);
+function briefDecisionHTML(x){
+  const it=x.it, done=briefDone(it);
+  if(it.kind==="dilemma"&&!done){
+    const d=DILEMMAS[it.id]; if(!d)return "";
+    let body=""; try{ body=(typeof d.text==="function")?d.text():d.text; }catch(e){}
+    let opts="";
+    d.options.forEach((o,i)=>{
+      if(o.avail&&!o.avail())return;
+      const ot=(typeof o.text==="function")?o.text():o.text, ol=(typeof o.label==="function")?o.label():o.label;
+      if(!ol)return;
+      opts+=`<button class="dilemma-opt" data-bdil="${i}"><span class="do-label">${ol}</span><span class="do-sub">${ot}</span></button>`;
+    });
+    return `<div class="brief-dec"><div class="brief-dec-h">${ico(d.icon||"warning")} ${d.title}</div><div class="sectionsub brief-dec-t">${body}</div><div class="dilemma-opts">${opts}</div></div>`;
+  }
+  if(it.kind==="dilemma"&&done&&it.result){
+    const r=it.result;
+    const fx=(r.fx||[]).slice().sort((a,b)=>Math.abs(b.val)-Math.abs(a.val)).slice(0,6).map(f=>{
+      if(f.kind==="compass")return `<span class="brief-fx">${f.who}</span>`;
+      const good=f.kind==="m"&&f.key&&METRICS[f.key]?(METRICS[f.key].invert?f.val<0:f.val>0):f.kind==="i"?(BRIEF_BAD_HIGH.has(f.key)?f.val<0:f.val>0):f.val>0;
+      return `<span class="brief-fx" style="color:${good?'var(--good)':'var(--clay)'}">${f.who} ${f.val>0?"+":""}${(+f.val).toFixed(Math.abs(f.val)<1?1:0)}</span>`; }).join("");
+    return `<div class="brief-dec done"><div class="brief-dec-h">${ico(it.icon||"warning")} ${it.title} <span class="brief-done">Decided ✓</span></div><div class="brief-choice">You chose: <b>${r.choice}</b></div>${fx?`<div class="brief-fxs">${fx}</div>`:""}</div>`;
+  }
+  if(it.kind==="proposal"&&!done){
+    const c=GAME.pendingProposal, pol=c&&proposalPolicy(c), cost=c&&proposalCosts(c); if(!pol||!cost)return "";
+    const adj=c.pkind==="adjust"&&c.padj;
+    const what=adj?`wants to move <b>${pol.name}</b> from ${c.padj.from} to <b>${c.padj.label}</b>, on the department's own authority, for ◈${cost.now}.`
+      :`has drafted <b>${pol.name}</b> and would bring it to you at ◈${cost.disc} instead of ◈${cost.full}. Accepting puts that price on it in New Policies.`;
+    const can=!adj||GAME.capital>=cost.now||window.SANDBOX;
+    return `<div class="brief-dec"><div class="brief-dec-h">${ico("doc")} A proposal from ${c.pname} (${APPT_POSTS[c.ppost].name})</div>`
+      +`<div class="sectionsub brief-dec-t">${c.pname} ${what}</div>`
+      +`<div class="brief-btns"><button class="fcard-btn" data-bprop="1" ${can?"":"disabled"}>Accept${adj?" ◈"+cost.now:""}</button><button class="fcard-btn" data-bprop="0">Leave it in the drawer</button></div></div>`;
+  }
+  if(it.kind==="proposal"&&done)return `<div class="brief-row done"><span class="brief-ico">${ico("doc")}</span><span class="brief-t">${it.title}</span><span class="brief-done">${it.result||"Answered"} ✓</span></div>`;
+  // the bill and the budget: their own screens
+  return null;
+}
 function briefOpenDecisions(){ const B=GAME.briefing; return B?B.items.filter(i=>i.decision&&!briefDone(i)):[]; }
 /* Come back to the briefing after handling one of its items. */
 function briefReturn(){ if(GAME.briefing)openBriefing(false); }
@@ -15173,19 +15222,39 @@ function openBriefing(fresh){
     return `<div class="brief-row${done?" done":""}"><span class="brief-ico">${ico(x.it.icon||"doc")}</span><span class="brief-t">${x.it.title}</span>`
       +(done?`<span class="brief-done">${x.it.decision?"Decided":"Read"} ✓</span>`:`<button class="fcard-btn" data-brief="${x.i}">${verb} ›</button>`)+`</div>`; };
   const m=GAME.lastReportHead||{};
-  card.innerHTML=`<div class="rhead"><h2>Quarterly Briefing</h2><div class="sectionsub">Q${m.qtr||""} ${m.yr||""} · Term ${m.term||GAME.term}, quarter ${m.into||""} of ${GAME.termLengthTurns}.</div></div>`
-    +(dec.length?`<div class="brief-sec">Needs a decision${openN?` <span class="brief-n">${openN} open</span>`:""}</div>`+dec.map(x=>row(x,"Decide")).join(""):"")
+  card.innerHTML=`<div class="rhead"><h2>Quarterly Briefing</h2><div class="sectionsub">The start of Q${m.qtr||""} ${m.yr||""} · Term ${m.term||GAME.term}, quarter ${m.into||""} of ${GAME.termLengthTurns}. You have <b>◈${Math.round(GAME.capital)}</b> this quarter.${openN?" Settle what is on your desk before you go to the Capitol.":""}</div></div>`
+    +(dec.length?`<div class="brief-sec">Needs a decision${openN?` <span class="brief-n">${openN} open</span>`:""}</div>`+dec.map(x=>{ const h=briefDecisionHTML(x); return h==null?row(x,"Decide"):h; }).join(""):"")
     +(info.length?`<div class="brief-sec">For your information</div>`+info.map(x=>row(x,"Read")).join(""):"")
     +(!B.items.length?`<div class="brief-quiet">Nothing needs you this quarter.</div>`:"")
     +`<details class="brief-report" open><summary>How the state moved</summary>${GAME.lastReportBody||""}</details>`
     +`<label class="rskip"><input type="checkbox" id="briefSkip" ${GAME.skipReport?"checked":""}> Skip the briefing on quarters when nothing needs me</label>`
-    +`<button id="briefClose" class="enactbtn">${openN?"Back to the Capitol: "+openN+" decision"+(openN===1?"":"s")+" still open":"Back to the Capitol"} ▸</button>`
-    +(openN?`<div class="fnote" style="margin-top:6px">End Quarter will bring you back here until every decision is made.</div>`:"");
+    +`<button id="briefClose" class="enactbtn" ${openN&&!window.SANDBOX?"disabled":""}>${openN?openN+" decision"+(openN===1?"":"s")+" before the Capitol":"To the Capitol"} ▸</button>`
+    +(openN?`<div class="fnote" style="margin-top:6px">Decide these first, with this quarter's capital. The information items can wait.</div>`:"");
   modal.classList.remove("hidden");
   const close=()=>{ const k=document.getElementById("briefSkip"); if(k)GAME.skipReport=k.checked; modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); render(); };
-  const onKey=e=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); } };
+  const onKey=e=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Escape"&&(!openN||window.SANDBOX)){ e.preventDefault(); e.stopPropagation(); close(); } };
   document.getElementById("briefClose").onclick=close;
   document.addEventListener("keydown",onKey,true);
+  card.querySelectorAll("[data-bdil]").forEach(b=>b.addEventListener("click",()=>{
+    const it=B.items.find(i=>i.kind==="dilemma"&&i.id===GAME.pendingDilemma); if(!it)return;
+    document.removeEventListener("keydown",onKey,true);
+    GAME._openDilemma=true;              // it is being decided, not waiting
+    resolveDilemma(+b.dataset.bdil);
+    // the result belongs in the briefing, not in a popup over it
+    it.result=GAME.lastDilemmaResult; GAME.lastDilemmaResult=null;
+    document.getElementById("dilemmaModal").classList.add("hidden");
+    render(); openBriefing(false);
+  }));
+  card.querySelectorAll("[data-bprop]").forEach(b=>b.addEventListener("click",()=>{
+    const it=B.items.find(i=>i.kind==="proposal"&&!briefDone(i)); if(!it)return;
+    document.removeEventListener("keydown",onKey,true);
+    GAME._openProposal=true;
+    const yes=b.dataset.bprop==="1";
+    resolveProposal(yes);
+    it.result=yes?"Accepted":"Left in the drawer";
+    document.getElementById("proposalModal").classList.add("hidden");
+    openBriefing(false);
+  }));
   card.querySelectorAll("[data-brief]").forEach(b=>b.addEventListener("click",()=>{
     const it=B.items[+b.dataset.brief]; if(!it)return;
     modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true);
