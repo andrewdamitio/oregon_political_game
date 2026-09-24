@@ -5391,7 +5391,7 @@ const CATALOG={
   // Tiers, not a strength dial: the pension's new accrual reads the tier
   // (PERS_ACCRUAL), so each rung is a different reform, not a fraction of one.
   persReform:{name:"PERS Benefit Reform", domain:"economy", icon:"bank", mechanic:"tier", enabled:true,
-    desc:"Slow the growth of pension costs against the ~$27–28B unfunded liability. Moro v. State (2015) bars touching benefits already earned, so any reform only slows new accrual, and the unions will sue and sometimes win.\n\nContribution Redirect is the SB 1049 approach: part of each member's own retirement contribution goes to the pension fund, and the salary counted toward a pension is capped. It cuts new accrual by about a fifth and pays ~$150M/biennium of member contributions into the pension fund, shrinking the hole and so the employer rate every agency pays. Adding Defined Contribution for New Hires moves future employees to a 401(k)-style plan, which cuts new accrual by about 40% in all and draws the full weight of the unions.",
+    desc:"Slow the growth of the ~$27–28B unfunded pension liability, and with it the bill every agency pays.\n\nHow it saves money: the state pays PERS an employer rate set by the size of the hole, about $75M a year for every $1B unfunded. New benefits earned today add about $1.12B a year to the hole. Reform shrinks that, and puts members' own money in.\n\nContribution Redirect is the SB 1049 approach. Part of each member's own retirement contribution goes into the pension fund (~$150M a biennium), and the salary counted toward a pension is capped, which cuts new accrual by about a fifth. The hole grows about $315M a year less, and after four years the employer rate is roughly $85M a year lower.\n\nAdding Defined Contribution for New Hires moves future employees to a 401(k)-style plan, cutting new accrual by about 40% in all. The hole grows about $555M a year less, and after four years the employer rate is roughly $150M a year lower. It draws the full weight of the unions.\n\nThe savings build slowly and show up as a lower PERS rate, not as a budget line. Moro v. State (2015) bars touching benefits already earned, so any reform only slows what is earned from here, and the unions will sue and sometimes win.",
     tiers:["No Reform","Contribution Redirect (SB 1049-style)","+ Defined Contribution for New Hires"],
     // no General Fund line: the savings are paid into the pension fund
     // (PERS_REDIRECT), and reach the budget through a lower employer rate
@@ -7995,10 +7995,10 @@ const DILEMMAS={
     text:"SEIU walks out statewide over pay that's lagged inflation. Concede and the budget bleeds; hold the line and your union base watches you break a strike.",
     influence:()=>(SIMULANTS.publicUnions.approval<42?0.5:0)+(budgetBalance().balance<-0.5?0.15:0),
     options:[
-      {label:"Concede raises", text:"Raises are granted.",
-       apply:()=>{createGrudge("v_publicUnions",8,0.88,"Strike settled with raises");createGrudge("m_taxBurden",0.4,0.9,"Payroll costs up");createGrudge("v_businessClass",-3,0.9,"Caved to the unions");createGrudge("capital",-4);shiftCompass(-0.5,0);}},
-      {label:"Hold the line", text:"The state holds its offer.",
-       apply:()=>{createGrudge("v_publicUnions",-9,0.92,"Strike broken");SIMULANTS.publicUnions.cynicism=(SIMULANTS.publicUnions.cynicism||0)+4;createGrudge("v_businessClass",3,0.9,"Fiscal discipline");createGrudge("v_wealthy",2,0.9,"Fiscal discipline");shiftCompass(0.4,0);}}]},
+      {label:"Concede raises", text:"Raises are granted and the walkout ends within weeks, but offices sat empty while it lasted: State Capacity takes a short hit.",
+       apply:()=>{createGrudge("i_digitization",-3,0.5,"Strike: offices unstaffed");createGrudge("v_publicUnions",8,0.88,"Strike settled with raises");createGrudge("m_taxBurden",0.4,0.9,"Payroll costs up");createGrudge("v_businessClass",-3,0.9,"Caved to the unions");createGrudge("capital",-4);shiftCompass(-0.5,0);}},
+      {label:"Hold the line", text:"The state holds its offer and the strike drags on. Permits, benefits and inspections stall until it breaks: a bigger short-term hit to State Capacity.",
+       apply:()=>{createGrudge("i_digitization",-6,0.6,"Strike: services stalled");createGrudge("v_publicUnions",-9,0.92,"Strike broken");SIMULANTS.publicUnions.cynicism=(SIMULANTS.publicUnions.cynicism||0)+4;createGrudge("v_businessClass",3,0.9,"Fiscal discipline");createGrudge("v_wealthy",2,0.9,"Fiscal discipline");shiftCompass(0.4,0);}}]},
   dataCenter:{title:"The Data Center Deal", icon:"monitor",
     onFire:(ctx)=>{ ctx.county=pick(COUNTY_GROUPS.dataCenter); },
     text:()=>`A hyperscaler wants enterprise-zone tax breaks for a campus in <b>${GAME.dilemmaCtx.county||"a dry"} County</b>, east of the mountains: hundreds of construction jobs, dozens permanent — and an enormous claim on the county's water and power. Neighbors are already organizing against the draw.`,
@@ -9904,8 +9904,9 @@ const SITUATIONS={
     // flowing and nothing of their own sat under the line and got the crisis
     // anyway — while the policy page told them the federal share left only
     // the last quarter to find. It cannot fire while Washington is paying.
-    trigger:()=>METRICS.loggingRate.value<25 && !GAME.srsActive && countyBackfill()<0.55,
-    clear:()=>METRICS.loggingRate.value>35 || GAME.srsActive || countyBackfill()>=0.70, onClear:{capital:2},
+    // Measure 5/50 reform ends it: the counties can levy their own property tax
+    trigger:()=>!m5Reformed() && METRICS.loggingRate.value<25 && !GAME.srsActive && countyBackfill()<0.55,
+    clear:()=>m5Reformed() || METRICS.loggingRate.value>35 || GAME.srsActive || countyBackfill()>=0.70, onClear:{capital:2},
     watch:{metric:"loggingRate", startAt:25, clearAt:35, badHigh:false,
            alsoNote:"— or by funding County Payments in Lieu of Timber Receipts past 70%, which lifts it with the harvest left exactly where it is"},
     metricEffect:{propertyCrime:0.7},
@@ -10492,7 +10493,7 @@ const GAME={
   // stronger, better-funded challenger and a genuinely uncertain result.
   opposition:{ momentum:28, prevBad:0, seen:false, barb:"", name:"the Senate Minority Leader" },
 };
-const OPP_NAMES=["Senate Minority Leader Hollis","Minority Leader Rourke","House Minority Leader Vance",
+const OPP_NAMES=["Senate Minority Leader Hollis","Minority Leader Rourke","House Minority Leader Kessler",
   "Minority Leader Okafor","Senate Minority Leader Brandt","Minority Leader Salzman"];
 /* Run-level macro-environment: each playthrough opens in a slightly different
    economic phase and national mood (seeded — a seed reproduces it). This
@@ -10841,7 +10842,21 @@ function srsFederal(){ return GAME.srsActive?SRS_SHARE:0; }
 /* The Secure Rural Schools card for the Fiscal Machinery board. Returns "" 
    unless the federal share is lapsed or the Timber Counties crisis is live —
    a payment that is quietly flowing does not need a card. */
+/* Measure 5/50 reform: counties can levy their own property tax again, so
+   the timber counties no longer hang on the harvest or on Washington. */
+function m5Reformed(){ return !!(POLICIES.propTaxReform&&POLICIES.propTaxReform.enacted!==false); }
+/* When the reform takes effect, the state backfill has nothing left to do.
+   It leaves the books quietly: it was not repealed out of anyone's hands. */
+function m5EndCountyPayments(){
+  const p=POLICIES.countyPayments; if(!p)return;
+  const back=Object.assign({},p); delete back.enacted; delete back.eff;
+  back.enactCapital=p.enactCapital!==undefined?p.enactCapital:(p.capital||8);
+  CATALOG.countyPayments=back; CATALOG.countyPayments._id="countyPayments";
+  delete POLICIES.countyPayments;
+  GAME.log.push(ico('handshake')+" County Payments in Lieu of Timber Receipts ends: with the property-tax caps gone, the counties fund themselves");
+}
 function srsFiscalCard(){
+  if(m5Reformed())return "";   // the counties levy for themselves now
   const nextRoll=(Math.floor(GAME.turn/4)+1)*4;
   const q=Math.max(1,nextRoll-GAME.turn);
   // When the money is flowing and nothing is on fire, a compact green line
@@ -10873,6 +10888,7 @@ function srsFiscalCard(){
 /* Congress decides this once a fiscal year, and it decides it stickily:
    reauthorisation runs in multi-year stretches, and so do the lapses. */
 function rollSecureRuralSchools(){
+  if(m5Reformed()&&POLICIES.countyPayments)m5EndCountyPayments();   // a save from before the reform retired it
   if(GAME.turn<4)return;                       // the inherited year is the one you were handed
   if(GAME.turn%4!==0)return;                   // fiscal years, not quarters
   if(GAME.srsRolled===GAME.turn)return;
@@ -11608,19 +11624,31 @@ function mobilizedPressure(){
     p += (act.dir==="against") ? 2.4 : -1.9;
   return clamp(p,-6,9);
 }
+/* The crises the opposition can pin on you: every bad situation but the
+   weather and acts of God. */
+const OPP_WEATHER=["wildfireSeason","droughtWater","heatDome","cascadiaQuake","gridEmergency"];
+// running is slight on purpose: momentum only settles back toward 24 at 6% of
+// the gap a quarter, so half a point a crisis on the six you inherit would
+// hold it near 74 on that alone
+const OPP_CRISIS_START=2, OPP_CRISIS_RUN=0.15, OPP_CRISIS_END=8;
+function oppCrisisIds(){
+  return Object.keys(GAME.activeSituations).filter(x=>SITUATIONS[x]&&SITUATIONS[x].kind==="bad"&&OPP_WEATHER.indexOf(x)<0);
+}
 function tickOpposition(){
   const o=GAME.opposition; if(!o)return;
   let m=o.momentum;
   const oa=overallApproval();
   m += clamp((48-oa)*0.32, -6, 4.5);                  // your standing is the main driver (capped so one bad quarter can't pin it)
   m += -NATIONAL_MOOD.value*0.35;                     // national wind at their back
-  const badNow=Object.keys(GAME.activeSituations).filter(s=>SITUATIONS[s]&&SITUATIONS[s].kind==="bad").length;
-  const prev=o.prevBad||0;
+  // crises: a small push while one runs, a big fall when you end it. Nobody
+  // blames a governor for the weather, so those do not count at all.
+  const nowIds=oppCrisisIds(), prevIds=o.prevBadIds||nowIds;
   if(o.seen){                                          // skip the first tick — the opening crisis slate isn't "news"
-    if(badNow>prev) m += 5.5*(badNow-prev);           // a fresh crisis is ammunition
-    if(badNow<prev) m -= 4.5*(prev-badNow);           // resolving one takes the wind out
+    m += OPP_CRISIS_START*nowIds.filter(x=>prevIds.indexOf(x)<0).length;
+    m -= OPP_CRISIS_END*prevIds.filter(x=>nowIds.indexOf(x)<0).length;
   }
-  o.prevBad=badNow; o.seen=true;
+  m += OPP_CRISIS_RUN*nowIds.length;
+  o.prevBadIds=nowIds; o.prevBad=nowIds.length; o.seen=true;
   if((GAME.structuralDebt||0)>1) m += 1.4;
   if((GAME.lastBalance||0)>1.5) m -= 1.2;
   m += Math.max(0, Math.abs(agendaRightwardShift())-4)*0.22;   // off-mandate drift is a wedge
@@ -11658,7 +11686,7 @@ function oppositionCapitalMult(){
    THE CHALLENGER: a field, a primary, a nominee
    ============================================================ */
 const CHAL_FIELD_AT=9;     // quarter of the term the field forms: after the midterm
-const CHAL_PRIMARY_AT=12;  // the primary: three quarters before the election
+const CHAL_PRIMARY_AT=11;  // the primary: four quarters out, with the citizen ballot notice
 // where each kind of candidate sits, on the other party's side of the compass
 const CHAL_STYLES={
   mod: {label:"Moderate",  ec:0.22, so:0.12},
@@ -11772,7 +11800,7 @@ function challengerPointerHTML(){
   const C=GAME.challenger&&GAME.challenger.term===GAME.term?GAME.challenger:null, opp=oppPartyName();
   const who=C&&C.nominee!=null?`Your opponent is <b>${C.field[C.nominee].name}</b>, ${C.field[C.nominee].role} (${CHAL_STYLES[C.field[C.nominee].style].label.toLowerCase()}).`
     :C?`The ${opp} primary is under way.`:`The ${opp} field forms after the midterm.`;
-  return `<div class="opp-pointer">${ico('warning')} ${who} <button class="linkbtn" data-camptab="opp">The opposition ›</button></div>`;
+  return `<div class="opp-pointer">${ico('warning')} ${who} The full picture is on <b>The opposition</b> tab above.</div>`;
 }
 /* What is moving the opposition's momentum this quarter: tickOpposition's
    own terms, read without changing anything. A fresh crisis is a one-off
@@ -11781,6 +11809,7 @@ function oppDrivers(){
   const o=GAME.opposition||{momentum:25}, oa=overallApproval(), rows=[];
   rows.push(["Your approval ("+oa.toFixed(0)+"%)", clamp((48-oa)*0.32,-6,4.5)]);
   rows.push(["The national mood", -NATIONAL_MOOD.value*0.35]);
+  const nc=oppCrisisIds().length; if(nc)rows.push([nc+" unresolved crisis"+(nc===1?"":"es"), OPP_CRISIS_RUN*nc]);
   if((GAME.structuralDebt||0)>1)rows.push(["The structural deficit", 1.4]);
   if((GAME.lastBalance||0)>1.5)rows.push(["A budget surplus", -1.2]);
   const drift=Math.max(0,Math.abs(agendaRightwardShift())-4)*0.22; if(drift)rows.push(["Governing off your mandate", drift]);
@@ -11796,7 +11825,7 @@ function oppIssues(){
   if(debt>1)out.push(["The deficit", `You are carrying ${fmtB(-debt,1)} of structural shortfall.`]);
   if(t>4)out.push(["Off your mandate", "You have governed well to the right of the voters who elected you."]);
   if(t<-4)out.push(["Off your mandate", "Your agenda sits well to the left of your own coalition."]);
-  for(const sid of Object.keys(GAME.activeSituations).filter(x=>SITUATIONS[x]&&SITUATIONS[x].kind==="bad").slice(0,4))
+  for(const sid of oppCrisisIds().slice(0,4))
     out.push([SITUATIONS[sid].name, "Still unresolved on your watch."]);
   for(const lbl of ((GAME.opposition&&GAME.opposition.dropped)||[]))out.push(["A dropped pledge", `You promised “${lbl}” and abandoned it.`]);
   for(const ap of (GAME.activePromises||[])){
@@ -11848,7 +11877,7 @@ function oppositionTabHTML(){
   h+=`<div class="rsection"><div class="rsec-h">What is moving it this quarter</div>`
     +dr.map(r=>`<div class="rrow"><span class="rlabel">${r[0]}</span><span class="rval" style="color:${r[1]>0?'var(--bad)':'var(--good)'}">${sg(r[1])}</span></div>`).join("")
     +`<div class="rrow opp-net"><span class="rlabel"><b>Net, before any new crisis</b></span><span class="rval" style="color:${net>0?'var(--bad)':'var(--good)'}"><b>${sg(net)}</b></span></div>`
-    +`<div class="sectionsub" style="margin:6px 0 0;font-size:12.5px">A crisis that starts adds 5.5; one you resolve takes 4.5 off.</div></div>`;
+    +`<div class="sectionsub" style="margin:6px 0 0;font-size:12.5px">A crisis that starts adds ${OPP_CRISIS_START}, each one running adds ${OPP_CRISIS_RUN} a quarter, and ending one takes ${OPP_CRISIS_END} off. Weather and natural disasters do not count.</div></div>`;
   // their campaign
   const iss=oppIssues();
   h+=`<div class="rsection"><div class="rsec-h">What they are running on</div>`
@@ -20426,7 +20455,9 @@ function resolveBallot(kind){
     const bd=measureBreakdown(m);
     const poll=bd.yes;
     const noise=(Math.random()-0.5)*0.055;     // election-night variance
-    const share=clamp(poll+noise,0.01,0.99);
+    let share=clamp(poll+noise,0.01,0.99);
+    // sandbox: what you referred passes, whatever the polls say
+    if(window.SANDBOX&&!citizen)share=Math.max(share,0.505);
     const passed=share>0.5;
     if(passed){
       if(m.dir==="enact")_applyEnact(m.id, clamp(0.15+(share-0.5)*1.4, 0.15, 0.55), "ballot");
@@ -23226,7 +23257,8 @@ function signed(v,dollar){const s=v>=0?'+':'';return dollar?(s+v.toFixed(1)):(s+
 
 /* ---------- NEW POLICIES (catalog) ---------- */
 function renderPolicies(){
-  const avail=Object.keys(CATALOG);
+  // County Payments has nothing to do once the counties can levy again
+  const avail=Object.keys(CATALOG).filter(id=>!(id==="countyPayments"&&m5Reformed()));
   _minCostCache={turn:GAME.turn, map:{}};   // priced fresh each time the list is drawn
   const q=(GAME.polSearch||"").trim().toLowerCase();
   let h=`${BACK_BTN_HTML}<div class="sectionhdr">New Policies</div>
@@ -23390,6 +23422,7 @@ function _applyEnact(id, level, via){
   // passes. The election printed on the same ballot was counted under the
   // old rules and stands; the new rules govern the next one.
   if(id==="cabinetGovernment")apptCabinetReorg();   // commissioners become directors; partners keep theirs
+  if(id==="propTaxReform")m5EndCountyPayments();     // the counties levy for themselves
   if(id==="propRep"){
     GAME.prPending=true;
     GAME.log.push(ico('columns')+" Proportional representation is ratified — it governs the next legislative election, not tonight's");
