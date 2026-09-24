@@ -2120,6 +2120,7 @@
   .brief-dec-full{border:1px solid var(--line);border-left:3px solid var(--clay);background:var(--paper-2);padding:18px 20px;margin:12px 0;text-align:center}
   .brief-dec-full .dilemma-text,.brief-dec-full .dilemma-opts{text-align:left}
   .brief-dec-full h2{margin:6px 0 10px}
+  .brief-prop{text-align:left}
   .brief-dec{border:1px solid var(--line);border-left:3px solid var(--clay);background:var(--paper-2);padding:10px 12px;margin:10px 0}
   .brief-dec.done{border-left-color:var(--moss)}
   .brief-dec-h{font-weight:600;font-size:15px;display:flex;align-items:center;gap:8px}
@@ -8874,14 +8875,9 @@ function resolveProposal(accept){
   }
   render();
 }
-function renderProposal(){
-  const modal=document.getElementById("proposalModal"), card=document.getElementById("proposalCard");
-  if(!modal||!card)return;
-  const c=GAME.pendingProposal;
-  // a dilemma, and the result card after it, go first
-  if(!c||GAME.pendingDilemma||GAME.lastDilemmaResult){ modal.classList.add("hidden"); return; }
-  if(!proposalLive(c)){ GAME.pendingProposal=null; modal.classList.add("hidden"); return; }
-  if(!GAME._openProposal&&(GAME._briefPending||(GAME.briefing&&GAME.briefing.items.some(i=>i.kind==="proposal"&&i.key===c.turn+"|"+c.ppost)))){ modal.classList.add("hidden"); return; }
+/* A director's proposal, drawn in full. attr names the answer buttons, so
+   its own screen and the briefing can each wire them. */
+function proposalCardHTML(c,attr){
   const post=APPT_POSTS[c.ppost], pol=proposalPolicy(c), cost=proposalCosts(c);
   const adjusting=c.pkind==="adjust";
   const pitch = c.ptrait==="reformer"
@@ -8906,15 +8902,25 @@ function renderProposal(){
     <div class="ebgroup prop-facts">${facts}</div>`;
   h+=apptDeliveryPanelHTML(pol);
   h+=`<div class="dilemma-opts prop-opts">
-    <button class="dilemma-opt" data-prop="1"><span class="do-label">${adjusting?"Tell them to go ahead":"Take it to the floor"}</span>
+    <button class="dilemma-opt" ${attr}="1"><span class="do-label">${adjusting?"Tell them to go ahead":"Take it to the floor"}</span>
       <span class="do-sub">${adjusting
         ? "The change is made this quarter, which is what makes it cheap, and it is yours from the moment it is announced."
         : "It goes into New Policies at their discount with your name on it. You still choose when to call the vote."}</span></button>
-    <button class="dilemma-opt" data-prop="0"><span class="do-label">${adjusting?"Tell them to leave it alone":"Leave it in the drawer"}</span>
+    <button class="dilemma-opt" ${attr}="0"><span class="do-label">${adjusting?"Tell them to leave it alone":"Leave it in the drawer"}</span>
       <span class="do-sub">You tell them it is good work and that this is not the quarter. Nothing is spent.</span></button>
   </div>
   <div class="dilemma-foot">Your departments bring proposals separately from the quarter's dilemmas. Declining one costs nothing.</div>`;
-  card.innerHTML=h;
+  return h;
+}
+function renderProposal(){
+  const modal=document.getElementById("proposalModal"), card=document.getElementById("proposalCard");
+  if(!modal||!card)return;
+  const c=GAME.pendingProposal;
+  // a dilemma, and the result card after it, go first
+  if(!c||GAME.pendingDilemma||GAME.lastDilemmaResult){ modal.classList.add("hidden"); return; }
+  if(!proposalLive(c)){ GAME.pendingProposal=null; modal.classList.add("hidden"); return; }
+  if(!GAME._openProposal&&(GAME._briefPending||(GAME.briefing&&GAME.briefing.items.some(i=>i.kind==="proposal"&&i.key===c.turn+"|"+c.ppost)))){ modal.classList.add("hidden"); return; }
+  card.innerHTML=proposalCardHTML(c,"data-prop");
   modal.classList.remove("hidden");
   card.querySelectorAll('[data-prop]').forEach(b=>b.addEventListener('click',()=>{ const fromBrief=GAME._openProposal; resolveProposal(b.dataset.prop==="1"); if(fromBrief)briefReturn(); }));
 }
@@ -15163,8 +15169,7 @@ function briefCollect(){
   if(GAME.pendingNominee){ GAME.pendingNominee=false; const C=GAME.challenger; if(C&&C.nominee!=null)items.push({kind:"nominee", icon:"people", title:C.field[C.nominee].name+" is the "+oppPartyName()+" nominee"}); }
   if(GAME.pendingBallotNotice){ const bn=GAME.pendingBallotNotice; GAME.pendingBallotNotice=null; items.push({kind:"ballot", bn, icon:"ballot", title:bn.measures.length+" citizen initiative"+(bn.measures.length===1?" has":"s have")+" qualified for the ballot"}); }
   if(GAME.pendingTermLimitWarn){ const w=GAME.pendingTermLimitWarn; GAME.pendingTermLimitWarn=null; items.push({kind:"termlimit", w, icon:"warning", title:"Your second term ends after the next election"}); }
-  // the quarter's campaign energy, which is lost if it is not spent
-  if(GAME.campEnergyMax)items.push({kind:"campaign", icon:"people", title:"Campaign energy: "+GAME.campEnergyMax+" to spend this quarter on groups, counties and ballot measures. What you do not spend is lost"});
+
   return items;
 }
 function briefDone(it){
@@ -15203,14 +15208,8 @@ function briefDecisionHTML(x){
     return `<div class="brief-dec done"><div class="brief-dec-h">${ico(it.icon||"warning")} ${it.title} <span class="brief-done">Decided ✓</span></div><div class="brief-choice">You chose: <b>${r.choice}</b></div>${fx?`<div class="brief-fxs">${fx}</div>`:""}</div>`;
   }
   if(it.kind==="proposal"&&!done){
-    const c=GAME.pendingProposal, pol=c&&proposalPolicy(c), cost=c&&proposalCosts(c); if(!pol||!cost)return "";
-    const adj=c.pkind==="adjust"&&c.padj;
-    const what=adj?`wants to move <b>${pol.name}</b> from ${c.padj.from} to <b>${c.padj.label}</b>, on the department's own authority, for ◈${cost.now}.`
-      :`has drafted <b>${pol.name}</b> and would bring it to you at ◈${cost.disc} instead of ◈${cost.full}. Accepting puts that price on it in New Policies.`;
-    const can=!adj||GAME.capital>=cost.now||window.SANDBOX;
-    return `<div class="brief-dec"><div class="brief-dec-h">${ico("doc")} A proposal from ${c.pname} (${APPT_POSTS[c.ppost].name})</div>`
-      +`<div class="sectionsub brief-dec-t">${c.pname} ${what}</div>`
-      +`<div class="brief-btns"><button class="fcard-btn" data-bprop="1" ${can?"":"disabled"}>Accept${adj?" ◈"+cost.now:""}</button><button class="fcard-btn" data-bprop="0">Leave it in the drawer</button></div></div>`;
+    const c=GAME.pendingProposal; if(!c||!proposalPolicy(c))return "";
+    return `<div class="brief-dec brief-dec-full brief-prop">${proposalCardHTML(c,"data-bprop")}</div>`;
   }
   if(it.kind==="proposal"&&done)return `<div class="brief-row done"><span class="brief-ico">${ico("doc")}</span><span class="brief-t">${it.title}</span><span class="brief-done">${it.result||"Answered"} ✓</span></div>`;
   // the bill and the budget: their own screens
@@ -15268,7 +15267,7 @@ function openBriefing(fresh){
     GAME._openProposal=true;
     const yes=b.dataset.bprop==="1";
     resolveProposal(yes);
-    it.result=yes?"Accepted":"Left in the drawer";
+    it.result=yes?"Accepted":"Declined";
     document.getElementById("proposalModal").classList.add("hidden");
     openBriefing(false);
   }));
