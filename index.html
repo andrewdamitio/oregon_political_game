@@ -5376,6 +5376,12 @@ const CATALOG={
     blocEffect:{socialist:9, libertarian:9, moderate:6, collegeEducated:4, students:3, urban:2,
                 liberal:-3, conservative:-3, publicUnions:-2},
     ideology:{social:-0.5, govSize:-0.2}},
+  initiativeLimits:{name:"Restrict the Initiative Process", domain:"social", icon:"ballot", mechanic:"law", reform:true,
+    desc:"Oregon invented the modern initiative in 1902, and its ballot has been crowded ever since: tax limits, sentencing laws and constitutional amendments written by whoever could gather the signatures. A governor who wants to govern without a new fight on every ballot can ask the voters to narrow it.\n\nYou choose how far when you refer it. Each form is harder to sell than the one before, because it asks voters to give up a power they use.",
+    enabled:true, capital:14, enactCapital:18, repealCost:14,
+    effects:{}, indicatorEffects:{},
+    blocEffect:{},   // set by the form the voters pass
+    ideology:{govSize:0.2}},
   kickerReform:{name:"Kicker Reform", domain:"economy", icon:"cash-fly", mechanic:"law", reform:true,
     desc:"Keep the money Oregon's constitutional kicker would refund (revenue more than 2% over forecast) in a reserve instead of returning it to taxpayers. It stabilizes the budget and angers tax-conscious voters.",
     enabled:true, revenue:0.8, capital:14, enactCapital:18,
@@ -17108,13 +17114,42 @@ const PR_VARIANTS={
     note:"There is no governor's race. After each Assembly election your party must be one of the two largest and you must build a government of 51, a coalition if you need one. If you cannot, the Assembly chooses someone else and your governorship ends."}
 };
 /* The choice on the Proportional Representation card. */
-function prVariantPickHTML(){
-  const cur=GAME.prVariantDraft||"independent";
-  return `<div class="prv"><div class="prv-h">How is the governor chosen?</div>`
-    +Object.keys(PR_VARIANTS).map(k=>`<button class="prv-opt${k===cur?" on":""}" onclick="setPrVariant('${k}')"><b>${PR_VARIANTS[k].label}</b><span>${PR_VARIANTS[k].note}</span></button>`).join("")
+function prVariantPickHTML(){ return measureVariantPickHTML("propRep"); }
+/* The form a measure goes to the voters in, chosen on its card. */
+function measureVariantPickHTML(id){
+  const V=MEASURE_VARIANTS[id], cur=measureVariantDraft(id);
+  const q=id==="propRep"?"How is the governor chosen?":"How far does it go?";
+  return `<div class="prv"><div class="prv-h">${q}</div>`
+    +Object.keys(V).map(k=>`<button class="prv-opt${k===cur?" on":""}" onclick="setMeasureVariant('${id}','${k}')"><b>${V[k].label}</b><span>${V[k].note}</span></button>`).join("")
     +`</div>`;
 }
 function setPrVariant(v){ if(PR_VARIANTS[v]){ GAME.prVariantDraft=v; renderInPlace(); } }
+/* The forms of the initiative restriction, mildest first. Each includes the
+   one before it. */
+const INIT_VARIANTS={
+  noAmend:{label:"No citizen-initiated amendments",
+    note:"Citizens can still petition laws onto the ballot, but only the legislature can propose a change to the constitution.",
+    bloc:{libertarian:-2, socialist:-1, moderate:-1, businessClass:2}},
+  signatures:{label:"Higher signature requirements",
+    note:"No citizen amendments, and a statute needs far more signatures, spread across the counties, to qualify. One or two a cycle make it instead of three or four.",
+    bloc:{libertarian:-3, socialist:-2, moderate:-2, conservative:-1, rural:-1, businessClass:3}},
+  noInitiatives:{label:"No citizen initiatives",
+    note:"Citizens can no longer put anything on the ballot. Only what the legislature refers goes to the voters, and the extra campaign energy citizen measures bring goes with them.",
+    bloc:{libertarian:-6, socialist:-4, moderate:-4, conservative:-3, rural:-3, liberal:-2, collegeEducated:-2, businessClass:4}}
+};
+/* Measures that go to the voters in a chosen form. */
+const MEASURE_VARIANTS={propRep:PR_VARIANTS, initiativeLimits:INIT_VARIANTS};
+function measureVariantDraft(id){
+  if(id==="propRep")return GAME.prVariantDraft||"independent";
+  return (GAME.variantDraft||{})[id]||Object.keys(MEASURE_VARIANTS[id])[0];
+}
+function setMeasureVariant(id,v){
+  if(id==="propRep")return setPrVariant(v);
+  if(!MEASURE_VARIANTS[id]||!MEASURE_VARIANTS[id][v])return;
+  (GAME.variantDraft=GAME.variantDraft||{})[id]=v; renderInPlace();
+}
+/* How far the initiative is restricted now: null, or the form in force. */
+function initiativeLimit(){ const p=POLICIES.initiativeLimits; return (p&&p.enacted!==false)?(p.variant||"noAmend"):null; }
 /* Where a bill has to carry, named for the system in force. Under
    proportional representation the House and the Senate no longer exist. */
 function floorPlace(){ return prOn() ? "the Assembly" : "both chambers"; }
@@ -20599,7 +20634,7 @@ function referMeasure(id,dir,free){
   GAME.ballot.pending.push({id,dir,name:p.name,icon:p.icon||"ballot",
     referredTurn:GAME.turn, kind:on.kind, energy:0, waitBallots:late?1:0,
     // proportional representation goes to the voters in the form you chose
-    variant:id==="propRep"?(GAME.prVariantDraft||"independent"):undefined});
+    variant:MEASURE_VARIANTS[id]?measureVariantDraft(id):undefined});
   GAME.log.push(ico('ballot')+" Referred to the voters: "+measureTitle({id,dir,target:undefined})
     +(late ? " \u2014 too late for "+nb.label+", so it goes on "+on.label
            : " \u2014 on "+nb.label+(nb.quartersAway>0?" in "+nb.quartersAway+"q":" this quarter")));
@@ -20620,7 +20655,7 @@ function measureTargetLabel(m){
 /* The proposition in plain words — used everywhere a measure is named. */
 function measureTitle(m){
   const p=measureFor(m.id), nm=(p&&p.name)||m.name;
-  if(m.id==="propRep"&&m.variant&&m.dir!=="repeal")return nm+" ("+PR_VARIANTS[m.variant].label.toLowerCase()+")";
+  if(m.variant&&MEASURE_VARIANTS[m.id]&&MEASURE_VARIANTS[m.id][m.variant]&&m.dir!=="repeal")return nm+" ("+MEASURE_VARIANTS[m.id][m.variant].label.toLowerCase()+")";
   if(m.dir==="repeal")return "Repeal — "+nm;
   if(m.dir==="set")return nm+" → "+measureTargetLabel(m);
   return nm;
@@ -20856,6 +20891,13 @@ function resolveBallot(kind){
     if(passed){
       if(m.id==="propRep"&&m.dir==="enact")GAME.prGovMode=m.variant||"independent";   // the system the voters chose
       if(m.dir==="enact")_applyEnact(m.id, clamp(0.15+(share-0.5)*1.4, 0.15, 0.55), "ballot");
+      // the initiative restriction takes the form the voters passed
+      if(m.id==="initiativeLimits"&&m.dir==="enact"&&POLICIES.initiativeLimits){
+        const v=INIT_VARIANTS[m.variant]?m.variant:"noAmend";
+        POLICIES.initiativeLimits.variant=v;
+        POLICIES.initiativeLimits.blocEffect=Object.assign({},INIT_VARIANTS[v].bloc);
+        POLICIES.initiativeLimits.name="Restrict the Initiative Process ("+INIT_VARIANTS[v].label.toLowerCase()+")";
+      }
       else if(m.dir==="set")_applySetMeasure(m.id,m.target);
       else {
         // a citizen repeal you campaigned FOR is yours to answer for like any
@@ -20901,16 +20943,20 @@ function resolveBallot(kind){
    the initiative is moot: there is no question left for the voters to
    settle, so it drops off the ballot.
    ============================================================ */
+/* Amendments no citizen petition may propose: the machinery of government. */
+const CITIZEN_NO_AMEND=new Set(["propRep","cabinetGovernment","termLimitRepeal","fullTimeLegislature","quorumReform","revenueMajority","initiativeLimits"]);
 function citizenCandidatePool(){
   const out=[];
+  // citizens can petition amendments too, until the initiative is restricted
+  const amendOk=p=>!p.reform||(!initiativeLimit()&&!CITIZEN_NO_AMEND.has(p._id||""));
   for(const id in CATALOG){
     const p=CATALOG[id];
-    if(p.reform||!p.blocEffect||pendingMeasure(id))continue;
+    if(!amendOk(Object.assign({_id:id},p))||!p.blocEffect||pendingMeasure(id))continue;
     out.push({id,dir:"enact"});
   }
   for(const id in POLICIES){
     const p=POLICIES[id];
-    if(p.reform||!p.blocEffect||pendingMeasure(id))continue;
+    if(!amendOk(Object.assign({_id:id},p))||!p.blocEffect||pendingMeasure(id))continue;
     // most ballot fights are not about abolishing a programme — they are about
     // how far it goes. Anything with a dial can be asked to move.
     if(p.mechanic==="tier"||p.mechanic==="slider"||p.mechanic==="intensity"){
@@ -21053,10 +21099,17 @@ function generateCitizenMeasures(){
     const i=Math.floor(Math.random()*remaining.length);
     chosen.push(remaining.splice(i,1)[0]);
   }
-  return chosen;
+  // at most one citizen amendment on a ballot
+  const isAmend=c=>{ const p=measureFor(c.id); return !!(p&&p.reform); };
+  let amendSeen=false;
+  const out=chosen.filter(c=>{ if(!isAmend(c))return true; if(amendSeen)return false; amendSeen=true; return true; });
+  // higher signature requirements: only one or two qualify
+  if(initiativeLimit()==="signatures")return out.slice(0,1+Math.floor(Math.random()*2));
+  return out;
 }
 /* Put this cycle's citizen initiatives on the ballot. */
 function refreshCitizenBallot(){
+  if(initiativeLimit()==="noInitiatives")return [];   // only the legislature refers now
   const list=generateCitizenMeasures(), created=[];
   const nb=nextBallotInfo();
   for(const c of list){
@@ -21276,7 +21329,7 @@ function ballotCampaignHTML(){
   const pend=GAME.ballot.pending||[], hist=GAME.ballot.history||[];
   const nb=nextBallotInfo();
   let h=`<div class="camp-sec" style="margin-top:6px">${ico('ballot')} Measures on the ballot</div>
-    <div class="sectionsub" style="margin-top:0"><b>Amendments you referred</b> change the constitution. Your capital puts one on the ballot, and only the voters can pass it. <b>Citizen initiatives</b> are statutes that outside groups petitioned onto the ballot. They cost you nothing, and you can stay out of any of them. (In this game citizens petition only statutes, not amendments.) Both go to the next statewide ballot, the midterm or your re-election, never a special election. Campaign energy here comes from the same pool as county and group work.</div>`;
+    <div class="sectionsub" style="margin-top:0"><b>Amendments you referred</b> change the constitution. Your capital puts one on the ballot, and only the voters can pass it. <b>Citizen initiatives</b> are statutes that outside groups petitioned onto the ballot. They cost you nothing, and you can stay out of any of them. ${initiativeLimit()==="noInitiatives"?"Citizen initiatives have been abolished, so only what the legislature refers reaches the ballot.":initiativeLimit()?"Citizens can petition laws but not amendments"+(initiativeLimit()==="signatures"?", and only one or two a cycle clear the signature bar.":"."):"Citizens can petition amendments as well as laws, one amendment a ballot at most."} Both go to the next statewide ballot, the midterm or your re-election, never a special election. Campaign energy here comes from the same pool as county and group work.</div>`;
   h+=energyBarHTML();
   if(!pend.length){
     h+=`<div class="ebnote" style="margin-top:14px">No measure is currently before the voters. Refer one from <b>New Policies → Constitutional Reforms</b>, or by repealing an amendment already in force. Citizen initiatives, when any qualify, appear here on their own about four quarters before a ballot.
@@ -23686,7 +23739,7 @@ function renderPolicies(){
         <div><div class="cat-name">${p.name}</div><div class="cat-dom">${DOMAINS[p.domain].name}</div></div></div>
       ${beaten?`<div class="cat-beaten">${ico('ban')} Defeated on the floor — it cannot be brought back for ${back} more quarter${back===1?'':'s'}.</div>`:''}
       <div class="cat-desc">${descHTML(p.desc)}</div>
-      ${id==="propRep"?prVariantPickHTML():""}
+      ${MEASURE_VARIANTS[id]?measureVariantPickHTML(id):""}
       <div class="cat-meta"><span class="pill ${isRevPol?'rev':'spend'}">${costLabel}</span>
         ${floorPol
           ? `<span class="pill cap">${floorMin===null?'No version of this can pass the floor'
