@@ -2705,6 +2705,8 @@ function applySave(sv){
 (function(){
   var ON=true;
   try{if(localStorage.getItem('sc_sfx')==='0')ON=false;}catch(e){}
+  // iOS: count as playback, so the silent switch does not mute the game
+  try{ if(navigator.audioSession)navigator.audioSession.type='playback'; }catch(e){}
   var AC=null;
   var CTXDEAD=false;
   function ctx(){
@@ -2719,7 +2721,7 @@ function applySave(sv){
     // replacement. A page gets about six from Chrome before it refuses, and
     // after that there is no audio for the rest of the session.
     try{
-      if(AC.state==='suspended'){ var p=AC.resume(); if(p&&p.catch)p.catch(function(){}); }
+      if(AC.state!=='running'){ var p=AC.resume(); if(p&&p.catch)p.catch(function(){}); }
     }catch(e){}
     return AC;
   }
@@ -2736,7 +2738,7 @@ function applySave(sv){
      rather than carrying on and hoping. */
   function play(fn){
     var ac=ctx(); if(!ac)return;
-    if(ac.state==='suspended'){
+    if(ac.state!=='running'){          // suspended, or interrupted on iOS
       try{
         var p=ac.resume();
         if(p&&p.then){ p.then(function(){ try{ fn(ac); }catch(e){} },function(){}); return; }
@@ -2779,7 +2781,7 @@ function applySave(sv){
   var SFX={
     get on(){return ON;},
     setOn:function(v){ ON=!!v; try{localStorage.setItem('sc_sfx',ON?'1':'0');}catch(e){} paint(); },
-    toggle:function(){ this.setOn(!ON); if(ON)tone(660,0,0.12,'sine',0.16); },
+    toggle:function(){ this.setOn(!ON); },
     /* WINNING. Two short stabs and a held chord. Deliberately vertical,
        because the welcome chord is a slow rising line and the ear tells
        rhythm apart faster than it tells pitch apart. */
@@ -2796,11 +2798,6 @@ function applySave(sv){
       tone(1046.50,0.44,1.30,'sine',0.115);
       tone(130.81,0.00,1.75,'sawtooth',0.050);
     },
-    /* SMALL CUES. A rising pair when something lands, a falling pair when it
-       does not, and a single soft note for a campaign push. */
-    ok:function(){ if(!ON)return; tone(659.25,0,0.14,'triangle',0.12); tone(987.77,0.09,0.24,'triangle',0.10); },
-    no:function(){ if(!ON)return; tone(311.13,0,0.16,'triangle',0.11); tone(233.08,0.11,0.32,'sine',0.10); },
-    tick:function(good){ if(!ON)return; tone(good?880:370,0,0.09,'sine',0.07); },
     lose:function(){ if(!ON)return; tone(392,0,0.5,'sawtooth',0.13); tone(261.63,0.17,0.7,'sawtooth',0.12); tone(185,0.36,1.05,'sine',0.11); },
     /* TAKING OFFICE. A rising fifth into the octave over a low pad. Warmer and
        slower than the election fanfare, because this one opens a term rather
@@ -4209,7 +4206,6 @@ function signExecOrder(id){
                        resigns:(st&&st.resigns)||0, cost,
                        expires:E.emergency?GAME.turn+E.emergency:null, renewals:0};
   GAME.log.push(ico(E.icon)+" Executive order signed — "+E.name);
-  if(window.SFX)try{ SFX.ok(); }catch(e){}
   return true;
 }
 function rescindExecOrder(id){
@@ -11962,7 +11958,6 @@ function endSituation(sid,solved){
   delete GAME.activeSituations[sid]; delete GAME.situationAge[sid];
   if(solved&&s.category==="chronic"){
     GAME.log.push("★ Resolved: "+s.name+" — a signature achievement");
-    if(window.SFX)try{ SFX.ok(); }catch(e){}
     GAME.capital=clamp(GAME.capital+8,0,100); GAME.crisesResolved=(GAME.crisesResolved||0)+1; GAME.mandateShock=(GAME.mandateShock||0)+10; // solving a signature crisis is a triumph that builds your mandate
   } else {
     const capGain=(s.onClear&&s.onClear.capital)||0;
@@ -14669,7 +14664,6 @@ function campCounty(name){
   GAME.campLog.unshift({turn:GAME.turn, kind:"county", name, ok:true, msg});
   if(GAME.campLog.length>12)GAME.campLog.pop();
   GAME.log.push(msg);
-  if(window.SFX)try{ SFX.tick(true); }catch(e){}
   campRedraw();
 }
 function tickCountyCamp(){
@@ -19127,7 +19121,6 @@ function runFloorVote(w){
 function showApptResult(o){
   const card=document.getElementById("voteResultCard"), modal=document.getElementById("voteResultModal");
   if(!card||!modal)return;
-  if(window.SFX)try{ o.ok?SFX.ok():SFX.no(); }catch(e){}
   const R=o.res, total=o.w.floor.total, no=Math.max(0,total-R.yes);
   card.innerHTML=`<div class="sectionhdr">${ico(o.ok?'people':'ban')} ${o.ok?"Confirmed":"Rejected"} \u2014 ${o.name}</div>
     <div class="sectionsub">${o.ok
@@ -19153,7 +19146,6 @@ function showApptResult(o){
 function showVoteResult(o){
   const card=document.getElementById("voteResultCard"), modal=document.getElementById("voteResultModal");
   if(!card||!modal)return;
-  if(window.SFX)try{ o.ok?SFX.ok():SFX.no(); }catch(e){}
   const row=(lab,r,total)=>`<div class="rrow"><span class="rlabel">${lab}</span>
     <span class="rval" style="color:${r.ok?'var(--good)':'var(--clay)'}"><b>${r.yes}</b>–${total-r.yes} · needed ${r.need}${r.ok?"":" ✗"}</span></div>`;
   const shortBy=[];
@@ -21865,7 +21857,7 @@ function wireCampHQ(root){
     wireMeasureMap(root,m,measureBreakdown(m));
   root.querySelectorAll('[data-push]').forEach(el=>el.addEventListener('click',()=>{
     const r=campPush(el.dataset.push, el.dataset.sid);
-    if(r){ GAME.log.push(r.msg); window._lastPush={sid:el.dataset.sid, kind:el.dataset.push, ok:r.ok}; if(window.SFX)try{ SFX.tick(r.ok); }catch(e){} }
+    if(r){ GAME.log.push(r.msg); window._lastPush={sid:el.dataset.sid, kind:el.dataset.push, ok:r.ok}; }
     campRedraw();
   }));
   wireCampMap(root);
