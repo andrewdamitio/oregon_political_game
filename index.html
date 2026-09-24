@@ -1041,6 +1041,18 @@
   .ebsection{margin-top:16px}
   .ebgroup-label{font-size:11.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted-2);margin:14px 0 6px}
   /* bold section header used to chunk the Campaign HQ popup */
+  .chal-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin:8px 0 4px}
+  .chal{border:1px solid var(--rule);border-radius:6px;padding:10px 12px;background:var(--paper)}
+  .chal.won{border-color:var(--clay);box-shadow:inset 3px 0 0 var(--clay)}
+  .chal.out{opacity:.55}
+  .chal-top{display:flex;align-items:baseline;gap:8px;justify-content:space-between}
+  .chal-n{font-weight:600;color:var(--ink)}
+  .chal-style{font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;color:var(--muted-1)}
+  .chal-style.fire{color:var(--clay)} .chal-style.mod{color:var(--moss)}
+  .chal-r{font-size:13px;color:var(--muted-2);margin:2px 0 6px}
+  .chal-bar{height:6px;background:var(--paper-2);border-radius:3px;margin:4px 0 3px}
+  .chal-bar i{display:block;height:100%;background:var(--clay);border-radius:3px}
+  .chal-k{font-size:12.5px;color:var(--muted-1);margin-top:2px}
   .camp-sec{display:flex;align-items:center;gap:8px;font-family:var(--font-display);font-size:15px;font-weight:700;
     letter-spacing:.4px;text-transform:uppercase;color:var(--ink);margin:24px 0 10px;padding:8px 0 8px 12px;
     border-left:4px solid var(--slate-blue);border-bottom:var(--rule) solid var(--ink);
@@ -11549,12 +11561,161 @@ function oppositionBarb(){
   if(bigBad) bank.push(`${nm} seized on the ${SITUATIONS[bigBad].name.toLowerCase()} to call your term a failure.`);
   if(m>=60) bank.push(`${nm} is openly recruiting a challenger and the money is starting to move.`);
   if(m>=78) bank.push(`Polls now show a generic opponent within the margin — ${nm} smells blood.`);
+  const ch=GAME.challenger&&GAME.challenger.term===GAME.term&&GAME.challenger.nominee!=null?GAME.challenger.field[GAME.challenger.nominee]:null;
+  if(ch) bank.push(`${ch.name}, the ${oppPartyName()} nominee, is running ads against your record.`);
   if(!bank.length) bank.push(`${nm} kept up the usual floor speeches this quarter.`);
   return bank[Math.floor(Math.random()*bank.length)];
 }
 function oppositionCapitalMult(){
   const m=GAME.opposition?GAME.opposition.momentum:25;
   return 1 + clamp((m-60)/40, 0, 1)*0.35;             // nothing until 60, +35% capital on new laws at 100
+}
+/* ============================================================
+   THE CHALLENGER: a field, a primary, a nominee
+   ============================================================ */
+const CHAL_FIELD_AT=9;     // quarter of the term the field forms: after the midterm
+const CHAL_PRIMARY_AT=13;  // the primary: second quarter of election year
+// where each kind of candidate sits, on the other party's side of the compass
+const CHAL_STYLES={
+  mod: {label:"Moderate",  ec:0.22, so:0.12},
+  main:{label:"Mainstream",ec:0.48, so:0.36},
+  fire:{label:"Hardliner", ec:0.78, so:0.72}
+};
+const CHAL_ROLES={
+  right:{mod:["a former Bend mayor","a Clackamas County commissioner","a Medford business owner"],
+         main:["the Senate Republican leader","a two-term state senator from Salem","a former state treasurer"],
+         fire:["a talk-radio host from Grants Pass","a Timber Unity organizer","an Eastern Oregon state representative"]},
+  left: {mod:["a Hillsboro tech executive","a former Salem mayor","a Lane County commissioner"],
+         main:["the House Democratic leader","a two-term Portland state senator","a former labor commissioner"],
+         fire:["a Portland tenant organizer on the city council","a union organizer from Eugene","a climate campaigner in the state house"]}
+};
+// the other party's side of the compass: +1 right, -1 left
+function chalSide(){ return GAME.startId==="conservative" ? -1 : 1; }
+function chalInto(){ return GAME.turn-(GAME.term-1)*GAME.termLengthTurns; }
+function chalPts(m){ const r=Math.max(1,Math.round(m)); return r+" point"+(r===1?"":"s"); }
+function chalPick(a){ return a[Math.floor(Math.random()*a.length)]; }
+/* The field for this term, formed once. */
+function chalEnsureField(){
+  let C=GAME.challenger;
+  if(C&&C.term===GAME.term)return C;
+  const sd=chalSide(), roles=CHAL_ROLES[sd>0?"right":"left"];
+  const field=Object.keys(CHAL_STYLES).map(k=>{
+    const S=CHAL_STYLES[k], j=()=>(Math.random()-0.5)*0.12;
+    return {style:k, name:apptName(), role:chalPick(roles[k]),
+      ec:+clamp(sd*(S.ec+j()),-1,1).toFixed(3), so:+clamp(sd*(S.so+j()),-1,1).toFixed(3),
+      charm:Math.round(42+Math.random()*22), support:33.3, backers:[]};
+  });
+  C=GAME.challenger={term:GAME.term, field, nominee:null, margin:null, bruise:0};
+  chalScore(true);
+  return C;
+}
+/* Who the other party's groups back. A group counts for as much as it is
+   big, votes, and sits on that party's side; one angry at you counts more
+   and leans further out. */
+function chalScore(snap){
+  const C=GAME.challenger; if(!C)return;
+  const sd=chalSide(), raw=C.field.map(()=>0), by=C.field.map(()=>({}));
+  for(const b in SIMULANTS){
+    const S=SIMULANTS[b]; if(!S||S.static||!S.ideology)continue;
+    const ec=S.ideology.economic||0, so=S.ideology.social||0;
+    const lean=sd*(ec+so)/2;
+    let w=(S.size||0.01)*(S.turnout||0.6)*clamp(0.12+lean*1.4,0,1.5);
+    if(w<=0)continue;
+    const anger=clamp((55-(S.approval==null?50:S.approval))/25,0,1.5);
+    w*=1+anger*0.6;
+    const px=ec+sd*anger*0.25, py=so+sd*anger*0.25;
+    C.field.forEach((c,i)=>{
+      const d2=(c.ec-px)*(c.ec-px)+(c.so-py)*(c.so-py);
+      const v=w*Math.exp(-d2/0.18)*(0.8+c.charm/250);
+      raw[i]+=v; by[i][b]=v;
+    });
+  }
+  const tot=raw.reduce((a,b)=>a+b,0)||1;
+  C.field.forEach((c,i)=>{
+    const now=raw[i]/tot*100;
+    // support moves over quarters, not overnight
+    c.support=+(snap?now:c.support*0.6+now*0.4).toFixed(1);
+    c.backers=Object.keys(by[i]).sort((a,b)=>by[i][b]-by[i][a]).slice(0,2);
+  });
+}
+/* The primary: the leader on the day, with a little noise. A close one
+   leaves the winner bruised. */
+function chalRunPrimary(){
+  const C=chalEnsureField(); if(C.nominee!=null)return C;
+  const got=C.field.map(c=>c.support+(Math.random()-0.5)*8);
+  const order=got.map((v,i)=>i).sort((a,b)=>got[b]-got[a]);
+  C.nominee=order[0];
+  C.margin=+(got[order[0]]-got[order[1]]).toFixed(1);
+  C.bruise=C.margin<10?Math.round((10-C.margin)*0.6):0;
+  const w=C.field[C.nominee];
+  GAME.log.push(ico('ballot')+" "+w.name+", "+w.role+", wins the "+oppPartyName()+" primary by "+chalPts(C.margin)+" ("+CHAL_STYLES[w.style].label.toLowerCase()+")");
+  return C;
+}
+/* How well the electorate takes to a candidate: charm, less distance from
+   the electorate's centre, less a bruising primary. */
+function chalLikability(c,bruise){
+  const e=ecCentroidAt(GAME.turn);
+  const far=Math.abs(c.ec-e.ec)*0.6+Math.abs(c.so-e.so)*0.4;
+  return clamp(c.charm-Math.max(0,far-0.3)*30-(bruise||0),15,85);
+}
+/* Every quarter: form the field after the midterm, move support, hold the
+   primary on its date. */
+function tickChallenger(){
+  const into=chalInto();
+  if(into<CHAL_FIELD_AT){ if(GAME.challenger&&GAME.challenger.term!==GAME.term)GAME.challenger=null; return; }
+  const fresh=!GAME.challenger||GAME.challenger.term!==GAME.term;
+  const C=chalEnsureField();
+  if(fresh)GAME.log.push(ico('people')+" The "+oppPartyName()+" primary field is set: "+C.field.map(c=>c.name+" ("+CHAL_STYLES[c.style].label.toLowerCase()+")").join(", "));
+  else if(C.nominee==null)chalScore(false);
+  if(into>=CHAL_PRIMARY_AT&&C.nominee==null)chalRunPrimary();
+}
+/* What the election needs: the nominee, chosen now if the calendar never got
+   there, with the mainstream point every voter is measured against. */
+function challengerForElection(){
+  const C=chalRunPrimary(), c=C.field[C.nominee], sd=chalSide();
+  return {name:c.name, role:c.role, style:c.style, ec:c.ec, so:c.so,
+    ref:{ec:sd*CHAL_STYLES.main.ec, so:sd*CHAL_STYLES.main.so}, like:chalLikability(c,C.bruise)};
+}
+/* A voter's pull from the nominee: positive when the nominee sits further
+   from them than a mainstream candidate would, which is a vote your way. */
+function chalVoterPull(v,c){
+  const d=(x,y)=>Math.abs((v.econ||0)-x)*0.62+Math.abs((v.social||0)-y)*0.30;
+  return clamp((d(c.ec,c.so)-d(c.ref.ec,c.ref.so))*8,-5,5);
+}
+const CHAL_LIKE_PTS=0.04;   // share moved by likability at either extreme
+/* The panel on Your re-election. */
+function challengerHTML(){
+  const into=chalInto(), opp=oppPartyName();
+  let h=`<div class="camp-sec">${ico('people')} The ${opp} challenger</div>`;
+  const C=GAME.challenger&&GAME.challenger.term===GAME.term?GAME.challenger:null;
+  if(!C){
+    return h+`<div class="sectionsub" style="margin-top:0">The ${opp} field forms after the midterm, in ${Math.max(1,CHAL_FIELD_AT-into)} quarter${CHAL_FIELD_AT-into===1?"":"s"}. `
+      +`Its primary is decided by the groups that back the ${opp} Party, and groups angry at you back the hardliner.</div>`;
+  }
+  const sg=v=>(v>=0?"+":"−")+Math.abs(v).toFixed(1);
+  const card=(c,i)=>{
+    const won=C.nominee===i, lost=C.nominee!=null&&!won, like=chalLikability(c,won?C.bruise:0);
+    return `<div class="chal${won?" won":""}${lost?" out":""}">`
+      +`<div class="chal-top"><span class="chal-n">${c.name}</span><span class="chal-style ${c.style}">${CHAL_STYLES[c.style].label}</span></div>`
+      +`<div class="chal-r">${c.role}</div>`
+      +(C.nominee==null?`<div class="chal-bar"><i style="width:${c.support}%"></i></div><div class="chal-k"><b>${c.support.toFixed(0)}%</b> of primary support</div>`
+        :won?`<div class="chal-k"><b>Nominee.</b> Won the primary by ${chalPts(C.margin)}${C.bruise?", and bruised by it":""}.</div>`:`<div class="chal-k">Lost the primary.</div>`)
+      +`<div class="chal-k">Likability <b>${Math.round(like)}</b></div>`
+      +(c.backers.length&&!lost?`<div class="chal-k">Backed by ${c.backers.map(b=>SIMULANTS[b].name).join(" and ")}</div>`:"")
+      +`</div>`;
+  };
+  if(C.nominee==null){
+    const left=CHAL_PRIMARY_AT-into;
+    h+=`<div class="sectionsub" style="margin-top:0">The ${opp} primary is ${left>0?`in ${left} quarter${left===1?"":"s"}`:"this quarter"}. `
+      +`Each group on the ${opp} side backs the candidate nearest it, and a group angry at you backs harder and further out. `
+      +`A hardliner pushes centrist voters your way; a moderate competes for them.</div>`;
+  } else {
+    const c=challengerForElection(), pts=(50-c.like)/50*CHAL_LIKE_PTS*100;
+    h+=`<div class="sectionsub" style="margin-top:0">${c.name} is the ${opp} nominee. `
+      +(c.style==="fire"?"Against a hardliner, centrist voters lean your way.":c.style==="mod"?"A moderate competes for the middle, so centrists will not break your way.":"A mainstream nominee: the middle is open to both of you.")
+      +` Their likability is worth <b>${sg(pts)} points</b> to you on election night.</div>`;
+  }
+  return h+`<div class="chal-grid">`+C.field.map(card).join("")+`</div>`;
 }
 function effective(k){
   const m=METRICS[k];
@@ -13178,6 +13339,8 @@ function runElection(){
   const camp=GAME.campaign||{};
   const g=govIdeologyPoint();
   const govLeft=(g.economic+g.social)<0;
+  // the nominee across from you: where they sit, and how well they go down
+  const chal=challengerForElection();
   // per-county tallies: the SAME voters, re-summed by county affinity (v.cw)
   // hy/hn are the HEAD-TO-HEAD preference — who this voter preferred before
   // the question of whether a purer party was also on the ballot. y/n/l/r are
@@ -13213,6 +13376,7 @@ function runElection(){
     const partisanLean=clamp((0.85-rdist)*3.8 + 0.35, -4, 5);
     plSum+=partisanLean;
     let app=v.approval+(Math.random()-0.5)*3+partisanLean;
+    app+=chalVoterPull(v,chal);          // a hardliner sends the middle your way
     // campaign effort nudges turnout/approval among targeted blocs
     let mob=0;
     if(camp.effort)for(const sid in camp.effort){ if((v.m[sid]||0)>0.3){ app+=camp.effort[sid]*2.2*(v.m[sid]); mob+=camp.effort[sid]*0.05*(v.m[sid]); } }
@@ -13299,7 +13463,9 @@ function runElection(){
   const oppFrac = clamp((oppM-30)/70, 0, 1);
   const oppShift = -oppFrac*0.055;                              // up to −5.5 pts, level
   const oppSwing = (Math.random()-0.5) * clamp(oppM/100,0,1) * 0.09;  // up to ±4.5 pts, random
-  share=clamp(share*0.66 + anchor*0.34 + oppShift + oppSwing, 0.03, 0.97);
+  // how well the nominee goes down: up to CHAL_LIKE_PTS either way
+  const chalLike=(50-chal.like)/50*CHAL_LIKE_PTS;
+  share=clamp(share*0.66 + anchor*0.34 + oppShift + oppSwing + chalLike, 0.03, 0.97);
   const turnoutPct=tot/VOTERS.length;
   // Every graph on election night reconciles to the headline. The headline is
   // the raw tally blended with the realism anchor and the challenger's
@@ -13413,6 +13579,7 @@ function runElection(){
   }
   return {won:share>=0.5, share, approval:overallApproval(), intention:votingIntention(),
           turnout:turnoutPct, rcv, counties, blocs, rcvRounds, oppMomentum:oppM, oppSwingPts:+(oppSwing*100).toFixed(1),
+          challenger:{name:chal.name, role:chal.role, style:chal.style, like:Math.round(chal.like), likePts:+(chalLike*100).toFixed(1)},
           thirdShare:tot>0?third/tot:0,
           thirdShareL:tot>0?thirdL/tot:0, thirdShareR:tot>0?thirdR/tot:0,
           thirdShareC:tot>0?thirdC/tot:0};
@@ -15874,7 +16041,9 @@ function showElection(r){
       const col=m>=60?'var(--clay)':m>=42?'#8a7a3a':'var(--muted-2)';
       const sw=r.oppSwingPts||0;
       const note = m>=60 ? ` — a strong, funded challenger${Math.abs(sw)>1.5?`; election-night swing ${sw>0?'+':''}${sw} pts`:''}` : m<24 ? ' — no serious challenge' : '';
-      return `<div class="eg-sub" style="font-size:13.5px;color:${col}">Opposition momentum: <b>${lvl}</b>${note}</div>`;
+      const ch=r.challenger;
+      const who=ch?`<div class="eg-sub" style="font-size:13.5px">Against <b>${ch.name}</b>, ${ch.role} (${CHAL_STYLES[ch.style].label.toLowerCase()}), likability ${ch.like}: worth ${ch.likePts>=0?"+":"−"}${Math.abs(ch.likePts).toFixed(1)} points to you.</div>`:"";
+      return who+`<div class="eg-sub" style="font-size:13.5px;color:${col}">Opposition momentum: <b>${lvl}</b>${note}</div>`;
     })()}
     ${(()=>{ const w=Object.keys(GAME.countyCamp||{}).filter(n=>(GAME.countyCamp[n].p||0)>0.15);
       if(!w.length)return"";
@@ -19421,7 +19590,7 @@ function _runTicks(){
   GAME.lastBalance=budgetBalance().balance;
   GAME.surplusStreak=(GAME.lastBalance>0.5)?Math.min(9,(GAME.surplusStreak||0)+1)
                                             :Math.max(0,(GAME.surplusStreak||0)-2);
-  settleFiscal(); tickNationalMood(); tickAppointments(); tickSituations(); rollSecureRuralSchools(); tickOpposition(); maybeFireDilemma(); maybeFireProposal(); maybeSendOppBill();
+  settleFiscal(); tickNationalMood(); tickAppointments(); tickSituations(); rollSecureRuralSchools(); tickOpposition(); tickChallenger(); maybeFireDilemma(); maybeFireProposal(); maybeSendOppBill();
   // The rebalance: once the shortfall is past what the reserves can absorb and
   // the crisis has actually bitten, the legislature stops waiting.
   // Not in the first year: the opening slate is already a hole, and a
@@ -20582,6 +20751,7 @@ function campHQBodyHTML(){
   </div>`;
   if(tab==="ballot")return h+ballotCampaignHTML();
   if(tab==="legis")return h+legForecastHTML();
+  h+=challengerHTML();
   // ---- platform this term: read-only. Pledges are committed right after you
   //      win (showPlatformModal), then tracked here through the term ----
   const nAp=(GAME.activePromises||[]).length;
@@ -25744,7 +25914,7 @@ function bootWorld(startId){
   // representation would hand the next one a unicameral 100. Put the
   // districts back.
   GAME.prMode=false; _prCompCache=null; _prCompTurn=-1;
-  GAME.coalition=null; GAME.pendingCoalition=null; GAME.coalPick=null; GAME.coalOffer=null;
+  GAME.coalition=null; GAME.pendingCoalition=null; GAME.coalPick=null; GAME.coalOffer=null; GAME.challenger=null;
   GAME.pendingCoalExit=null; GAME.coalUlt=null; GAME.coalOfferId=null;
   LEGIS.senate=30; LEGIS.house=60; LEGIS.superS=18; LEGIS.superH=36;
   LEGIS.majS=16; LEGIS.majH=31; LEGIS.quorumH=40; LEGIS.quorumS=20;
