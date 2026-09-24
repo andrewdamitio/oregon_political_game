@@ -3806,7 +3806,7 @@ const EXEC_ORDERS={
     savings:0.08,
     blocEffect:{socialist:4, liberal:3, poor:2, conservative:-5, retirees:-3, moderate:-3, suburban:-2},
     legalBase:0.07},
-  eoClimateDirective:{area:"environment", name:"Climate Directive to State Agencies", icon:"leaf", capital:4, phaseIn:6,
+  eoClimateDirective:{area:"environment", name:"Climate Directive to State Agencies", icon:"leaf", capital:4, phaseIn:6, conflicts:["eoRegFreeze"],
     reach:"Directing agencies within the authority they already have is yours. Industry sued over the cap-and-reduce rule the 2020 order produced, and a court threw that rule out in 2023.",
     desc:"Order every agency to use the authority it already has to cut emissions, as Governor Brown did in EO 20-04 when the cap-and-trade bill died in a walkout. Rules follow agency by agency: clean fuels, building codes, the utilities' plans. Emissions fall slowly, and business pays for rules nobody voted on.",
     effects:{environment:1.5, gdp:-0.03},
@@ -3850,9 +3850,9 @@ const EXEC_ORDERS={
     blocEffect:{rural:3, timber:1, conservative:1, moderate:1},
     legalBase:0},
   // ---- orders a conservative governor would sign ----
-  eoRegFreeze:{area:"budget", name:"Freeze on New Agency Rules", icon:"ban", capital:3, phaseIn:2,
+  eoRegFreeze:{area:"budget", name:"Freeze on New Agency Rules", icon:"ban", capital:3, phaseIn:2, conflicts:["eoClimateDirective"],
     reach:"Agencies answer to you on when rules are adopted. Rules the legislature ordered by a date are not yours to stop.",
-    desc:"Order every agency to adopt no new rule without your office signing off, and to review the ones on the books. Employers get a pause from new requirements and the bureaucracy stops growing. The protections those rules were written to deliver, on the environment and at work, wait with them.",
+    desc:"Order every agency to adopt no new rule without your office signing off, and to review the ones on the books. Employers get a pause from new requirements and the bureaucracy stops growing. The protections those rules were written to deliver, on the environment and at work, wait with them.\n\nWhile it stands, your appointees can only bring you proposals that take rules away: a deregulatory law, or loosening a regulatory policy they run. Departments cannot adopt new rules on their own authority. It cannot stand alongside the Climate Directive, which works entirely through new rules.",
     effects:{environment:-0.5},
     indicatorEffects:{businessClimate:3, adminOverhead:-2},
     blocEffect:{businessClass:4, libertarian:3, conservative:3, moderate:1, liberal:-3, socialist:-3, publicUnions:-2},
@@ -3875,13 +3875,7 @@ const EXEC_ORDERS={
     desc:"Order the Department of Forestry to log burned stands on state forest while the timber still has value. Mills get wood and rural counties get their share of the sale. Burned slopes are fragile, and the streams below them take the sediment.",
     effects:{loggingRate:2, environment:-1},
     blocEffect:{timber:4, rural:3, conservative:2, blueCollar:1, liberal:-3, collegeEducated:-2},
-    legalBase:0.10},
-  eoNoPLA:{area:"budget", name:"No Project Labor Agreements on State Contracts", icon:"hammer", capital:2, phaseIn:3,
-    reach:"Contracting terms on state projects are the executive's to set.",
-    desc:"Stop requiring project labor agreements on state construction, so non-union contractors can bid on equal terms. Bids come in lower. The building trades, who wrote those agreements and staff those jobs, will treat it as a declaration of war.",
-    savings:0.06,
-    blocEffect:{businessClass:3, libertarian:2, conservative:2, blueCollar:-3, publicUnions:-3, liberal:-1},
-    legalBase:0.03}
+    legalBase:0.10}
 };
 /* The areas the orders are grouped under, in page order. */
 const EO_AREAS=[["safety","Public safety & justice"],["immigration","Immigration"],["budget","Budget & workforce"],
@@ -4020,6 +4014,17 @@ function rescindExecOrder(id){
 /* Quarterly: expire orders with the term, roll for filings, resolve rulings. */
 function tickExecOrders(){
   GAME.execOrders=GAME.execOrders||{};
+  // two orders that contradict each other never stand together: if a save
+  // holds both, the earlier one stays and the later one goes
+  for(const id in GAME.execOrders){
+    const E=EXEC_ORDERS[id]; if(!E||!eoLive(id))continue;
+    for(const other of (E.conflicts||[])){
+      if(!eoLive(other))continue;
+      const late=(eoState(id).signed||0)>=(eoState(other).signed||0)?id:other;
+      delete GAME.execOrders[late];
+      GAME.log.push(ico('ban')+" "+EXEC_ORDERS[late].name+" withdrawn: it contradicts "+EXEC_ORDERS[late===id?other:id].name);
+    }
+  }
   for(const id in GAME.execOrders){
     const o=GAME.execOrders[id], E=EXEC_ORDERS[id];
     if(!E){ delete GAME.execOrders[id]; continue; }
@@ -6503,8 +6508,10 @@ function apptProposalPick(){
       const adj=apptAdjustFor(POLICIES[k], lean);
       if(adj)opts.push({kind:"adjust", policy:k, adj});
     }
-    if(!opts.length)continue;
-    const pick=opts[Math.floor(Math.random()*opts.length)];
+    // under the rule freeze only what takes rules away can come to you
+    const allowed=regFreezeOn()?opts.filter(o=>proposalDeregulatory(o.kind,o.policy,o.adj)):opts;
+    if(!allowed.length)continue;
+    const pick=allowed[Math.floor(Math.random()*allowed.length)];
     bestW=w; best=Object.assign({post:id, holder:h, trait:t}, pick);
   }
   return best;
@@ -6526,7 +6533,7 @@ function forestHarvestPct(){ const a=AGENCIES.forestry; return Math.round(((a&&a
 const AGENCY_EVENTS={
 
   /* ---- The Board of Forestry adopts a habitat plan ---- */
-  forestryHCP:{
+  forestryHCP:{ rulemaking:true,   // a new binding plan: the rule freeze stops it
     post:"forestry", icon:"tree", title:"The Board of Forestry Has Been Drafting Without You",
     when:h=>['liberal','urban','collegeEducated','socialist'].indexOf(h.group)>=0,
     text:h=>{
@@ -6644,7 +6651,7 @@ const AGENCY_EVENTS={
     ]},
 
   /* ---- The Commission has a rule already on the books ---- */
-  deqRule:{
+  deqRule:{ rulemaking:true,   // a new rule: the rule freeze stops it
     post:"deq", icon:"leaf", title:"The Clean Trucks Rule Comes Due",
     when:h=>['liberal','urban','collegeEducated','students'].indexOf(h.group)>=0,
     text:h=>"The next stage of the Advanced Clean Trucks rule takes effect: a rising share of every manufacturer's medium and heavy truck sales in Oregon must be zero-emission, so once the quota binds, manufacturers stop shipping diesel trucks here.\n\nDealers along I-5 have empty lots, and freight operators say electric tractors cannot yet do the work, a harder argument for a log truck out of Roseburg than for a delivery van in Portland. Some are already registering trucks in Idaho and Washington.\n\n"
@@ -6865,6 +6872,22 @@ function policyPushAt(p, idx){
    whichever setting within a couple of steps sits furthest in their
    direction; a dial goes up if the programme pushes their way and down if
    it does not. */
+/* THE RULE FREEZE. While it stands, what your appointees bring you and what
+   departments do on their own has to take rules away, not add them. */
+function regFreezeOn(){ return eoLive("eoRegFreeze"); }
+// laws that remove or loosen rules
+const DEREG_POLICIES=new Set(["deregulation","adminSimplification","occupationalLicensing","certificateOfNeedRepeal",
+  "prevailingWageRepeal","singleStair","nuclearRepeal","tortReform"]);
+// which way is more regulation: +1 when a higher setting regulates more,
+// -1 when a higher setting loosens (middle housing is looser zoning)
+const REG_DIRECTION={renewablePortfolio:1, cleanFuels:1, carbonProgram:1, forestPractices:1, rentStabilization:1,
+  minWageTiers:1, bottleBill:1, liquorControl:1, dataCenterEnergy:1, middleHousing:-1};
+function proposalDeregulatory(kind, policyId, adj){
+  if(kind==="enact")return DEREG_POLICIES.has(policyId);
+  const dir=REG_DIRECTION[policyId], p=POLICIES[policyId]; if(!dir||!p||!adj)return false;
+  const cur=adj.kind==="tier"?(p.tierIndex||0):(p.mechanic==="intensity"?(p.intensity||0):(p.value||0));
+  return (adj.target-cur)*dir<0;
+}
 function apptAdjustFor(p, lean){
   if(!p||Math.abs(lean)<0.3)return null;
   if(p.mechanic==="tier"&&Array.isArray(p.tiers)&&p.tierIdeology){
@@ -6904,6 +6927,7 @@ function agencyEventPick(){
     let ok=false; try{ ok=E.when(h); }catch(e){ ok=false; }
     if(!ok)continue;
     if(E.blocked&&E.blocked())continue;
+    if(E.rulemaking&&regFreezeOn())continue;   // no new rules while the freeze stands
     live.push({key:k, ev:E, holder:h});
   }
   return live.length ? live[Math.floor(Math.random()*live.length)] : null;
@@ -8716,6 +8740,7 @@ function proposalLive(c){
   const h=apptHolder(c.ppost); if(!h||h.name!==c.pname)return false;
   const pol=proposalPolicy(c); if(!pol)return false;
   if(c.pkind==="adjust"&&c.padj&&c.padj.kind==="tier"&&pol.tierIndex===c.padj.target)return false;
+  if(regFreezeOn()&&!proposalDeregulatory(c.pkind,c.ppolicy,c.padj))return false;   // the freeze stopped it
   return true;
 }
 function proposalCosts(c){
