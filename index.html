@@ -1436,6 +1436,21 @@
   .coal-price li.owed em{color:var(--clay)}
   .coal-price li.owed b{color:var(--clay)}
   .coal-owed{display:inline-block;margin-left:6px;font-size:12.5px;color:var(--clay);font-weight:600}
+  .coal-p.on{cursor:default}
+  .coal-h[data-coal]{cursor:pointer}
+  .coal-meter{display:flex;align-items:center;gap:8px;font-size:13px;margin:7px 0 2px;color:var(--muted-1)}
+  .coal-mbar{position:relative;flex:1 1 auto;height:6px;background:var(--paper-2);border-radius:3px}
+  .coal-mbar i{position:absolute;top:0;bottom:0;border-radius:3px}
+  .coal-mbar .zero{position:absolute;left:50%;top:-3px;bottom:-3px;width:1.5px;background:var(--ink);opacity:.5}
+  .coal-parts{font-size:12.5px;color:var(--muted-2)}
+  .coal-ask{font-size:13px;color:var(--clay);margin-top:6px;font-weight:600}
+  .coal-ask.ok{color:var(--moss)}
+  .coal-price li.pick{list-style:none;margin:4px 0 4px -16px;padding:5px 7px;border-radius:5px;border:1px solid var(--rule);cursor:pointer;opacity:.72}
+  .coal-price li.pick:hover{border-color:var(--muted-2);opacity:1}
+  .coal-price li.pick.in{border-color:var(--moss);background:color-mix(in srgb,var(--moss) 6%,var(--paper));opacity:1}
+  .coal-price li .coal-val{float:right;font-family:var(--font-data);color:var(--moss);font-size:13px}
+  .coal-price li.due em{color:var(--gold)}
+  .coal-red{color:var(--clay);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-left:7px;font-weight:600}
   .coal-tally{display:flex;align-items:baseline;gap:10px;padding:9px 11px;border-radius:6px;
     background:var(--paper-2);margin:10px 0}
   .coal-tally b{font-family:var(--font-data);font-size:19px;color:var(--clay)}
@@ -7606,7 +7621,7 @@ const DILEMMAS={
          // re-baseline what they are measuring you against: you have just
          // met them, so the clock starts again from here
          if(GAME.coalition&&GAME.coalition.snap&&GAME.coalition.snap[pid])
-           for(const d of (PR_DEMANDS[pid]||[])){ try{ GAME.coalition.snap[pid][d.id]=d.snap(); }catch(e){} }
+           for(const d of coalTerms(pid)){ try{ GAME.coalition.snap[pid][d.id]=d.snap(); }catch(e){} }
          for(const q of coalitionPartners())if(q!==pid&&GAME.coalition.mood)
            GAME.coalition.mood[q]=clamp(coalitionMood(q)-7,0,100);
          createGrudge("v_moderate",-3,0.9,"Gave in to a coalition ultimatum");
@@ -7677,12 +7692,7 @@ const DILEMMAS={
          const pid=GAME.coalOfferId; if(!pid||!GAME.coalition)return;
          const p=prParty(pid);
          GAME.coalition.partners.push(pid);
-         GAME.coalition.posts=GAME.coalition.posts||{};
-         GAME.coalition.posts[pid]=apptPartyOffer(pid).map(d=>d.post);
-         apptInstallPartners([pid]);   // the seats come with the agreement
-         GAME.coalition.snap=GAME.coalition.snap||{};
-         GAME.coalition.snap[pid]={};
-         for(const d of (PR_DEMANDS[pid]||[])){ try{ GAME.coalition.snap[pid][d.id]=d.snap(); }catch(e){ GAME.coalition.snap[pid][d.id]=0; } }
+         coalSignLate(pid);   // the cheapest deal that gets them to yes, and its seats
          GAME.coalition.mood=GAME.coalition.mood||{};
          GAME.coalition.mood[pid]=64;
          GAME.capital=clamp(GAME.capital-6,0,100);
@@ -12623,7 +12633,7 @@ function drawCoalExit(){
   const lost=c[X.pid]||0;
   const now=coalitionSeats(false), live=coalitionSeats(true);
   const st=legisStanding();
-  const broken=(PR_DEMANDS[X.pid]||[]);
+  const broken=coalTerms(X.pid);
   let terms="";
   for(const d of broken){
     let ok=true;
@@ -12660,66 +12670,105 @@ function drawCoalition(next){
   GAME.coalPick=GAME.coalPick.filter(coalitionWillTalk);
   const c=(GAME.legis&&GAME.legis.prCounts)||{};
   const mine=prMyParty(), own=c[mine]||0;
-  let seats=own; for(const pid of GAME.coalPick)seats+=(c[pid]||0);
+  // only a party that has said yes brings its seats
+  const agreeing=GAME.coalPick.filter(pid=>coalSupport(pid,coalOfferIds(pid),GAME.coalPick).agree);
+  const holdouts=GAME.coalPick.filter(pid=>agreeing.indexOf(pid)<0);
+  let seats=own; for(const pid of agreeing)seats+=(c[pid]||0);
   const have=seats>=LEGIS.majH;
+  const bonus=agreeing.filter(pid=>coalOfferIds(pid).indexOf("bonus")>=0).length*COAL_BONUS_CAP;
+  // never "−0": a party a fraction short reads as one short
+  const sg=v=>v>=0?"+"+Math.round(v):"−"+Math.ceil(-v);
   let rows="";
   for(const p of PR_PARTIES){
     if(p.id===mine)continue;
     const nS=c[p.id]||0; if(!nS)continue;
-    const on=GAME.coalPick.indexOf(p.id)>=0;
-    // Would this condition hold if you signed right now? A demand measured
-    // against today is automatically met at signature; one measured against
-    // an absolute line may already be broken, and that is a promise to go
-    // and fix something rather than a promise to leave it alone.
-    let owed=0;
-    const dem=(PR_DEMANDS[p.id]||[]).map(d=>{
-      // a seat is not something to fix later: signing hands it over
-      const seat=d.id==="post";
-      const ok=seat||(()=>{ try{ return !!d.met(d.snap()); }catch(e){ return true; } })();
-      if(!ok)owed++;
-      return '<li class="'+(ok?'held':'owed')+'"><b>'+(seat?d.offerLabel:d.label)+'</b>'
-        +'<em>'+(seat?'✓ handed over when you sign':ok?'✓ true today':'✗ not true today — you would be signing up to fix it')+'</em>'
-        +'<span>'+(seat?d.offerWhy:d.why)+'</span></li>';
+    const on=GAME.coalPick.indexOf(p.id)>=0, talks=coalitionWillTalk(p.id), tr=Math.round(partyTrust(p.id));
+    const ids=coalOfferIds(p.id), S=coalSupport(p.id,ids,GAME.coalPick);
+    const head='<div class="coal-h"'+(talks?' data-coal="'+p.id+'"':'')+'><span class="coal-sw" style="background:'+p.col+'"></span>'
+      +'<span class="coal-n">'+p.name+'</span><span class="coal-s">'+nS+' seats</span>'
+      +'<span class="coal-btn">'+(!talks?"Won't talk":on?(S.agree?"Agreed ✓":"Invited"):"Invite")+'</span></div>';
+    if(!talks){
+      rows+='<div class="coal-p refuse">'+head+'<div class="coal-trust no">Their voters give you <b>'+tr+'%</b>. Below '+COAL_REFUSE_TRUST+'% they will not talk to you.</div></div>';
+      continue;
+    }
+    if(!on){
+      rows+='<div class="coal-p">'+head+'<div class="coal-trust">Their voters give you <b>'+tr+'%</b>.'
+        +(S.red?' Red line: <b>'+S.red.label+'</b>.':'')+' Invite them to make an offer.</div></div>';
+      continue;
+    }
+    const P=S.parts, others=GAME.coalPick.filter(q=>q!==p.id);
+    const parts=[["their voters' view of you",P.trust],["joining a government",P.join],["distance from your party",P.gap]];
+    if(P.clash)parts.push(["sitting with "+others.map(q=>prParty(q).short).join(" and "),P.clash]);
+    parts.push(["your offer",P.offer]);
+    const pos=v=>clamp(50+v*1.25,0,100), col=S.agree?"var(--moss)":"var(--clay)";
+    const meter='<div class="coal-meter"><span>Support <b style="color:'+col+'">'+sg(S.total)+'</b></span>'
+      +'<span class="coal-mbar"><i style="left:'+Math.min(50,pos(S.total))+'%;width:'+Math.abs(pos(S.total)-50)+'%;background:'+col+'"></i><span class="zero"></span></span>'
+      +'<span>they sign at 0</span></div>'
+      +'<div class="coal-parts">'+parts.map(x=>x[0]+' '+sg(x[1])).join(' · ')+'</div>';
+    const items=coalMenu(p.id).map(d=>{
+      const inn=ids.indexOf(d.id)>=0;
+      let st, cls;
+      if(d.kind==="seat"){ st="handed over when you sign"; cls="held"; }
+      else if(d.kind==="upfront"){ st="◈"+d.cost+" when you sign, and nothing to keep afterwards"; cls="held"; }
+      else if(d.kind==="deadline"){ st="due "+COAL_DEADLINE+" quarters after you sign; missing it counts double"; cls="due"; }
+      else { const ok=(()=>{ try{ return !!d.met(d.snap()); }catch(e){ return true; } })();
+             st=ok?"true today":"not true today: you would be signing up to fix it"; cls=ok?"held":"owed"; }
+      return '<li class="pick '+cls+(inn?' in':'')+'" data-coalitem="'+p.id+'|'+d.id+'">'
+        +'<span class="coal-val">+'+d.value+'</span><b>'+(inn?'☑ ':'☐ ')+d.label+'</b>'
+        +(d.red?'<span class="coal-red">red line</span>':'')
+        +'<em>'+st+'</em><span>'+d.why+'</span></li>';
     }).join("");
-    const owedTag=owed?'<span class="coal-owed">'+owed+' of these is not true today</span>':'';
-    const tr=Math.round(partyTrust(p.id)), talks=coalitionWillTalk(p.id), sm=coalitionStartMood(p.id);
-    const trustLine='<div class="coal-trust '+(!talks?'no':sm>=COAL_GOOD?'yes':'wary')+'">Their voters give you <b>'+tr+'%</b>. '
-      +(!talks?'They will not talk to you.'
-        :sm>=COAL_GOOD?'They would vote with you from the start.'
-        :'They would join, but not vote with you until you keep enough of their promises.')+'</div>';
-    rows+='<div class="coal-p'+(on?' on':'')+(talks?'':' refuse')+'"'+(talks?' data-coal="'+p.id+'"':'')+'>'
-      +'<div class="coal-h"><span class="coal-sw" style="background:'+p.col+'"></span>'
-      +'<span class="coal-n">'+p.name+'</span>'
-      +'<span class="coal-s">'+nS+' seats</span>'
-      +'<span class="coal-btn">'+(!talks?"Won't talk":on?"In government ✓":"Invite")+'</span></div>'+trustLine
-      +'<div class="coal-price">Their price'+owedTag+'<ul>'+dem+'</ul></div></div>';
+    const ask=coalAsk(p.id,S), sm=coalitionStartMood(p.id,S.total);
+    rows+='<div class="coal-p on">'+head+meter
+      +'<div class="coal-ask'+(ask?'':' ok')+'">'+(ask||(sm>=COAL_GOOD?"They sign, and vote with you from the start."
+        :"They sign, but will not vote with you until they see promises kept. Offer more to change that."))+'</div>'
+      +'<div class="coal-price">Their terms<ul>'+items+'</ul></div></div>';
   }
+  const keep=[modal.scrollTop, card.scrollTop];
   card.innerHTML='<div class="sectionhdr">'+ico('handshake')+' Forming a Government</div>'
-    +'<div class="sectionsub">Nobody won this election. Under proportional representation almost nobody ever does — what the count decides is who has to talk to whom, and the talking is this screen. '
+    +'<div class="sectionsub">Nobody won this election. Under proportional representation almost nobody does, so the count decides who has to talk to whom. '
     +'You hold <b>'+own+'</b> of '+PR_SEATS+'. A majority is '+LEGIS.majH+'.</div>'
     +'<div class="coal-tally'+(have?' ok':'')+'"><span>Your government</span>'
       +'<b>'+seats+' / '+PR_SEATS+'</b>'
       +'<span>'+(have?("a majority, with "+(seats-LEGIS.majH)+" to spare"):("still "+(LEGIS.majH-seats)+" short of "+LEGIS.majH))+'</span></div>'
-    // The button sits with the tally it depends on, above the benches. The
-    // list of parties is as long as the chamber is fragmented, and a governor
-    // who had already decided was scrolling past every price to find the way out.
+    // The button sits with the tally it depends on, above the benches.
     +'<button class="enactbtn" id="coalGo" style="margin-top:10px">'
-      +(have?('Form a government with '+(GAME.coalPick.length?GAME.coalPick.map(p=>prParty(p).short).join(" and "):"nobody")+' ▸')
+      +(have?('Form a government with '+(agreeing.length?agreeing.map(p=>prParty(p).short).join(" and "):"nobody")+(bonus?' (◈'+bonus+')':'')+' ▸')
            :'Govern as a minority ▸')+'</button>'
+    +(holdouts.length?'<div class="fnote" style="margin-top:6px;color:var(--clay)">'+holdouts.map(p=>prParty(p).short).join(" and ")
+      +(holdouts.length===1?" has not agreed, so its seats do not count yet.":" have not agreed, so their seats do not count yet.")+'</div>':'')
     +(have?'':'<div class="fnote" style="margin-top:6px;color:var(--clay)">You can refuse to deal. A minority governor keeps the veto and the executive order and passes almost nothing else.</div>')
-    +'<div class="fnote" style="margin:12px 0 2px">Invite a party and its price comes with it. These are not one-off payments: every commitment below is a <b>standing condition</b>, checked every quarter for the rest of the term. Most are measured against Oregon as it is tonight, so they start out true and your job is to keep them that way — but the ones marked <b style="color:var(--clay)">not true today</b> are a promise to go and fix something, and the clock on them starts the moment you sign. Keep them and your partners whip their benches for you and pay you capital. Break them and the partnership sours — first they stop helping, then they leave, and there is no second negotiation until the next election.</div>'
+    +'<div class="fnote" style="margin:12px 0 2px">Invite a party, then build its offer. Each promise adds support, and a party signs once support reaches zero with its red line included. '
+    +'Every promise except a payment up front is a standing condition, checked each quarter for the rest of the term. Keep them and partners whip their benches and pay you capital. '
+    +'Break them and the partnership sours until they leave, with no second negotiation before the next election. A pledged law has a deadline, and missing it counts double.</div>'
     +rows;
   modal.classList.remove("hidden");
+  modal.scrollTop=keep[0]; card.scrollTop=keep[1];
   card.querySelectorAll('[data-coal]').forEach(el=>el.addEventListener('click',e=>{
     const id=e.currentTarget.dataset.coal;
     const i=GAME.coalPick.indexOf(id);
     if(i>=0)GAME.coalPick.splice(i,1); else GAME.coalPick.push(id);
     drawCoalition();
   }));
+  card.querySelectorAll('[data-coalitem]').forEach(el=>el.addEventListener('click',e=>{
+    e.stopPropagation();
+    const [pid,iid]=e.currentTarget.dataset.coalitem.split("|");
+    const ids=coalOfferIds(pid), i=ids.indexOf(iid);
+    if(i>=0)ids.splice(i,1);
+    else {
+      // a payment up front has to be affordable alongside the others
+      if(iid==="bonus"){
+        const spent=GAME.coalPick.filter(q=>q!==pid&&coalOfferIds(q).indexOf("bonus")>=0).length*COAL_BONUS_CAP;
+        if(GAME.capital<spent+COAL_BONUS_CAP&&!window.SANDBOX)return;
+      }
+      ids.push(iid);
+    }
+    drawCoalition();
+  }));
   const go=document.getElementById("coalGo");
   if(go)go.onclick=()=>{
-    formCoalition(have?GAME.coalPick:[]);
-    GAME.coalPick=null;
+    formCoalition(have?agreeing:[], GAME.coalOffer);
+    GAME.coalPick=null; GAME.coalOffer=null;
     modal.classList.add("hidden");
     render();
     const k=GAME._coalNext; GAME._coalNext=null; if(k)k();
@@ -16514,7 +16563,7 @@ function coalitionStatusHTML(){
       +'<div class="coal-bar"><i class="'+(m>=COAL_GOOD?"good":m>=COAL_WALK+12?"warn":"bad")+'" style="width:'+Math.round(m)+'%"></i>'
       +'<span class="coal-line" style="left:'+COAL_GOOD+'%"></span></div>'
       +'<div class="coal-terms">'+rows.map(r=>'<span class="'+(r.ok?"ok":"bad")+'">'
-      +(r.ok?"✓":"✗")+' '+r.d.label+'</span>').join("")+'</div>'
+      +(r.ok?"✓":"✗")+' '+r.d.label+(r.d.note?r.d.note(r.v):"")+'</span>').join("")+'</div>'
       +(kept<rows.length?'<div class="coal-warn">'+(rows.length-kept)+' commitment'+(rows.length-kept===1?"":"s")+' broken — they are counting.</div>':"")
       +'</div>';
   }
@@ -16683,6 +16732,162 @@ function totalPolicySpend(){
   for(const id in POLICIES){ const c=policyNetCost(POLICIES[id]); if(c>0)t+=c; }
   return t;
 }
+/* ============================================================
+   COALITION TERMS: THE OFFER YOU BUILD
+   ============================================================ */
+// entering a government is a risk, and they want paying for it: set so a
+// party's opening asks alone leave it a little short, and you bargain
+const COAL_JOIN_COST=26;
+const COAL_DEADLINE=6;     // quarters to deliver a pledged law
+const COAL_BONUS_CAP=8;    // what an up-front payment costs you in capital
+// one of the party's original four conditions, now priced
+function coalFrom(pid,id,value,red){
+  const d=(PR_DEMANDS[pid]||[]).find(x=>x.id===id);
+  return Object.assign({}, d, {kind:"standing", value, red:!!red, legacy:true, avail:()=>true});
+}
+// a department, or under Cabinet Government a former commission seat
+function coalSeat(pid,cab){
+  const D=()=>(cab?APPT_PARTY_CAB_POST:APPT_PARTY_POST)[pid];
+  return {id:cab?"cabPost":"post", kind:"seat", value:cab?7:10,
+    get label(){ const d=D(); return cab?d.also.replace(/^./,x=>x.toUpperCase())+" is ours too":d.label; },
+    get why(){ return D().why; },
+    avail:()=>!!D()&&!!APPT_POSTS[D().post]&&(!cab||!!POLICIES.cabinetGovernment),
+    snap:()=>1,
+    met:()=>{ const h=apptHolder(D().post); return !!(h&&h.party===pid); }};
+}
+// pass a law, or put an amendment to the voters, within the deadline
+function coalPass(id,value,why){
+  return {id:"pass_"+id, kind:"deadline", value, weight:2, why,
+    get label(){ const p=CATALOG[id]||POLICIES[id], nm=p?p.name:id;
+      return ((CATALOG[id]&&CATALOG[id].reform)?"Put "+nm+" to the voters":"Pass "+nm)+" within "+COAL_DEADLINE+" quarters"; },
+    avail:()=>!!CATALOG[id]&&!POLICIES[id],
+    snap:()=>GAME.turn,
+    met:v=>!!POLICIES[id]||!!pendingMeasure(id)||GAME.turn<(v||0)+COAL_DEADLINE,
+    note:v=>(POLICIES[id]||pendingMeasure(id))?"":GAME.turn<(v||0)+COAL_DEADLINE?` (due in ${(v||0)+COAL_DEADLINE-GAME.turn}q)`:" (missed)"};
+}
+// a law you promise not to pass
+function coalBlock(id,value,why,label){
+  return {id:"block_"+id, kind:"standing", value, why,
+    get label(){ const p=CATALOG[id]; return label||"No "+(p?p.name:id)+" this term"; },
+    avail:()=>!!CATALOG[id]&&!POLICIES[id],
+    snap:()=>0, met:()=>!POLICIES[id]};
+}
+// a law you promise not to cut or repeal
+function coalKeep(id,value,why){
+  return {id:"keep_"+id, kind:"standing", value, why,
+    get label(){ return (POLICIES[id]?POLICIES[id].name:id)+" stays as it is"; },
+    avail:()=>!!POLICIES[id],
+    snap:()=>POLICIES[id]?policyLevel(POLICIES[id]):0,
+    met:v=>!!POLICIES[id]&&policyLevel(POLICIES[id])>=v-0.02};
+}
+// money on the table today: support, and no condition to keep
+function coalBonus(){
+  return {id:"bonus", kind:"upfront", value:6, cost:COAL_BONUS_CAP,
+    label:"Fund their caucus priorities now", why:"Money on the table today, not a promise about next year.",
+    avail:()=>true, snap:()=>0, met:()=>true};
+}
+/* Each party's menu. The red line is the one it will not sign without. */
+const COAL_MENU={
+  left:[coalSeat("left",false), coalSeat("left",true),
+    coalFrom("left","corpTax",8,true), coalFrom("left","schools",6), coalFrom("left","env",6),
+    coalPass("childcareSubsidy",10,"Childcare is the cost that keeps working parents out of work."),
+    coalPass("affordableHousing",9,"Bonds build the units nobody else will."),
+    coalKeep("minWageTiers",5,"The minimum wage stays where the last fight left it."),
+    coalBlock("rightToWork",4,"A union card is how our voters reached the middle class."),
+    coalBonus()],
+  dem:[coalSeat("dem",false), coalSeat("dem",true),
+    coalFrom("dem","schools",8,true), coalFrom("dem","safetyNet",6), coalFrom("dem","noTaxCut",6),
+    coalPass("preschoolForAll",10,"Every child, not every child whose parents can pay."),
+    coalKeep("collectiveBargaining",6,"Public workers bargain as they do today."),
+    coalBlock("medicaidWork",5,"Paperwork is how you take coverage from people who work."),
+    coalBlock("rightToWork",4,"Our members are the public workforce. Leave the unions alone."),
+    coalBonus()],
+  centre:[coalSeat("centre",false), coalSeat("centre",true),
+    coalFrom("centre","balance",8,true), coalFrom("centre","overhead",6), coalFrom("centre","biz",6),
+    coalPass("adminSimplification",9,"Fewer programs, run properly."),
+    coalPass("occupationalLicensing",8,"Nobody should need a license to braid hair."),
+    coalPass("kickerReform",8,"A surplus should build reserves, not mail checks."),
+    coalPass("singleStair",7,"Build the housing and stop arguing about it."),
+    coalBonus()],
+  gop:[coalSeat("gop",false), coalSeat("gop",true),
+    coalFrom("gop","taxCap",8,true), coalFrom("gop","noNew",6), coalFrom("gop","safety",6),
+    coalPass("persReform",10,"The pension bill is eating the schools."),
+    coalPass("tortReform",9,"The courts should not be a business model."),
+    coalKeep("measure11",5,"Mandatory minimums stay."),
+    coalBlock("carbonTax",5,"A carbon tax is a tax on driving to work."),
+    coalBlock("salesTax",5,"Oregonians have voted a sales tax down nine times."),
+    coalBonus()],
+  right:[coalSeat("right",false), coalSeat("right",true),
+    coalFrom("right","cutTax",8,true), coalFrom("right","overhead",6), coalFrom("right","noNew",6),
+    coalPass("taxCut",10,"Across the board, this session."),
+    coalPass("spendingCap",9,"Write the limit into the constitution, where it holds."),
+    coalBlock("gunStorage",6,"Our voters read a storage mandate as the first step to registration."),
+    coalBlock("vaccineMandate",5,"Parents decide.","Nonmedical vaccine exemptions stay"),
+    coalBonus()]
+};
+function coalMenu(pid){ return (COAL_MENU[pid]||[]).filter(d=>{ try{ return d.avail(); }catch(e){ return false; } }); }
+/* What a party asks for first: its department and its original conditions. */
+function coalDefaultOffer(pid){ return coalMenu(pid).filter(d=>d.id==="post"||d.legacy).map(d=>d.id); }
+/* The offer on the table in the negotiation, kept while you edit it. */
+function coalOfferIds(pid){
+  GAME.coalOffer=GAME.coalOffer||{};
+  if(!GAME.coalOffer[pid])GAME.coalOffer[pid]=coalDefaultOffer(pid);
+  return GAME.coalOffer[pid];
+}
+/* Where a party stands on an offer, with the working shown. others is the
+   rest of the table: parties far apart will not sit together cheaply. */
+function coalSupport(pid,ids,others){
+  const me=prParty(prMyParty()), p=prParty(pid), menu=coalMenu(pid);
+  const picked=menu.filter(d=>ids.indexOf(d.id)>=0);
+  let clash=0;
+  for(const q of (others||[]))if(q!==pid)clash+=Math.max(0,Math.abs(p.z-prParty(q).z)-1.2)*15;
+  const parts={trust:(partyTrust(pid)-50)*0.5, join:-COAL_JOIN_COST, gap:-Math.abs(p.z-me.z)*8, clash:-clash,
+    offer:picked.reduce((a,d)=>a+d.value,0)};
+  const total=+Object.values(parts).reduce((a,b)=>a+b,0).toFixed(1);
+  const red=menu.find(d=>d.red), redOk=!red||ids.indexOf(red.id)>=0;
+  return {parts, total, red, redOk, picked, agree:redOk&&total>=0};
+}
+/* What would close the gap, in their words. */
+function coalAsk(pid,S){
+  if(!S.redOk)return "Nothing happens without “"+S.red.label+"”.";
+  if(S.total>=0)return "";
+  const need=-S.total, rest=coalMenu(pid).filter(d=>S.picked.indexOf(d)<0);
+  const one=rest.slice().sort((a,b)=>a.value-b.value).find(d=>d.value>=need);
+  if(one)return "Short by "+Math.ceil(need)+". Add “"+one.label+"” and we sign.";
+  let acc=0; const pick=[];
+  for(const d of rest.slice().sort((a,b)=>b.value-a.value)){ pick.push(d); acc+=d.value; if(acc>=need)break; }
+  if(acc<need)return "Short by "+Math.ceil(need)+", and nothing left on this list closes it.";
+  return "Short by "+Math.ceil(need)+". Add "+pick.map(d=>"“"+d.label+"”").join(" and ")+" and we sign.";
+}
+/* A party joining mid-term takes the cheapest deal that gets it to yes. */
+function coalAutoOffer(pid){
+  const ids=coalDefaultOffer(pid), others=coalitionPartners();
+  const rest=coalMenu(pid).filter(d=>ids.indexOf(d.id)<0&&d.kind!=="upfront").sort((a,b)=>b.value-a.value);
+  for(const d of rest){ if(coalSupport(pid,ids,others).total>=0)break; ids.push(d.id); }
+  return ids;
+}
+/* The seats an offer hands over. */
+function coalPostsFor(pid,ids){
+  const out=[];
+  if(ids.indexOf("post")>=0&&APPT_PARTY_POST[pid])out.push(APPT_PARTY_POST[pid].post);
+  if(ids.indexOf("cabPost")>=0&&APPT_PARTY_CAB_POST[pid]&&POLICIES.cabinetGovernment)out.push(APPT_PARTY_CAB_POST[pid].post);
+  return out;
+}
+/* The conditions a partner signed, and checks every quarter. */
+function coalTerms(pid){
+  const C=GAME.coalition;
+  if(C&&C.terms&&C.terms[pid])return (COAL_MENU[pid]||[]).filter(d=>C.terms[pid].indexOf(d.id)>=0&&d.kind!=="upfront");
+  return PR_DEMANDS[pid]||[];
+}
+/* A party brought in mid-term: its terms, its seats, and the baseline. */
+function coalSignLate(pid){
+  const C=GAME.coalition, ids=coalAutoOffer(pid);
+  C.terms=C.terms||{}; C.posts=C.posts||{}; C.snap=C.snap||{};
+  C.terms[pid]=ids; C.posts[pid]=coalPostsFor(pid,ids);
+  apptInstallPartners([pid]);
+  C.snap[pid]={};
+  for(const d of coalTerms(pid)){ try{ C.snap[pid][d.id]=d.snap(); }catch(e){ C.snap[pid][d.id]=0; } }
+}
 const COAL_GOOD=55, COAL_WALK=22;
 // far enough gone that they will say so out loud, while there is still
 // something you can do about it
@@ -16704,7 +16909,11 @@ function partyTrust(pid){
 function coalitionWillTalk(pid){ return partyTrust(pid)>=COAL_REFUSE_TRUST; }
 /* Where a partner's mood starts: 68 at even trust, as it always did, lower
    as its voters sour on you. Below COAL_GOOD they join and do not vote. */
-function coalitionStartMood(pid){ return +clamp(20+partyTrust(pid)*0.95, 22, 85).toFixed(1); }
+function coalitionStartMood(pid,support){
+  // a deal bought at the last point starts sulky; an over-paid one starts warm
+  if(support!=null)return +clamp(50+support*1.5+(partyTrust(pid)-50)*0.3, 40, 88).toFixed(1);
+  return +clamp(20+partyTrust(pid)*0.95, 22, 85).toFixed(1);
+}
 function coalitionOn(){ return prOn() && GAME.coalition && GAME.coalition.partners.length>0; }
 function coalitionPartners(){ return coalitionOn() ? GAME.coalition.partners.slice() : []; }
 function coalitionMood(pid){ return (GAME.coalition&&GAME.coalition.mood&&GAME.coalition.mood[pid])||0; }
@@ -16730,28 +16939,35 @@ function coalitionSeatIds(){
   return out;
 }
 /* Sign the agreement: record what every promise was measured against. */
-function formCoalition(partners){
-  const snap={};
+function formCoalition(partners,offers){
+  const terms={}, posts={}, snap={}, mood={};
+  let bonus=0;
+  for(const pid of partners){
+    const ids=((offers&&offers[pid])||coalDefaultOffer(pid)).slice();
+    terms[pid]=ids; posts[pid]=coalPostsFor(pid,ids);
+    if(ids.indexOf("bonus")>=0)bonus+=COAL_BONUS_CAP;
+    mood[pid]=coalitionStartMood(pid, coalSupport(pid,ids,partners).total);
+  }
+  GAME.coalition={partners:partners.slice(), snap, mood, posts, terms, formedTurn:GAME.turn, walked:[]};
+  // record what every promise is measured against
   for(const pid of partners){
     snap[pid]={};
-    for(const d of (PR_DEMANDS[pid]||[]))snap[pid][d.id]=d.snap();
+    for(const d of coalTerms(pid)){ try{ snap[pid][d.id]=d.snap(); }catch(e){ snap[pid][d.id]=0; } }
   }
-  const mood={}; for(const pid of partners)mood[pid]=coalitionStartMood(pid);
-  const posts={}; for(const pid of partners)posts[pid]=apptPartyOffer(pid).map(d=>d.post);
-  GAME.coalition={partners:partners.slice(), snap, mood, posts, formedTurn:GAME.turn, walked:[]};
+  if(bonus)GAME.capital=clamp(GAME.capital-bonus,0,CAPITAL_MAX);
   apptInstallPartners(partners);   // the departments the agreement promised
   GAME.pendingCoalition=null;
   if(partners.length)
     GAME.log.push(ico('handshake')+" Government formed with "
       +partners.map(p=>prParty(p).short).join(" and ")
-      +" — "+coalitionSeats(false)+" of "+PR_SEATS);
+      +" — "+coalitionSeats(false)+" of "+PR_SEATS+(bonus?", ◈"+bonus+" paid up front":""));
   else
     GAME.log.push(ico('warning')+" No coalition — you govern as a minority");
 }
 /* Which promises are being kept, right now. */
 function coalitionCheck(pid){
   const C=GAME.coalition; if(!C||!C.snap[pid])return [];
-  return (PR_DEMANDS[pid]||[]).map(d=>({d, ok:!!d.met(C.snap[pid][d.id])}));
+  return coalTerms(pid).map(d=>({d, v:C.snap[pid][d.id], ok:!!d.met(C.snap[pid][d.id])}));
 }
 /* Every quarter: are they happy, and are they still here. */
 function tickCoalition(){
@@ -16760,7 +16976,8 @@ function tickCoalition(){
   const gone=[];
   for(const pid of C.partners.slice()){
     const rows=coalitionCheck(pid);
-    const kept=rows.filter(r=>r.ok).length, tot=Math.max(1,rows.length);
+    // a pledged law carries weight 2: missing a deadline hurts twice as much
+    const kept=rows.filter(r=>r.ok).reduce((a,r)=>a+(r.d.weight||1),0), tot=Math.max(1,rows.reduce((a,r)=>a+(r.d.weight||1),0));
     // a partnership where everything is being honoured drifts up toward 92;
     // one where nothing is drifts down toward 8, and the walk-out is at 22
     // what their own voters think of you pulls on it too
@@ -16777,7 +16994,7 @@ function tickCoalition(){
     delete C.mood[pid];
     createGrudge("capital",-4);
     GAME.log.push(ico('ban')+" "+prParty(pid).name+" has left the government — "
-      +(PR_DEMANDS[pid]||[]).length+" commitments, and you did not keep them");
+      +coalTerms(pid).length+" commitments, and you did not keep them");
     // a government falling is not a log line
     GAME.pendingCoalExit={pid, before, after:coalitionSeats(false)};
   }
@@ -25528,7 +25745,7 @@ function bootWorld(startId){
   // representation would hand the next one a unicameral 100. Put the
   // districts back.
   GAME.prMode=false; _prCompCache=null; _prCompTurn=-1;
-  GAME.coalition=null; GAME.pendingCoalition=null; GAME.coalPick=null;
+  GAME.coalition=null; GAME.pendingCoalition=null; GAME.coalPick=null; GAME.coalOffer=null;
   GAME.pendingCoalExit=null; GAME.coalUlt=null; GAME.coalOfferId=null;
   LEGIS.senate=30; LEGIS.house=60; LEGIS.superS=18; LEGIS.superH=36;
   LEGIS.majS=16; LEGIS.majH=31; LEGIS.quorumH=40; LEGIS.quorumS=20;
