@@ -1859,7 +1859,7 @@
   /* all labels stay on; the focused node's label just gets bigger */
   #boardSvg .boardnode.focus .bn-lbl{font-size:16px;font-weight:700}
   /* term / mood / climate strip at the top of the Governing Board */
-  .board-climate{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:12px 0 18px;padding:12px 16px;background:var(--paper-2);border:var(--rule) solid var(--ink)}
+  .board-climate{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:12px 0 18px;padding:12px 16px;background:var(--paper-2);border:var(--rule) solid var(--ink)}
   .board-climate .bc-h{font-family:var(--font-display);font-size:12.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted-1);font-weight:600;margin-bottom:6px}
   .board-climate .bc-v{font-size:12.5px;color:var(--muted-2);margin-top:4px}
   .board-climate .nmbar{margin-top:2px}
@@ -2067,6 +2067,44 @@
   nav.rail button.active:hover{background:var(--ink)}
 
   .backbtn{border-color:var(--slate-blue)}
+  /* ===================== CRISIS CARDS =====================
+     Calm cards, still unmistakably problems: a red bar, the warning icon,
+     and a red category label. Bright spots: a green bar and label. */
+  .crisis-card,.crisis-card.bad,.crisis-card.chronic{background:var(--paper-2)!important;border:1px solid var(--line)!important;border-left:4px solid var(--bad)!important}
+  .crisis-card.good{background:var(--paper-2)!important;border:1px solid var(--line)!important;border-left:4px solid var(--good)!important}
+  .crisis-card:hover,.crisis-card.bad:hover,.crisis-card.good:hover{background:var(--hover-bg)!important}
+  .crisis-card.crisis-major{border-left-width:6px!important}
+  .crisis-card .crisis-tag{color:var(--bad);font-weight:700}
+  .crisis-card.good .crisis-tag{color:var(--good)}
+  .crisis-card .crisis-name .ico{color:var(--bad)}
+  .crisis-card.good .crisis-name .ico{color:var(--good)}
+
+  /* ===================== BUTTONS: THREE KINDS =====================
+     Primary (.enactbtn, .turnbtn) commits a turn or a vote: brick fill,
+     the one shadow. Secondary acts on one thing: an ink outline, filled on
+     hover; a brick outline when it undoes or removes. Options pick one of
+     several: a quiet box, the chosen one with an ink edge and a moss bar.
+     !important because the modal rule above styles every button in a
+     popup at a specificity these cannot otherwise meet. */
+  .fcard-btn,.backbtn,.camp-popup-skip,.repealbtn,.undobtn,.promabandon{
+    background:var(--paper)!important;color:var(--ink)!important;border:1px solid var(--ink)!important;
+    font-family:var(--font-display)!important;font-size:12.5px!important;font-weight:500!important;letter-spacing:.08em!important;
+    text-transform:uppercase!important;padding:6px 12px!important;border-radius:var(--radius);box-shadow:none!important;transform:none!important;cursor:pointer;white-space:nowrap;flex:none}
+  .fcard-btn:hover,.backbtn:hover,.camp-popup-skip:hover{background:var(--ink)!important;color:var(--paper)!important}
+  .repealbtn,.undobtn,.promabandon,.fcard-btn.danger{color:var(--clay)!important;border-color:var(--clay)!important;background:var(--paper)!important}
+  .repealbtn:hover:not(:disabled),.undobtn:hover,.promabandon:hover,.fcard-btn.danger:hover{background:var(--clay)!important;color:var(--paper)!important}
+  .fcard-btn.on{color:var(--moss)!important;border-color:var(--moss)!important}
+  .fcard-btn.on:hover{background:var(--moss)!important;color:var(--paper)!important}
+  .fcard-btn:disabled,.backbtn:disabled,.repealbtn:disabled,.undobtn:disabled{background:var(--paper)!important;color:var(--muted-3)!important;border-color:var(--line)!important;opacity:.6;cursor:not-allowed}
+  .conc,.tier,.camptab,.prv-opt{background:var(--paper)!important;color:var(--ink)!important;border:1px solid var(--line)!important;box-shadow:none!important;transform:none!important}
+  .conc:hover,.tier:hover,.camptab:hover,.prv-opt:hover{border-color:var(--ink)!important}
+  .conc.on,.tier.on,.camptab.on,.prv-opt.on{background:var(--paper-2)!important;color:var(--ink)!important;border-color:var(--ink)!important;box-shadow:inset 3px 0 0 var(--moss)!important}
+  .conc.on *,.camptab.on *{color:inherit}
+  .tier.locked,.tier.locked:hover{background:repeating-linear-gradient(45deg,var(--paper),var(--paper) 4px,var(--paper-2) 4px,var(--paper-2) 5px)!important;border-color:var(--line)!important}
+
+  /* the fold on long intros */
+  .prose-btn{all:unset;cursor:pointer;color:var(--slate-blue);font-weight:600;font-size:.95em;margin-left:6px;text-decoration:underline;text-underline-offset:2px}
+  .prose-more[hidden]{display:none!important}
 </style>
 </head>
 <body>
@@ -2224,10 +2262,7 @@
   <main id="main"></main>
   <button id="asideToggle" title="Show/hide panel">‹</button>
   <aside id="aside">
-    <h3>Term Progress</h3>
-    <div id="termInfo" class="mono" style="font-size:13.5px"></div>
-    <div class="termbar"><i id="termFill" style="width:0%"></i></div>
-    <h3 style="margin-top:20px">National Political Mood</h3>
+    <h3>National Political Mood</h3>
     <div class="nmbar" id="nmBlock" style="cursor:pointer"><span class="nmend">−</span><div class="nmtrack"><i id="nmFill"></i></div><span class="nmend">+</span></div>
     <div id="nmLabel" class="mono" style="font-size:12.5px;text-align:center;margin-top:3px;cursor:pointer">Neutral (0.0)</div>
     <h3 style="margin-top:20px">Economic Climate</h3>
@@ -22365,7 +22400,6 @@ function renderBoard(){
   // ---- term / national-mood / economic-climate readouts (these live in the
   //      side panel on other views; the board hides that panel for width) ----
   h+=`<div class="board-climate">
-      <div class="bc-cell"><div class="bc-h">Term Progress</div><div class="nmbar"><div class="termbar" style="flex:1"><i id="bTermFill" style="width:0%"></i></div></div><div id="bTermInfo" class="mono bc-v"></div></div>
       <div class="bc-cell" id="bNmBlock" style="cursor:pointer"><div class="bc-h">National Political Mood</div><div class="nmbar"><span class="nmend">−</span><div class="nmtrack"><i id="bNmFill"></i></div><span class="nmend">+</span></div><div id="bNmLabel" class="mono bc-v" style="text-align:center"></div></div>
       <div class="bc-cell"><div class="bc-h">Economic Climate</div><div class="nmbar"><span class="nmend">▼</span><div class="nmtrack"><i id="bEcoFill"></i></div><span class="nmend">▲</span></div><div id="bEcoLabel" class="mono bc-v" style="text-align:center"></div></div>
     </div>`;
@@ -26421,6 +26455,45 @@ function showSandboxExit(){
   document.addEventListener("keydown",onKey,true);
   setTimeout(()=>{try{document.getElementById("sbxNo").focus();}catch(e){}},30);
 }
+/* LONG INTROS FOLD. A page intro longer than a couple of sentences shows its
+   opening and a More link for the rest. Nothing is cut; one you open stays
+   open while you use the page. Runs on whatever lands in the main area. */
+const PROSE_SHOW=90, PROSE_MIN_REST=70;
+window._proseOpen=window._proseOpen||new Set();
+function tidyProse(root){
+  if(!root)return;
+  root.querySelectorAll(".sectionsub, .eo-note").forEach(el=>{
+    if(el.dataset.tidy)return; el.dataset.tidy="1";
+    if(el.querySelector("button,input,select,textarea"))return;
+    const full=el.textContent.trim(); if(full.length<PROSE_SHOW+PROSE_MIN_REST)return;
+    const key=full.slice(0,60);
+    // the first sentence end, in the paragraph's own text, far enough in
+    let before=0, cut=null;
+    for(const node of Array.from(el.childNodes)){
+      if(node.nodeType!==3){ before+=(node.textContent||"").length; continue; }
+      const re=/[.!?:](\s+)(?=[A-Z(“"<])/g; let m;
+      while((m=re.exec(node.nodeValue))){ if(before+m.index+1>=PROSE_SHOW){ cut={node, idx:m.index+1}; break; } }
+      if(cut)break;
+      before+=node.nodeValue.length;
+    }
+    if(!cut)return;
+    const rest=cut.node.splitText(cut.idx);
+    const more=document.createElement("span"); more.className="prose-more";
+    let nx=rest; while(nx){ const nn=nx.nextSibling; more.appendChild(nx); nx=nn; }
+    if(more.textContent.trim().length<PROSE_MIN_REST){ while(more.firstChild)el.appendChild(more.firstChild); return; }
+    const btn=document.createElement("button"); btn.className="prose-btn"; btn.type="button";
+    const set=open=>{ more.hidden=!open; btn.textContent=open?"Less":"More ›"; if(open)window._proseOpen.add(key); else window._proseOpen.delete(key); };
+    btn.addEventListener("click",e=>{ e.stopPropagation(); set(more.hidden); });
+    el.appendChild(more); el.appendChild(btn);
+    set(window._proseOpen.has(key));
+  });
+}
+(function(){
+  const m=document.getElementById("main"); if(!m||!window.MutationObserver)return;
+  let queued=false;
+  new MutationObserver(()=>{ if(queued)return; queued=true; Promise.resolve().then(()=>{ queued=false; tidyProse(m); }); })
+    .observe(m,{childList:true,subtree:true});
+})();
 function render(){
   sandboxTopUp(); mountSandboxFrame();
   renderHUD();renderSidebar();renderRailVoters();renderRailCompass();
