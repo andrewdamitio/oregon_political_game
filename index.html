@@ -2701,83 +2701,73 @@ function applySave(sv){
     });
   });
 })();
-/* ---- celebratory sound effects (Web Audio synth, no assets) + confetti ---- */
+/* ---- celebratory sound effects (synthesised to WAV clips, no assets) + confetti ---- */
 (function(){
   var ON=true;
   try{if(localStorage.getItem('sc_sfx')==='0')ON=false;}catch(e){}
-  // iOS: count as playback, so the silent switch does not mute the game
-  try{ if(navigator.audioSession)navigator.audioSession.type='playback'; }catch(e){}
-  var AC=null;
-  var CTXDEAD=false;
-  function ctx(){
-    if(!AC && !CTXDEAD){
-      try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }
-      catch(e){ AC=null; CTXDEAD=true; return null; }   // the browser is out of contexts; stop asking
-    }
-    if(!AC)return null;
-    // NEVER BIN A WORKING CONTEXT BECAUSE resume() COMPLAINED. It throws for
-    // ordinary reasons (mid transition, no gesture yet, called twice fast),
-    // and the old code treated every one of those as a reason to allocate a
-    // replacement. A page gets about six from Chrome before it refuses, and
-    // after that there is no audio for the rest of the session.
-    try{
-      if(AC.state!=='running'){ var p=AC.resume(); if(p&&p.catch)p.catch(function(){}); }
-    }catch(e){}
-    return AC;
+  /* Each cue is a list of notes, rendered to a WAV the first time it is
+     needed. tone() records a note while a cue is being built. */
+  var REC=null, CLIPS={}, EL={};
+  function tone(freq,start,dur,type,gain){ if(REC)REC.push([freq,start,dur,type||'triangle',gain||0.2]); }
+  function renderWav(notes){
+    var SR=44100, len=0;
+    notes.forEach(function(t){ len=Math.max(len,t[1]+t[2]+0.1); });
+    var N=Math.ceil(len*SR), buf=new Float32Array(N);
+    notes.forEach(function(t){
+      var f=t[0], st=t[1]+0.015, dur=t[2], type=t[3], g=t[4];
+      var s0=Math.floor(st*SR), n=Math.floor((dur+0.05)*SR);
+      for(var k=0;k<n&&s0+k<N;k++){
+        var x=k/SR, ph=(f*x)%1;
+        var w= type==='sine'?Math.sin(2*Math.PI*ph) : type==='sawtooth'?(2*ph-1) : (1-4*Math.abs(ph-0.5));
+        // the old envelope: 20ms attack to g, exponential fall to 0.0006 at dur, then off
+        var e= x<0.02 ? g*(x/0.02) : x<dur ? g*Math.pow(0.0006/g,(x-0.02)/Math.max(0.001,dur-0.02)) : 0.0006*Math.max(0,1-(x-dur)/0.05);
+        buf[s0+k]+=w*e;
+      }
+    });
+    var bytes=44+N*2, ab=new ArrayBuffer(bytes), dv=new DataView(ab);
+    var ws=function(o,str){ for(var q=0;q<str.length;q++)dv.setUint8(o+q,str.charCodeAt(q)); };
+    ws(0,'RIFF'); dv.setUint32(4,bytes-8,true); ws(8,'WAVE'); ws(12,'fmt ');
+    dv.setUint32(16,16,true); dv.setUint16(20,1,true); dv.setUint16(22,1,true);
+    dv.setUint32(24,SR,true); dv.setUint32(28,SR*2,true); dv.setUint16(32,2,true); dv.setUint16(34,16,true);
+    ws(36,'data'); dv.setUint32(40,N*2,true);
+    for(var m=0;m<N;m++){ var v=Math.max(-1,Math.min(1,buf[m])); dv.setInt16(44+m*2,Math.round(v*32767),true); }
+    return URL.createObjectURL(new Blob([ab],{type:'audio/wav'}));
   }
-  /* A BROWSER WILL NOT START AN AUDIO CONTEXT UNTIL YOU TOUCH THE PAGE, and
-     resume() is async. Scheduling a node in the same tick as the first click
-     puts it at a currentTime that has not started advancing yet, so it is
-     dropped silently. Create and unlock on the first gesture instead, well
-     before anything needs to play. The one-sample silent buffer is what
-     actually releases it on iOS. */
-  /* A SUSPENDED CONTEXT HAS A FROZEN CLOCK. Scheduling into one puts the
-     sound in the past the moment it wakes, so it is discarded in silence.
-     Browsers suspend on their own: focus loss, sleep, power saving. So if
-     the context is asleep, wait for resume() to resolve and schedule after,
-     rather than carrying on and hoping. */
-  function play(fn){
-    var ac=ctx(); if(!ac)return;
-    if(ac.state!=='running'){          // suspended, or interrupted on iOS
-      try{
-        var p=ac.resume();
-        if(p&&p.then){ p.then(function(){ try{ fn(ac); }catch(e){} },function(){}); return; }
-      }catch(e){}
+  function clip(name){
+    if(!EL[name]){
+      if(!CLIPS[name]){ REC=[]; try{ BUILD[name](); }catch(e){} CLIPS[name]=renderWav(REC); REC=null; }
+      EL[name]=new Audio(CLIPS[name]); EL[name].preload='auto';
     }
-    try{ fn(ac); }catch(e){}
+    return EL[name];
   }
+  // play now or not at all: a blocked play() is dropped, never queued
+  function playClip(name){
+    if(!ON)return;
+    try{ var a=clip(name); a._want=true; a.onended=function(){ a._want=false; };
+      a.muted=false; a.currentTime=0; var p=a.play(); if(p&&p.catch)p.catch(function(){}); }catch(e){}
+  }
+  /* Safari lets an <audio> element play later without a tap only if it was
+     started by one. So the first tap or key starts each clip silently and
+     stops it at once, and from then on the cues can play on their own. */
   var UNLOCKED=false;
   function unlockAudio(){
-    // ctx() FIRST, on every gesture, because it is what resumes a context the
-    // browser has suspended. Guarding above this line meant the first click
-    // woke the audio and no click ever could again.
-    var ac=ctx(); if(!ac)return;
-    if(UNLOCKED)return;
-    UNLOCKED=true;
-    try{
-      var b=ac.createBuffer(1,1,ac.sampleRate), src=ac.createBufferSource();
-      src.buffer=b; src.connect(ac.destination); src.start(0);
-    }catch(e){}
+    if(UNLOCKED)return; UNLOCKED=true;
+    ['welcome','win','lose'].forEach(function(k){
+      try{ var a=clip(k); a.muted=true; var p=a.play();
+        // a cue that was asked for while this ran keeps playing, with sound
+        var done=function(){ try{ a.muted=false; if(!a._want){ a.pause(); a.currentTime=0; } }catch(e){} };
+        if(p&&p.then)p.then(done,done); else done(); }catch(e){}
+    });
   }
-  ['pointerdown','keydown','touchstart'].forEach(function(ev){
+  ['pointerdown','keydown','touchend'].forEach(function(ev){
     try{ document.addEventListener(ev, unlockAudio, {capture:true, passive:true}); }
     catch(e){ document.addEventListener(ev, unlockAudio, true); }
   });
-  function tone(freq,start,dur,type,gain){
-    play(function(ac){
-    var o=ac.createOscillator(), g=ac.createGain(), t0=ac.currentTime+start+0.015;   // runway for a context that just resumed
-    o.type=type||'triangle'; o.frequency.value=freq;
-    g.gain.setValueAtTime(0.0001,t0);
-    g.gain.linearRampToValueAtTime(gain||0.2,t0+0.02);
-    g.gain.exponentialRampToValueAtTime(0.0006,t0+dur);
-    o.connect(g); g.connect(ac.destination);
-    o.start(t0); o.stop(t0+dur+0.05);
-    });
-  }
   function paint(){
     var b=document.getElementById('sfxToggle');
     if(b)b.innerHTML='<svg class=\'ico\' aria-hidden=\'true\'><use href=\'#ic-'+(ON?'volume':'volume-x')+'\'/></svg><span>Sound effects: <b>'+(ON?'on':'off')+'</b></span>';
   }
+  var BUILD={};
   var SFX={
     get on(){return ON;},
     setOn:function(v){ ON=!!v; try{localStorage.setItem('sc_sfx',ON?'1':'0');}catch(e){} paint(); },
@@ -2785,7 +2775,7 @@ function applySave(sv){
     /* WINNING. Two short stabs and a held chord. Deliberately vertical,
        because the welcome chord is a slow rising line and the ear tells
        rhythm apart faster than it tells pitch apart. */
-    win:function(){ if(!ON)return;
+    win:function(){
       var stab=function(t){
         tone(523.25,t,0.17,'triangle',0.18);
         tone(659.25,t,0.17,'triangle',0.155);
@@ -2798,11 +2788,11 @@ function applySave(sv){
       tone(1046.50,0.44,1.30,'sine',0.115);
       tone(130.81,0.00,1.75,'sawtooth',0.050);
     },
-    lose:function(){ if(!ON)return; tone(392,0,0.5,'sawtooth',0.13); tone(261.63,0.17,0.7,'sawtooth',0.12); tone(185,0.36,1.05,'sine',0.11); },
+    lose:function(){ tone(392,0,0.5,'sawtooth',0.13); tone(261.63,0.17,0.7,'sawtooth',0.12); tone(185,0.36,1.05,'sine',0.11); },
     /* TAKING OFFICE. A rising fifth into the octave over a low pad. Warmer and
        slower than the election fanfare, because this one opens a term rather
        than celebrating the end of one. */
-    welcome:function(){ if(!ON)return;
+    welcome:function(){
       tone(130.81,0,1.5,'sine',0.055);
       tone(261.63,0.00,0.70,'triangle',0.15);
       tone(392.00,0.16,0.70,'triangle',0.14);
@@ -2810,6 +2800,7 @@ function applySave(sv){
       tone(783.99,0.52,0.95,'sine',0.070);
     }
   };
+  ['win','lose','welcome'].forEach(function(k){ BUILD[k]=SFX[k]; SFX[k]=function(){ playClip(k); }; });
   document.addEventListener('DOMContentLoaded',function(){
     paint();
     var b=document.getElementById('sfxToggle');
@@ -10038,7 +10029,7 @@ const SITUATIONS={
       GAME.walkoutSide="right";                                      // which caucus left, fixed for the duration
       GAME.floorFreeze=Math.max(GAME.floorFreeze||0, 3);             // the building is shut for three quarters
     },
-    onEnd:()=>{ GAME.walkoutCooldownUntil=GAME.turn+8; },            // two years before anyone tries it again
+    onEnd:()=>{ GAME.walkoutCooldownUntil=GAME.turn+WALK_COOLDOWN; }, // about a session before anyone tries it again
     metricEffect:{}, moodMag:3, minTurns:2, onClear:{capital:2},
     indicatorEffect:{}, moodAxes:{economic:0.1,govSize:0.1},
     groupMood:{moderate:-3, businessClass:-3}},
@@ -10051,7 +10042,7 @@ const SITUATIONS={
       GAME.walkoutSide="left";
       GAME.floorFreeze=Math.max(GAME.floorFreeze||0, 3);
     },
-    onEnd:()=>{ GAME.walkoutCooldownUntil=GAME.turn+8; },
+    onEnd:()=>{ GAME.walkoutCooldownUntil=GAME.turn+WALK_COOLDOWN; },
     metricEffect:{}, moodMag:3, minTurns:2, onClear:{capital:2},
     indicatorEffect:{}, moodAxes:{economic:0.1,govSize:0.1},
     groupMood:{moderate:-3, publicUnions:-3}},
@@ -10649,13 +10640,13 @@ function _sitAge(sid){ return (GAME.situationAge&&GAME.situationAge[sid])||0; }
     const ours = w.side===side;
     return {
       begin:[[ fc("A program they organized against — you have driven the agenda past what you inherited",
-                  Math.round((ours?(w.provoke||0):0)*100)+"%", ours && (w.provoke||0)>=0.12),
+                  Math.round((ours?(w.provoke||0):0)*100)+"%", ours && (w.provoke||0)>=WALK_PROVOKE_MIN),
                fc("Their voters are the ones losing — how far their blocs have fallen behind everybody else's",
                   Math.round((ours?(w.isolation||0):0)*100)+"%", ours && (w.isolation||0)>0.2),
                fc("You are not popular enough to make this suicide — a caucus will not shut the building on a governor the state likes",
                   overallApproval().toFixed(0)+"% approval", (w.nerve||0)>0.55),
-               fc("Walkout pressure past 34% — "+w.label+", and a caucus angry enough to spend half a year on it",
-                  Math.round((ours?w.heat:0)*100)+"%", ours && w.heat>=0.34),
+               fc("Walkout pressure past "+Math.round(WALK_HEAT_MIN*100)+"% — "+w.label+", and a caucus angry enough to spend half a year on it",
+                  Math.round((ours?w.heat:0)*100)+"%", ours && w.heat>=WALK_HEAT_MIN),
                fc("You do not hold a two-thirds quorum on your own", quorumTxt, !quorumProof()),
                fc("Simple-Majority Quorum is not in the constitution", POLICIES.quorumReform?"passed":"not passed", !POLICIES.quorumReform) ]],
       end:[[ fc("Pass Simple-Majority Quorum — the permanent answer", POLICIES.quorumReform?"passed":"not passed", !!POLICIES.quorumReform) ],
@@ -18447,6 +18438,11 @@ function walkoutIsolation(side){
    loses its own marginals; against an unpopular one it is how it wins them.
    Approval was not an input to any of this, so a governor at 65% could be
    shut down exactly as easily as one at 30%. */
+/* HOW OFTEN. Provocation starts counting 1.5 points of drift past the
+   inherited settlement; a caucus needs WALK_PROVOKE_MIN of it and
+   WALK_HEAT_MIN of heat to consider leaving, then rolls each quarter. Once
+   they are home they wait WALK_COOLDOWN quarters, about once a session. */
+const WALK_PROVOKE_FROM=1.5, WALK_PROVOKE_MIN=0.08, WALK_HEAT_MIN=0.28, WALK_RATE=0.85, WALK_MAX=0.45, WALK_COOLDOWN=5;
 function walkoutNerve(){
   return clamp(1 + (48-overallApproval())/20, 0.15, 1.75);
 }
@@ -18471,7 +18467,7 @@ function walkoutPressure(){
     // provocative programme is worth: at 9, a governor who has driven every
     // left-coded dial to its stop scores about 0.35 here, which is the
     // difference between a caucus that is furious and one that is on a bus.
-    const provoke = clamp((-shift-3)/9, 0, 1);
+    const provoke = clamp((-shift-WALK_PROVOKE_FROM)/9, 0, 1);
     const alone = walkoutIsolation("right");
     return {side, heat: caucus*0.38 + provoke*0.44 + alone*0.18,
             label:"rural alienation", level:ra, caucusHeat:caucus, provoke,
@@ -18479,7 +18475,7 @@ function walkoutPressure(){
   }
   // the left caucus walks over how far the agenda has been dragged right
   const caucus = angry("liberal")*0.35 + angry("socialist")*0.30 + angry("publicUnions")*0.20 + angry("urban")*0.15;
-  const provoke = clamp((shift-3)/9, 0, 1);
+  const provoke = clamp((shift-WALK_PROVOKE_FROM)/9, 0, 1);
   const alone = walkoutIsolation("left");
   return {side, heat: caucus*0.38 + provoke*0.44 + alone*0.18,
           label:"progressive alienation", level:50+shift*2.2, caucusHeat:caucus, provoke,
@@ -18494,20 +18490,20 @@ function walkoutTrigger(side){
   if(quorumProof()) return false;                                // nobody left to walk out with
   if(walkoutOn()) return false;                                  // one caucus is already gone
   if(GAME.turn < (GAME.walkoutIgnoredUntil||0)) return false;    // you already chose to ignore this round
-  if(GAME.turn < (GAME.walkoutCooldownUntil||0)) return false;   // a caucus cannot do this twice in two years
+  if(GAME.turn < (GAME.walkoutCooldownUntil||0)) return false;   // not twice in one session
   if(GAME.turn < 4) return false;                                // not before you have a record to walk out over
   const w=walkoutPressure();
   if(w.side !== side) return false;                              // this is not their fight
   // A caucus does not leave the state because its voters have gone off you.
   // It leaves over a bill. Without a real provocation on the books there is
   // nothing to walk out ABOUT, however badly you are polling out there.
-  if(w.provoke < 0.12) return false;
-  if(w.heat < 0.34) return false;                                // this costs them half a year too
+  if(w.provoke < WALK_PROVOKE_MIN) return false;
+  if(w.heat < WALK_HEAT_MIN) return false;                       // this costs them half a year too
   // A REASON, AND THE NERVE TO ACT ON IT. The heat is the reason; your
   // approval is what decides whether shutting the building is worth doing to
   // somebody as popular as you are. At 38% a caucus with a grievance goes;
   // at 62% the same grievance stays a press release.
-  return Math.random() < clamp((w.heat-0.34)*0.62*walkoutNerve(), 0, 0.38);
+  return Math.random() < clamp((w.heat-WALK_HEAT_MIN)*WALK_RATE*walkoutNerve(), 0, WALK_MAX);
 }
 /* The prison population the Department of Corrections is funded to hold, on
    the incarceration-rate scale: 50 at the inherited 50% funding, 85 at full. */
