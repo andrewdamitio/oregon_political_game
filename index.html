@@ -1091,6 +1091,10 @@
   .opp-issue b{flex:0 0 170px;font-weight:600}
   .opp-net{border-top:1px solid var(--line);margin-top:4px;padding-top:6px}
   .prv{margin:8px 0 10px}
+  .prv-note{font-size:12.5px;color:var(--muted-3);margin:6px 0 8px}
+  .conc-forms{flex-direction:column;align-items:stretch}
+  .conc.conc-form{display:block;text-align:left;width:100%}
+  .conc-note{display:block;font-size:12.5px;color:var(--muted-1);margin-top:3px;text-transform:none;letter-spacing:0;font-family:var(--font-body)}
   .prv-h{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted-3);font-weight:600;margin-bottom:5px}
   .prv-opt{all:unset;box-sizing:border-box;display:block;width:100%;cursor:pointer;border:1px solid var(--line);padding:7px 10px;margin:5px 0;font-size:13px;color:var(--muted-1);background:var(--paper)}
   .prv-opt b{display:block;color:var(--ink);font-weight:600;margin-bottom:2px}
@@ -19263,6 +19267,10 @@ function drawFloor(){
   // There is no 60% of a constitutional amendment: you refer it as written or
   // you do not refer it.
   const binary=pol.binary===true||!!pol.reform;
+  // an amendment that comes in forms: choose which one the voters are asked
+  const variants=(pol.reform&&F.dir!=="repeal"&&MEASURE_VARIANTS[F.id])?MEASURE_VARIANTS[F.id]:null;
+  const curVar=variants?measureVariantDraft(F.id):null;
+  const variantOpts=variants?Object.keys(variants).map(k=>`<button class="conc conc-form ${k===curVar?'on':''}" data-variant="${k}"><span class="conc-l">${variants[k].label}</span><span class="conc-note">${variants[k].note}</span></button>`).join(""):"";
   const dialed=["slider","intensity","tier","allocation"].indexOf(pol.mechanic)>=0;
   const dialLab=nv=>{
     if(pol.mechanic==="tier"&&pol.tiers)
@@ -19300,7 +19308,8 @@ function drawFloor(){
         return u>0
           ? `Capital moves the members who can be moved, and <b>${u}</b> of them cannot be moved at any price.`
           : `Capital moves the members who can be moved, and on this one every vote you are short has a price.`; })()}`}</div>
-    ${binary?`<div class="conc-h">${ico('handshake')} It passes or it does not — there is no half of this one</div>`
+    ${variants?`<div class="conc-h">${ico('handshake')} ${F.id==="propRep"?"How the governor is chosen":"How far it goes"}: the voters are asked this form as written</div><div class="conc-row conc-forms">${variantOpts}</div>`
+    :binary?`<div class="conc-h">${ico('handshake')} It passes or it does not — there is no half of this one</div>`
       :`<div class="conc-h">${ico('handshake')} ${dialed
       ? "Where it starts — you are voting the dial, and a lower one is an easier vote"
       : "How strong a bill — a narrower one is not just cheaper, it stops being a party-line vote"}</div>
@@ -19316,7 +19325,7 @@ function drawFloor(){
     <div style="display:flex;gap:10px;margin:6px 0 4px;flex-wrap:wrap">
       <button class="enactbtn" id="floorGo" ${((w.possible||window.SANDBOX)&&afford)?'':'disabled'}>${
         (!w.possible||!afford)?floorBlockLabel(w)
-        :"Call the vote"+(binary?"":" — "+(dialed?dialLab(F.narrowed):(F.narrowed>=1?"full bill":Math.round(F.narrowed*100)+"% strength")))
+        :"Call the vote"+(variants?" — "+variants[curVar].label.toLowerCase():binary?"":" — "+(dialed?dialLab(F.narrowed):(F.narrowed>=1?"full bill":Math.round(F.narrowed*100)+"% strength")))
           +((w.house.buy.length+w.senate.buy.length)?", whipping "+(w.house.buy.length+w.senate.buy.length):"")}</button>
       <button class="enactbtn ghost" id="floorNo">Pull the bill</button>
     </div>
@@ -19333,6 +19342,10 @@ function drawFloor(){
     GAME.pendingFloor.narrowed=+el.dataset.conc; drawFloor(); }));
   card.querySelectorAll('[data-cush]').forEach(el=>el.addEventListener('click',()=>{
     GAME.pendingFloor.cushion=+el.dataset.cush; drawFloor(); }));
+  card.querySelectorAll('[data-variant]').forEach(el=>el.addEventListener('click',()=>{
+    const id=GAME.pendingFloor.id, v=el.dataset.variant;
+    if(id==="propRep")GAME.prVariantDraft=v; else (GAME.variantDraft=GAME.variantDraft||{})[id]=v;
+    drawFloor(); }));
   const close=()=>{ modal.classList.add("hidden"); GAME.pendingFloor=null;
     document.removeEventListener("keydown",onKey,true); };
   const onKey=e=>{ if(modal.classList.contains("hidden"))return;
@@ -23739,7 +23752,7 @@ function renderPolicies(){
         <div><div class="cat-name">${p.name}</div><div class="cat-dom">${DOMAINS[p.domain].name}</div></div></div>
       ${beaten?`<div class="cat-beaten">${ico('ban')} Defeated on the floor — it cannot be brought back for ${back} more quarter${back===1?'':'s'}.</div>`:''}
       <div class="cat-desc">${descHTML(p.desc)}</div>
-      ${MEASURE_VARIANTS[id]?measureVariantPickHTML(id):""}
+      ${MEASURE_VARIANTS[id]?`<div class="prv-note">${ico('columns')} Comes in ${Object.keys(MEASURE_VARIANTS[id]).length} forms: you choose which on the floor.</div>`:""}
       <div class="cat-meta"><span class="pill ${isRevPol?'rev':'spend'}">${costLabel}</span>
         ${floorPol
           ? `<span class="pill cap">${floorMin===null?'No version of this can pass the floor'
