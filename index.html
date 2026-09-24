@@ -1090,6 +1090,11 @@
   .opp-issue:last-child{border-bottom:none}
   .opp-issue b{flex:0 0 170px;font-weight:600}
   .opp-net{border-top:1px solid var(--line);margin-top:4px;padding-top:6px}
+  .fg-name{font-family:var(--font-display);font-size:18px;font-weight:500;color:var(--ink);line-height:1.2}
+  .fg-k{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted-3);margin-top:7px}
+  .fg-line{font-size:13px;color:var(--muted-1);margin-top:3px}
+  .fg-delta{font-size:12px;font-weight:600;margin-left:4px}
+  .ahow-top{margin:4px 0 12px}
   .opp-parties td{padding:8px 10px;border-bottom:1px solid var(--line-faint)}
   .chal{border:1px solid var(--rule);border-radius:6px;padding:10px 12px;background:var(--paper)}
   .chal.won{border-color:var(--clay);box-shadow:inset 3px 0 0 var(--clay)}
@@ -10522,6 +10527,8 @@ function pushHistory(){
   }
   rec("intention",{turn:GAME.turn,value:votingIntention()});
   for(const id in INDICATORS)rec("i_"+id,{turn:GAME.turn,value:INDICATORS[id].value});
+  // the focus group's five, so the panel can say who moved
+  if(typeof focusPanelIdx==="function")for(const i of focusPanelIdx())if(VOTERS[i])rec("fg_"+i,{turn:GAME.turn,value:VOTERS[i].approval});
   rec("approval",{turn:GAME.turn,value:overallApproval()});
   rec("nationalMood",{turn:GAME.turn,value:NATIONAL_MOOD.value});
   if(GAME.opposition)rec("oppMomentum",{turn:GAME.turn,value:GAME.opposition.momentum});
@@ -24335,6 +24342,23 @@ function wirePolicyControls(){
     p.channels[ci].share=nv;
     render();maybeOpenFloor();}));
 }
+/* The five voters the focus group follows: fixed for the run, spread
+   across the electorate. */
+function focusPanelIdx(){ const N=VOTERS.length||1; return [0,1,2,3,4].map(i=>(i*397+113)%N); }
+function focusName(i){ return APPT_FIRST[(i*7+3)%APPT_FIRST.length]+" "+APPT_LAST[(i*11+5)%APPT_LAST.length]; }
+function focusCounty(v){
+  if(!v.cw)return "Oregon";
+  let b=0; for(let k=1;k<v.cw.length;k++)if(v.cw[k]>v.cw[b])b=k;
+  return OR_COUNTIES[b]?OR_COUNTIES[b][0]+" County":"Oregon";
+}
+/* What a voter cares about most: their groups' concerns, weighted by how
+   strongly they belong. */
+function focusCares(v, labels){
+  const w={};
+  for(const id in (v.m||{})){ const S=SIMULANTS[id], m=v.m[id]; if(!S||m<=0.2||!S.sensitivities)continue;
+    for(const k in S.sensitivities){ const x=S.sensitivities[k]; if(x>0)w[k]=(w[k]||0)+x*m; } }
+  return Object.keys(w).sort((a,b)=>w[b]-w[a]).slice(0,2).map(k=>(labels[k]||k).toLowerCase()).join(" and ");
+}
 function renderVoters(){
   const sensLabels={environment:"Environment",homelessness:"Homelessness",education:"Education",
     crime:"Crime",gdp:"Economy",unemployment:"Jobs",health:"Health",logging:"Logging",
@@ -24349,15 +24373,15 @@ function renderVoters(){
   let h=BACK_BTN_HTML;
   // focus group: five real simulated voters (D4's focus-group screen)
   {
-    const picks=[];
-    for(let i=0;i<5;i++)picks.push(VOTERS[(i*397+GAME.turn*13)%VOTERS.length]);
-    h+=`<div class="sectionhdr">Focus Groups</div>
-      <div class="sectionsub">Five of the 2,000 simulated Oregonians in your electorate. Each holds <b>several identities at once</b>: an ideology, an income level, a region and the interest groups they belong to. Their vote blends how each identity feels about you. The bar beside an identity shows <b>how strongly they belong to it</b>: a lifelong union member counts as more of a public-sector worker than someone new to a government job. Ideology and income usually sit near 100%, and group memberships vary. Colors mark the identity type.</div>`;
+    // the same five people all term, so you can watch them move
+    const picks=focusPanelIdx().map(i=>({v:VOTERS[i], i}));
+    h+=`<div class="sectionhdr">Focus Group</div>
+      <div class="sectionsub">Five Oregonians you follow through the term, each one of the 2,000 simulated voters who decide your election. Each holds <b>several identities at once</b>: an ideology, an income level, a region and the groups they belong to, and their approval of you blends how each identity feels. The bar beside an identity shows <b>how strongly they belong to it</b>. Colors mark the identity type.</div>`;
     // legend
     h+=`<div class="focuslegend">`;
     for(const c in CAT_NAME)h+=`<span class="fl-item"><i style="background:${CAT_COLOR[c]}"></i>${CAT_NAME[c]}</span>`;
     h+=`</div><div class="focusgrid">`;
-    for(const v of picks){
+    for(const {v,i:vi} of picks){
       // show a spread of identity types, not only the 100% exclusive ones:
       // take the top membership in each category the voter has, then fill
       const byCat={};
@@ -24367,9 +24391,19 @@ function renderVoters(){
       for(const id of Object.keys(v.m).filter(id=>SIMULANTS[id]&&v.m[id]>0.3).sort((a,b)=>v.m[b]-v.m[a])){ if(ids.length>=5)break; if(!ids.includes(id))ids.push(id); }
       const col=v.approval>50?'var(--good)':'var(--bad)';
       const mood=v.approval>62?"a strong supporter":v.approval>52?"leaning your way":v.approval>48?"on the fence":v.approval>38?"unhappy with you":"firmly opposed";
+      const d=histDelta("fg_"+vi), dTxt=Math.abs(d)>=0.5?` <span class="fg-delta" style="color:${d>0?'var(--good)':'var(--bad)'}">${d>0?"▲":"▼"} ${Math.abs(d).toFixed(0)} since last quarter</span>`:"";
+      const t=turnoutProb(v);
+      const vote=t<0.38?`Probably stays home (${Math.round(t*100)}% likely to vote)`
+        :(v.approval>=53?"Likely votes for you":v.approval<=47?"Likely votes against you":"Could go either way")+` (${Math.round(t*100)}% likely to vote)`;
+      const cares=focusCares(v, sensLabels);
       h+=`<div class="focuscard">
-        <div class="focushead"><span style="color:${col};font-weight:700">${Math.round(v.approval)}%</span> — ${mood}</div>
-        <div class="focussub">${v.adjIncome<0.42?"Lower":v.adjIncome>0.62?"Higher":"Middle"} income · ${v.urban>0.58?"urban":v.urban<0.48?"rural":"suburban"} · ${v.age>0.6?"older":v.age<0.4?"younger":"middle-aged"}</div>`;
+        <div class="fg-name">${focusName(vi)}</div>
+        <div class="focussub">${focusCounty(v)} · ${v.adjIncome<0.42?"lower":v.adjIncome>0.62?"higher":"middle"} income · ${v.urban>0.58?"urban":v.urban<0.48?"rural":"suburban"} · ${v.age>0.6?"older":v.age<0.4?"younger":"middle-aged"}</div>
+        <div class="fg-k">Approves of you</div>
+        <div class="focushead"><span style="color:${col};font-weight:700">${Math.round(v.approval)}%</span> ${mood}${dTxt}</div>
+        <div class="fg-line">${vote}</div>
+        ${cares?`<div class="fg-line">Cares most about <b>${cares}</b></div>`:""}
+        <div class="fg-k" style="margin-top:8px">Who they are</div>`;
       for(const id of ids){const c=catOf(id);h+=`<div class="focusrow" data-detail="v_${id}" title="${CAT_NAME[c]}"><span class="fr-name">${SIMULANTS[id].name}</span><span class="fr-bar"><i style="width:${Math.round(v.m[id]*100)}%;background:${CAT_COLOR[c]}"></i></span></div>`;}
       h+=`</div>`;
     }
@@ -24913,6 +24947,12 @@ function renderAppointments(){
     :`You can remove a department head at any time for ◈3, or free if you inherited them. Commission seats, marked ${ico('lock')}, are fixed terms you cannot cut short: ${fixedSeats.join(", ")}. You wait them out, or pass <b>Cabinet Government</b> to make them removable.`}</div>`;
   // the scoreboard
   const dl=apptDelivery(), cap=apptCapital(), ovh=apptOverhead();
+  // how it works, up front: the rules before the roster they govern
+  h+=`<details class="ahow ahow-top"><summary>How appointments work</summary><div class="ahow-body">
+    <p>Every appointee brings a trait, which sets how their department runs, and an interest group that stays pleased for as long as they hold the post.${apptInheritedLine()}</p>
+    <p>Nominees go to the floor of ${prOn()?"the Assembly":"the Senate"}, and a nomination the chamber already carries costs nothing. The Public Utility Commission seats three and decides as a body, so its effect on rates is the average of the three.</p>
+    <p>Cabinet strength is the multiplier your appointees put on every policy effect that lands on a statistic their department is responsible for: at ×${dl.toFixed(2)}, a law written to move that statistic 10 points moves it ${(dl*10).toFixed(1)}. Capital and overhead are measured against the slate you took office with, so they read "No change" until you replace somebody.</p>
+  </div></details>`;
   const lo=APPT_MULT_MIN, hi=APPT_MULT_MAX, pos=v=>((clamp(v,lo,hi)-lo)/(hi-lo))*100;
   const from=window._apptStrengthShown!=null?window._apptStrengthShown:dl;
   h+=`<div class="ascore">
@@ -24954,11 +24994,6 @@ function renderAppointments(){
     Object.keys(APPT_TRAITS).map(t=>{ const T=APPT_TRAITS[t];
       return `<div class="atrait" style="border-left:3px solid ${apptLook(t).col};padding-left:10px"><div><b>${ico(T.icon)} ${T.label}</b> <span class="acmp-note">×${(1+(T.eff||0)).toFixed(2)} · capital ${apptSigned(T.capital||0)}/q · overhead ${apptSigned(T.overhead||0)}</span><div>${apptLook(t).short}</div></div></div>`;
     }).join("")+`</div></details>`;
-  h+=`<details class="ahow"><summary>How appointments work</summary><div class="ahow-body">
-    <p>Every appointee brings a trait, which sets how their department runs, and an interest group that stays pleased for as long as they hold the post.${apptInheritedLine()}</p>
-    <p>Nominees go to the floor of ${prOn()?"the Assembly":"the Senate"}, and a nomination the chamber already carries costs nothing. The Public Utility Commission seats three and decides as a body, so its effect on rates is the average of the three.</p>
-    <p>Cabinet strength is the multiplier your appointees put on every policy effect that lands on a statistic their department is responsible for: at ×${dl.toFixed(2)}, a law written to move that statistic 10 points moves it ${(dl*10).toFixed(1)}. Capital and overhead are measured against the slate you took office with, so they read zero until you change somebody.</p>
-  </div></details>`;
   main.innerHTML=h;
   // the strength bar travels from where it last stood
   const fill=main.querySelector('.as-fill');
