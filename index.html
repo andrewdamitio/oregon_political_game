@@ -8877,7 +8877,7 @@ function renderProposal(){
   // a dilemma, and the result card after it, go first
   if(!c||GAME.pendingDilemma||GAME.lastDilemmaResult){ modal.classList.add("hidden"); return; }
   if(!proposalLive(c)){ GAME.pendingProposal=null; modal.classList.add("hidden"); return; }
-  if(GAME.briefing&&!GAME._openProposal&&GAME.briefing.items.some(i=>i.kind==="proposal"&&i.key===c.turn+"|"+c.ppost)){ modal.classList.add("hidden"); return; }
+  if(!GAME._openProposal&&(GAME._briefPending||(GAME.briefing&&GAME.briefing.items.some(i=>i.kind==="proposal"&&i.key===c.turn+"|"+c.ppost)))){ modal.classList.add("hidden"); return; }
   const post=APPT_POSTS[c.ppost], pol=proposalPolicy(c), cost=proposalCosts(c);
   const adjusting=c.pkind==="adjust";
   const pitch = c.ptrait==="reformer"
@@ -13304,12 +13304,13 @@ function drawCoalExit(){
       if(!prMajorityReachable())return showNoGovernment("collapse",{my:((GAME.legis&&GAME.legis.prCounts)||{})[prMyParty()]||0});
       GAME._coalMust=true;
       drawCoalition(()=>{ GAME._coalMust=false;
-        if(coalitionSeats(false)>=LEGIS.majH){ GAME.log.push(ico('handshake')+" A new government is formed"); render(); }
+        if(coalitionSeats(false)>=LEGIS.majH){ GAME.log.push(ico('handshake')+" A new government is formed"); render(); if(GAME._exitFromBrief){ GAME._exitFromBrief=false; briefReturn(); } }
         else showNoGovernment("noMajority",{my:((GAME.legis&&GAME.legis.prCounts)||{})[prMyParty()]||0});
       });
       return;
     }
     try{render();}catch(e){}
+    if(GAME._exitFromBrief){ GAME._exitFromBrief=false; briefReturn(); }
   };
 }
 /* The negotiation. You are shown every party that is not yours, what it
@@ -13689,7 +13690,7 @@ function showAusterityResult(R){
   card.innerHTML=h;
   modal.classList.remove("hidden");
   const go=document.getElementById("ausrGo");
-  if(go)go.onclick=()=>{ modal.classList.add("hidden"); try{render();}catch(e){} };
+  if(go)go.onclick=()=>{ modal.classList.add("hidden"); try{render();}catch(e){} if(GAME._ausFromBrief){ GAME._ausFromBrief=false; briefReturn(); } };
 }
 /* A kicker refund is a demand injection. KICKER_GDP_MULT is the share of it
    that turns into Oregon output: well under one, because a rebate is partly
@@ -15068,6 +15069,8 @@ function showPlatformModal(){
     GAME._platformDraft=[];
     modal.classList.add("hidden");
     document.removeEventListener("keydown",onKey,true);
+    // a new term opens with a briefing if anything is waiting from the election quarter
+    if(GAME.pendingDilemma||GAME.pendingProposal||GAME.pendingOppBill||GAME.pendingAusterity||(GAME.pendingEoEvents||[]).length){ GAME._briefPending=false; openBriefing(true); }
     render();
   };
   const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); commit(); } };
@@ -15140,6 +15143,8 @@ function briefCollect(){
     items.push({kind:"eo", ev, icon:"gavel", title:ev.kind==="ruling"?(ev.upheld?"A court upheld ":"A court struck down ")+E.name:"A lawsuit was filed against "+E.name});
   }
   GAME.pendingEoEvents=[];
+  if(GAME.pendingCoalExit)items.push({kind:"coalExit", decision:true, icon:"ban", title:prParty(GAME.pendingCoalExit.pid).name+" has left your government"});
+  if(GAME.pendingAusterity)items.push({kind:"austerity", decision:true, icon:"warning", title:"A budget emergency: sign a package that balances the books"});
   if(GAME.pendingOppBill)items.push({kind:"oppBill", decision:true, icon:"doc", title:"The legislature sent you "+(nm(CATALOG[GAME.pendingOppBill.id])||"a bill")+": sign it or veto it"});
   if(GAME.pendingShortfall)items.push({kind:"shortfall", decision:true, icon:"warning", title:"The budget came in short: decide how to cover it"});
   if(GAME.pendingSurplus)items.push({kind:"surplus", decision:true, icon:"cash", title:"The budget came in over: decide where the surplus goes"});
@@ -15154,10 +15159,14 @@ function briefCollect(){
   if(GAME.pendingNominee){ GAME.pendingNominee=false; const C=GAME.challenger; if(C&&C.nominee!=null)items.push({kind:"nominee", icon:"people", title:C.field[C.nominee].name+" is the "+oppPartyName()+" nominee"}); }
   if(GAME.pendingBallotNotice){ const bn=GAME.pendingBallotNotice; GAME.pendingBallotNotice=null; items.push({kind:"ballot", bn, icon:"ballot", title:bn.measures.length+" citizen initiative"+(bn.measures.length===1?" has":"s have")+" qualified for the ballot"}); }
   if(GAME.pendingTermLimitWarn){ const w=GAME.pendingTermLimitWarn; GAME.pendingTermLimitWarn=null; items.push({kind:"termlimit", w, icon:"warning", title:"Your second term ends after the next election"}); }
+  // the quarter's campaign energy, which is lost if it is not spent
+  if(GAME.campEnergyMax)items.push({kind:"campaign", icon:"people", title:"Campaign energy: "+GAME.campEnergyMax+" to spend this quarter on groups, counties and ballot measures. What you do not spend is lost"});
   return items;
 }
 function briefDone(it){
   if(it.kind==="oppBill")return !GAME.pendingOppBill;
+  if(it.kind==="austerity")return !GAME.pendingAusterity;
+  if(it.kind==="coalExit")return !GAME.pendingCoalExit&&!GAME._coalMust;
   if(it.kind==="shortfall")return !GAME.pendingShortfall;
   if(it.kind==="surplus")return !GAME.pendingSurplus;
   if(it.kind==="dilemma")return GAME.pendingDilemma!==it.id;
@@ -15211,8 +15220,10 @@ function openBriefing(fresh){
   if(!modal||!card)return;
   if(fresh){
     GAME.briefing={turn:GAME.turn, items:briefCollect()};
+    GAME._briefPending=false;
     showQuarterReport(true);
-    if(GAME.skipReport&&!GAME.briefing.items.length){ render(); return; }   // nothing needs you and you asked not to be briefed
+    // the campaign-energy line is a reminder, not something that needs you
+    if(GAME.skipReport&&!GAME.briefing.items.filter(i=>i.kind!=="campaign").length){ render(); return; }   // nothing needs you and you asked not to be briefed
   }
   const B=GAME.briefing; if(!B){ reopenQuarterReport(); return; }
   GAME._openDilemma=false; GAME._openProposal=false;
@@ -15262,6 +15273,8 @@ function openBriefing(fresh){
     switch(it.kind){
       case "eo":        showExecOrderEvent(it.ev, briefReturn); break;
       case "oppBill":   showOppBill(briefReturn); break;
+      case "austerity": GAME._ausFromBrief=true; drawAusterity(); break;   // returns from its result screen
+      case "coalExit":  GAME._exitFromBrief=true; drawCoalExit(); break;  // returns once the government stands, or falls
       case "shortfall": showShortfallChoice(briefReturn); break;
       case "surplus":   showSurplusChoice(briefReturn); break;
       case "dilemma":   GAME._openDilemma=true; render(); break;       // returns from its result screen
@@ -15269,6 +15282,7 @@ function openBriefing(fresh){
       case "nominee":   showNominee(briefReturn); break;
       case "ballot":    showBallotNotice(it.bn, briefReturn); break;
       case "termlimit": showTermLimitWarning(it.w, briefReturn); break;
+      case "campaign":  currentView="camphq"; detailKey=null; render(); break;   // straight to Campaign HQ
       default: briefReturn();
     }
   }));
@@ -20601,6 +20615,7 @@ function doEndTurn(){
 }
 /* election quarter — ticks run for the campaign quarter, then the election fires */
 function doElectionTurn(){
+  GAME._briefPending=true;   // anything the election quarter raises waits for the new term's briefing
   evaluatePromises();          // judge the promises made at the LAST election, before votes are cast
   _runTicks();                 // promise grudges then flow into approval for the election
   applyPromiseSwing();         // then the statewide follow-through swing lands, exact
@@ -21839,6 +21854,7 @@ function endTurn(){
   // A parliament that has just been elected has no government yet, and it
   // cannot do anything until it has one.
   // A government has just fallen. That outranks everything else on the desk.
+  if(briefOpenDecisions().length){ openBriefing(false); return; }   // the briefing holds the fallen government and the budget emergency
   if(GAME.pendingCoalExit){ drawCoalExit(); return; }
   if(GAME.pendingCoalition){ drawCoalition(); return; }
   if(GAME.pendingAusterity){ drawAusterity(); return; }
@@ -21847,6 +21863,7 @@ function endTurn(){
   if(GAME.pendingDilemma){GAME.log.push("❖ Resolve the dilemma before ending the quarter");GAME._openDilemma=true;render();return;}
   if(GAME.pendingProposal){GAME.log.push(ico('doc')+" Answer your director's proposal before ending the quarter");GAME._openProposal=true;render();return;}
   GAME.briefing=null;   // a new quarter, a new briefing
+  GAME._briefPending=true;   // nothing the quarter raises draws itself until the briefing lists it
   // A change you dialled in but never voted gets its floor before the quarter
   // ends. Ending the quarter used to settle it silently, which meant a tax
   // rise could pass or die on a roll you were never shown — the one case where
@@ -21861,7 +21878,9 @@ function endTurn(){
   }
   const _nextInto=(GAME.turn+1)-(GAME.term-1)*GAME.termLengthTurns;
   const _isElecQ=_nextInto>=GAME.termLengthTurns-1;
-  if(GAME.skipCampaign&&!_isElecQ){doEndTurn();return;}
+  // the campaign screen is the last quarter's; every other quarter goes
+  // straight on, and the briefing shows the energy you had to spend
+  if(!_isElecQ){doEndTurn();return;}
   showCampPopup();
 }
 
@@ -26494,7 +26513,7 @@ function renderDilemma(){
   }
   if(!GAME.pendingDilemma){modal.classList.add("hidden");return;}
   // a dilemma the briefing lists waits for you to open it from there
-  if(GAME.briefing&&!GAME._openDilemma&&GAME.briefing.items.some(i=>i.kind==="dilemma"&&i.id===GAME.pendingDilemma)){ modal.classList.add("hidden"); return; }
+  if(!GAME._openDilemma&&(GAME._briefPending||(GAME.briefing&&GAME.briefing.items.some(i=>i.kind==="dilemma"&&i.id===GAME.pendingDilemma)))){ modal.classList.add("hidden"); return; }
   const d=DILEMMAS[GAME.pendingDilemma];
   // A dilemma whose subject has gone — the coalition partner that was issuing
   // the ultimatum is no longer in the government, the crisis it was about has
