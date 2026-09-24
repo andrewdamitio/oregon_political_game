@@ -1090,6 +1090,7 @@
   .opp-issue:last-child{border-bottom:none}
   .opp-issue b{flex:0 0 170px;font-weight:600}
   .opp-net{border-top:1px solid var(--line);margin-top:4px;padding-top:6px}
+  .opp-parties td{padding:8px 10px;border-bottom:1px solid var(--line-faint)}
   .chal{border:1px solid var(--rule);border-radius:6px;padding:10px 12px;background:var(--paper)}
   .chal.won{border-color:var(--clay);box-shadow:inset 3px 0 0 var(--clay)}
   .chal.out{opacity:.55}
@@ -9159,7 +9160,17 @@ function turnoutProb(v){
     const exposure=1.5-part;                    // ~1.5 for a pure independent, ~0.5 for a hard partisan
     t=clamp(t*(1+(acc-1)*exposure),0.03,0.97);
   }
+  // cynicism keeps people home: the most disillusioned group a voter really
+  // belongs to (membership x cynicism), 2.5% of turnout per point, at most a
+  // quarter. An average over every group they touch would dilute it away.
+  const cy=voterCynicism(v);
+  if(cy>0)t=clamp(t*(1-Math.min(0.25,cy*0.025)),0.03,0.97);
   return t;
+}
+function voterCynicism(v){
+  let top=0;
+  for(const sid in (v.m||{})){ const w=v.m[sid]; if(w<=0||!SIMULANTS[sid])continue; top=Math.max(top,w*(SIMULANTS[sid].cynicism||0)); }
+  return top;
 }
 /* system-wide turnout mobilization from civic policy and the political moment.
    Ranked-choice voting and motor-voter lift participation; deep cynicism and
@@ -11796,14 +11807,33 @@ function oppIssues(){
   if((GAME.uturnCount||0)>1)out.push(["Flip-flops", `${GAME.uturnCount} reversals on the record.`]);
   return out;
 }
+/* Under proportional representation there is no single opposition: every
+   party, where it sits relative to your government, and what it thinks. */
+function prPartiesHTML(){
+  const L=GAME.legis||{}, seats=L.prCounts||{}, shares=L.prShares||{}, mine=prMyParty(), part=coalitionPartners();
+  const rows=PR_PARTIES.slice().sort((a,b)=>(seats[b.id]||0)-(seats[a.id]||0)).map(p=>{
+    const n=seats[p.id]||0, sh=shares[p.id], tr=Math.round(partyTrust(p.id));
+    let role, note;
+    if(p.id===mine){ role=`<span class="ast-yours">Your party</span>`; note=""; }
+    else if(part.indexOf(p.id)>=0){ const m=Math.round(coalitionMood(p.id));
+      role=`<span class="ast-partner">In your government</span>`; note=`mood ${m}, ${m>=COAL_GOOD?"voting with you":m>=COAL_WALK+12?"not helping":"on the way out"}`; }
+    else if(!n){ role=`<span class="ast-inh">Not in the Assembly</span>`; note="under the 4% threshold"; }
+    else { role=`<span class="ast-opp">Opposition</span>`; note=coalitionWillTalk(p.id)?"would negotiate":"will not talk to you"; }
+    return `<tr><td><span class="coal-sw" style="background:${p.col};display:inline-block;margin-right:8px"></span>${p.name}</td>`
+      +`<td class="num">${n}</td><td class="num">${sh!=null?(sh*100).toFixed(1)+"%":""}</td><td>${role}</td>`
+      +`<td class="num">${p.id===mine?"":tr+"%"}</td><td class="ar-muted">${note}</td></tr>`;
+  }).join("");
+  return `<div class="aroster-wrap" style="margin:4px 0 16px"><table class="aroster opp-parties"><thead><tr><th>Party</th><th class="num">Seats</th><th class="num">Vote</th><th>Role</th><th class="num">Their voters rate you</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
 function oppositionTabHTML(){
   const o=GAME.opposition||{momentum:25,name:"the opposition"}, m=o.momentum, opp=oppPartyName();
   const lvl=m>=78?"Surging":m>=60?"High":m>=42?"Building":m>=24?"Present":"Dormant";
   const col=m>=60?"var(--clay)":m>=42?"var(--gold)":"var(--moss)";
   const d=histDelta("oppMomentum"), sg=v=>(v>=0?"+":"−")+Math.abs(v).toFixed(1);
   const frac=clamp((m-30)/70,0,1), capM=oppositionCapitalMult();
-  let h=`<div class="camp-sec">${ico('warning')} The ${opp} opposition</div>`;
-  h+=`<div class="opp-head"><div><div class="opp-k">Led in the legislature by</div><div class="opp-v">${o.name}</div></div>`
+  let h=`<div class="camp-sec">${ico('warning')} ${prOn()?"The opposition in the Assembly":`The ${opp} opposition`}</div>`;
+  if(prOn())h+=prPartiesHTML();
+  h+=`<div class="opp-head"><div><div class="opp-k">${prOn()?`Leading the ${opp} Party`:"Led in the legislature by"}</div><div class="opp-v">${o.name}</div></div>`
     +`<div class="opp-mom"><div class="opp-k">Momentum</div><div class="opp-v" style="color:${col}">${Math.round(m)} <span>${lvl}</span></div>`
     +`<div class="opp-bar"><i style="width:${clamp(m,0,100)}%;background:${col}"></i><b style="left:60%"></b></div>`
     +`<div class="opp-k">${Math.abs(d)>=0.1?sg(d)+" last quarter":"unchanged last quarter"}</div></div></div>`;
@@ -22756,7 +22786,7 @@ function renderDetail(){
     // cynicism & complacency (D4's anti-landslide pressures), named effects
     if((s.cynicism||0)>0.2||(s.complacency||0)>0.2){
       h+=`<div class="ebgroup-label">Mood pressures</div><div class="ebgroup">`;
-      if((s.cynicism||0)>0.2)h+=effectBar("Cynicism — flip-flops & U-turns they remember",-s.cynicism,8,{color:'var(--clay)',fmt:v=>v.toFixed(1)});
+      if((s.cynicism||0)>0.2)h+=effectBar("Cynicism: U-turns and dropped pledges they remember. It lowers their approval, and "+Math.round(Math.min(0.25,s.cynicism*0.025)*100)+"% fewer of them vote",-s.cynicism,8,{color:'var(--clay)',fmt:v=>v.toFixed(1)});
       if((s.complacency||0)>0.2)h+=effectBar("Complacency — they take your wins for granted",-s.complacency,8,{color:'var(--clay)',fmt:v=>v.toFixed(1)});
       h+=`</div>`;
     }
