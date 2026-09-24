@@ -2148,6 +2148,8 @@
 <div id="newGameModal" class="modal hidden" style="z-index:70"><div class="card" id="newGameCard" style="max-width:420px"></div></div>
 <div id="termLimitModal" class="modal hidden" style="z-index:65"><div class="card" id="termLimitCard" style="max-width:460px"></div></div>
 <div id="ballotNoticeModal" class="modal hidden" style="z-index:65"><div class="card" id="ballotNoticeCard" style="max-width:540px"></div></div>
+<div id="nomineeModal" class="modal hidden" style="z-index:65"><div class="card" id="nomineeCard" style="max-width:540px"></div></div>
+<div id="prOustedModal" class="modal hidden" style="z-index:80"><div class="card" id="prOustedCard" style="max-width:540px"></div></div>
 <div id="floorModal" class="modal hidden" style="z-index:66"><div class="card" id="floorCard" style="max-width:680px"></div></div>
 <div id="voteResultModal" class="modal hidden" style="z-index:67"><div class="card" id="voteResultCard" style="max-width:520px"></div></div>
 <div id="sandboxExitModal" class="modal hidden" style="z-index:82"><div class="card" id="sandboxExitCard" style="max-width:480px"></div></div>
@@ -11574,7 +11576,7 @@ function oppositionCapitalMult(){
    THE CHALLENGER: a field, a primary, a nominee
    ============================================================ */
 const CHAL_FIELD_AT=9;     // quarter of the term the field forms: after the midterm
-const CHAL_PRIMARY_AT=13;  // the primary: second quarter of election year
+const CHAL_PRIMARY_AT=12;  // the primary: three quarters before the election
 // where each kind of candidate sits, on the other party's side of the compass
 const CHAL_STYLES={
   mod: {label:"Moderate",  ec:0.22, so:0.12},
@@ -11667,7 +11669,7 @@ function tickChallenger(){
   const C=chalEnsureField();
   if(fresh)GAME.log.push(ico('people')+" The "+oppPartyName()+" primary field is set: "+C.field.map(c=>c.name+" ("+CHAL_STYLES[c.style].label.toLowerCase()+")").join(", "));
   else if(C.nominee==null)chalScore(false);
-  if(into>=CHAL_PRIMARY_AT&&C.nominee==null)chalRunPrimary();
+  if(into>=CHAL_PRIMARY_AT&&C.nominee==null){ chalRunPrimary(); GAME.pendingNominee=true; }
 }
 /* What the election needs: the nominee, chosen now if the calendar never got
    there, with the mainstream point every voter is measured against. */
@@ -16134,6 +16136,7 @@ function showElection(r){
       location.href=location.origin+location.pathname;
       return;
     }
+    if(prOustedCheck())return;      // you won the race, but your party came third
     if(window.SFX){ try{ SFX.welcome(); }catch(e){} }   // a new term opens the same way the first one did
     GAME.term++;GAME.capital=clamp(GAME.capital+15,0,100);GAME.log.push("★ Term "+GAME.term+" begins");
     GAME.skipReport=false; GAME.skipCampaign=false; // reports and campaign popup resume each new term
@@ -16306,6 +16309,59 @@ function showBallotNotice(bn, next){
   const go=document.getElementById("bnGo");
   if(go)go.onclick=()=>{ close(); GAME.campTab="ballot"; currentView="camphq"; detailKey=null; render(); if(next)next(); };
   document.addEventListener("keydown",onKey,true);
+}
+/* The other party has its nominee: who, where they sit, and what it means. */
+function showNominee(next){
+  const card=document.getElementById("nomineeCard"), modal=document.getElementById("nomineeModal");
+  const C=GAME.challenger;
+  if(!card||!modal||!C||C.nominee==null){ if(next)next(); return; }
+  const c=C.field[C.nominee], ce=challengerForElection(), opp=oppPartyName();
+  const runner=C.field.filter(x=>x!==c).sort((a,b)=>b.support-a.support)[0];
+  const pts=(50-ce.like)/50*CHAL_LIKE_PTS*100;
+  const qLeft=Math.max(1,(GAME.termLengthTurns-1)-chalInto());
+  const pos=c.style==="fire"?"A hardliner, well out from the centre. Centrist voters will lean your way."
+    :c.style==="mod"?"A moderate who will compete for the middle. Centrist voters will not break your way."
+    :"Mainstream for their party. The middle is open to both of you.";
+  card.innerHTML=`<div class="sectionhdr">${ico('people')} ${c.name} Wins the ${opp} Primary</div>`
+    +`<div class="sectionsub">${c.name}, ${c.role}, is the ${opp} nominee for governor. They beat ${runner?runner.name+" ("+CHAL_STYLES[runner.style].label.toLowerCase()+")":"the field"} by ${chalPts(C.margin)}${C.bruise?", and the fight left them bruised":""}. The election is ${qLeft} quarter${qLeft===1?"":"s"} away.</div>`
+    +`<div class="rsection" style="margin-top:10px">`
+    +`<div class="rrow"><span class="rlabel">Position</span><span class="rval">${CHAL_STYLES[c.style].label}</span></div>`
+    +`<div class="sectionsub" style="margin:-4px 0 10px;font-size:13px">${pos}</div>`
+    +`<div class="rrow"><span class="rlabel">Likability</span><span class="rval" style="color:${pts>=0?'var(--good)':'var(--bad)'}">${Math.round(ce.like)} / 100</span></div>`
+    +`<div class="sectionsub" style="margin:-4px 0 10px;font-size:13px">Worth ${pts>=0?"+":"−"}${Math.abs(pts).toFixed(1)} points to you on election night.</div>`
+    +(c.backers.length?`<div class="rrow"><span class="rlabel">Backed by</span><span class="rval">${c.backers.map(b=>SIMULANTS[b].name).join(" and ")}</span></div>`:"")
+    +`</div>`
+    +`<div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">`
+    +`<button class="enactbtn" id="nomGo">Open Campaign HQ</button><button class="enactbtn ghost" id="nomOk">Understood ▸</button></div>`;
+  modal.classList.remove("hidden");
+  const openedAt=Date.now(), armed=()=>Date.now()-openedAt>=400;
+  const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
+  const done=()=>{ if(!armed())return; close(); if(next)next(); };
+  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
+  document.getElementById("nomOk").onclick=done;
+  document.getElementById("nomGo").onclick=()=>{ close(); GAME.campTab="reelect"; currentView="camphq"; detailKey=null; render(); if(next)next(); };
+  document.addEventListener("keydown",onKey,true);
+}
+/* Under proportional representation a government is built around one of
+   the two largest parties. Returns true when the game has ended here. */
+function prOustedCheck(){
+  const X=GAME.prOusted; if(!X)return false;
+  GAME.prOusted=null;
+  if(window.SANDBOX){ GAME.log.push(ico('warning')+" Your party came "+X.place+" in the Assembly. Outside the sandbox that ends the game."); return false; }
+  GAME.gameOver=true;
+  const card=document.getElementById("prOustedCard"), modal=document.getElementById("prOustedModal");
+  const me=prParty(prMyParty());
+  card.innerHTML=`<div class="sectionhdr">${ico('ban')} The ${me.name} Party Came ${X.place.replace(/^./,x=>x.toUpperCase())}</div>`
+    +`<div class="sectionsub">Under proportional representation a government is built around one of the two largest parties. `
+    +`The Assembly count gives your party <b>${X.seats}</b> seats, behind ${X.ahead.map(a=>`${prParty(a.pid).name} with <b>${a.seats}</b>`).join(" and ")}. `
+    +`Nobody will form a government around the ${X.place} bench, and a governor who cannot form one cannot govern. Your governorship ends here.</div>`
+    +`<button class="enactbtn" id="prOutOk" style="margin-top:12px">Start a new game ▸</button>`;
+  modal.classList.remove("hidden");
+  document.getElementById("prOutOk").onclick=()=>{
+    try{ localStorage.setItem("sc_freshGame","1"); }catch(e){}
+    location.href=location.origin+location.pathname;
+  };
+  return true;
 }
 /* Term-limited and the repeal was never passed: you are not on the ballot, but
    the seat is still contested. Run the same campaign + election ticks, then show
@@ -19453,6 +19509,14 @@ function runLegislativeElection(approval){
     // the parliament that signed it
     GAME.coalition=null;
     GAME.pendingCoalition=(GAME.legis.house<LEGIS.majH);
+    // outside the two largest parties, nobody forms a government around you
+    {
+      const c=GAME.legis.prCounts||{}, mine=prMyParty(), my=c[mine]||0;
+      const ahead=Object.keys(c).filter(p=>p!==mine&&(c[p]||0)>my).sort((a,b)=>c[b]-c[a]);
+      if(ahead.length>=2)
+        GAME.prOusted={seats:my, place:["first","second","third","fourth","fifth"][ahead.length]||"last",
+          ahead:ahead.slice(0,2).map(p=>({pid:p, seats:c[p]}))};
+    }
     return {before, after, sSwing:0, hSwing:after.house-before.house, senateUp:[],
             converted:!!_preConversion,
             standingBefore, standingAfter:legisStanding(after),
@@ -19677,9 +19741,11 @@ function doEndTurn(){
   if(GAME.log.length>8)GAME.log=GAME.log.slice(-8);
   render();
   const afterReport=()=>{
+    if(prOustedCheck())return;      // a midterm that converted the Assembly can end it
     const showTL=()=>{ if(GAME.pendingTermLimitWarn){ const w=GAME.pendingTermLimitWarn; GAME.pendingTermLimitWarn=null; showTermLimitWarning(w); } };
-    if(GAME.pendingBallotNotice){ const bn=GAME.pendingBallotNotice; GAME.pendingBallotNotice=null; showBallotNotice(bn, showTL); }
-    else showTL();
+    const showBN=()=>{ if(GAME.pendingBallotNotice){ const bn=GAME.pendingBallotNotice; GAME.pendingBallotNotice=null; showBallotNotice(bn, showTL); } else showTL(); };
+    if(GAME.pendingNominee){ GAME.pendingNominee=false; showNominee(showBN); }
+    else showBN();
   };
   const afterSurplus=()=>{
     if(GAME.pendingMidterm){ const mt=GAME.pendingMidterm; GAME.pendingMidterm=null; showMidterm(mt); afterReport(); }
@@ -25914,7 +25980,7 @@ function bootWorld(startId){
   // representation would hand the next one a unicameral 100. Put the
   // districts back.
   GAME.prMode=false; _prCompCache=null; _prCompTurn=-1;
-  GAME.coalition=null; GAME.pendingCoalition=null; GAME.coalPick=null; GAME.coalOffer=null; GAME.challenger=null;
+  GAME.coalition=null; GAME.pendingCoalition=null; GAME.coalPick=null; GAME.coalOffer=null; GAME.challenger=null; GAME.pendingNominee=false; GAME.prOusted=null;
   GAME.pendingCoalExit=null; GAME.coalUlt=null; GAME.coalOfferId=null;
   LEGIS.senate=30; LEGIS.house=60; LEGIS.superS=18; LEGIS.superH=36;
   LEGIS.majS=16; LEGIS.majH=31; LEGIS.quorumH=40; LEGIS.quorumS=20;
