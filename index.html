@@ -2116,7 +2116,8 @@
   .brief-done{margin-left:auto;font-size:12.5px;color:var(--moss);font-weight:600;white-space:nowrap}
   .brief-quiet{font-size:14px;color:var(--muted-3);margin:12px 0}
   .brief-report{margin-top:16px}
-  #briefingCard{max-width:680px}
+  #briefingCard{max-width:600px}
+  #seqPill{position:fixed;top:calc(8px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);z-index:120;background:var(--ink);color:var(--paper);font-family:var(--font-display);font-size:12.5px;letter-spacing:.1em;text-transform:uppercase;padding:5px 14px;pointer-events:none}
   .brief-dec-full{border:1px solid var(--line);border-left:3px solid var(--clay);background:var(--paper-2);padding:18px 20px;margin:12px 0;text-align:center}
   .brief-dec-full .dilemma-text,.brief-dec-full .dilemma-opts{text-align:left}
   .brief-dec-full h2{margin:6px 0 10px}
@@ -2256,7 +2257,7 @@
     <div class="hudmenu">
       <button class="hudmenu-btn" id="hudMenuBtn" aria-haspopup="true" aria-expanded="false">Menu ▾</button>
       <div class="hudmenu-list" id="hudMenuList" hidden>
-        <button id="reportBtn"><svg class="ico" aria-hidden="true"><use href="#ic-doc"/></svg><span>Quarterly briefing</span></button>
+        <button id="reportBtn"><svg class="ico" aria-hidden="true"><use href="#ic-doc"/></svg><span>This quarter's report</span></button>
         <button id="saveBtn"><svg class="ico" aria-hidden="true"><use href="#ic-floppy"/></svg><span>Save game</span></button>
         <button id="newGameBtn"><svg class="ico" aria-hidden="true"><use href="#ic-sparkle"/></svg><span>New game</span></button>
         <button id="sfxToggle"><svg class="ico" aria-hidden="true"><use href="#ic-volume"/></svg><span>Sound effects: <b>on</b></span></button>
@@ -2311,7 +2312,8 @@
 <div id="proposalModal" class="modal hidden"><div class="card" id="proposalCard"></div></div>
 <div id="apptPanelModal" class="modal hidden"><div class="card" id="apptPanelCard"></div></div>
 <div id="reportModal" class="modal hidden"><div class="card reportcard" id="reportCard"></div></div>
-<div id="briefingModal" class="modal hidden" style="z-index:45"><div class="card reportcard" id="briefingCard"></div></div>
+<div id="briefingModal" class="modal hidden"><div class="card reportcard" id="briefingCard"></div></div>
+<div id="seqPill" hidden></div>
 <div id="midtermModal" class="modal hidden"><div class="card" id="midtermCard"></div></div>
 <div id="surplusModal" class="modal hidden"><div class="card" id="surplusCard"></div></div>
 <div id="eoEventModal" class="modal hidden"><div class="card" id="eoEventCard" style="max-width:520px"></div></div>
@@ -15080,7 +15082,7 @@ function showPlatformModal(){
     modal.classList.add("hidden");
     document.removeEventListener("keydown",onKey,true);
     // a new term opens with a briefing if anything is waiting from the election quarter
-    if(GAME.pendingDilemma||GAME.pendingProposal||GAME.pendingOppBill||GAME.pendingAusterity||(GAME.pendingEoEvents||[]).length){ GAME._briefPending=false; openBriefing(true); }
+    if(GAME.pendingDilemma||GAME.pendingProposal||GAME.pendingOppBill||GAME.pendingAusterity||(GAME.pendingEoEvents||[]).length){ GAME._briefPending=false; startQuarterSequence(); }
     render();
   };
   const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); commit(); } };
@@ -15216,8 +15218,85 @@ function briefDecisionHTML(x){
   return null;
 }
 function briefOpenDecisions(){ const B=GAME.briefing; return B?B.items.filter(i=>i.decision&&!briefDone(i)):[]; }
-/* Come back to the briefing after handling one of its items. */
-function briefReturn(){ if(GAME.briefing)openBriefing(false); }
+/* ============================================================
+   THE QUARTER-START SEQUENCE
+   ============================================================ */
+const SEQ_ORDER=["coalExit","austerity","oppBill","shortfall","surplus","dilemma","proposal"];
+function startQuarterSequence(){
+  const items=briefCollect();
+  GAME._briefPending=false;
+  showQuarterReport(true);                       // build this quarter's report
+  const dec=items.filter(i=>i.decision).sort((a,b)=>SEQ_ORDER.indexOf(a.kind)-SEQ_ORDER.indexOf(b.kind));
+  const news=items.filter(i=>!i.decision);
+  const steps=[].concat(GAME.skipReport?[]:[{kind:"report"}], dec, news.length?[{kind:"news", items:news}]:[]);
+  GAME.briefing={turn:GAME.turn, items, steps, pos:-1};
+  if(!steps.length){ render(); return; }
+  seqNext();
+}
+/* On to the next screen, passing over decisions already made. */
+function seqNext(){
+  const B=GAME.briefing; if(!B||!B.steps)return;
+  do{ B.pos++; }while(B.pos<B.steps.length&&B.steps[B.pos].decision&&briefDone(B.steps[B.pos]));
+  if(B.pos>=B.steps.length){ seqPill(false); GAME._openDilemma=false; GAME._openProposal=false; render(); return; }
+  seqPill(true);
+  seqOpen(B.steps[B.pos]);
+}
+/* End Quarter with a decision still open: back to it. */
+function seqResume(){
+  const B=GAME.briefing; if(!B||!B.steps)return;
+  const i=B.steps.findIndex(st=>st.decision&&!briefDone(st)); if(i<0)return;
+  B.pos=i-1; seqNext();
+}
+function seqOpen(st){
+  switch(st.kind){
+    case "report":    showQuarterReport(false, seqNext); break;
+    case "news":      showQuarterNews(st.items); break;
+    case "coalExit":  GAME._exitFromBrief=true; drawCoalExit(); break;
+    case "austerity": GAME._ausFromBrief=true; drawAusterity(); break;
+    case "oppBill":   showOppBill(seqNext); break;
+    case "shortfall": showShortfallChoice(seqNext); break;
+    case "surplus":   showSurplusChoice(seqNext); break;
+    case "dilemma":   GAME._openDilemma=true; render(); break;       // its result screen moves on
+    case "proposal":  GAME._openProposal=true; render(); break;      // answering it moves on
+    default: seqNext(); return;
+  }
+  // a decision whose subject has gone since (a dilemma with no text) moves on
+  if(st.decision&&briefDone(st))setTimeout(()=>{ const B=GAME.briefing; if(B&&B.steps[B.pos]===st)seqNext(); },0);
+}
+/* Where you are in the sequence, pinned above whatever screen is showing. */
+function seqPill(on){
+  const el=document.getElementById("seqPill"); if(!el)return;
+  const B=GAME.briefing;
+  if(!on||!B||!B.steps){ el.hidden=true; return; }
+  const m=GAME.lastReportHead||{};
+  el.textContent="Start of Q"+(m.qtr||"")+" "+(m.yr||"")+" · "+(B.pos+1)+" of "+B.steps.length;
+  el.hidden=false;
+}
+/* The quarter's news: one screen, each item openable in full. */
+function showQuarterNews(items){
+  const modal=document.getElementById("briefingModal"), card=document.getElementById("briefingCard");
+  if(!modal||!card){ seqNext(); return; }
+  card.innerHTML=`<div class="rhead"><h2>This Quarter's News</h2><div class="sectionsub">Nothing here needs a decision. Open any of it for the full story.</div></div>`
+    +items.map((it,i)=>`<div class="brief-row${it.read?" done":""}"><span class="brief-ico">${ico(it.icon||"doc")}</span><span class="brief-t">${it.title}</span>`
+      +(it.read?`<span class="brief-done">Read ✓</span>`:`<button class="fcard-btn" data-news="${i}">Read ›</button>`)+`</div>`).join("")
+    +`<button id="newsDone" class="enactbtn" style="margin-top:16px">Continue ▸</button>`;
+  modal.classList.remove("hidden"); card.scrollTop=0;
+  const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
+  const onKey=e=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); seqNext(); } };
+  document.getElementById("newsDone").onclick=()=>{ close(); seqNext(); };
+  document.addEventListener("keydown",onKey,true);
+  const back=()=>showQuarterNews(items);
+  card.querySelectorAll("[data-news]").forEach(b=>b.addEventListener("click",()=>{
+    const it=items[+b.dataset.news]; if(!it)return; it.read=true; close();
+    if(it.kind==="eo")showExecOrderEvent(it.ev, back);
+    else if(it.kind==="nominee")showNominee(back);
+    else if(it.kind==="ballot")showBallotNotice(it.bn, back);
+    else if(it.kind==="termlimit")showTermLimitWarning(it.w, back);
+    else back();
+  }));
+}
+/* A screen opened from the sequence hands back to it. */
+function briefReturn(){ if(GAME.briefing&&GAME.briefing.steps)seqNext(); }
 function openBriefing(fresh){
   const modal=document.getElementById("briefingModal"), card=document.getElementById("briefingCard");
   if(!modal||!card)return;
@@ -15292,7 +15371,7 @@ function openBriefing(fresh){
     }
   }));
 }
-function showQuarterReport(quiet){
+function showQuarterReport(quiet,next){
   const card=document.getElementById("reportCard");
   const into=GAME.turn-(GAME.term-1)*GAME.termLengthTurns;
   const yr=GAME.startYear+Math.floor((GAME.turn)/4), qtr=(GAME.turn%4)+1;
@@ -15403,6 +15482,7 @@ function showQuarterReport(quiet){
     if(document.getElementById("rskipChk").checked)GAME.skipReport=true;
     modal.classList.add("hidden");
     document.removeEventListener("keydown",onKey,true);
+    if(next)next();
   };
   const onKey=(e)=>{
     if(modal.classList.contains("hidden"))return;
@@ -20608,8 +20688,8 @@ function doEndTurn(){
   // The midterm and the quake are moments of their own and come first; the
   // briefing waits underneath them.
   const brief=()=>{
-    if(GAME.parlCheckPending){ parliamentCheck(()=>{ render(); openBriefing(true); }); return; }
-    openBriefing(true);
+    if(GAME.parlCheckPending){ parliamentCheck(()=>{ render(); startQuarterSequence(); }); return; }
+    startQuarterSequence();
   };
   const afterQuake=()=>{
     if(GAME.pendingMidterm){ const mt=GAME.pendingMidterm; GAME.pendingMidterm=null; showMidterm(mt); }
@@ -21859,12 +21939,11 @@ function endTurn(){
   // A parliament that has just been elected has no government yet, and it
   // cannot do anything until it has one.
   // A government has just fallen. That outranks everything else on the desk.
-  if(briefOpenDecisions().length){ openBriefing(false); return; }   // the briefing holds the fallen government and the budget emergency
+  if(briefOpenDecisions().length){ seqResume(); return; }   // a decision from the quarter's start is still open
   if(GAME.pendingCoalExit){ drawCoalExit(); return; }
   if(GAME.pendingCoalition){ drawCoalition(); return; }
   if(GAME.pendingAusterity){ drawAusterity(); return; }
   // the briefing's decisions come first: End Quarter opens it until they are made
-  if(briefOpenDecisions().length){ openBriefing(false); return; }
   if(GAME.pendingDilemma){GAME.log.push("❖ Resolve the dilemma before ending the quarter");GAME._openDilemma=true;render();return;}
   if(GAME.pendingProposal){GAME.log.push(ico('doc')+" Answer your director's proposal before ending the quarter");GAME._openProposal=true;render();return;}
   GAME.briefing=null;   // a new quarter, a new briefing
@@ -26541,7 +26620,7 @@ function renderDilemma(){
     if(!olabel)return;
     h+=`<button class="dilemma-opt" data-opt="${i}"><span class="do-label">${olabel}</span><span class="do-sub">${otext}</span></button>`;
   });
-  h+=`</div><div class="dilemma-foot">You must decide before the quarter ends. There is no clean choice — both sides will remember.</div>`;
+  h+=`</div><div class="dilemma-foot">Decide it before the quarter's work begins. There is no clean choice, and both sides will remember.</div>`;
   card.innerHTML=h;
   modal.classList.remove("hidden");
   // SOUND IT WHEN IT IS ACTUALLY ON SCREEN, not when it is written to the
@@ -26738,7 +26817,7 @@ document.querySelectorAll('nav.rail button').forEach(b=>b.addEventListener('clic
   b.classList.add('active');currentView=b.dataset.view;render();
 }));
 document.getElementById("endTurn").addEventListener('click',endTurn);
-{const rb=document.getElementById("reportBtn"); if(rb)rb.addEventListener('click',()=>{ if(GAME.briefing)openBriefing(false); else reopenQuarterReport(); });}
+{const rb=document.getElementById("reportBtn"); if(rb)rb.addEventListener('click',reopenQuarterReport);}
 // the seal and the wordmark are the obvious way home, on a phone especially
 {const bh=document.getElementById("brandHome");
  if(bh)bh.addEventListener("click",()=>{ settlePending(); currentView="board"; detailKey=null; render(); });}
