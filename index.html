@@ -1029,7 +1029,7 @@
   .crit-unmet{color:#9a9080}
   .reportcard{max-width:680px}
   .rhead h2{margin:0 0 2px}
-  .rgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px 22px;margin:14px 0}
+  .rgrid{display:grid;grid-template-columns:1fr;gap:0;margin:14px 0}   /* one statistic a row: now, this quarter, since sworn in */
   .rrow{display:flex;align-items:baseline;gap:8px;padding:5px 0;border-bottom:1px solid var(--line-faint)}
   .rlabel{flex:1;font-size:14.5px;color:var(--ink)}
   .rval{font-family:var(--font-data);font-size:14.5px;color:var(--muted-2)}
@@ -2316,6 +2316,18 @@
   .modal .aus-pbtn:hover:not(:disabled){border-color:var(--ink)!important}
   .modal .aus-pbtn.on{background:var(--paper-2)!important;border-color:var(--ink)!important;box-shadow:inset 0 -3px 0 var(--moss)!important;font-weight:700}
   .modal .aus-pbtn.on .gly-check{color:var(--moss)}
+  /* ===================== THE RECORD, ALL TERM ===================== */
+  .ks-since{font-size:11px;color:var(--muted-3);margin-top:1px;white-space:nowrap}
+  .ks-sd{font-family:var(--font-data);font-weight:600} .ks-sd.good{color:var(--good)} .ks-sd.bad{color:var(--bad)} .ks-sd.flat{font-weight:400}
+  .rsince{font-family:var(--font-data);font-size:13.5px;font-weight:600;min-width:74px;text-align:right}
+  .rsince.good{color:var(--good)} .rsince.bad{color:var(--bad)} .rsince.flat{color:var(--muted-4);font-weight:400;font-size:12.5px}
+  .rrow.rcolhead{padding:0 0 3px;border-bottom:1px solid var(--line);flex-wrap:nowrap}
+  .rrow.rcolhead span{white-space:nowrap}
+  .rgrid .rval{min-width:52px;text-align:right}
+  .rrow.rcolhead span{font-size:11px;font-weight:600;color:var(--muted-3);letter-spacing:.04em;text-transform:uppercase;font-family:var(--font-body)}
+  .eg-verdict{font-family:var(--font-display);font-size:19px;text-align:center;margin:2px 0 6px;color:var(--ink)}
+  .eg-verdict.good{color:var(--good)} .eg-verdict.bad{color:var(--bad)}
+  @media (max-width:600px){ .rsince{min-width:58px} .rdelta{min-width:54px} .rrow.rcolhead span{font-size:10px} }
 </style>
 </head>
 <body>
@@ -15566,10 +15578,14 @@ function showQuarterReport(quiet,next){
   const oa=overallApproval(), ad=histDelta("approval");
   const adTag = Math.abs(ad)<0.3 ? `<span class="rdelta flat">→ steady</span>`
     : `<span class="rdelta ${ad>0?'good':'bad'}">${ad>0?'▲':'▼'} ${Math.abs(ad).toFixed(1)}</span>`;
-  let rows=`<div class="rrow"><span class="rlabel"><b>Approval</b></span><span class="rval">${oa.toFixed(1)}%</span>${adTag}</div>`;
+  // since you took office, beside this quarter: the record the election reads
+  const appH0=GAME.history["approval"], appStart0=(appH0&&appH0.length)?appH0[0].value:oa, apD=oa-appStart0;
+  const apSince=Math.abs(apD)<0.3?`<span class="rsince flat">no change</span>`:`<span class="rsince ${apD>0?'good':'bad'}">${apD>0?'+':'\u2212'}${Math.abs(apD).toFixed(1)}</span>`;
+  let rows=`<div class="rrow rcolhead"><span class="rlabel"></span><span class="rval">Now</span><span class="rdelta">This quarter</span><span class="rsince">Since sworn in</span></div>`
+    +`<div class="rrow"><span class="rlabel"><b>Approval</b></span><span class="rval">${oa.toFixed(1)}%</span>${adTag}${apSince}</div>`;
   for(const [k,label] of headline){
     const m=METRICS[k]; const val=m.fmt==="usd"?"$"+m.value.toFixed(0):(m.fmt==="pct"||m.fmt==="pctRaw")?m.value.toFixed(1)+"%":m.value.toFixed(0);
-    rows+=`<div class="rrow"><span class="rlabel">${label}</span><span class="rval">${val}</span>${arrow(k,metricDelta(k))}</div>`;
+    rows+=`<div class="rrow"><span class="rlabel">${label}</span><span class="rval">${val}</span>${arrow(k,metricDelta(k))}${legacyTag(k,"rsince")}</div>`;
   }
   const b=budgetBalance();
   const balClass=b.balance>=0?'good':'bad';
@@ -17128,6 +17144,24 @@ function termLimited(){
     && !(POLICIES.termLimitRepeal && POLICIES.termLimitRepeal.enacted);
 }
 /* the headline "state of Oregon" gauges shown on the end-of-term record screen */
+/* WHERE A STATISTIC STOOD THE QUARTER YOU TOOK OFFICE, and how far it has
+   moved since. The board, the quarterly report and the election-night
+   record all read these, so the three never disagree. */
+function legacyStart(k){
+  const h=GAME.history&&GAME.history["m_"+k];
+  if(h&&h.length)return h[0].value;
+  const m=METRICS[k]; return m?m.baseline:0;
+}
+function legacyDelta(k){ const m=METRICS[k]; return m?m.value-legacyStart(k):0; }
+/* The same delta, coloured as the record colours it: better is green
+   whichever way better runs for this statistic. */
+function legacyTag(k,cls){
+  const m=METRICS[k]; if(!m)return "";
+  const d=legacyDelta(k), dp=m.fmt==="usd"?2:1;
+  if(Math.abs(d)<Math.pow(10,-dp)/2)return `<span class="${cls} flat">no change</span>`;
+  const good=m.invert?d<0:d>0;
+  return `<span class="${cls} ${good?"good":"bad"}">${d>0?"+":"\u2212"}${m.fmt==="usd"?"$":""}${Math.abs(d).toFixed(dp)}</span>`;
+}
 const RECORD_STATS=[
   ["m","education","Educational Attainment"],["m","eduOutcomes","K-12 Proficiency"],
   ["m","unemployment","Unemployment"],["m","gdp","GDP Growth Rate"],
@@ -17157,7 +17191,7 @@ function recordSectionHTML(opts){
     let start, now, invert=false, fmtStart, fmtNow;
     if(t==="m"){
       const m=METRICS[k]; if(!m)continue;
-      start=m.baseline; now=m.value; invert=!!m.invert;
+      start=legacyStart(k); now=m.value; invert=!!m.invert;
       fmtStart=fmtMetric({value:start,fmt:m.fmt}); fmtNow=fmtMetric(m);
     } else {
       const ind=INDICATORS[k]; if(!ind)continue;
@@ -17179,7 +17213,15 @@ function recordSectionHTML(opts){
   }
   const appH=GAME.history["approval"], appStart=(appH&&appH.length)?appH[0].value:50, appNow=overallApproval();
   const debt=GAME.structuralDebt||0, reserves=(GAME.rainyDay||0)+(GAME.eduStability||0);
+  const steady=(rows.match(/break-inside/g)||[]).length-improved-worsened;   // only the rows shown
+  const leaving=!(opts.won && !opts.successor);
+  const verdict=improved>worsened
+    ? `${leaving?"You leave":"So far, you have left"} Oregon better on ${improved} of ${improved+worsened+steady} measures.`
+    : improved<worsened
+    ? `${leaving?"You leave":"So far, you have left"} Oregon worse on ${worsened} of ${improved+worsened+steady} measures.`
+    : `Oregon is better on ${improved} measures and worse on ${worsened}: a wash.`;
   return `<div class="eg-section"><h3 class="eg-h3">${heading}</h3>
+    <div class="eg-verdict ${improved>worsened?"good":improved<worsened?"bad":""}">${verdict}</div>
     <div class="eg-note">${sub}</div>
     <div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13.5px;margin:6px 0 8px;color:var(--muted-2);justify-content:center">
       <span><b style="color:var(--good)">${improved}</b> improved</span>
@@ -23122,7 +23164,7 @@ function renderBoard(){
     kh+=`<div class="keystat ${good?'kgood':'kbad'}" data-detail="m_${k}" style="animation-delay:${ki*35}ms">
       <div class="ks-ico">${ico(m.icon)}</div>
       <div class="ks-body"><div class="ks-label">${label}</div>
-      <div class="ks-val"><span class="ks-val-num" data-k="${k}"></span>${trend}</div></div></div>`;
+      <div class="ks-val"><span class="ks-val-num" data-k="${k}"></span>${trend}</div>${GAME.turn>0?`<div class="ks-since" title="Since you took office">${legacyTag(k,"ks-sd")} since sworn in</div>`:""}</div></div>`;
   });
   kh+=`</div>`;
   h+=kh;
