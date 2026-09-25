@@ -6069,8 +6069,8 @@ const APPT_TRAITS={
     blurb:"Came up through the agency. Knows where everything is and whom to call, and will not change any of it. Nothing they do will surprise you, in either direction.",
     eff:0.10, overhead:-1.8, capital:0, confirm:0.6, risk:0.35, brings:0.95 },
   reformer:{ label:"Reformer", icon:"wrench",
-    blurb:"Hired to shake the place up, and does. The department delivers less than it used to for the first year while everything is torn apart, then materially more. The upheaval costs overhead and capital the whole time they serve, and somebody moving that fast through an agency's rules is the likeliest of the four to end up in a story about it.",
-    eff:0.22, overhead:2.0, capital:-0.7, confirm:-0.5, risk:1.5, brings:1.6 },
+    blurb:"Hired to shake the place up, and does. The department delivers less than it used to for a year and a half while everything is torn apart, then materially more. The upheaval costs overhead and capital the whole time they serve, the public-sector unions resent them from the first week, and somebody moving that fast through an agency's rules is the likeliest of the four to end up in a story about it. Every reformer you appoint makes a scandal likelier.",
+    eff:0.22, overhead:2.0, capital:-0.9, confirm:-0.5, risk:1.5, brings:1.6 },
   loyalist:{ label:"Loyalist", icon:"handshake",
     blurb:"Yours before they were the department's. You stop spending your week persuading your own government, and the department notices, and slows. They were picked for their politics, and the people who scrutinise appointments know it.",
     eff:-0.11, overhead:1.4, capital:1.15, confirm:0, risk:1.1, brings:0.5 },
@@ -6399,7 +6399,7 @@ const APPT_QUIT_REASONS=[
    place apart, starting below where the department was, and only then the
    gain they were hired for. The page reads these same two numbers, so what a
    card promises and what the model delivers are the same thing. */
-const APPT_SETTLE=4, APPT_SETTLE_EFF=-0.04;
+const APPT_SETTLE=6, APPT_SETTLE_EFF=-0.12;
 /* What the floor has to say about a nominee, in one place so it can be
    calibrated against measured odds. */
 const APPT_CONFIRM={
@@ -6429,7 +6429,7 @@ function apptEffFor(id){
   const h=apptHolder(id);
   if(!h)return APPT_VACANT_EFF;
   const t=APPT_TRAITS[h.trait]||APPT_TRAITS.safePick;
-  // a reformer is worse before they are better: the first year is the churn
+  // a reformer is worse before they are better: the first year and a half is the churn
   const age=GAME.turn-(h.since||0);
   if(h.trait==="reformer"&&age<APPT_SETTLE)
     return APPT_SETTLE_EFF+(t.eff-APPT_SETTLE_EFF)*(age/APPT_SETTLE);
@@ -7200,6 +7200,9 @@ function apptCapital(){ return +(apptCapitalRaw()-((GAME.apptBase&&GAME.apptBase
    their own. An appointee from the other party is read differently again —
    the middle credits the reach across the aisle, your own base does not. */
 const APPT_GROUP_MOOD=3.4, APPT_FOE_MOOD=-2.6, APPT_CROSS_MOOD=2.2, APPT_BASE_BETRAYAL=-2.4;
+/* The people a reformer is reorganising are public employees, and their unions
+   hold it against you for as long as the reformer serves. */
+const APPT_REFORMER_UNION_MOOD=-1.2;
 /* WHO YOU STAFF THE STATE WITH IS PART OF YOUR RECORD. Between sessions it is
    most of what an administration does, so a confirmation moves the compass
    the same way an enacted law does — the same axes, and the same combination
@@ -7223,6 +7226,7 @@ function apptMoodRows(sid){
     const post=APPT_POSTS[id];
     if(h.group===sid)rows.push({lbl:ico(post.icon)+" "+h.name+" at "+post.name, v:APPT_GROUP_MOOD});
     else if(h.foe===sid)rows.push({lbl:ico(post.icon)+" "+h.name+" at "+post.name, v:APPT_FOE_MOOD});
+    if(h.trait==="reformer"&&sid==="publicUnions"&&h.group!==sid)rows.push({lbl:ico('wrench')+" "+h.name+" reorganising "+post.name, v:APPT_REFORMER_UNION_MOOD});
     if(h.side==="opposition"){
       if(sid==="moderate")rows.push({lbl:ico('handshake')+" Crossed the aisle for "+post.name, v:APPT_CROSS_MOOD});
       if(apptBaseBlocs().includes(sid))rows.push({lbl:ico('handshake')+" Gave "+post.name+" to the other side", v:APPT_BASE_BETRAYAL});
@@ -7978,7 +7982,11 @@ const DILEMMAS={
       // read off the whole bench rather than one holder, so a government
       // staffed with safe hands is genuinely quiet and one staffed with
       // reformers is genuinely not
-      return clamp((p.total||p.weight)*0.16,0.03,0.42);
+      // about 0.10 for a cabinet of Insiders, 0.20 for the one you inherit,
+      // 0.48 for a cabinet of Reformers: each reformer adds about 0.02. Against
+      // the 0.7 bar that is roughly a 7%, 29% and 90% chance each time it is
+      // eligible, so a cautious cabinet is rarely in the paper and a bold one often.
+      return clamp(0.06+(p.total||p.weight)*0.011,0.03,0.5);
     },
     options:[
       {label:"Stand by them",
@@ -15080,7 +15088,7 @@ function showWelcome(onDone){
 
         <p class="wg-h">Who runs the departments</p>
         <p><b>Appointments</b> covers eighteen chairs. Each one scales every policy its department delivers:</p>
-        <p><b>Reformer</b> ×${(1+APPT_TRAITS.reformer.eff).toFixed(2)}, after a weaker first year, and costs overhead and capital. <b>Insider</b> ×${(1+APPT_TRAITS.insider.eff).toFixed(2)}, and lowers overhead. <b>Safe Pick</b> ×${(1+APPT_TRAITS.safePick.eff).toFixed(2)}, and costs nothing. <b>Loyalist</b> ×${(1+APPT_TRAITS.loyalist.eff).toFixed(2)}, but pays you capital every quarter. A <b>Peace Offering</b> is the same trade with someone from the other party. An empty chair runs at ×${(1+APPT_VACANT_EFF).toFixed(2)}, raises overhead, and costs ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter.</p>
+        <p><b>Reformer</b> ×${(1+APPT_TRAITS.reformer.eff).toFixed(2)}, after a year and a half that starts at ×${(1+APPT_SETTLE_EFF).toFixed(2)}. Costs overhead and capital, angers the public-sector unions, and makes scandals likelier. <b>Insider</b> ×${(1+APPT_TRAITS.insider.eff).toFixed(2)}, and lowers overhead. <b>Safe Pick</b> ×${(1+APPT_TRAITS.safePick.eff).toFixed(2)}, and costs nothing. <b>Loyalist</b> ×${(1+APPT_TRAITS.loyalist.eff).toFixed(2)}, but pays you capital every quarter. A <b>Peace Offering</b> is the same trade with someone from the other party. An empty chair runs at ×${(1+APPT_VACANT_EFF).toFixed(2)}, raises overhead, and costs ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter.</p>
         <p>Nominating is free. The nominee faces a Senate vote with the same seat-by-seat count as a bill, and a chamber you do not hold can refuse one. Removing your predecessor's appointee is free. Removing your own costs 3.</p>
 
         <p class="wg-h">Budgets and permanent funds</p>
@@ -25578,7 +25586,7 @@ const APPT_AREAS=[
 // a colour and one line per trait, so a tile can say it without the blurb
 const APPT_TRAIT_LOOK={
   insider:{col:"var(--slate-blue)", short:"Steady. Delivers a little more, costs nothing, rarely in the news."},
-  reformer:{col:"var(--moss)", short:"The best results, after a weaker first year. Costs capital and overhead, and the likeliest to end up in a scandal."},
+  reformer:{col:"var(--moss)", short:"The best results, after a weak year and a half. Costs capital and overhead, angers public-sector unions, and each one makes a scandal likelier."},
   loyalist:{col:"var(--gold)", short:"Yours first. Buys you capital every quarter; the department delivers less."},
   peaceOffering:{col:"var(--clay)", short:"From the other party. Buys goodwill across the aisle; the department delivers less."},
   safePick:{col:"var(--muted-2)", short:"Easy to confirm, changes nothing, never in the news."}
@@ -25684,7 +25692,7 @@ function apptCompareHTML(id){
   h+=`</tr></thead><tbody>`;
   h+=`<tr><th>Trait</th>`+cols.map(x=>`<td title="${String(x.T.blurb||"").replace(/"/g,"&quot;")}">${ico(x.T.icon)} ${x.T.label}</td>`).join("")+`</tr>`;
   h+=`<tr><th>From</th>`+cols.map(x=>`<td>${x.c.side==="opposition"?'<span class="atag clay">⇄ '+apptOppLabel(x.c)+'</span>':x.c.side==="incumbent"?`<span class="atag">reappoint, ${x.c.served||0}q</span>`:"your party"}</td>`).join("")+`</tr>`;
-  h+=`<tr><th>Delivery</th>`+cols.map((x,k)=>cell(bm[k],apptMultHTML(x.mult)+(x.c.trait==="reformer"?`<div class="acmp-note">×${(1+APPT_SETTLE_EFF).toFixed(2)} the first year</div>`:""))).join("")+`</tr>`;
+  h+=`<tr><th>Delivery</th>`+cols.map((x,k)=>cell(bm[k],apptMultHTML(x.mult)+(x.c.trait==="reformer"?`<div class="acmp-note">from ×${(1+APPT_SETTLE_EFF).toFixed(2)}, over ${APPT_SETTLE} quarters</div>`:""))).join("")+`</tr>`;
   h+=`<tr><th>Capital / qtr</th>`+cols.map((x,k)=>cell(bc[k],apptSigned(x.cap))).join("")+`</tr>`;
   h+=`<tr><th title="Points added to the Administrative Overhead gauge. Lower is better.">Admin overhead</th>`+cols.map((x,k)=>cell(bo[k],x.ovh?apptSigned(x.ovh):"—")).join("")+`</tr>`;
   h+=`<tr><th>${chamber}</th>`+cols.map((x,k)=>{
