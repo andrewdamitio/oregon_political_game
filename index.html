@@ -2311,6 +2311,11 @@
     .resume-card .rs-seal{width:92px;height:92px}
     .resume-card .rs-btns .enactbtn{flex:1 1 100%}
   }
+  /* the pace buttons (and the holdback toggle beside the sliders) are options, not actions */
+  .modal .aus-pbtn{background:var(--paper)!important;color:var(--ink)!important;border:1px solid var(--line)!important;box-shadow:none!important;font-weight:500}
+  .modal .aus-pbtn:hover:not(:disabled){border-color:var(--ink)!important}
+  .modal .aus-pbtn.on{background:var(--paper-2)!important;border-color:var(--ink)!important;box-shadow:inset 0 -3px 0 var(--moss)!important;font-weight:700}
+  .modal .aus-pbtn.on .gly-check{color:var(--moss)}
 </style>
 </head>
 <body>
@@ -13751,10 +13756,10 @@ function drawAusterity(){
     +'<div class="aus-bar"><i class="'+(done?'done':'')+'" style="width:'+(pct*100).toFixed(1)+'%"></i></div>'
     +((A.want||0)>A.target+0.05?'<div class="fnote" style="margin:-8px 0 12px">Closing the hole with a working surplus on top would take <b>$'+A.want.toFixed(2)+'B</b>. Everything on this board together reaches about <b>$'+(A.ceiling||0).toFixed(2)+'B</b>, so the legislature is asking for what it can actually pass. The rest has to come from growth, or from policy.</div>':'')
     +'<div class="ebgroup-label" style="margin-top:4px">Pace</div>'
-    +'<div class="aus-pace">'+AUS_PACES.map(p=>'<button class="aus-pbtn'+(p.n===A.pace?' on':'')+'" data-auspace="'+p.n+'">'+p.label+'</button>').join('')+'</div>'
+    +'<div class="aus-pace" role="radiogroup" aria-label="Pace">'+AUS_PACES.map(p=>'<button class="aus-pbtn'+(p.n===A.pace?' on':'')+'" role="radio" aria-checked="'+(p.n===A.pace)+'" data-auspace="'+p.n+'">'+(p.n===A.pace?'✓ ':'')+p.label+'</button>').join('')+'</div>'
     +'<div class="fnote" style="margin:6px 0 4px">'+(A.pace===1
       ?'Every cut and every tax lands this quarter. The borrowing stops at once, and the whole bill arrives at once: every constituency on the list takes its full hit in the same quarter.'
-      :'A '+(A.pace===4?'quarter':'an eighth')+' of the package lands now (<b>$'+(saved/A.pace).toFixed(2)+'B</b> of it this quarter) and another share each quarter after, fully in by <b>'+turnLabel(GAME.turn+A.pace-1)+'</b>. Nobody takes the whole package at once, the anger from each share fades before the next, and the legislature makes no forced cuts on top of it while it runs. The part of the hole not yet closed is borrowed, about <b>$'+glideBorrowing(A._before&&A._before.balance!=null?A._before.balance:(GAME.lastBalance||0), Math.max(saved,A.target), A.pace).toFixed(2)+'B</b>, and carrying that debt adds <b>$'+paceExtra.toFixed(2)+'B a year</b> to what the package has to find: smaller steps, a bigger total.')
+      :(A.pace===4?'A quarter':'An eighth')+' of the package lands now (<b>$'+(saved/A.pace).toFixed(2)+'B</b> of it this quarter) and another share each quarter after, fully in by <b>'+turnLabel(GAME.turn+A.pace-1)+'</b>. Nobody takes the whole package at once, the anger from each share fades before the next, and the legislature makes no forced cuts on top of it while it runs. The part of the hole not yet closed is borrowed, about <b>$'+glideBorrowing(A._before&&A._before.balance!=null?A._before.balance:(GAME.lastBalance||0), Math.max(saved,A.target), A.pace).toFixed(2)+'B</b>, and carrying that debt adds <b>$'+paceExtra.toFixed(2)+'B a year</b> to what the package has to find: smaller steps, a bigger total.')
       +'</div>'
     +(HB?('<div class="ebgroup-label" style="margin-top:14px">By executive order</div>'
       +'<div class="aus-row aus-eo"><div><div class="aus-n">'+ico(HB.icon)+' <b>'+HB.name+'</b> '
@@ -27539,7 +27544,25 @@ try{
  if(ss&&sv&&window.RUN_SEED){ sv.textContent=window.RUN_SEED; ss.addEventListener("click",()=>copySeedLink(sv)); }
  else if(ss){ ss.style.display="none"; }}
 
+/* A RESUMED GAME PICKS UP WHERE IT WAS LEFT. The screen of the quarter-start
+   sequence that was open (for an autosave, the first one of the quarter),
+   or any decision still waiting outside it. Without this they waited for
+   End Quarter. */
+function resumeOpenScreens(){
+  if(GAME.gameOver)return;
+  const B=GAME.briefing;
+  if(B&&B.steps&&B.turn===GAME.turn){
+    if((B.pos??-1)<B.steps.length){ B.pos=Math.max(-1,(B.pos??-1)-1); seqNext(); return; }
+    if(briefOpenDecisions().length){ seqResume(); return; }
+  }
+  if(GAME.pendingCoalExit){ drawCoalExit(); return; }
+  if(GAME.pendingCoalition){ drawCoalition(); return; }
+  if(GAME.pendingAusterity){ drawAusterity(); return; }
+  if(GAME.pendingDilemma){ GAME._openDilemma=true; render(); return; }
+  if(GAME.pendingProposal){ GAME._openProposal=true; render(); }
+}
 render();
+if(_resumedFromSave)setTimeout(resumeOpenScreens,0);
 // fresh game with no save prompt on screen: welcome, then set the opening platform
 if(GAME.turn===0 && !_resumedFromSave && !_resumePrompted && !(GAME.activePromises&&GAME.activePromises.length)) showWelcome(showPlatformModal);
 </script>
