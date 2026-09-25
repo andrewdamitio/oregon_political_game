@@ -2439,6 +2439,22 @@
   /* focus mode: the overview carries the crises and the statistics, so the
      board's own cards and tiles step aside rather than appear twice */
   #main.net-focus .crisis-strip,#main.net-focus .keystat-row{display:none}
+  /* the denser overview */
+  .fwo-chip.slim{padding:7px 10px;align-items:center}
+  .fwo-chip.slim .fwo-n{font-size:13.5px}
+  .fwo-chip.slim .fwo-d{font-size:12px}
+  .fwo-slim{grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:6px}
+  .fwo-mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(170px,calc(50% - 4px)),1fr));gap:6px}
+  .fwo-mini{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:2px 8px;text-align:left;background:var(--paper);border:1px solid var(--line);padding:7px 9px 8px;font:inherit;color:var(--ink);cursor:pointer}
+  .fwo-mini:hover{border-color:var(--ink);background:var(--hover-bg)}
+  .fwo-mn{font-size:13px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fwo-mv{font-family:var(--font-data);font-size:13.5px;font-weight:700}
+  .fwo-mbar{grid-column:1/-1;height:4px;background:var(--line-faint);position:relative}
+  .fwo-lev .fwo-mn{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .fwo-mk{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted-3);align-self:start}
+  .fwo-ms{grid-column:1/-1;font-size:12px;color:var(--muted-2)}
+  .fwo-mbar i{position:absolute;left:0;top:0;bottom:0}
+  .fwo-sec>.fw-more{border-top:1px solid var(--line);margin-top:6px}
 </style>
 </head>
 <body>
@@ -23095,23 +23111,26 @@ function fwOverview(host){
     return fwChip(id, fmtMetric(METRICS[k])+(GAME.turn>0?` <span class="fwo-since">${legacyTag(k,"fw-sd")}</span>`:""),
       top?`Biggest push: <b>${fwName(top.a)}</b> (${top.good?"helps":"hurts"})`:""); });
   sec.push(`<div class="fwo-sec"><div class="fwo-h">Key statistics</div><div class="fwo-grid">${stats.join("")}</div></div>`);
-  // your strongest levers: what moves the most
+  // your strongest levers: what moves the most. Twelve, slim, then all on request.
   const lev=[];
   for(const k in POLICIES)if(POLICIES[k].enacted!==false)lev.push("p_"+k);
   for(const k in AGENCIES)lev.push("a_"+k);
   const scored=lev.map(id=>{ const o=(X.out[id]||[]); return {id, w:o.reduce((t,e)=>t+e.w,0), o}; })
-    .filter(x=>x.o.length).sort((a,b)=>b.w-a.w).slice(0,8);
-  sec.push(`<div class="fwo-sec"><div class="fwo-h">Your strongest levers</div><div class="fwo-grid">${scored.map(x=>{ const top=fwStrongest(x.o);
-    return fwChip(x.id, fwInfo(x.id).val, `Moves ${x.o.length} thing${x.o.length===1?"":"s"}${top?`, most of all <b>${fwName(top.b)}</b>`:""}`); }).join("")}</div></div>`);
-  // voter groups: the ones you are losing, and the ones you have
+    .filter(x=>x.o.length).sort((a,b)=>b.w-a.w);
+  const levAll=!!window._fw.all["overview:levers"], levShown=levAll?scored:scored.slice(0,12);
+  sec.push(`<div class="fwo-sec"><div class="fwo-h">Your strongest levers <span>${scored.length}</span></div><div class="fwo-mgrid">${levShown.map(x=>{ const inf=fwInfo(x.id);
+    return `<button class="fwo-mini fwo-lev" data-fw="${x.id}"><span class="fwo-mn">${inf.name}</span><span class="fwo-mk">${inf.kind==="Policy"?"policy":"budget"}</span><span class="fwo-ms">moves ${x.o.length}</span></button>`; }).join("")}</div>`
+    +(scored.length>12?`<button class="fw-more" data-fwall="overview:levers">${levAll?"Show the strongest twelve":"Show all "+scored.length+" levers"}</button>`:"")+`</div>`);
+  // every voter group, least approving first, compact
   const vs=Object.keys(SIMULANTS).filter(k=>!SIMULANTS[k].static).sort((a,b)=>SIMULANTS[a].approval-SIMULANTS[b].approval);
-  const vchip=(k,pleased)=>{ const id="v_"+k, top=fwStrongest(X.in[id],e=>pleased?e.good:!e.good);
-    return fwChip(id, Math.round(SIMULANTS[k].approval)+"% approve", top?`Most ${pleased?"pleased":"angered"} by <b>${fwName(top.a)}</b>`:"", pleased?"won":"lost"); };
-  sec.push(`<div class="fwo-sec"><div class="fwo-h">Voter groups</div><div class="fwo-sub">Least happy</div><div class="fwo-grid">${vs.slice(0,4).map(k=>vchip(k,false)).join("")}</div>`
-    +`<div class="fwo-sub">Happiest</div><div class="fwo-grid">${vs.slice(-3).reverse().map(k=>vchip(k,true)).join("")}</div></div>`);
+  sec.push(`<div class="fwo-sec"><div class="fwo-h">Voter groups <span>${vs.length} · least approving first</span></div><div class="fwo-mgrid">${vs.map(k=>{
+    const S=SIMULANTS[k], a=Math.round(S.approval), col=a>=55?"var(--good)":a>=45?"var(--warn)":"var(--bad)";
+    return `<button class="fwo-mini" data-fw="v_${k}"><span class="fwo-mn">${S.name}</span><span class="fwo-mv" style="color:${col}">${a}%</span>`
+      +`<span class="fwo-mbar"><i style="width:${a}%;background:${col}"></i></span></button>`; }).join("")}</div></div>`);
   host.innerHTML=`<div class="fw-top">${fwSearchHTML()}</div>`
     +`<div class="fwo-intro">Everything in the model and what moves it. Tap anything to follow its connections.</div>`+sec.join("");
   host.querySelectorAll("[data-fw]").forEach(b=>b.addEventListener("click",()=>fwGo(b.dataset.fw)));
+  host.querySelectorAll("[data-fwall]").forEach(b=>b.addEventListener("click",()=>{ window._fw.all[b.dataset.fwall]=!window._fw.all[b.dataset.fwall]; fwRender(); }));
   fwWireSearch();
 }
 function fwWireSearch(){
