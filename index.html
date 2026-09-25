@@ -2458,6 +2458,22 @@
   .fwo-ms{grid-column:1/-1;font-size:12px;color:var(--muted-2)}
   .fwo-mbar i{position:absolute;left:0;top:0;bottom:0}
   .fwo-sec>.fw-more{border-top:1px solid var(--line);margin-top:6px}
+  /* ===================== PHONE: PINNED HEADER AND TABS ===================== */
+  @media (max-width:820px){
+    html.pin-top header{position:fixed!important;top:0;left:0;right:0;z-index:30}
+    html.pin-top nav.rail{position:fixed;top:var(--hdr-cur,0px);left:0;right:0;z-index:29;background:var(--paper)}
+    html.pin-top body{padding-top:var(--pin-full,0px)}
+    html.pin-top{scroll-padding-top:var(--pin-cur,0px)}
+    html.pin-top .fw-stick:not([hidden]){top:var(--pin-cur,0px)}
+    /* scrolled down: one row */
+    html.hdr-compact header .brand,html.hdr-compact header .hudmenu,
+    html.hdr-compact .hud .hud-termcap,html.hdr-compact .hud .hud-termbar,html.hdr-compact .hud .apgauge{display:none!important}
+    html.hdr-compact header{padding:6px 10px 12px!important}
+    html.hdr-compact .hud{flex-wrap:nowrap!important;align-items:center}
+    html.hdr-compact .hud .stat .label{font-size:9px!important}
+    html.hdr-compact .hud .stat .val{font-size:13.5px!important}
+    html.hdr-compact .hud .turnbtn{flex:0 0 auto!important;width:auto;padding:7px 10px!important;font-size:13px!important}
+  }
 </style>
 </head>
 <body>
@@ -23257,7 +23273,10 @@ window.addEventListener("popstate",e=>{
 });
 /* Which view of the network the board shows: the focus web on a phone,
    the whole map on a wide screen, until the player picks. */
-function boardNetMode(){ return window._boardMode||(tapUI()?"focus":"map"); }
+function boardNetMode(){
+  // a phone opens on the Focus Chart; a tablet or a desktop on the Issue Web
+  try{ return window._boardMode||(matchMedia("(max-width:600px)").matches?"focus":"map"); }catch(e){ return window._boardMode||"map"; }
+}
 
 /* ---------- BOARD (main page): metrics strip + 4 domain quadrants ---------- */
 function renderBoard(){
@@ -27463,6 +27482,36 @@ function glyphSwap(root){
     if(m.type==="characterData"){ if(m.target.parentNode)glyphSwap(m.target.parentNode); continue; }
     for(const nd of m.addedNodes){ if(nd.nodeType===1)glyphSwap(nd); else if(nd.nodeType===3&&nd.parentNode)glyphSwap(nd.parentNode); }
   } }).observe(document.body,{childList:true,subtree:true,characterData:true});
+})();
+/* ON A PHONE THE HEADER AND THE TABS STAY PINNED. Both are fixed to the top
+   and the page is padded by their full height. Scrolled down, the header
+   slims to one row; the padding stays at the full height, so nothing jumps.
+   --pin-cur is what is pinned right now, for anything that scrolls into
+   view or pins itself below them. */
+(function(){
+  const root=document.documentElement, hdr=document.querySelector("header"), rail=document.querySelector("nav.rail");
+  if(!hdr||!rail||!window.matchMedia)return;
+  const mq=matchMedia("(max-width:820px)");
+  const measure=()=>{
+    const on=mq.matches;
+    root.classList.toggle("pin-top",on);
+    if(!on){ root.classList.remove("hdr-compact"); ["--pin-full","--pin-cur","--hdr-cur"].forEach(v=>root.style.removeProperty(v)); return; }
+    const h=hdr.offsetHeight, r=rail.offsetHeight;
+    root.style.setProperty("--hdr-cur",h+"px");
+    root.style.setProperty("--pin-cur",(h+r)+"px");
+    if(!root.classList.contains("hdr-compact"))root.style.setProperty("--pin-full",(h+r)+"px");
+  };
+  let compact=false;
+  const onScroll=()=>{
+    if(!mq.matches)return;
+    const want=compact?scrollY>30:scrollY>80;   // a little hysteresis, so it does not flicker
+    if(want!==compact){ compact=want; root.classList.toggle("hdr-compact",compact); requestAnimationFrame(measure); }
+  };
+  addEventListener("scroll",onScroll,{passive:true});
+  addEventListener("resize",measure);
+  if(mq.addEventListener)mq.addEventListener("change",measure);
+  if(window.ResizeObserver){ const ro=new ResizeObserver(()=>measure()); ro.observe(hdr); ro.observe(rail); }
+  measure();
 })();
 /* ONE KEYBOARD RULE FOR EVERY POPUP. A screen with nothing to decide has a
    Continue button, and Enter or Escape presses it. A screen with a decision
