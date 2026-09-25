@@ -2436,6 +2436,9 @@
     .fw-stick-n{font-family:var(--font-display);font-size:17px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .fw-stick-k{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-3)}
   }
+  /* focus mode: the overview carries the crises and the statistics, so the
+     board's own cards and tiles step aside rather than appear twice */
+  #main.net-focus .crisis-strip,#main.net-focus .keystat-row{display:none}
 </style>
 </head>
 <body>
@@ -23214,7 +23217,8 @@ window.addEventListener("popstate",e=>{
     if(!(window._fwDepth>0))return;
     window._fwDepth=0; F.id=null; F.trail=[];
   } else { window._fwDepth=st.depth||0; F.id=st.fw; F.trail=(st.trail||[]).slice(); }
-  if(currentView!=="board"){ currentView="board"; detailKey=null; window._boardMode="focus"; render(); return; }
+  if(currentView!=="board"){ currentView="board"; detailKey=null; window._boardMode="focus"; render();
+    setTimeout(()=>{ const t=document.getElementById("boardNet"); if(t)t.scrollIntoView({block:"start"}); },40); return; }
   fwRender();
 });
 /* Which view of the network the board shows: the focus web on a phone,
@@ -23504,6 +23508,7 @@ function renderBoard(){
   h+=`<div class="boardgraph"><div class="board-zoom"><button data-z="out" title="Zoom out">−</button><button data-z="in" title="Zoom in">+</button><button data-z="reset">Reset</button></div>${svg}<div id="boardTip" class="board-tip" hidden></div></div>`;
   h+=`</div></div>`;   // .bn-map, .board-net
   main.innerHTML=h;
+  main.classList.toggle("net-focus", netMode==="focus");
   fwRender();
   main.querySelectorAll("[data-bnmode]").forEach(b=>b.addEventListener("click",()=>{
     window._boardMode=b.dataset.bnmode;
@@ -23511,6 +23516,7 @@ function renderBoard(){
     // switching is just showing the other one: nothing redraws or replays
     const bn=document.getElementById("boardNet"); bn.dataset.mode=b.dataset.bnmode;
     bn.querySelectorAll("[data-bnmode]").forEach(x=>x.setAttribute("aria-selected",x.dataset.bnmode===b.dataset.bnmode));
+    main.classList.toggle("net-focus", b.dataset.bnmode==="focus");
   }));
   {const bs=document.getElementById("boardSeed"); if(bs)bs.addEventListener("click",()=>copySeedLink(bs));}
   // the ballot strip jumps straight to the measure half of Campaign HQ
@@ -24547,7 +24553,7 @@ function renderDetail(){
     currentView=detailHome().view; detailKey=null;
     try{render();}catch(err){ try{renderBoard();renderHUD();renderSidebar();}catch(e2){} }
     // land on the issue web, not scrolled up past the crisis strip and key metrics
-    setTimeout(()=>{ const t=document.querySelector('.boardlegend')||document.querySelector('.boardgraph');
+    setTimeout(()=>{ const t=document.getElementById('boardNet')||document.querySelector('.boardlegend')||document.querySelector('.boardgraph');
       if(t)try{ t.scrollIntoView({block:"start",behavior:"auto"}); }catch(e){} },40);
   };
   const doUndo=()=>{
@@ -27484,6 +27490,7 @@ function render(){
   // to read it, you press the button back — so the query survives a detail
   // page and nothing else.
   if(currentView!=="policies" && currentView!=="detail" && GAME.polSearch)GAME.polSearch="";
+  { const mn=document.getElementById("main"); if(mn)mn.classList.remove("net-focus"); }   // set again by the board in focus mode
   ({board:renderBoard,detail:renderDetail,policies:renderPolicies,voters:renderVoters,budget:renderBudget,execorders:renderExecOrders,appointments:renderAppointments,web:renderWeb,compass:renderCompass,countymap:renderCountyMap,camphq:renderCampaignHQ}[currentView]||renderBoard)();
   renderDilemma();
   renderProposal();
