@@ -2382,6 +2382,30 @@
     .fw-in .fw-h::after,.fw-out .fw-h::before{content:none}
     .fw-row{grid-template-columns:22px minmax(0,1fr) 48px 50px;padding:9px}
   }
+  /* the focus web's overview */
+  .fwo-intro{font-size:13.5px;color:var(--muted-2);margin:2px 0 12px}
+  .fwo-sec{margin:0 0 18px}
+  .fwo-h{font-family:var(--font-display);font-size:17px;border-bottom:1px solid var(--ink);padding-bottom:3px;margin-bottom:8px}
+  .fwo-h span{font-family:var(--font-data);font-size:13px;color:var(--muted-3)}
+  .fwo-sub{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-3);font-weight:600;margin:10px 0 5px}
+  .fwo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(250px,100%),1fr));gap:8px}
+  .fwo-chip{display:flex;gap:10px;align-items:flex-start;text-align:left;background:var(--paper);border:1px solid var(--line);padding:10px 11px;font:inherit;color:var(--ink);cursor:pointer}
+  .fwo-chip:hover{border-color:var(--ink);background:var(--hover-bg)}
+  .fwo-chip.crisis{border-left:3px solid var(--bad)} .fwo-chip.bright{border-left:3px solid var(--good)}
+  .fwo-ic .ico{width:20px;height:20px;color:var(--muted-2);margin-top:1px}
+  .fwo-b{display:flex;flex-direction:column;gap:1px;min-width:0}
+  .fwo-n{font-weight:600;font-size:14px;line-height:1.25}
+  .fwo-v{font-family:var(--font-data);font-size:15px;font-weight:700}
+  .fwo-chip.lost .fwo-v{color:var(--bad)} .fwo-chip.won .fwo-v{color:var(--good)}
+  .fwo-since{font-size:12px;font-weight:400;color:var(--muted-3);margin-left:4px}
+  .fwo-d{font-size:12.5px;color:var(--muted-2);line-height:1.35}
+  .fwo-d b{font-weight:600;color:var(--ink)}
+  /* the balance of forces on the centre */
+  .fw-bal{margin:10px 0 2px}
+  .fw-bal-bar{height:7px;background:var(--bad);position:relative}
+  .fw-bal-bar i{position:absolute;left:0;top:0;bottom:0;background:var(--good)}
+  .fw-bal-k{display:flex;justify-content:space-between;font-size:11.5px;margin-top:3px}
+  .fw-bal-k .g{color:var(--good);font-weight:600} .fw-bal-k .b{color:var(--bad);font-weight:600}
 </style>
 </head>
 <body>
@@ -23003,10 +23027,80 @@ function fwList(rows, key, dir){
   if(rows.length>8)h+=`<button class="fw-more" data-fwall="${key}">${open?"Show the strongest eight":"Show all "+rows.length}</button>`;
   return h;
 }
+const FW_KEY_METRICS=["gdp","unemployment","violentCrime","propertyCrime","homelessness","health","education","environment"];
+/* Every link, indexed both ways, once per render. */
+function fwIndex(){
+  const idx={in:{},out:{}};
+  for(const e of buildWebEdges()){ if(e.a===e.b)continue;
+    (idx.out[e.a]=idx.out[e.a]||[]).push(e); (idx.in[e.b]=idx.in[e.b]||[]).push(e); }
+  return idx;
+}
+function fwStrongest(list,pred){ let b=null; for(const e of (list||[])){ if(pred&&!pred(e))continue; if(!b||e.w>b.w)b=e; } return b; }
+function fwName(id){ const i=fwInfo(id); return i?i.name:""; }
+/* One tile of the overview. */
+function fwChip(id, val, detail, cls){
+  const i=fwInfo(id); if(!i)return "";
+  return `<button class="fwo-chip ${cls||""}" data-fw="${id}"><span class="fwo-ic">${ico(i.icon)}</span>`
+    +`<span class="fwo-b"><span class="fwo-n">${i.name}</span>${val?`<span class="fwo-v">${val}</span>`:""}`
+    +`<span class="fwo-d">${detail||""}</span></span></button>`;
+}
+function fwSearchHTML(){
+  return `<div class="fw-find"><svg class="sbico" aria-hidden="true"><use href="#ic-search"/></svg><input type="search" id="fwFind" placeholder="Find a statistic, policy, agency, crisis or voter group…" autocomplete="off"><div class="fw-dd" id="fwDD" hidden></div></div>`;
+}
+function fwOverview(host){
+  const X=fwIndex(), sec=[];
+  // crises, and bright spots
+  const crises=[], bright=[];
+  for(const sid in (GAME.activeSituations||{})){ const S=SITUATIONS[sid]; if(!S)continue;
+    const id="s_"+sid, feed=fwStrongest(X.in[id],e=>!e.good), fight=fwStrongest(X.in[id],e=>e.good);
+    if(S.kind==="good"){ const hold=fwStrongest(X.in[id]); bright.push(fwChip(id,"",hold?`Held up by ${fwName(hold.a)}`:"A bright spot","bright")); continue; }
+    const d=[feed?`Fed by <b>${fwName(feed.a)}</b>`:"", fight?`fought by <b>${fwName(fight.a)}</b>`:""].filter(Boolean).join(" · ")||"Nothing you run touches it yet";
+    crises.push(fwChip(id,"",d,"crisis")); }
+  if(crises.length||bright.length)sec.push(`<div class="fwo-sec"><div class="fwo-h">Crises <span>${crises.length}</span>${bright.length?` · bright spots <span>${bright.length}</span>`:""}</div><div class="fwo-grid">${crises.join("")}${bright.join("")}</div></div>`);
+  // the headline statistics
+  const stats=FW_KEY_METRICS.filter(k=>METRICS[k]).map(k=>{ const id="m_"+k, top=fwStrongest(X.in[id]);
+    return fwChip(id, fmtMetric(METRICS[k])+(GAME.turn>0?` <span class="fwo-since">${legacyTag(k,"fw-sd")}</span>`:""),
+      top?`Biggest push: <b>${fwName(top.a)}</b> (${top.good?"helps":"hurts"})`:""); });
+  sec.push(`<div class="fwo-sec"><div class="fwo-h">Key statistics</div><div class="fwo-grid">${stats.join("")}</div></div>`);
+  // your strongest levers: what moves the most
+  const lev=[];
+  for(const k in POLICIES)if(POLICIES[k].enacted!==false)lev.push("p_"+k);
+  for(const k in AGENCIES)lev.push("a_"+k);
+  const scored=lev.map(id=>{ const o=(X.out[id]||[]); return {id, w:o.reduce((t,e)=>t+e.w,0), o}; })
+    .filter(x=>x.o.length).sort((a,b)=>b.w-a.w).slice(0,8);
+  sec.push(`<div class="fwo-sec"><div class="fwo-h">Your strongest levers</div><div class="fwo-grid">${scored.map(x=>{ const top=fwStrongest(x.o);
+    return fwChip(x.id, fwInfo(x.id).val, `Moves ${x.o.length} thing${x.o.length===1?"":"s"}${top?`, most of all <b>${fwName(top.b)}</b>`:""}`); }).join("")}</div></div>`);
+  // voter groups: the ones you are losing, and the ones you have
+  const vs=Object.keys(SIMULANTS).filter(k=>!SIMULANTS[k].static).sort((a,b)=>SIMULANTS[a].approval-SIMULANTS[b].approval);
+  const vchip=(k,pleased)=>{ const id="v_"+k, top=fwStrongest(X.in[id],e=>pleased?e.good:!e.good);
+    return fwChip(id, Math.round(SIMULANTS[k].approval)+"% approve", top?`Most ${pleased?"pleased":"angered"} by <b>${fwName(top.a)}</b>`:"", pleased?"won":"lost"); };
+  sec.push(`<div class="fwo-sec"><div class="fwo-h">Voter groups</div><div class="fwo-sub">Least happy</div><div class="fwo-grid">${vs.slice(0,4).map(k=>vchip(k,false)).join("")}</div>`
+    +`<div class="fwo-sub">Happiest</div><div class="fwo-grid">${vs.slice(-3).reverse().map(k=>vchip(k,true)).join("")}</div></div>`);
+  host.innerHTML=`<div class="fw-top">${fwSearchHTML()}</div>`
+    +`<div class="fwo-intro">Everything in the model and what moves it. Tap anything to follow its connections.</div>`+sec.join("");
+  host.querySelectorAll("[data-fw]").forEach(b=>b.addEventListener("click",()=>fwGo(b.dataset.fw)));
+  fwWireSearch();
+}
+function fwWireSearch(){
+  const inp=document.getElementById("fwFind"), dd=document.getElementById("fwDD");
+  if(!inp||!dd)return;
+  const pool=[]; const add=id=>{ const i=fwInfo(id); if(i)pool.push({id,name:i.name,kind:i.kind}); };
+  for(const k in METRICS)add("m_"+k); for(const k in INDICATORS)add("i_"+k); for(const k in POLICIES)add("p_"+k);
+  for(const k in AGENCIES)add("a_"+k); for(const k in (GAME.activeSituations||{}))add("s_"+k);
+  for(const k in SIMULANTS)if(!SIMULANTS[k].static)add("v_"+k);
+  inp.addEventListener("input",()=>{ const q=inp.value.trim().toLowerCase();
+    if(!q){ dd.hidden=true; return; }
+    const hits=pool.filter(p=>p.name.toLowerCase().includes(q)).slice(0,8);
+    dd.innerHTML=hits.length?hits.map(p=>`<button data-fwpick="${p.id}">${p.name}<small>${p.kind}</small></button>`).join(""):`<div class="fw-none">Nothing matches.</div>`;
+    dd.hidden=false;
+    dd.querySelectorAll("[data-fwpick]").forEach(b=>b.addEventListener("click",()=>fwGo(b.dataset.fwpick)));
+  });
+}
 function fwRender(){
   const host=document.getElementById("focusWeb"); if(!host)return;
   const F=window._fw;
-  if(!F.id||!fwInfo(F.id))F.id=fwDefault();
+  if(F.id&&!fwInfo(F.id))F.id=null;
+  if(!F.id){ F.trail=[]; fwOverview(host); return; }
   const id=F.id, me=fwInfo(id);
   // the same links the whole map draws, one per pair at its strongest
   const seen={};
@@ -23019,33 +23113,31 @@ function fwRender(){
   const crumbs=F.trail.slice(-4).map((t,i,arr)=>{ const inf=fwInfo(t); return inf?`<button class="fw-crumb" data-fwback="${F.trail.length-arr.length+i}">${inf.name}</button>`:""; }).join(`<span class="fw-sep">›</span>`);
   host.innerHTML=
      `<div class="fw-top"><div class="fw-find"><svg class="sbico" aria-hidden="true"><use href="#ic-search"/></svg><input type="search" id="fwFind" placeholder="Find a statistic, policy, agency, crisis or voter group…" autocomplete="off"><div class="fw-dd" id="fwDD" hidden></div></div>`
-    +(crumbs?`<div class="fw-crumbs">${crumbs}<span class="fw-sep">›</span><b>${me.name}</b></div>`:"")+`</div>`
+    +`<div class="fw-crumbs"><button class="fw-crumb" data-fwhome>Overview</button><span class="fw-sep">›</span>${crumbs?crumbs+`<span class="fw-sep">›</span>`:""}<b>${me.name}</b></div></div>`
     +`<div class="fw-grid">`
     +`<div class="fw-col fw-in"><div class="fw-h">Pushed by <span>${ins.length}</span></div>${fwList(ins,id+":in","in")}</div>`
     +`<div class="fw-center ${me.crisis?"crisis":""}"><div class="fw-ci">${ico(me.icon)}</div><div class="fw-cn">${me.name}</div><div class="fw-ck">${me.kind}</div>`
-      +(me.val?`<div class="fw-cv">${me.val}</div>`:"")+(me.since?`<div class="fw-cs">${me.since}</div>`:"")
+      +(me.val?`<div class="fw-cv">${me.val}</div>`:"")+(me.since?`<div class="fw-cs">${me.since}</div>`:"")+fwBalance(ins,id)
       +`<button class="fw-open" data-fwopen="${id}">Open ${me.kind.toLowerCase()} ›</button></div>`
     +`<div class="fw-col fw-out"><div class="fw-h">Pushes <span>${outs.length}</span></div>${fwList(outs,id+":out","out")}</div>`
     +`</div>`;
   host.querySelectorAll("[data-fw]").forEach(b=>b.addEventListener("click",()=>fwGo(b.dataset.fw)));
   host.querySelectorAll("[data-fwback]").forEach(b=>b.addEventListener("click",()=>{ const i=+b.dataset.fwback; F.id=F.trail[i]; F.trail=F.trail.slice(0,i); fwRender(); }));
+  host.querySelectorAll("[data-fwhome]").forEach(b=>b.addEventListener("click",()=>{ F.id=null; F.trail=[]; fwRender(); }));
   host.querySelectorAll("[data-fwall]").forEach(b=>b.addEventListener("click",()=>{ F.all[b.dataset.fwall]=!F.all[b.dataset.fwall]; fwRender(); }));
   host.querySelectorAll("[data-fwopen]").forEach(b=>b.addEventListener("click",()=>openDetail(b.dataset.fwopen)));
-  // find anything the network knows about
-  const inp=document.getElementById("fwFind"), dd=document.getElementById("fwDD");
-  if(inp&&dd){
-    const pool=[]; const add=id=>{ const i=fwInfo(id); if(i)pool.push({id,name:i.name,kind:i.kind}); };
-    for(const k in METRICS)add("m_"+k); for(const k in INDICATORS)add("i_"+k); for(const k in POLICIES)add("p_"+k);
-    for(const k in AGENCIES)add("a_"+k); for(const k in (GAME.activeSituations||{}))add("s_"+k);
-    for(const k in SIMULANTS)if(!SIMULANTS[k].static)add("v_"+k);
-    inp.addEventListener("input",()=>{ const q=inp.value.trim().toLowerCase();
-      if(!q){ dd.hidden=true; return; }
-      const hits=pool.filter(p=>p.name.toLowerCase().includes(q)).slice(0,8);
-      dd.innerHTML=hits.length?hits.map(p=>`<button data-fwpick="${p.id}">${p.name}<small>${p.kind}</small></button>`).join(""):`<div class="fw-none">Nothing matches.</div>`;
-      dd.hidden=false;
-      dd.querySelectorAll("[data-fwpick]").forEach(b=>b.addEventListener("click",()=>fwGo(b.dataset.fwpick)));
-    });
-  }
+  fwWireSearch();
+}
+/* How the forces on the centre balance: the share of its incoming push
+   that helps it against the share that hurts. */
+function fwBalance(ins,id){
+  if(!ins.length)return "";
+  let g=0,b=0; for(const r of ins){ if(r.good)g+=r.w; else b+=r.w; }
+  const t=g+b; if(t<=0)return "";
+  const gp=Math.round(g/t*100);
+  const [gl,bl]=id.startsWith("s_")?["fighting it","feeding it"]:id.startsWith("v_")?["pleasing","angering"]:["helping","hurting"];
+  return `<div class="fw-bal"><div class="fw-bal-bar"><i style="width:${gp}%"></i></div>`
+    +`<div class="fw-bal-k"><span class="g">${gp}% ${gl}</span><span class="b">${100-gp}% ${bl}</span></div></div>`;
 }
 function fwGo(id){
   const F=window._fw; if(!fwInfo(id))return;
