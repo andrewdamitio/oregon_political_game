@@ -2253,6 +2253,9 @@
   /* reduce motion: animations and transitions end as they start */
   html[data-motion="reduce"] *,html[data-motion="reduce"] *::before,html[data-motion="reduce"] *::after{
     animation-duration:1ms!important;animation-delay:0s!important;animation-iteration-count:1!important;transition-duration:1ms!important;scroll-behavior:auto!important}
+  .ar-cap{display:block;font-family:var(--font-data);font-size:11.5px;margin-top:2px}
+  .ar-cap.neg{color:var(--clay)} .ar-cap.pos{color:var(--moss)}
+  .as-sub{font-size:11px;color:var(--muted-3);line-height:1.35;margin-top:3px}
 </style>
 </head>
 <body>
@@ -5799,7 +5802,7 @@ const CATALOG={
     blocEffect:{liberal:3, urban:3, publicUnions:3, collegeEducated:2, socialist:2, moderate:1, conservative:-7, libertarian:-5, rural:-8, timber:-5, businessClass:-2},
     ideology:{govSize:-0.2, economic:-0.2}},
   cabinetGovernment:{name:"Cabinet Government", domain:"economy", icon:"columns", binary:true, mechanic:"law", reform:true,
-    desc:"Oregon has no cabinet. Boards and commissions sit between the governor and the agencies: the Environmental Quality Commission over DEQ, the Transportation Commission over ODOT, the Health Policy Board over OHA. Their members hold fixed terms and set each department's policy, so a governor who wants change waits for seats to open or persuades people who do not work for them.\n\nThis amendment ends that. Directors serve at the governor's pleasure, subject to Senate confirmation, and the commissions become advisory. Department heads were always removable. What changes is that the nine commission seats (Environmental Quality, Forestry, the three Utility Commission seats, Parks, Higher Education, Fish & Wildlife, Liquor & Cannabis) become removable too, and removal costs 2 capital instead of 3. Sitting commissioners carry on as directors, so nothing falls empty. Every department delivers 8% more while it stands, and you gain 2 capital a quarter because you stop spending it persuading your own government. Coalition partners keep the departments their agreement gave them. Under proportional representation, each party forming a government can then also claim one former commission seat.\n\nThe objection is speed. Commissions are slow on purpose: a rule survives a governor who dislikes it, and an industry that captured one governor still has to get past a board. The left sees this as putting the state's regulatory machinery in one pair of hands.",
+    desc:"Oregon has no cabinet. Boards and commissions sit between the governor and the agencies: the Environmental Quality Commission over DEQ, the Transportation Commission over ODOT, the Health Policy Board over OHA. Their members hold fixed terms and set each department's policy, so a governor who wants change waits for seats to open or persuades people who do not work for them.\n\nThis amendment ends that. Directors serve at the governor's pleasure, subject to Senate confirmation, and the commissions become advisory. Department heads were always removable. What changes is that the nine commission seats (Environmental Quality, Forestry, the three Utility Commission seats, Parks, Higher Education, Fish & Wildlife, Liquor & Cannabis) become removable too, and removal costs 2 capital instead of 3. Sitting commissioners carry on as directors, so nothing falls empty. Every department delivers 8% more while it stands, and you gain 2 capital a quarter because you stop spending it persuading your own government. With every chair now yours to fill, what each appointee or empty chair costs you in capital is halved. Coalition partners keep the departments their agreement gave them. Under proportional representation, each party forming a government can then also claim one former commission seat.\n\nThe objection is speed. Commissions are slow on purpose: a rule survives a governor who dislikes it, and an industry that captured one governor still has to get past a board. The left sees this as putting the state's regulatory machinery in one pair of hands.",
     enabled:true, capital:18, enactCapital:20, repealCost:14,
     effects:{}, indicatorEffects:{adminOverhead:-12, ruralAlienation:4},
     blocEffect:{businessClass:5, moderate:3, collegeEducated:1, conservative:1, socialist:-7, publicUnions:-6, liberal:-5, libertarian:-3, rural:-3, urban:-2},
@@ -7157,6 +7160,15 @@ function apptAgencyMult(agencyId){
   const ids=[]; for(const id in APPT_POSTS)if(APPT_POSTS[id].agency===agencyId)ids.push(id);
   return ids.length ? clamp(1+apptBenchEff(ids)+cabinetBonus(),APPT_MULT_MIN,APPT_MULT_MAX) : 1;
 }
+/* WHAT A CHAIR COSTS IN CAPITAL. Under Cabinet Government every chair is
+   yours to fill, so the cost of a costly appointee (or an empty chair) is
+   halved; what a loyalist earns is not. */
+const APPT_CABINET_COST=0.5;
+function apptTraitCapital(trait){
+  const v=(APPT_TRAITS[trait]||APPT_TRAITS.safePick).capital||0;
+  return (v<0&&cabinetBonus()>0)?+(v*APPT_CABINET_COST).toFixed(2):v;
+}
+function apptVacantCapital(){ return APPT_VACANT_CAPITAL*(cabinetBonus()>0?APPT_CABINET_COST:1); }
 function apptOverheadRaw(){
   let v=0;
   for(const id in APPT_POSTS){
@@ -7169,7 +7181,7 @@ function apptCapitalRaw(){
   let v=0;
   for(const id in APPT_POSTS){
     const h=apptHolder(id);
-    v += h ? ((APPT_TRAITS[h.trait]||APPT_TRAITS.safePick).capital||0) : APPT_VACANT_CAPITAL;
+    v += h ? apptTraitCapital(h.trait) : apptVacantCapital();
   }
   return v;
 }
@@ -15088,7 +15100,7 @@ function showWelcome(onDone){
 
         <p class="wg-h">Who runs the departments</p>
         <p><b>Appointments</b> covers eighteen chairs. Each one scales every policy its department delivers:</p>
-        <p><b>Reformer</b> ×${(1+APPT_TRAITS.reformer.eff).toFixed(2)}, after a year and a half that starts at ×${(1+APPT_SETTLE_EFF).toFixed(2)}. Costs overhead and capital, angers the public-sector unions, and makes scandals likelier. <b>Insider</b> ×${(1+APPT_TRAITS.insider.eff).toFixed(2)}, and lowers overhead. <b>Safe Pick</b> ×${(1+APPT_TRAITS.safePick.eff).toFixed(2)}, and costs nothing. <b>Loyalist</b> ×${(1+APPT_TRAITS.loyalist.eff).toFixed(2)}, but pays you capital every quarter. A <b>Peace Offering</b> is the same trade with someone from the other party. An empty chair runs at ×${(1+APPT_VACANT_EFF).toFixed(2)}, raises overhead, and costs ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter.</p>
+        <p><b>Reformer</b> ×${(1+APPT_TRAITS.reformer.eff).toFixed(2)}, after a year and a half that starts at ×${(1+APPT_SETTLE_EFF).toFixed(2)}. Costs overhead and capital, angers the public-sector unions, and makes scandals likelier. <b>Insider</b> ×${(1+APPT_TRAITS.insider.eff).toFixed(2)}, and lowers overhead. <b>Safe Pick</b> ×${(1+APPT_TRAITS.safePick.eff).toFixed(2)}, and costs nothing. <b>Loyalist</b> ×${(1+APPT_TRAITS.loyalist.eff).toFixed(2)}, but pays you capital every quarter. A <b>Peace Offering</b> is the same trade with someone from the other party. An empty chair runs at ×${(1+APPT_VACANT_EFF).toFixed(2)}, raises overhead, and costs ${Math.abs(apptVacantCapital()).toFixed(2)} capital a quarter.${POLICIES.cabinetGovernment?" Cabinet Government halves every appointee's capital cost.":""}</p>
         <p>Nominating is free. The nominee faces a Senate vote with the same seat-by-seat count as a bill, and a chamber you do not hold can refuse one. Removing your predecessor's appointee is free. Removing your own costs 3.</p>
 
         <p class="wg-h">Budgets and permanent funds</p>
@@ -15453,7 +15465,7 @@ function showQuarterReport(quiet,next){
       return `<div class="rrow apptrow"><span class="rlabel" style="color:var(--gold)">${ico(APPT_POSTS[id].icon)} ${apptPostLabel(id)}</span>`
         +`<span class="rval" style="color:var(--gold)">vacant ${open}q \u00b7 Deputy ${apptDeputy(id)||"—"}</span></div>`;
     }).join("")
-    +`<div class="rforecast">A deputy keeps each of these running and brings nothing to it. An empty chair costs you ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter and softens everything that department delivers, for as long as it stays empty. Nominations are on the Appointments page.</div></div>`:"";
+    +`<div class="rforecast">A deputy keeps each of these running and brings nothing to it. An empty chair costs you ${Math.abs(apptVacantCapital()).toFixed(2)} capital a quarter and softens everything that department delivers, for as long as it stays empty. Nominations are on the Appointments page.</div></div>`:"";
   const events=(GAME.log||[]).slice(-6).filter(l=>/began|RESOLVED|Midterms|kicker|Kicker|Reserves|Promise|Scandal|boom|Windfall|Federal|Deficit|debt|Austerity/i.test(l));
   const eventBlock=events.length?`<div class="rsection"><div class="rsec-h">${ico('doc')} This Quarter</div>${events.map(e=>`<div class="revent">${e}</div>`).join("")}</div>`:"";
   const cyc=GAME.econCycle;
@@ -25538,7 +25550,7 @@ function apptEffectLine(id, trait, serving){
     ? `<b style="color:var(--clay)">${pct>=0?"+":""}${pct}%</b> on ${what} right now, reaching ${end>=0?"+":""}${end}% in ${settling} quarter${settling===1?"":"s"}`
     : (pct>=0?"+":"")+pct+"% on "+what);
   if(T.overhead)bits.push((T.overhead>0?"+":"")+T.overhead.toFixed(1)+" administrative overhead");
-  if(T.capital)bits.push((T.capital>0?"+":"")+T.capital.toFixed(1)+" capital a quarter");
+  { const cv=apptTraitCapital(trait); if(cv)bits.push((cv>0?"+":"")+cv.toFixed(2).replace(/0$/,"")+" capital a quarter"); }
   return bits.join(" &middot; ");
 }
 function apptGroupLine(h){
@@ -25619,7 +25631,7 @@ function apptTileEffect(id, trait){
   const what=names.length ? names.slice(0,2).join(", ")+(names.length>2?` +${names.length-2} more`:"") : "the programmes it runs";
   const bits=[(pct>=0?"+":"\u2212")+Math.abs(pct)+"% on "+what];
   if(T.overhead)bits.push(apptSigned(T.overhead)+" overhead");
-  if(T.capital)bits.push(apptSigned(T.capital)+" capital a quarter");
+  { const cv=apptTraitCapital(trait); if(cv)bits.push(apptSigned(cv,2)+" capital a quarter"); }
   return bits.join(" \u00b7 ");
 }
 /* The things that want a decision from you, and only those: empty chairs. */
@@ -25642,7 +25654,7 @@ function apptRowHTML(id){
     +(fixed?`<span class="ar-lock" title="Fixed term: you cannot remove them">${ico('lock')}</span>`:"")+`</span>`;
   if(!h){
     return `<tr class="arow vacant" data-apptopen="${id}" tabindex="0" title="Policy here lands at ${Math.round((1+APPT_VACANT_EFF)*100)}% until someone is confirmed">`
-      +`<td>${dept}</td><td><span class="ar-name ast-vac">Vacant</span></td><td><span class="ar-trait ar-muted">A deputy is acting</span></td>`
+      +`<td>${dept}</td><td><span class="ar-name ast-vac">Vacant</span></td><td><span class="ar-trait ar-muted">A deputy is acting</span><span class="ar-cap neg">◈${apptSigned(apptVacantCapital(),2)}/qtr</span></td>`
       +`<td class="num">${apptMultHTML(1+APPT_VACANT_EFF)}</td><td></td>`
       +`<td class="ar-status"><span class="ast-vac">Choose a nominee ›</span></td></tr>`;
   }
@@ -25660,7 +25672,8 @@ function apptRowHTML(id){
   const tip=apptTileEffect(id,h.trait).replace(/"/g,"&quot;");
   return `<tr class="arow" data-apptopen="${id}" tabindex="0" title="${tip}">`
     +`<td>${dept}</td><td><span class="ar-name">${h.name}</span></td>`
-    +`<td><span class="ar-trait"><i class="ar-dot" style="background:${apptLook(h.trait).col}"></i>${T.label}</span></td>`
+    +`<td><span class="ar-trait"><i class="ar-dot" style="background:${apptLook(h.trait).col}"></i>${T.label}</span>`
+    +(()=>{ const cv=apptTraitCapital(h.trait); return cv?`<span class="ar-cap ${cv>0?"pos":"neg"}" title="Capital a quarter while they serve">◈${apptSigned(cv,2)}/qtr</span>`:""; })()+`</td>`
     +`<td class="num">${apptMultHTML(apptChairMult(id))}</td><td>${term}</td><td class="ar-status">${st.join("")}</td></tr>`;
 }
 /* What a chair actually runs: its programmes, its budget line, its statistics. */
@@ -25681,7 +25694,7 @@ function apptCompareHTML(id){
   const slate=apptSlate(id);
   const cols=slate.map((c,i)=>{
     const T=APPT_TRAITS[c.trait]||APPT_TRAITS.safePick, w=apptWhip(id,c,0);
-    return {c,i,T,w, mult:clamp(1+(T.eff||0)+cabinetBonus(),APPT_MULT_MIN,APPT_MULT_MAX), cap:T.capital||0, ovh:T.overhead||0, odds:Math.round(w.rawOdds*100)};
+    return {c,i,T,w, mult:clamp(1+(T.eff||0)+cabinetBonus(),APPT_MULT_MIN,APPT_MULT_MAX), cap:apptTraitCapital(c.trait), ovh:T.overhead||0, odds:Math.round(w.rawOdds*100)};
   });
   const best=(f,dir)=>{ const v=cols.map(f); const b=dir>0?Math.max(...v):Math.min(...v); return v.map(x=>x===b&&v.some(y=>y!==b)); };
   const bm=best(x=>x.mult,1), bc=best(x=>x.cap,1), bo=best(x=>x.ovh,-1), bv=best(x=>x.odds,1);
@@ -25693,7 +25706,7 @@ function apptCompareHTML(id){
   h+=`<tr><th>Trait</th>`+cols.map(x=>`<td title="${String(x.T.blurb||"").replace(/"/g,"&quot;")}">${ico(x.T.icon)} ${x.T.label}</td>`).join("")+`</tr>`;
   h+=`<tr><th>From</th>`+cols.map(x=>`<td>${x.c.side==="opposition"?'<span class="atag clay">⇄ '+apptOppLabel(x.c)+'</span>':x.c.side==="incumbent"?`<span class="atag">reappoint, ${x.c.served||0}q</span>`:"your party"}</td>`).join("")+`</tr>`;
   h+=`<tr><th>Delivery</th>`+cols.map((x,k)=>cell(bm[k],apptMultHTML(x.mult)+(x.c.trait==="reformer"?`<div class="acmp-note">from ×${(1+APPT_SETTLE_EFF).toFixed(2)}, over ${APPT_SETTLE} quarters</div>`:""))).join("")+`</tr>`;
-  h+=`<tr><th>Capital / qtr</th>`+cols.map((x,k)=>cell(bc[k],apptSigned(x.cap))).join("")+`</tr>`;
+  h+=`<tr><th title="Political capital this appointee costs (−) or earns (+) you every quarter they serve">Capital / qtr</th>`+cols.map((x,k)=>cell(bc[k],x.cap?"◈"+apptSigned(x.cap,2):"—")).join("")+`</tr>`;
   h+=`<tr><th title="Points added to the Administrative Overhead gauge. Lower is better.">Admin overhead</th>`+cols.map((x,k)=>cell(bo[k],x.ovh?apptSigned(x.ovh):"—")).join("")+`</tr>`;
   h+=`<tr><th>${chamber}</th>`+cols.map((x,k)=>{
     const col=x.odds>=70?"var(--moss)":x.odds>=45?"var(--gold)":"var(--clay)";
@@ -25731,7 +25744,7 @@ function openApptPanel(id){
     x+=`<div class="apanel-act"><button class="fcard-btn" data-apptclose>Keep</button><button class="fcard-btn${canRm?" danger":""}" data-apptrm="${id}" ${rmOk?"":"disabled"} title="${rmWhy}">${canRm&&rmCost?`◈${rmCost} `:""}Remove</button><span class="acmp-key">${rmWhy}</span></div>`;
   } else {
     x+=`<h2 class="prop-who">Vacant</h2>
-      <div class="dilemma-text">Deputy <b>${apptDeputy(id)||"—"}</b> keeps it running and adds nothing. Until somebody is confirmed, policy here lands at <b>${Math.round((1+APPT_VACANT_EFF)*100)}%</b>, overhead is up ${APPT_VACANT_OVERHEAD.toFixed(1)}, and it costs ${Math.abs(APPT_VACANT_CAPITAL).toFixed(1)} capital a quarter.</div>`;
+      <div class="dilemma-text">Deputy <b>${apptDeputy(id)||"—"}</b> keeps it running and adds nothing. Until somebody is confirmed, policy here lands at <b>${Math.round((1+APPT_VACANT_EFF)*100)}%</b>, overhead is up ${APPT_VACANT_OVERHEAD.toFixed(1)}, and it costs ${Math.abs(apptVacantCapital()).toFixed(2)} capital a quarter.</div>`;
     x+=`<div class="ebgroup-label">The nominees</div>`+apptCompareHTML(id);
     x+=apptRunsHTML(id);
     x+=`<div class="apanel-act"><button class="fcard-btn" data-apptclose>Not now</button></div>`;
@@ -25761,7 +25774,7 @@ function renderAppointments(){
   // which chairs you can empty: the commission list is read from APPT_POSTS
   const fixedSeats=[...new Set(ids.filter(id=>APPT_POSTS[id].body==="commission").map(id=>APPT_POSTS[id].name.replace(/^Dept\. of /,"").replace(/ Commission$/,"")))];
   h+=`<div class="sectionsub">${cab
-    ?`Cabinet Government has passed, so you can remove anyone for ◈2. Removing a holdover from the previous administration is free.`
+    ?`Cabinet Government has passed, so you can remove anyone for ◈2, and what each appointee costs you in capital a quarter is halved. Removing a holdover from the previous administration is free.`
     :`You can remove a department head at any time for ◈3, or free if they are a holdover from the previous administration. Commission seats, marked ${ico('lock')}, are fixed terms you cannot cut short: ${fixedSeats.join(", ")}. You wait them out, or pass <b>Cabinet Government</b> to make them removable.`}</div>`;
   // the scoreboard
   const dl=apptDelivery(), cap=apptCapital(), ovh=apptOverhead();
@@ -25769,7 +25782,7 @@ function renderAppointments(){
   h+=`<details class="ahow ahow-top"><summary>How appointments work</summary><div class="ahow-body">
     <p>Every appointee brings a trait, which sets how their department runs, and an interest group that stays pleased for as long as they hold the post.${apptInheritedLine()}</p>
     <p>Nominees go to the floor of ${prOn()?"the Assembly":"the Senate"}, and a nomination the chamber already carries costs nothing. The Public Utility Commission seats three and decides as a body, so its effect on rates is the average of the three.</p>
-    <p>Cabinet strength is the multiplier your appointees put on every policy effect that lands on a statistic their department is responsible for: at ×${dl.toFixed(2)}, a law written to move that statistic 10 points moves it ${(dl*10).toFixed(1)}. Capital and overhead are measured against the slate you took office with, so they read "No change" until you replace somebody.</p>
+    <p>Cabinet strength is the multiplier your appointees put on every policy effect that lands on a statistic their department is responsible for: at ×${dl.toFixed(2)}, a law written to move that statistic 10 points moves it ${(dl*10).toFixed(1)}. Each chair shows the capital it costs (−) or earns (+) you every quarter. Your income moves by the difference between your cabinet's total and the one you took office with, so it reads "No change" until you replace somebody.${POLICIES.cabinetGovernment?" Cabinet Government halves every appointee's capital cost, because every chair is now yours to fill.":""}</p>
   </div></details>`;
   const lo=APPT_MULT_MIN, hi=APPT_MULT_MAX, pos=v=>((clamp(v,lo,hi)-lo)/(hi-lo))*100;
   const from=window._apptStrengthShown!=null?window._apptStrengthShown:dl;
@@ -25777,7 +25790,7 @@ function renderAppointments(){
     <div class="as-cell"><div class="as-k">Chairs filled</div><div class="as-v">${ids.length-vac}<span>/${ids.length}</span></div></div>
     <div class="as-cell wide"><div class="as-k">Cabinet strength</div><div class="as-v">${apptMultHTML(dl)}</div>
       <div class="as-meter"><span class="as-one" style="left:${pos(1)}%"></span><span class="as-fill" data-to="${pos(dl)}" style="left:${Math.min(pos(1),pos(from))}%;width:${Math.abs(pos(from)-pos(1))}%;background:${from>=1?"var(--moss)":"var(--clay)"}"></span></div></div>
-    <div class="as-cell"><div class="as-k">Capital / qtr</div><div class="as-v" style="color:${cap>0?"var(--moss)":cap<0?"var(--clay)":"inherit"}">${Math.abs(cap)<0.05?`<span class="as-none">No change</span>`:apptSigned(cap)}</div></div>
+    <div class="as-cell"><div class="as-k">Capital / qtr</div><div class="as-v" style="color:${cap>0?"var(--moss)":cap<0?"var(--clay)":"inherit"}">${Math.abs(cap)<0.05?`<span class="as-none">No change</span>`:"◈"+apptSigned(cap)}</div><div class="as-sub">Your chairs: ◈${apptSigned(apptCapitalRaw())}/qtr. Inherited: ◈${apptSigned((GAME.apptBase&&GAME.apptBase.capital)||0)}. You gain or lose the difference.</div></div>
     <div class="as-cell"><div class="as-k">Overhead</div><div class="as-v" style="color:${ovh<0?"var(--moss)":ovh>0?"var(--clay)":"inherit"}">${Math.abs(ovh)<0.05?`<span class="as-none">No change</span>`:apptSigned(ovh)}</div></div>
   </div>`;
   // what needs you, and only that
@@ -25810,7 +25823,7 @@ function renderAppointments(){
   // the reference material, folded away
   h+=`<details class="ahow"><summary>What the traits mean</summary><div class="ahow-body">`+
     Object.keys(APPT_TRAITS).map(t=>{ const T=APPT_TRAITS[t];
-      return `<div class="atrait" style="border-left:3px solid ${apptLook(t).col};padding-left:10px"><div><b>${ico(T.icon)} ${T.label}</b> <span class="acmp-note">×${(1+(T.eff||0)).toFixed(2)} · capital ${apptSigned(T.capital||0)}/q · overhead ${apptSigned(T.overhead||0)}</span><div>${apptLook(t).short}</div></div></div>`;
+      return `<div class="atrait" style="border-left:3px solid ${apptLook(t).col};padding-left:10px"><div><b>${ico(T.icon)} ${T.label}</b> <span class="acmp-note">×${(1+(T.eff||0)).toFixed(2)} · ◈${apptSigned(apptTraitCapital(t),2)} a quarter · overhead ${apptSigned(T.overhead||0)}</span><div>${apptLook(t).short}</div></div></div>`;
     }).join("")+`</div></details>`;
   main.innerHTML=h;
   // the strength bar travels from where it last stood
