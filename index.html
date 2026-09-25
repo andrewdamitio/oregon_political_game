@@ -2288,6 +2288,10 @@
   .eo-hint,.mev,.platform-warn,.prf-total{border-left:0!important}
   .eg-note[style*="border-left"],.fnote[style*="border-left"]{border-left:0!important;padding-left:0!important}
   /* ===================== THE RESUME TITLE CARD ===================== */
+  html.resume-first .modal.resume-modal{background:#152c46}
+  /* the game stays invisible until it has loaded behind the card, then fades in under the blur */
+  html.resume-first body>*:not(#resumeModal){opacity:0}
+  body>header,body>.wrap{transition:opacity .35s ease}
   .modal.resume-modal{background:rgba(21,44,70,.72);backdrop-filter:blur(14px) saturate(.8);-webkit-backdrop-filter:blur(14px) saturate(.8)}
   @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){ .modal.resume-modal{background:rgba(21,44,70,.96)} }
   .modal .card.resume-card{max-width:560px;width:100%;text-align:center;padding:44px 40px 36px;border-top:6px solid var(--gold)}
@@ -2525,6 +2529,20 @@
     <button id="resumeNo" class="enactbtn ghost">New game</button>
   </div>
 </div></div>
+<script>
+/* Open the resume card now, before the game draws anything behind it. The
+   main script decides the same thing again when it boots and wires the
+   buttons; this only gets the card on screen first. */
+(function(){
+  try{
+    if(localStorage.getItem("sc_applySave")==="1"||localStorage.getItem("sc_freshGame")==="1")return;
+    var sv=JSON.parse(localStorage.getItem("sc_save")||"null"); if(!sv)return;
+    document.getElementById("resumeMeta").textContent="Term "+sv.term+" \u00b7 Q"+sv.q+" "+sv.year;
+    document.getElementById("resumeModal").classList.remove("hidden");
+    document.documentElement.classList.add("resume-first");
+  }catch(e){}
+})();
+</script>
 <div id="campPopupModal" class="modal hidden"><div class="camp-popup-card" id="campPopupCard"></div></div>
 
 <script>
@@ -27464,7 +27482,7 @@ try{
   let freshChoice=false;
   try{ freshChoice=localStorage.getItem("sc_freshGame")==="1"; if(freshChoice)localStorage.removeItem("sc_freshGame"); }catch(e){}
   let sv=null; try{ sv=JSON.parse(localStorage.getItem("sc_save")||"null"); }catch(e){}
-  if(freshChoice || !sv || GAME.turn>0) return;   // explicit new game, no save, or already resumed above
+  if(freshChoice || !sv || GAME.turn>0){ const rm=document.getElementById("resumeModal"); if(rm)rm.classList.add("hidden"); document.documentElement.classList.remove("resume-first"); return; }   // explicit new game, no save, or already resumed above
   _resumePrompted=true;
   const m=document.getElementById("resumeModal");
   document.getElementById("resumeMeta").textContent=`Term ${sv.term} · Q${sv.q} ${sv.year}`;
@@ -27480,6 +27498,7 @@ try{
     else showWelcome(showPlatformModal);   // New Game — the oath screen carries the coalition choice
   };
   document.getElementById("resumeYes").onclick=()=>go(true);
+  requestAnimationFrame(()=>setTimeout(()=>document.documentElement.classList.remove("resume-first"),150));
   document.getElementById("resumeNo").onclick=()=>go(false);
 })();
 {const mb=document.getElementById("hudMenuBtn"), ml=document.getElementById("hudMenuList");
