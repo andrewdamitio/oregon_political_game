@@ -3159,8 +3159,8 @@ const REVENUE={
     note:"Set by how you let sports wagering run: a Lottery monopoly keeps the whole margin, licensed commercial books hand back a tax on a much bigger handle, tribal-only keeps it small."},
   carbonRevenue:{name:"Climate Program Proceeds", base:0.6, linkedPolicy:"carbonProgram", refLevel:1,
     note:"Allowance proceeds, reinvested"},
-  otherGF:{name:"Other GF (fees, interest, misc.)", base:0.45, linkedPolicy:null,
-    note:"Interest earnings, agency fees, and one-time receipts. Estate tax is its own line. No sales tax."},
+  otherGF:{name:"Other GF (fees, interest, balance forward)", base:0.45, linkedPolicy:null,
+    note:"Interest earnings, agency fees, one-time receipts, and the balance carried forward from the last biennium, which is what balanced the budget you inherited. Estate tax is its own line. No sales tax."},
   liquorRev:{name:"Liquor Revenue (OLCC)", base:0.30,
     note:"OLCC spirits markup — 56% of net to GF; scales with alcohol control tier. Zero if privatized."},
   timber:{name:"State Forest Timber Receipts", base:0.25, linkedPolicy:null,
@@ -10487,7 +10487,9 @@ const SITUATIONS={
     // the gate for the next attack is Digitization under 55, so the old -14
     // meant every ransomware quarter bought the next one. (There were also two
     // indicatorEffect keys here; the second silently replaced the first.)
-    indicatorEffect:{businessClimate:-4,adminOverhead:22},
+    // +10, not +22: from the opening overhead of 91 the old spike alone crossed
+    // 100, and the crisis, exodus and fiscal cascade behind it ended most runs
+    indicatorEffect:{businessClimate:-4,adminOverhead:10},
     groupMood:{publicUnions:-4,poor:-6,moderate:-4,blueCollar:-2}},
   bedOvercrowding:{name:"Psychiatric System Overcrowding", kind:"bad", category:"condition",
     desc:"You've made civil commitment easy, but the psychiatric beds to hold those committed don't exist. The beds you have are full and stay full: people are boarded in emergency rooms for days, held in jail cells, or cycled right back to the street untreated. The Oregon State Hospital is over capacity and under a federal contempt order. The fix is not less commitment — it is more beds.",
@@ -13131,6 +13133,9 @@ function collectionFactor(){
   const ov=INDICATORS.adminOverhead?INDICATORS.adminOverhead.value:85;
   return +clamp(1+(85-ov)*0.0022, 0.94, 1.04).toFixed(4);
 }
+/* How far short the inherited budget opens, $B a year. The authored budget
+   opened about $2.1B short; this eases it slightly, not away. */
+const BUDGET_OPEN_GAP=-1.5;
 function revenueBySource(){
   const out={};
   const collFactor = collectionFactor();
@@ -13214,6 +13219,7 @@ function revenueBySource(){
     }
     else if(id==="lottery")amt*=sinCycle;
     else if(id==="casinoRev"||id==="sportsBookRev")amt*=sinCycle;
+    if(id==="otherGF")amt+=(GAME.budgetFwd||0);   // the balance forward that balanced the inherited budget
     if(id==="estateRev"){
       // estate wealth is equity-heavy — market swings move asset values more than income does
       amt*=(1+clamp(GAME.marketLevel*0.20,-0.22,0.22));
@@ -13480,7 +13486,9 @@ function spendingByArea(){
   {
     const sm=serviceStrainMult();
     if(sm<0.95){                                       // only real strain (overhead ~90+) inflates costs
-      const inflate=1+Math.min((0.95-sm)*1.4,0.12);   // up to +12% in full operational crisis
+      // up to +8% in full operational crisis, half as steep as it was: a +12% on
+      // every programme turned one bad quarter into a $2.4B hole
+      const inflate=1+Math.min((0.95-sm)*0.7,0.08);
       for(const id in out)if(id!=="debtAdmin"&&id!=="ohp")out[id]*=inflate;   // debt service & entitlement medical are contractual
     }
   }
@@ -27950,6 +27958,10 @@ function bootWorld(startId){
     for(const k in METRICS)METRICS[k].calib=(METRICS[k].calib||0)+(METRICS[k].value-metricTarget(k));
     for(let _i=0;_i<2;_i++)for(const id in INDICATORS)INDICATORS[id].value=INDICATORS[id].derive();
   }
+  // A SMALL BALANCE FORWARD, fixed now, eases the inherited shortfall from
+  // about $2.1B a year to BUDGET_OPEN_GAP: a little easier, still a deficit.
+  GAME.budgetFwd=0;
+  GAME.budgetFwd=+Math.max(0, BUDGET_OPEN_GAP-budgetBalance().balance).toFixed(2);
   // pre-seed lastBalance so fiscal situation severity is correct during approval calibration
   GAME.lastBalance=budgetBalance().balance;
   // APPROVAL CALIBRATION: anchor every bloc so its equilibrium at the inherited
