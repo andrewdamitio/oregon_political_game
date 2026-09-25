@@ -13508,16 +13508,23 @@ const AUS_PACE_DEFAULT=4;
 /* What carrying the phase-in's borrowing costs a year: interest and
    repayment over about five years. A slower package has to find this on
    top of the hole it closes. */
-const AUS_GLIDE_CARRY=0.25;
-function austerityPaceExtra(A){
-  if(!A||(A.pace||1)<=1)return 0;
+const AUS_GLIDE_RATE=0.05;                 // interest on what a phase-in borrows
+const AUS_PACE_SURPLUS={1:1, 4:0.6, 8:0.3}; // share of the paydown surplus a pace still needs
+/* What a pace changes about the target: the surplus it no longer needs
+   (negative), and the interest on what it borrows while it phases in. */
+function austerityPaceParts(A){
+  const p=(A&&A.pace)||1;
+  if(p<=1)return {surplusCut:0, interest:0, borrowed:0};
   const b0=A._before&&A._before.balance!=null?A._before.balance:(GAME.lastBalance||0);
-  return +(glideBorrowing(b0, A.target, A.pace)*AUS_GLIDE_CARRY).toFixed(2);
+  const borrowed=glideBorrowing(b0, A.target, p);
+  return {surplusCut:+(AUS_SURPLUS*(1-(AUS_PACE_SURPLUS[p]??1))).toFixed(2),
+          interest:+(borrowed*AUS_GLIDE_RATE).toFixed(2), borrowed};
 }
+function austerityPaceExtra(A){ const x=austerityPaceParts(A); return +(x.interest-x.surplusCut).toFixed(2); }
 function austerityNeed(A){
   const want=+(A.target+austerityPaceExtra(A)).toFixed(2);
-  // never past what the board can reach
-  return A.ceiling ? Math.min(want, Math.max(A.target, +(A.ceiling*0.97).toFixed(2))) : want;
+  // never past what the board can reach, and never below a real package
+  return clamp(want, 0.3, A.ceiling?Math.max(A.target, +(A.ceiling*0.97).toFixed(2)):want);
 }
 // Borrowing while a plan phases in: a share lands at signing and one more
 // each quarter, so quarter k after signing sees (k+1)/n of the package.
@@ -13726,7 +13733,7 @@ function drawAusterity(){
   const hbBlock=!HB?"gone":hbLive?"live":eoConflict("eoHoldback")?"conflict":(GAME.capital<hbCost&&!window.SANDBOX)?"capital":null;
   if(hbBlock)A.holdback=false;
   const hbTot=A.holdback?(HB.savings||0):0;
-  const saved=cutTot+revTot+hbTot, need=austerityNeed(A), paceExtra=+(need-A.target).toFixed(2);
+  const saved=cutTot+revTot+hbTot, need=austerityNeed(A), paceParts=austerityPaceParts(A);
   const pct=clamp(saved/need,0,1), done=saved>=need-0.001;
   let rows="";
   for(const L of AUSTERITY_LINES){
@@ -13759,7 +13766,7 @@ function drawAusterity(){
     +'<div class="aus-pace" role="radiogroup" aria-label="Pace">'+AUS_PACES.map(p=>'<button class="aus-pbtn'+(p.n===A.pace?' on':'')+'" role="radio" aria-checked="'+(p.n===A.pace)+'" data-auspace="'+p.n+'">'+(p.n===A.pace?'✓ ':'')+p.label+'</button>').join('')+'</div>'
     +'<div class="fnote" style="margin:6px 0 4px">'+(A.pace===1
       ?'Every cut and every tax lands this quarter. The borrowing stops at once, and the whole bill arrives at once: every constituency on the list takes its full hit in the same quarter.'
-      :(A.pace===4?'A quarter':'An eighth')+' of the package lands now (<b>$'+(saved/A.pace).toFixed(2)+'B</b> of it this quarter) and another share each quarter after, fully in by <b>'+turnLabel(GAME.turn+A.pace-1)+'</b>. Nobody takes the whole package at once, the anger from each share fades before the next, and the legislature makes no forced cuts on top of it while it runs. The part of the hole not yet closed is borrowed, about <b>$'+glideBorrowing(A._before&&A._before.balance!=null?A._before.balance:(GAME.lastBalance||0), Math.max(saved,A.target), A.pace).toFixed(2)+'B</b>, and carrying that debt adds <b>$'+paceExtra.toFixed(2)+'B a year</b> to what the package has to find: smaller steps, a bigger total.')
+      :(A.pace===4?'A quarter':'An eighth')+' of the package lands now (<b>$'+(saved/A.pace).toFixed(2)+'B</b> of it this quarter) and another share each quarter after, fully in by <b>'+turnLabel(GAME.turn+A.pace-1)+'</b>. Nobody takes the whole package at once, the anger from each share fades before the next, and the legislature makes no forced cuts on top of it while it runs. Paying the debt down over a longer horizon needs a thinner surplus, <b>$'+paceParts.surplusCut.toFixed(2)+'B a year</b> less. The cost: the part of the hole not yet closed is borrowed, about <b>$'+paceParts.borrowed.toFixed(2)+'B</b> more on the debt (its interest adds $'+paceParts.interest.toFixed(2)+'B a year), and the debt takes longer to clear.')
       +'</div>'
     +(HB?('<div class="ebgroup-label" style="margin-top:14px">By executive order</div>'
       +'<div class="aus-row aus-eo"><div><div class="aus-n">'+ico(HB.icon)+' <b>'+HB.name+'</b> '
