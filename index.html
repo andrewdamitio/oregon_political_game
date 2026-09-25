@@ -3207,7 +3207,7 @@ const SPENDING={
   natResources:{name:"Natural Resources & Environment", base:0.1, agencies:["odot","forestry","deq","oprd"],
     policies:["wildfireResilience","transitInvestment","bottleBill","cleanFuels","forestCarbon","outdoorRec","forestPractices","modeSplit","gasTax","vehicleReg","evFee","waterRights","renewablePortfolio","cascadiaPrep"],
     note:"DEQ, Transportation, Forestry, Parks, wildfire fund"},
-  social:{name:"Social Programs", base:0.0, agencies:[], policies:["abortion","childcareSubsidy","sexWorkDecrim","gunStorage","universalMeals","rankedChoice","rightToRepair","psilocybin","paidLeave","motorVoter","middleHousing","deathWithDignity","minWageTiers","safeConsumption"],
+  social:{name:"Social Programs", base:0.0, agencies:[], policies:["abortion","childcareSubsidy","sexWorkDecrim","gunStorage","gunControl","universalMeals","rankedChoice","rightToRepair","psilocybin","paidLeave","motorVoter","middleHousing","deathWithDignity","minWageTiers","safeConsumption"],
     note:"Reproductive health, childcare, civil programs"},
   debtAdmin:{name:"Debt Service & Administration", base:0.50, agencies:[], policies:["kickerReform","govOps"],
     note:"Bond debt service, central government"},
@@ -4725,7 +4725,7 @@ const SECTION_OF={
   rankedChoice:"pubservices", fullTimeLegislature:"pubservices", quorumReform:"pubservices",
   // law & order
   policing:"laworder", prisonRegimen:"laworder", measure11:"laworder", corrections:"laworder", judiciary:"laworder", civilCommitment:"laworder", pretrialDetention:"laworder",
-  gunStorage:"laworder", sexWorkDecrim:"laworder", cannabis:"laworder", campingPolicy:"laworder", eVerify:"laworder",
+  gunStorage:"laworder", gunControl:"laworder", sexWorkDecrim:"laworder", cannabis:"laworder", campingPolicy:"laworder", eVerify:"laworder",
   // welfare & housing
   homelessServices:"welfare", ohcs:"welfare", affordableHousing:"welfare", behavioralHealth:"welfare", childcareSubsidy:"welfare",
   paidLeave:"welfare", minWageTiers:"welfare", universalMeals:"welfare", middleHousing:"welfare", rentStabilization:"welfare",
@@ -5305,6 +5305,22 @@ const POLICIES={
       {socialist:3, liberal:3, urban:2, poor:2, conservative:-4, moderate:-3, suburban:-3, retirees:-2},
       {},
       {conservative:5, moderate:3, suburban:3, retirees:3, rural:2, blueCollar:2, socialist:-6, liberal:-5, urban:-3, students:-3, poor:-3, collegeEducated:-2, libertarian:-3}]},
+  // How strict the state is about guns. Always in force: the question is how
+  // strict, never whether there is a law. Starts at background checks, because
+  // Measure 114 passed in 2022 and has been held up in the courts since.
+  gunControl:{name:"Gun Control", domain:"social", icon:"lock", enacted:true, mechanic:"tier", noRepeal:true, phaseIn:4,
+    desc:"How strictly Oregon regulates buying and carrying firearms. Since 2015 every sale, private ones included, has needed a background check, and a concealed-carry license is shall-issue. Voters passed Measure 114 in 2022, requiring a permit and safety training to buy a gun and limiting magazines to ten rounds, but it has been tied up in the courts ever since.\n\nStricter tiers bring violent crime down a little and are popular in Portland and the suburbs. Every step tighter is felt in rural and eastern Oregon as the valley telling them how to live, and rural alienation climbs with it. Loosening does the reverse.",
+    tiers:["Permitless Carry","Background Checks","Measure 114 in Force","Assault Weapons Ban"],
+    tierIndex:1, costByTier:[0,0,0.04,0.06], capital:14,
+    effects:{},
+    tierEffects:[{violentCrime:1.5},{violentCrime:0},{violentCrime:-1},{violentCrime:-1.8}],
+    tierIndicatorEffects:[{ruralAlienation:-5},{},{ruralAlienation:5},{ruralAlienation:10}],
+    tierIdeology:[{social:0.6,govSize:0.3},{},{social:-0.5,govSize:-0.2},{social:-0.8,govSize:-0.4}],
+    tierBlocEffects:[
+      {conservative:6, rural:6, libertarian:6, timber:4, blueCollar:2, liberal:-7, urban:-5, suburban:-4, parents:-4, collegeEducated:-3, moderate:-3, retirees:-2},
+      {},
+      {liberal:5, urban:4, parents:3, collegeEducated:3, suburban:2, moderate:1, conservative:-6, rural:-6, libertarian:-7, timber:-4, blueCollar:-2},
+      {liberal:6, urban:4, socialist:2, parents:2, collegeEducated:2, suburban:-1, moderate:-3, conservative:-9, rural:-9, libertarian:-9, timber:-6, blueCollar:-4}]},
   paidLeave:{name:"Paid Leave Oregon", domain:"social", icon:"teddy", enacted:true, mechanic:"slider", phaseIn:6, repealCost:11,
     desc:"HB 2005 (2019): paid family/medical leave funded by a payroll tax (workers 60% / employers 40%), benefits since Sept. 2023. The slider sets the generosity — weeks of leave and wage replacement. More is popular with families and lifts health and equity, but raises the payroll tax and irks small employers.",
     value:0.5, costFull:0.08, capital:8,
@@ -14764,9 +14780,10 @@ const PROMISES={
   defendGunRights:{label:"Defend the Second Amendment", defensive:true, bloc:["rural","conservative","libertarian","timber"],
     criteria:[
       {label:"No new firearm-storage mandate enacted", check:()=>!(POLICIES.gunStorage&&POLICIES.gunStorage.enacted)},
+      {label:"Gun laws no stricter than background checks", check:()=>!(POLICIES.gunControl&&POLICIES.gunControl.tierIndex>1)},
       {label:"Rural alienation held down (≤ 46)", check:()=>INDICATORS.ruralAlienation.value<=46}
     ],
-    check:()=>!(POLICIES.gunStorage&&POLICIES.gunStorage.enacted) && INDICATORS.ruralAlienation.value<=46},
+    check:()=>!(POLICIES.gunStorage&&POLICIES.gunStorage.enacted) && !(POLICIES.gunControl&&POLICIES.gunControl.tierIndex>1) && INDICATORS.ruralAlienation.value<=46},
   letPeopleWork:{label:"Let people work — end the licensing cartel", bloc:["libertarian","blueCollar","poor","businessClass","rural"],
     criteria:[
       {label:"Unemployment ≤ 5.0%", check:()=>METRICS.unemployment.value<=5.0},
