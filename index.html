@@ -23251,7 +23251,7 @@ window.addEventListener("popstate",e=>{
     window._fwDepth=0; F.id=null; F.trail=[];
   } else { window._fwDepth=st.depth||0; F.id=st.fw; F.trail=(st.trail||[]).slice(); }
   if(currentView!=="board"){ currentView="board"; detailKey=null; window._boardMode="focus"; render();
-    setTimeout(()=>{ const t=document.getElementById("boardNet"); if(t)t.scrollIntoView({block:"start"}); },40); return; }
+    setTimeout(()=>{ const t=document.getElementById("bnModeBar")||document.getElementById("boardNet"); if(t)t.scrollIntoView({block:"start"}); },40); return; }
   fwRender();
 });
 /* Which view of the network the board shows: the focus web on a phone,
@@ -23261,7 +23261,7 @@ function boardNetMode(){ return window._boardMode||(tapUI()?"focus":"map"); }
 /* ---------- BOARD (main page): metrics strip + 4 domain quadrants ---------- */
 function renderBoard(){
   let h=`<div class="sectionhdr">Governing Board</div>
-    ${rulesBox(`The map links your policies and agencies to the statistics they move. ${tapUI()?"Tap a tile":"Hover a tile"} to light up its connections: <span style="color:var(--good)">green</span> helps, <span style="color:var(--clay)">red</span> hurts, arrows run from cause to effect, and thicker lines are stronger. ${tapUI()?"Tap it again to open it.":"Click to open."}`)}`;
+    ${rulesBox(`Everything you run is linked to the statistics, crises and voter groups it moves, and there are two ways to look at it. <b>Focus Chart</b> opens on an overview, then shows one thing at a time: what pushes it, what it pushes, and how strongly. Tap anything to follow the chain, and Back retraces it. It is the better view on a phone. <b>Issue Web</b> draws the whole network at once: ${tapUI()?"tap a tile":"hover a tile"} to light up its connections (<span style="color:var(--good)">green</span> helps, <span style="color:var(--clay)">red</span> hurts, arrows run from cause to effect, thicker lines are stronger) and ${tapUI()?"tap it again":"click"} to open it.`)}`;
   // ---- term / national-mood / economic-climate readouts (these live in the
   //      side panel on other views; the board hides that panel for width) ----
   h+=`<div class="board-climate">
@@ -23286,18 +23286,22 @@ function renderBoard(){
     const rank=s=>s==="cascadiaQuake"?-1:(SITUATIONS[s].category==="chronic"?0:(SITUATIONS[s].kind==="bad"?1:2));
     return rank(a)-rank(b);
   });
+  // how to show the network, above the crises so it stays put when switched
+  const netMode=boardNetMode();
+  h+=`<div class="bn-modebar" id="bnModeBar"><span class="bn-mode-k" id="bnModeK">Mode</span><div class="bn-toggle" role="tablist" aria-labelledby="bnModeK"><button role="tab" data-bnmode="focus" aria-selected="${netMode==="focus"}">Focus Chart</button><button role="tab" data-bnmode="map" aria-selected="${netMode==="map"}">Issue Web</button></div></div>`;
   if(crises.length){
     h+=`<div class="crisis-strip reveal">`;
     crises.forEach((sid,ci)=>{
       const s=SITUATIONS[sid], sitAge=GAME.situationAge[sid]||0, age=sitAge+1;
       const isNew=sitAge===0;
-      const tag = s.category==="chronic" ? "CHRONIC"
-        : s.kind==="good" ? (s.category==="event" ? "WINDFALL" : "BRIGHT SPOT")
-        : (s.category==="event" ? "EVENT" : "FLARE-UP");
+      // a lasting problem is a crisis however it started; only a temporary
+      // event (weather, a quake, a recession) passes on its own
+      const tag = s.kind==="good" ? (s.category==="event" ? "WINDFALL" : "BRIGHT SPOT")
+        : (s.category==="event" ? "EVENT" : "CRISIS");
       h+=`<div class="crisis-card ${s.kind} ${s.category}${isNew?' crisis-new':''}${sid==="cascadiaQuake"?' crisis-major':''}" data-detail="s_${sid}" style="animation-delay:${ci*45}ms">
         <div class="crisis-top"><span class="crisis-tag">${tag}</span><span class="crisis-age">${age}q</span></div>
         <div class="crisis-name">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div>
-        <div class="crisis-desc">${descHTML(s.desc)}</div>
+        <div class="crisis-desc">${descHTML(sitStory(s))}</div>
       </div>`;
     });
     h+=`</div>`;
@@ -23525,9 +23529,7 @@ function renderBoard(){
   kh+=`</div>`;
   h+=kh;
   // the network: the focus web, or the whole map
-  const netMode=boardNetMode();
   h+=`<div class="board-net" id="boardNet" data-mode="${netMode}">`
-    +`<div class="bn-modebar"><span class="bn-mode-k" id="bnModeK">Mode</span><div class="bn-toggle" role="tablist" aria-labelledby="bnModeK"><button role="tab" data-bnmode="focus" aria-selected="${netMode==="focus"}">Focus Chart</button><button role="tab" data-bnmode="map" aria-selected="${netMode==="map"}">Issue Web</button></div></div>`
     +`<div class="bn-focus" id="focusWeb"></div><div class="bn-map">`;
   // legend for the graph node types — sits between the key metrics and the map
   h+=`<div class="boardlegend">
@@ -23548,7 +23550,7 @@ function renderBoard(){
     // both views are already on the page (the map scales to its width), so
     // switching is just showing the other one: nothing redraws or replays
     const bn=document.getElementById("boardNet"); bn.dataset.mode=b.dataset.bnmode;
-    bn.querySelectorAll("[data-bnmode]").forEach(x=>x.setAttribute("aria-selected",x.dataset.bnmode===b.dataset.bnmode));
+    main.querySelectorAll("[data-bnmode]").forEach(x=>x.setAttribute("aria-selected",x.dataset.bnmode===b.dataset.bnmode));
     main.classList.toggle("net-focus", b.dataset.bnmode==="focus");
   }));
   {const bs=document.getElementById("boardSeed"); if(bs)bs.addEventListener("click",()=>copySeedLink(bs));}
@@ -24225,7 +24227,8 @@ function renderDetail(){
     }
   } else if(key.startsWith("s_")){
     const sid=key.slice(2), s=SITUATIONS[sid], age=GAME.situationAge[sid]||0;
-    const catLabel=s.category==="chronic"?"Chronic state condition":s.category==="event"?"Random event":"Triggered by conditions";
+    // what matters is whether it passes on its own, not how it began
+    const catLabel=s.category==="event"?"Temporary event":"Lasts until resolved";
     // positive situations aren't crises — soften the language on their detail page
     const sGood=s.kind==="good";
     const sMoveHdr=sGood?"What's holding this bright spot up — or eroding it":"What's improving or worsening this crisis";
@@ -24586,7 +24589,7 @@ function renderDetail(){
     currentView=detailHome().view; detailKey=null;
     try{render();}catch(err){ try{renderBoard();renderHUD();renderSidebar();}catch(e2){} }
     // land on the issue web, not scrolled up past the crisis strip and key metrics
-    setTimeout(()=>{ const t=document.getElementById('boardNet')||document.querySelector('.boardlegend')||document.querySelector('.boardgraph');
+    setTimeout(()=>{ const t=document.getElementById('bnModeBar')||document.getElementById('boardNet')||document.querySelector('.boardlegend')||document.querySelector('.boardgraph');
       if(t)try{ t.scrollIntoView({block:"start",behavior:"auto"}); }catch(e){} },40);
   };
   const doUndo=()=>{
