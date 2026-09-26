@@ -487,6 +487,12 @@
   .cf-live{font-size:12.5px;color:var(--moss);display:flex;align-items:center;gap:5px}
   .cf-live .ico{width:13px;height:13px}
   .cf-dorm{font-size:12.5px;color:var(--muted-3);align-self:center}
+  .cf-chairs{font-size:12.5px;border-top:1px dashed var(--line);padding-top:5px}
+  .cf-ch-h{color:var(--muted-2);margin-bottom:2px}
+  .cf-ch{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0}
+  .cf-ch i{color:var(--muted-3);margin-left:6px;font-style:normal}
+  .cf-chbtn{font:inherit;font-size:12px;padding:2px 9px;border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:var(--radius);cursor:pointer;white-space:nowrap}
+  .cf-chbtn:hover{border-color:var(--ink)}
   .cfac .fcard-btn{margin-top:2px}
   .cch{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 8px}
   .cch button{font:inherit;font-size:13px;padding:4px 12px;border:1px solid var(--line);background:var(--paper-2);color:var(--ink);border-radius:var(--radius);cursor:pointer}
@@ -7743,6 +7749,7 @@ function apptNominate(postId, idx, cushion){
     since:(cand.side==="incumbent"&&cand.since!=null)?cand.since:GAME.turn,
     term:GAME.turn+12+Math.floor(Math.random()*8)};
   delete GAME.apptVacancies[postId];
+  if(GAME.caucusWant&&GAME.caucusWant.post===postId)GAME.caucusWant=null;
   apptCompassShift(cand);          // staffing the state is part of the record
   GAME.log.push(ico(post.icon)+" "+cand.name+" confirmed to "+apptPostLabel(postId)+" ("+(APPT_TRAITS[cand.trait]||{}).label+")");
   showApptResult({ok:true, name:cand.name, post:apptPostLabel(postId), w,
@@ -19522,6 +19529,7 @@ function caucusSync(){
       if(spl&&spl[ch].has(id)){ delete C.m[key]; continue; }
       const p=held.has(id)?"mine":"opp", old=C.m[key];
       if(old&&old.p===p)continue;
+      if(old&&old.switched!=null&&p==="opp"){ old.p="opp"; continue; }
       const lean=row[3]!=null?row[3]:50, left=caucusMyLetter()==="D";
       const m={p, ch, id, n:apptName(), g:0, since:GAME.turn, r:caucusRegionalFor(ch,id,row[1]),
         // a member holding a seat that leans the other way answers to it first
@@ -19629,6 +19637,7 @@ function caucusTick(){
     m.g=(m.g||0)*0.8; if(Math.abs(m.g)<0.3)m.g=0;
     m.L=clamp(m.L+(caucusTarget(m,k)-m.L)*0.35,0,100); }
   caucusControlCalc();
+  caucusDefections();
   for(const f of caucusFactionIds("mine")){
     const st=caucusFactionStats(f);
     if(st.n>=3&&st.avg<40&&(C.warned[f]||-99)<GAME.turn-4){
@@ -19636,6 +19645,26 @@ function caucusTick(){
       GAME.log.push(ico('warning')+" The "+FACTIONS[f].name+" are in revolt: "+st.n+" members, average loyalty "+Math.round(st.avg)+". See Party Loyalty.");
     }
   }
+}
+/* CROSSING THE FLOOR. Very rare, and only a member who is livid: loyalty
+   under CAUCUS_LIVID. The seat goes with them, so the chamber count moves. */
+const CAUCUS_LIVID=12, CAUCUS_SWITCH_P=0.035;
+function caucusDefections(){
+  const C=GAME.caucus, Lg=GAME.legis; if(!C||!Lg||prOn())return;
+  for(const k in C.m){ const m=C.m[k];
+    if(m.p!=="mine"||m.L>=CAUCUS_LIVID)continue;
+    if(Math.random()>=CAUCUS_SWITCH_P*(1+(CAUCUS_LIVID-m.L)/CAUCUS_LIVID))continue;
+    const sen=m.ch==="senate";
+    const arr=sen?"sHeld":"hHeld";
+    if(!Array.isArray(Lg[arr]))Lg[arr]=[...caucusHeld(m.ch)];
+    Lg[arr]=Lg[arr].filter(id=>id!==m.id);
+    if(sen)Lg.senate=Math.max(0,(Lg.senate||0)-1); else Lg.house=Math.max(0,(Lg.house||0)-1);
+    const f=m.f?FACTIONS[m.f].name:null;
+    m.p="opp"; m.f=null; m.x=false; m.g=0; m.L=4; m.switched=GAME.turn;
+    caucusAssign(m,caucusRow(k));
+    GAME.log.push(ico('warning')+" "+caucusTitle(k)+" ("+caucusPlace(m.ch,m.id)+(f?", "+f:"")+") has left your party and will sit with the "+oppPartyPlural()+". "+(sen?"Senate":"House")+" now "+(sen?Lg.senate+"/30":Lg.house+"/60")+".");
+  }
+  caucusControlCalc();
 }
 function caucusFactionIds(side){
   const L=side==="mine"?caucusMyLetter():(caucusMyLetter()==="D"?"R":"D");
@@ -19654,12 +19683,14 @@ function caucusFactionStats(f){
 /* District projects: a road, a water system, a campus building, paid for
    out of the General Fund for two years. */
 const CAUCUS_PROJ_Q=8;
+// what the rest of your bench holds against a project that was not theirs
+const CAUCUS_STING_ONE=1, CAUCUS_STING_FAC=3, CAUCUS_STING_OPP=2;
 function caucusProjectCost(target){
   if(target.startsWith("f:")){
     const n=caucusFactionMembers(target.slice(2)).length;
-    return {amt:+clamp(0.02*n,0.05,0.2).toFixed(2), cap:Math.round(2+n*0.35), boost:14, n};
+    return {amt:+clamp(0.02*n,0.05,0.2).toFixed(2), boost:14, n};
   }
-  return {amt:0.05, cap:2, boost:20, n:1};
+  return {amt:0.05, boost:20, n:1};
 }
 function caucusProjectSpend(){
   return ((GAME.caucus&&GAME.caucus.proj)||[]).filter(p=>p.until>GAME.turn).reduce((a,p)=>a+p.amt,0);
@@ -19668,15 +19699,56 @@ function caucusFund(target){
   caucusSync();
   const C=GAME.caucus, c=caucusProjectCost(target);
   if(C.proj.some(p=>p.k===target&&p.until>GAME.turn))return;
-  if(!window.SANDBOX&&GAME.capital<c.cap){ GAME.log.push("✗ Not enough capital for a district project"); render(); return; }
-  GAME.capital-=c.cap;
   const keys=target.startsWith("f:")?caucusFactionMembers(target.slice(2)):[target];
-  C.proj.push({k:target, keys, amt:c.amt, boost:c.boost, cap:c.cap, t0:GAME.turn, until:GAME.turn+CAUCUS_PROJ_Q});
+  C.proj.push({k:target, keys, amt:c.amt, boost:c.boost, t0:GAME.turn, until:GAME.turn+CAUCUS_PROJ_Q});
   keys.forEach(k=>{ const m=C.m[k]; if(m)m.L=clamp(m.L+c.boost*0.4,0,100); });
+  // EVERYBODY ELSE NOTICES. Money for one faction is money the rest of your
+  // bench did not get; money for the other party is worse.
+  const pick=new Set(keys), toOpp=keys.some(k=>C.m[k]&&C.m[k].p==="opp");
+  const sting=toOpp?CAUCUS_STING_OPP:(target.startsWith("f:")?CAUCUS_STING_FAC:CAUCUS_STING_ONE);
+  for(const k in C.m){ const m=C.m[k]; if(m.p!=="mine"||pick.has(k))continue;
+    m.g=clamp((m.g||0)-sting,-30,30); m.L=clamp(m.L-sting*0.5,0,100); }
   caucusControlCalc();
   const who=target.startsWith("f:")?"the "+FACTIONS[target.slice(2)].name+"' districts":caucusTitle(target)+"'s district";
-  GAME.log.push(ico('houses')+" District projects for "+who+": $"+c.amt.toFixed(2)+"B a year for two years, ◈"+c.cap);
+  GAME.log.push(ico('houses')+" District projects for "+who+": $"+c.amt.toFixed(2)+"B a year for two years"
+    +(toOpp?". Your own members resent it.":". The rest of your bench noticed."));
   render();
+}
+/* The chairs a faction's base can fill: the posts whose pool includes one of
+   its groups, removable ones first. */
+function caucusChairs(fid){
+  const F=FACTIONS[fid]; if(!F)return [];
+  return Object.keys(APPT_POSTS).filter(pid=>APPT_POSTS[pid].pool.some(g=>F.base.includes(g)))
+    .map(pid=>{ const h=apptHolder(pid);
+      return {pid, h, theirs:!!(h&&h.side!=="sitting"&&F.base.includes(h.group)), vacant:!h, canRm:!h||apptCanRemove(pid)}; })
+    .sort((a,b)=>(b.vacant-a.vacant)||(b.canRm-a.canRm)||(a.theirs-b.theirs));
+}
+function caucusChairsHTML(fid,mine){
+  const ch=caucusChairs(fid).filter(c=>c.canRm&&!c.theirs).slice(0,3);
+  if(!ch.length)return "";
+  return `<div class="cf-chairs"><div class="cf-ch-h">Chairs their base could fill${mine?"":" with a cross-aisle pick"}</div>`
+    +ch.map(c=>{ const cost=c.vacant?0:apptRemoveCost(c.pid);
+      return `<div class="cf-ch"><span>${APPT_POSTS[c.pid].name}<i>${c.vacant?"vacant":c.h.name}</i></span>`
+        +`<button class="cf-chbtn" data-cchair="${c.pid}:${fid}">${c.vacant?"Fill":"Replace"+(cost?" · ◈"+cost:"")}</button></div>`; }).join("")+`</div>`;
+}
+/* Make sure a slate carries somebody from a faction's base: your own nominee
+   for your party's factions, the cross-aisle one for theirs. */
+function caucusSteerSlate(postId,fid){
+  const F=FACTIONS[fid], post=APPT_POSTS[postId]; if(!F||!post)return;
+  const v=GAME.apptVacancies&&GAME.apptVacancies[postId]; if(!v||!Array.isArray(v.slate))return;
+  const groups=post.pool.filter(g=>F.base.includes(g)); if(!groups.length)return;
+  const mine=F.party===caucusMyLetter(), side=mine?"yours":"opposition";
+  if(v.slate.some(c=>c.side===side&&groups.includes(c.group)))return;
+  let c=v.slate.find(x=>x.side===side);
+  if(!c){ c=apptMakeCandidate(postId,side); v.slate.push(c); }
+  c.group=groups[Math.floor(Math.random()*groups.length)];
+  if(c.foe===c.group)c.foe=post.foes.find(f=>f!==c.group)||null;
+  if(side==="opposition")c.oppParty=apptOppositionParty(c.group);
+}
+function caucusOpenChair(postId,fid){
+  GAME.caucusWant={post:postId, fid};
+  if(!apptHolder(postId)){ apptSlate(postId); caucusSteerSlate(postId,fid); }
+  openApptPanel(postId);
 }
 function caucusTitle(key){ const m=GAME.caucus&&GAME.caucus.m[key]; return m?(m.ch==="house"?"Rep. ":"Sen. ")+m.n:key; }
 /* The row an appointee comparison adds: which factions this nominee wins. */
@@ -19717,7 +19789,9 @@ function renderCaucus(){
     <p>Each faction wants some laws moved one way and others the other. Passing what it wants raises its members' loyalty and passing what it opposes lowers it, fading over about a year. How far those laws sit from where they stood when you took office adds a lasting lean on top. On the floor a faction member also votes its demands, so a bill a faction hates costs you votes in it even from loyal members.</p>
     <p>Some grievances belong to the seat, whichever party holds it. Suburban seats dislike middle housing, rural seats dislike gun laws and fuel taxes, timber seats dislike forest rules, and Clackamas seats remember tolling. A member holding a seat that leans the other way starts 5 points less loyal, because the district comes first.</p>
     <p>Party control is the average loyalty of your own members. Below about 60, more members drift into factions; above about 75, factions shrink to their core.</p>
-    <p>A district project costs $0.05B a year and ◈2 for two years and adds 20 to one member's loyalty while it runs. A faction package covers every member of a faction for up to $0.2B a year and adds 14. Each appointee you choose from a faction's base adds 7 to it, up to 14; holdovers from the last administration count for nothing. The other party's members carry a warmth toward you instead, starting at ${CAUCUS_WARM0}: projects and cross-aisle appointees raise it, and a warm member carries less of their party's discipline, so they cross over on bills they already half like.</p>
+    <p>A district project costs $0.05B a year for two years and adds 20 to one member's loyalty while it runs. A faction package covers every member of a faction for up to $0.2B a year and adds 14. Neither costs capital, but the rest of your bench notices: every other member of your party loses ${CAUCUS_STING_ONE} for a single project and ${CAUCUS_STING_FAC} for a faction package, and courting the other party costs your whole bench ${CAUCUS_STING_OPP}. All of it fades over about a year.</p>
+    <p>Each appointee you choose from a faction's base adds 7 to it, up to 14; holdovers from the last administration count for nothing. A faction card lists the chairs its base can fill, and you can replace the holder at any time for the usual removal cost. The new slate then includes somebody from that base.</p>
+    <p>A member whose loyalty falls below ${CAUCUS_LIVID} is livid, and a livid member may cross the floor. It is rare, a few per cent a quarter for each livid member, and the seat goes with them. The other party's members carry a warmth toward you instead, starting at ${CAUCUS_WARM0}: projects and cross-aisle appointees raise it, and a warm member carries less of their party's discipline, so they cross over on bills they already half like.</p>
   </div></details>`;
   // the scoreboard
   const mineN={h:0,s:0}; for(const k in C.m){ if(C.m[k].p==="mine")mineN[k[0]]++; }
@@ -19736,7 +19810,7 @@ function renderCaucus(){
   if(revolt.length){
     h+=`<div class="aneeds"><div class="an-h">${ico('warning')} Needs you</div>`;
     revolt.forEach(x=>{ const c=caucusProjectCost("f:"+x.f), on=C.proj.some(p=>p.k==="f:"+x.f&&p.until>GAME.turn);
-      h+=`<div class="an-row"><span>The ${FACTIONS[x.f].name} are in revolt: ${x.st.n} members at an average loyalty of ${Math.round(x.st.avg)}.</span>${on?`<span class="cf-live">Package running</span>`:`<button class="fcard-btn" data-cfund="f:${x.f}">Fund their districts · $${c.amt.toFixed(2)}B · ◈${c.cap}</button>`}</div>`; });
+      h+=`<div class="an-row"><span>The ${FACTIONS[x.f].name} are in revolt: ${x.st.n} members at an average loyalty of ${Math.round(x.st.avg)}.</span>${on?`<span class="cf-live">Package running</span>`:`<button class="fcard-btn" data-cfund="f:${x.f}">Fund their districts · $${c.amt.toFixed(2)}B/yr</button>`}</div>`; });
     h+=`</div>`;
   }
   // factions
@@ -19759,15 +19833,16 @@ function renderCaucus(){
         <div class="cf-blurb">${F.blurb}</div>
         <ul class="cf-dem">${parts.map(o=>caucusDemLi(o,mine)).join("")}</ul>
         <div class="cf-pat">${pats.length?`Appointees from their base: ${pats.join(", ")}${appt?" (+"+appt+")":""}.`:`No appointee from their base (${baseNames}) yet.`}</div>
+        ${caucusChairsHTML(f,mine)}
         ${on?`<div class="cf-live">${ico('houses')} Projects in their districts for ${on.until-GAME.turn} more quarter${on.until-GAME.turn===1?"":"s"}</div>`
-            :`<div><button class="fcard-btn" data-cfund="f:${f}">${mine?"Fund their districts":"Court them"} · $${c.amt.toFixed(2)}B/yr · ◈${c.cap}</button></div>`}
+            :`<div><button class="fcard-btn" data-cfund="f:${f}">${mine?"Fund their districts":"Court them"} · $${c.amt.toFixed(2)}B/yr</button></div>`}
       </div>`;
     });
     if(dormant.length)out+=`<div class="cf-dorm">No members right now: ${dormant.join(", ")}.</div>`;
     return out;
   };
-  h+=`<div class="aarea">Your party's factions</div><div class="cfacs">${facCards("mine")}</div>`;
-  h+=`<div class="aarea">${oppPartyPlural()}: factions you could court</div><div class="cfacs">${facCards("opp")}</div>`;
+  h+=`<div class="aarea">${myPartyName()} factions · your party</div><div class="cfacs">${facCards("mine")}</div>`;
+  h+=`<div class="aarea">${oppPartyName()} factions · the opposition, yours to court</div><div class="cfacs">${facCards("opp")}</div>`;
   // the map and one member
   const rows=ch==="senate"?OR_SENATE_DISTRICTS:OR_HOUSE_DISTRICTS, tag=ch==="senate"?"s":"h";
   let sel=window._caucusSel&&C.m[window._caucusSel]&&window._caucusSel[0]===tag?window._caucusSel:null;
@@ -19792,6 +19867,7 @@ function renderCaucus(){
   main.querySelectorAll("[data-cseat]").forEach(p=>p.addEventListener("click",()=>{ window._caucusSel=p.dataset.cseat; render(); }));
   main.querySelectorAll("[data-cfac]").forEach(c=>c.addEventListener("click",ev=>{ if(ev.target.closest("button"))return; const f=c.dataset.cfac; window._caucusFac=window._caucusFac===f?null:f; render(); }));
   main.querySelectorAll("[data-cfacoff]").forEach(b=>b.addEventListener("click",()=>{ window._caucusFac=null; render(); }));
+  main.querySelectorAll("[data-cchair]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation(); const [p,f]=b.dataset.cchair.split(":"); caucusOpenChair(p,f); }));
 }
 function caucusMemberCard(k){
   const C=GAME.caucus, m=C.m[k]; if(!m)return "";
@@ -19804,11 +19880,11 @@ function caucusMemberCard(k){
   let h=`<div class="cmem"><div class="cm-h">${caucusTitle(k)}</div>
     <div class="cm-sub">${m.ch==="house"?"House District":"Senate District"} ${m.id}, ${caucusPlace(m.ch,m.id)} · ${party} · seat ${Math.round(lean)}% progressive</div>
     <div class="cf-bar">${mine?"Loyalty":"Warmth"} ${Math.round(m.L)} ${caucusMeter(m.L,caucusColor(m))}</div>
-    <div>${F?`Member of the <b>${F.name}</b>.`:(mine?"No faction: votes with the caucus.":"No faction: votes with their party.")}${m.x?" Holds a seat that leans the other way, so the district comes first.":""}</div>`;
+    <div>${F?`Member of the <b>${F.name}</b>.`:(mine?"No faction: votes with the caucus.":"No faction: votes with their party.")}${m.x?" Holds a seat that leans the other way, so the district comes first.":""}${m.switched!=null?` Crossed the floor from your party.`:""}${mine&&m.L<CAUCUS_LIVID?` <b style="color:var(--clay)">Livid: could cross the floor.</b>`:""}</div>`;
   if(g)h+=`<div class="cm-sub">${g<0?"Still angry about a recent vote":"Still pleased by a recent vote"} (${g>0?"+":""}${g}).</div>`;
   if(parts.length)h+=`<ul class="cf-dem">${parts.map(o=>caucusDemLi(o,mine)).join("")}</ul>`;
   if(on.length)h+=`<div class="cf-live">${ico('houses')} Projects in this district for ${Math.max(...on.map(p=>p.until))-GAME.turn} more quarters</div>`;
-  if(!own)h+=`<div><button class="fcard-btn" data-cfund="${k}">${mine?"District project":"Court with a project"} · $${c.amt.toFixed(2)}B/yr · ◈${c.cap}</button></div>`;
+  if(!own)h+=`<div><button class="fcard-btn" data-cfund="${k}">${mine?"District project":"Court with a project"} · $${c.amt.toFixed(2)}B/yr</button></div>`;
   return h+`</div>`;
 }
 function caucusLowList(tag){
@@ -26927,7 +27003,8 @@ function openApptPanel(id){
     close(); showApptFloor(pid,+idx);        // the room, before the name goes up
   }));
   card.querySelectorAll('[data-apptrm]').forEach(el=>el.addEventListener('click',e=>{
-    const pid=e.currentTarget.dataset.apptrm; close(); apptRemove(pid);
+    const pid=e.currentTarget.dataset.apptrm; close();
+    if(apptRemove(pid)&&GAME.caucusWant&&GAME.caucusWant.post===pid){ apptSlate(pid); caucusSteerSlate(pid,GAME.caucusWant.fid); openApptPanel(pid); }
   }));
 }
 function renderAppointments(){
