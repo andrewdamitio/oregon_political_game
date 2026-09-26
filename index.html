@@ -2763,9 +2763,9 @@
     <div class="railhdr">Govern</div>
     <button class="active" data-view="board">Governing Board</button>
     <button data-view="policies">New Policies</button>
+    <button data-view="caucus">Legislators</button>
     <button data-view="execorders">Executive Orders</button>
     <button data-view="appointments">Appointments</button>
-    <button data-view="caucus">Legislators</button>
     <button data-view="voters">Voters</button>
     <button data-view="budget">Budget &amp; Funds</button>
     <button data-view="camphq">Campaign HQ</button>
@@ -15394,6 +15394,10 @@ const PROMISE_LEG={kept:6, partial:1, broken:-8, abandoned:-4, revised:-1.5};
 const PROMISE_LEG_WORD={kept:"Kept your promise", partial:"Partial progress on your promise", broken:"Broke your promise",
   abandoned:"Abandoned your promise", revised:"Dropped your promise at the midterm"};
 function caucusPromiseEffect(pr,outcome){
+  // under PR there are no districts: your party and your partners feel it as benches
+  if(prOn()&&pr&&PROMISE_LEG[outcome]){ prEnsure(); const a=PROMISE_LEG[outcome]*0.5, gov=new Set([prMyParty()].concat(coalitionPartners()));
+    let k=0; for(const m of prSeated()){ if(!gov.has(m.party))continue; m.g=clamp((m.g||0)+a,-20,20); caucusNote(m,"_pr_"+pr.id+outcome,PROMISE_LEG_WORD[outcome]+": "+pr.label,a); m.L=clamp(m.L+a*0.4,0,100); k++; }
+    if(k)GAME.log.push(ico('people')+" Your government's benches took note: "+PROMISE_LEG_WORD[outcome].toLowerCase()+", "+pr.label+"."); return; }
   if(prOn()||!GAME.caucus||!pr)return;
   const a=PROMISE_LEG[outcome]; if(!a)return;
   const groups=new Set(pr.bloc), C=GAME.caucus; let hit=0;
@@ -16373,6 +16377,8 @@ function showExecOrderEvent(ev, next){
    every House seat, half the Senate, and every measure that qualified. It gets
    the same full-screen treatment as a general election because it decides the
    same thing — what you can still pass for the rest of the term. */
+/* Is this quarter's start sequence already running (and so showing the report)? */
+function midtermSeqLive(){ const B=GAME.briefing; return !!(B&&B.steps&&B.turn===GAME.turn&&B.pos<B.steps.length); }
 function showMidterm(m){
   const card=document.getElementById("midtermCard");
   const L=m.legis||{after:{senate:GAME.legis.senate,house:GAME.legis.house},
@@ -16432,14 +16438,16 @@ function showMidterm(m){
     modal.classList.add("hidden");
     modal.classList.remove("grand");
     document.removeEventListener("keydown",onKey,true);
-    if(!GAME.skipReport)showQuarterReport();
+    // the quarter's own sequence already opens with the report; opening it
+    // again here replaced its handler and dropped every step queued after it
+    if(!GAME.skipReport&&!midtermSeqLive())showQuarterReport();
   };
   const onKey=(e)=>{ if(modal.classList.contains("hidden"))return;
     if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
   document.getElementById("midtermContinue").onclick=done;
   const mr=document.getElementById("midtermRevise");
   if(mr)mr.onclick=()=>{ modal.classList.add("hidden"); modal.classList.remove("grand"); document.removeEventListener("keydown",onKey,true);
-    showPlatformModal({revise:true, after:()=>{ if(!GAME.skipReport)showQuarterReport(); }}); };
+    showPlatformModal({revise:true, after:()=>{ if(!GAME.skipReport&&!midtermSeqLive())showQuarterReport(); }}); };
   document.addEventListener("keydown",onKey,true);
   setTimeout(()=>{try{document.getElementById("midtermContinue").focus({preventScroll:true});}catch(e){try{document.getElementById("midtermContinue").focus();}catch(_){}}},30);
 }
@@ -19966,21 +19974,38 @@ function caucusLoyMult(L){ const nm=(GAME.caucus&&GAME.caucus.norm)||1; return c
 function caucusCourtMult(L){ const nm=(GAME.caucus&&GAME.caucus.normOpp)||1; return clamp(caucusLoyMultRaw(L)/nm,0.25,1.4); }
 /* A member in an angry faction votes against your bills as a bloc. */
 function caucusBloc(m){ return (m&&m.p==="mine"&&m.f)?-1.0:0; }
-/* HOW ANGER VOTES. 0 until a member is six points above the anger line, 1
-   at thirty below it. The first thing to go is a tax increase: nobody angry
-   at their governor takes that vote for them. Past about a third of the way,
-   they start voting with the other party on the issues they care little
-   about, and by the end on most things. */
-function caucusAnger(m){ return (m&&m.p==="mine")?clamp((caucusAngryAt()+6-m.L)/36,0,1):0; }
+/* HOW ANGER VOTES, as a ramp rather than a switch. 0 at sixteen points above
+   the anger line, 1 at thirty below it, rising steadily between. Reluctance
+   on a tax increase grows with it from the start, with a small extra step
+   once a member is actually angry; the drift toward the other party on
+   issues they care little about grows with it too, faster the less they
+   care. The other party's members drift toward you the same way as their
+   loyalty to their own party falls, at a little over half the rate. */
+function caucusAnger(m){
+  if(!m)return 0;
+  if(m.p==="mine")return clamp((caucusAngryAt()+16-m.L)/46,0,1);
+  return clamp((caucusOppOdds(m)+16-m.L)/46,0,1)*0.6;
+}
+/* WHIPPING BY LOYALTY, against where the member started. On your side, each
+   point of loyalty lost makes the whip 1% dearer and shortens its reach; a
+   member who is loyal takes it against their own view, and cheaply. On the
+   other side, loyalty to their own party makes them dearer, and a member
+   who has drifted from it is cheaper and within reach. */
+function caucusWhipTerms(m,side){
+  if(!m||m.L==null)return {f:1, reach:1};
+  const base=m.party!==undefined?prBase(m):caucusBase(m), d=m.L-base;
+  return side ? {f:clamp(1-d/100,0.6,1.5), reach:clamp(1+d/150,0.6,1.2)}
+              : {f:clamp(1+d/150,0.7,1.25), reach:clamp(1-d/150,0.8,1.3)};
+}
 function caucusTaxUp(pol,dir){ return dir!=="repeal"&&(pol.taxDir==="burden"||billNeedsSuper(pol)); }
 function caucusAngerVote(m,pol,dir,ctx){
   const a=caucusAnger(m); if(!a)return 0;
   let v=0;
-  if(caucusTaxUp(pol,dir))v-=3.5*clamp(a*3,0,1);
-  const turn=Math.max(0,a-0.3)/0.7; if(!turn)return v;
+  if(m.p==="mine"&&caucusTaxUp(pol,dir))v-=3.2*a+(m.L<caucusAngryAt()?0.8:0);
+  const turn=a;
   const pl=caucusPartyOf(m)==="D"?1:-1, d=ctx&&ctx.demand, list=d&&_issueOf[d.pid];
   if(list){ for(const [i,dirI] of list){ const vv=m.v&&m.v[i]; if(!vv||ISSUES[i].partisan===false)continue;
-      const w=vv.int<1?1:0.3;
+      const w=vv.int<1?Math.pow(turn,0.3):0.3;   // what they care little about goes first
       v+=(-pl-vv.pos)*turn*w*vv.int*dirI*d.delta*FACTION_VOTE; } }
   else { const push=billPush(pol,dir); v+=(pl>0?push:-push)*turn*BILL_IDEO*0.6; }
   return v;
@@ -19988,8 +20013,8 @@ function caucusAngerVote(m,pol,dir,ctx){
 function caucusVoteLine(m){
   if(m.p!=="mine")return "";
   const a=caucusAnger(m), other=oppPartyPlural();
-  if(!a)return "A reliable vote.";
-  if(a<0.3)return "No longer a reliable vote on a tax increase.";
+  if(a<0.1)return "A reliable vote.";
+  if(a<0.35)return "Wavering on tax increases; otherwise with you.";
   if(a<0.7)return "Unreliable on taxes, and voting with the "+other+" on issues they care little about.";
   return "Voting with the "+other+" on most things.";
 }
@@ -20190,7 +20215,10 @@ function caucusNewsTitle(N){
   if(n("dropped"))return n("dropped")+" of your members became less loyal";
   if(n("broken"))return "The "+caucusFactionName(N.broken[0])+" has broken up";
   if(n("flash"))return "The "+oppPartyPlural()+" are fighting among themselves";
-  return n("wavering")+" "+oppPartyName()+" member"+(n("wavering")===1?" is":"s are")+" wavering";
+  if(n("retired"))return n("retired")+" of your members retired";
+  if(n("flash"))return "The "+oppPartyPlural()+" are fighting among themselves";
+  if(n("wavering"))return n("wavering")+" "+oppPartyName()+" member"+(n("wavering")===1?" is":"s are")+" wavering";
+  return "Your party this quarter";
 }
 function showCaucusNews(news,next){
   const card=document.getElementById("caucusNewsCard"), modal=document.getElementById("caucusNewsModal");
@@ -20726,7 +20754,7 @@ function renderCaucus(){
     <p>Loyalty, from 0 to 100, sets how hard your whip can lean on a member. Members start loyal: 92 in a safe seat, down to 66 in the most marginal. At ${CAUCUS_START} a member votes with the caucus as the flat discipline used to; at 50 their party vote counts for about three-quarters as much, at 30 a little over half, and at 95 a little more. On the floor a member also votes their breaks, so a gun bill loses rural members of your own party whatever their loyalty.</p>
     <p>Loyalty drifts toward a target you can see in each member's file: how safe their seat is, where their issues have gone since you took office, your recent stances that pleased or angered them, whether a law or a decision like tolling (fading over about a year), district projects, and appointees.</p>
     <p>An appointee pleases each of your members whose district is made of the group they come from (+3, up to +9) and angers each whose district is made of the group they are against (−3, up to −9). Holdovers from the last administration count for nothing. The nomination screen shows how many members each nominee pleases and angers and which factions back or oppose them, and a faction card lists the chairs its districts' groups could fill.</p>
-    <p>A member counts as angry below about 47, or higher when your party control slips. Three or more angry members of the same chamber with the same grievance form a faction, which votes against your bills as a bloc until its members calm down. Anger also changes how a member votes. A few points above the anger line they stop being a reliable vote on a tax increase; well below it they start voting with the other party on issues they care little about, and at their angriest on most things. A member below ${CAUCUS_LIVID} is livid and may, rarely, cross the floor, taking the seat.</p>
+    <p>A member counts as angry below about 47, or higher when your party control slips. Three or more angry members of the same chamber with the same grievance form a faction, which votes against your bills as a bloc until its members calm down. Anger also changes how a member votes, and it builds gradually rather than switching on: from about sixteen points above the anger line a member grows steadily more reluctant on tax increases and drifts toward the other party on issues they care little about, and at their angriest they vote with the other party on most things. The whip works through loyalty too: a loyal member can be whipped cheaply even against their own view, while a disloyal one costs more and eventually cannot be bought. The other party's members drift toward you, and come within the whip's reach, as their loyalty to their own party falls. A member below ${CAUCUS_LIVID} is livid and may, rarely, cross the floor, taking the seat.</p>
     <p>Not every angry member joins a faction: some band together, others stay angry on their own. Against any angry member of your own party you can back a primary challenger for ◈1 at a time. The first ◈ gives the challenger a 20% chance, each one after adds to it, and it never passes 90%. The member knows once you start and resents it, and resents it far more if they survive. It is decided when their seat is next on the ballot; a winner starts loyal and owes you the seat.</p>
     <p>A district project costs $0.05B a year for two years and adds 20 to a member's loyalty; a faction package covers every member of a faction for up to $0.2B a year and adds 14. Neither costs capital, but every other member of your party loses ${CAUCUS_STING_ONE} for a single project and ${CAUCUS_STING_FAC} for a faction package, and courting the other party costs your whole bench ${CAUCUS_STING_OPP}.</p>
     <p>The other party has fights of its own. Now and then its leadership whips its members against their districts on an issue, and members at odds with their party form factions of their own, which carry a quarter less of their party's discipline against you. It happens whatever you do.</p>
@@ -21283,13 +21311,15 @@ function floorMembers(chamber, pol, dir, ctx){
     // partner is neither your caucus nor the opposition.
     // what their faction and their district want done with this law
     const stance=(cm&&ctx.demand)?caucusStance(cm,ctx.demand.pid)*ctx.demand.delta*FACTION_VOTE:0;
-    const incl=verdict+loyal-owed*3.2+deal+stance+(cm&&mine?caucusBloc(cm)+caucusAngerVote(cm,pol,dir,ctx):0)+(pm&&pm.party!=="ind"?prFloorTerm(pm,pol,dir,ctx,mine,ally):0)
+    const incl=verdict+loyal-owed*3.2+deal+stance+(cm?(mine?caucusBloc(cm):0)+caucusAngerVote(cm,pol,dir,ctx):0)+(pm&&pm.party!=="ind"?prFloorTerm(pm,pol,dir,ctx,mine,ally):0)
       +(ctx.ease?ctx.ease(mine,{ally,ctr,id}):0)
       +(ctx.supportW||0)*(support-50)*(mine?1:0.35);
     const marginal=1-clamp(Math.abs(support-50)/22,0,1);       // 1 = knife-edge
-    const resist=Math.max(0.4,VOTE_PROMISE-incl)*(0.55+0.95*marginal)*0.42;
+    // what the whip costs, and how far it reaches, depends on their loyalty
+    const wt=caucusWhipTerms(cm||pm, mine||ally);
+    const resist=Math.max(0.4,VOTE_PROMISE-incl)*(0.55+0.95*marginal)*0.42*wt.f;
     out.push({id, chamber, mine, incl, verdict, support, marginal, resist, owed, fac:cm?cm.f:null,
-              buyable:resist<=BILL_UNBUYABLE});
+              buyable:resist<=BILL_UNBUYABLE*wt.reach});
   }
   return out.sort((a,b)=>b.incl-a.incl);
 }
