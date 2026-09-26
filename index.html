@@ -571,6 +571,11 @@
   .cprim-row{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--line-faint);font-size:13.5px}
   .cprim-sc{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--muted-2);margin-top:2px} .cprim-sc b{color:inherit;font-family:var(--font-data)} .cprim-sc span:not([style]) b{color:var(--ink)}
   .cprim-st{font-style:normal;font-size:12px;color:var(--ink);margin-top:2px}
+  .pn-row{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid var(--line-faint);font-size:13.5px}
+  .pn-row .cn-who i+i{color:var(--ink)}
+  .pn-tag{font-size:11.5px;text-transform:uppercase;letter-spacing:.8px;padding:2px 7px;border-radius:9px;border:1px solid var(--line)}
+  .pn-row.won .pn-tag{color:var(--moss);border-color:var(--moss)} .pn-row.lost .pn-tag{color:var(--clay);border-color:var(--clay)}
+  .rvac{cursor:pointer;border-radius:4px} .rvac:hover,.rvac:focus{background:var(--paper-2);outline:none} .rvac-go{margin-left:6px;font-weight:600}
   .cprim-key{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:11.5px;color:var(--muted-3);margin:0 0 6px}
   .cprim-more>summary{cursor:pointer;font-size:12.5px;color:var(--muted-2);padding:6px 4px}
   @media (max-width:600px){ .cprim-row{grid-template-columns:44px minmax(0,1fr)} .cprim-row .cf-chbtn{grid-column:2;justify-self:start} }
@@ -14591,10 +14596,11 @@ function runElection(){
     // you've enacted, in whichever direction it runs — plus a small flat
     // incumbency edge (name recognition, ballot position). Far-from-you voters
     // lean against; nobody is assumed a partisan of any party.
+    const nightZ=electionNightZ();
     const rdist=Math.abs((v.econ||0)-g.economic)*0.62 + Math.abs((v.social||0)-g.social)*0.30;
     const partisanLean=clamp((0.85-rdist)*3.8 + 0.35, -4, 5);
     plSum+=partisanLean;
-    let app=v.approval+(Math.random()-0.5)*3+partisanLean;
+    let app=v.approval+(Math.random()-0.5)*3+partisanLean+nightZ*2.0;   // the night's statewide miss
     app+=chalVoterPull(v,chal);          // a hardliner sends the middle your way
     // campaign effort nudges turnout/approval among targeted blocs
     let mob=0;
@@ -15946,6 +15952,7 @@ function reopenQuarterReport(){
   const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
   document.getElementById("reportContinue").onclick=done;
   document.addEventListener("keydown",onKey,true);
+  reportVacWire(card,done,reopenQuarterReport);
   setTimeout(()=>{try{document.getElementById("reportContinue").focus({preventScroll:true});card.scrollTop=0;}catch(e){}},30);
 }
 /* What the quarter left on your desk. Decisions are closed by the game state
@@ -15972,6 +15979,7 @@ function briefCollect(){
   }
   if(GAME.pendingNominee){ GAME.pendingNominee=false; const C=GAME.challenger; if(C&&C.nominee!=null)items.push({kind:"nominee", icon:"people", title:C.field[C.nominee].name+" is the "+oppPartyName()+" nominee"}); }
   if(GAME.pendingBallotNotice){ const bn=GAME.pendingBallotNotice; GAME.pendingBallotNotice=null; items.push({kind:"ballot", bn, icon:"ballot", title:bn.measures.length+" citizen initiative"+(bn.measures.length===1?" has":"s have")+" qualified for the ballot"}); }
+  if(GAME.pendingPrimaries){ const pp=GAME.pendingPrimaries; GAME.pendingPrimaries=null; if(!prOn()&&GAME.caucus){ const w=pp.list.filter(x=>x.won).length, all=pp.list.filter(x=>!x.moot).length; items.push({kind:"primaries", pp, icon:"ballot", title:"Primary night: your challengers won "+w+" of "+all}); } }
   if(GAME.pendingCaucusNews){ const cn=GAME.pendingCaucusNews; GAME.pendingCaucusNews=null; if(cn.pr||(!prOn()&&GAME.caucus))items.push({kind:"caucus", news:cn, icon:"people", title:cn.pr?cn.title:caucusNewsTitle(cn.n)}); }
   if(GAME.pendingTermLimitWarn){ const w=GAME.pendingTermLimitWarn; GAME.pendingTermLimitWarn=null; items.push({kind:"termlimit", w, icon:"warning", title:"Your second term ends after the next election"}); }
 
@@ -15999,7 +16007,7 @@ function startQuarterSequence(){
   const dec=items.filter(i=>i.decision).sort((a,b)=>SEQ_ORDER.indexOf(a.kind)-SEQ_ORDER.indexOf(b.kind));
   const news=items.filter(i=>!i.decision);
   // news last, each its own screen: the nominee, the ballot, the term limit, then the courts
-  const NEWS_ORDER=["caucus","nominee","ballot","termlimit","eo"];
+  const NEWS_ORDER=["primaries","caucus","nominee","ballot","termlimit","eo"];
   news.sort((a,b)=>NEWS_ORDER.indexOf(a.kind)-NEWS_ORDER.indexOf(b.kind));
   const steps=[].concat(GAME.skipReport?[]:[{kind:"report"}], dec, news);
   GAME.briefing={turn:GAME.turn, items, steps, pos:-1};
@@ -16032,6 +16040,7 @@ function seqOpen(st){
     case "ballot":    showBallotNotice(st.bn, seqNext); break;
     case "termlimit": showTermLimitWarning(st.w, seqNext); break;
     case "caucus":    showCaucusNews(st.news, seqNext); break;
+    case "primaries": showPrimaryNight(st.pp, seqNext); break;
     case "eo":        showExecOrderEvent(st.ev, seqNext); break;
     case "coalExit":  GAME._exitFromBrief=true; drawCoalExit(); break;
     case "austerity": GAME._ausFromBrief=true; drawAusterity(); break;
@@ -16111,10 +16120,10 @@ function showQuarterReport(quiet,next){
   const _vac=Object.keys(APPT_POSTS).filter(id=>apptVacant(id));
   const apptBlock=_vac.length?`<div class="rsection"><div class="rsec-h">${ico('people')} Appointments</div>`
     +_vac.map(id=>{ const v=(GAME.apptVacancies||{})[id], open=v?Math.max(0,GAME.turn-(v.opened||0)):0;
-      return `<div class="rrow apptrow"><span class="rlabel" style="color:var(--gold)">${ico(APPT_POSTS[id].icon)} ${apptPostLabel(id)}</span>`
-        +`<span class="rval" style="color:var(--gold)">vacant ${open}q \u00b7 Deputy ${apptDeputy(id)||"—"}</span></div>`;
+      return `<div class="rrow apptrow rvac" data-rvac="${id}" tabindex="0" title="Open the Appointments page on this chair"><span class="rlabel" style="color:var(--gold)">${ico(APPT_POSTS[id].icon)} ${apptPostLabel(id)}</span>`
+        +`<span class="rval" style="color:var(--gold)">vacant ${open}q \u00b7 Deputy ${apptDeputy(id)||"—"} <b class="rvac-go">Fill ▸</b></span></div>`;
     }).join("")
-    +`<div class="rforecast">A deputy keeps each of these running and brings nothing to it. An empty chair costs you ${Math.abs(apptVacantCapital()).toFixed(2)} capital a quarter and softens everything that department delivers, for as long as it stays empty. Nominations are on the Appointments page.</div></div>`:"";
+    +`<div class="rforecast">A deputy keeps each of these running and brings nothing to it. An empty chair costs you ${Math.abs(apptVacantCapital()).toFixed(2)} capital a quarter and softens everything that department delivers, for as long as it stays empty. Select one to fill it; the report comes back when you leave the Appointments page.</div></div>`:"";
   const partyBlock=(prOn()?prReportHTML():caucusReportHTML())+((GAME.lprom||[]).length?`<div class="rsection">${lpListHTML("Promises to legislators").replace(/<button[^>]*data-lpgo[^>]*>[^<]*<\/button>/g,"")}</div>`:"");
   const events=(GAME.log||[]).slice(-6).filter(l=>/began|RESOLVED|Midterms|kicker|Kicker|Reserves|Promise|Scandal|boom|Windfall|Federal|Deficit|debt|Austerity/i.test(l));
   const eventBlock=events.length?`<div class="rsection"><div class="rsec-h">${ico('doc')} This Quarter</div>${events.map(e=>`<div class="revent">${e}</div>`).join("")}</div>`:"";
@@ -16181,7 +16190,31 @@ function showQuarterReport(quiet,next){
   };
   document.getElementById("reportContinue").onclick=dismiss;
   document.addEventListener("keydown",onKey,true);
+  reportVacWire(card,()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); },()=>showQuarterReport(false,next));
   setTimeout(()=>{try{document.getElementById("reportContinue").focus({preventScroll:true});card.scrollTop=0;}catch(e){}},30);
+}
+/* A vacancy on the report opens the Appointments page on that chair. The
+   report waits: leaving the page (for any other tab) brings it back over
+   the board, where the quarter's sequence carries on from it. */
+function reportVacWire(card,hide,reopen){
+  card.querySelectorAll("[data-rvac]").forEach(el=>{
+    const go=()=>{ hide(); window._reportReturn=reopen;
+      currentView="appointments"; detailKey=null;
+      document.querySelectorAll("nav.rail button").forEach(b=>b.classList.toggle("active",b.dataset.view==="appointments"));
+      render(); openApptPanel(el.dataset.rvac); };
+    el.addEventListener("click",go);
+    el.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); go(); } });
+  });
+}
+/* Leaving the Appointments page with a report waiting: back to the board
+   and the report. Returns true when it has taken over the render. */
+function reportReturnCheck(){
+  if(!window._reportReturn||currentView==="appointments")return false;
+  const f=window._reportReturn; window._reportReturn=null;
+  currentView="board"; detailKey=null;
+  document.querySelectorAll("nav.rail button").forEach(b=>b.classList.toggle("active",b.dataset.view==="board"));
+  setTimeout(f,0);
+  return false;
 }
 
 /* A suit has been filed, or a court has ruled. Both get the same treatment as
@@ -21585,26 +21618,52 @@ function caucusPrimaryDay(){
   const C=GAME.caucus; if(prOn()||!C||!C.prim)return;
   const nb=(typeof nextBallotInfo==="function")?nextBallotInfo():null;
   if(!nb||nb.quartersAway!==CAUCUS_PRIMARY_LEAD||C.primDay===GAME.turn)return;
-  C.primDay=GAME.turn; C.nom=C.nom||{}; C.primNews=C.primNews||[];
+  C.primDay=GAME.turn; C.nom=C.nom||{}; const night=[];
   for(const k of Object.keys(C.prim)){ const p=C.prim[k];
     const b=caucusBallotsAhead(k)[0]; if(!b||!b.up||b.q!==CAUCUS_PRIMARY_LEAD)continue;   // not on this ballot
     delete C.prim[k];
     const m=C.m[k];
     if(!m||m.p!=="mine"||m.n!==p.name){
       GAME.log.push(ico('ballot')+" The primary you backed in "+caucusCode(k)+" is moot: the seat did not stay with your party.");
-      C.primNews.push({k, moot:true, old:p.name, n:p.n}); continue; }
-    const won=caucusRng(k+"|prim|"+GAME.turn)()<caucusPrimaryOdds(p.spent);
+      night.push({k, moot:true, old:p.name, n:p.n, spent:p.spent}); continue; }
+    const odds=caucusPrimaryOdds(p.spent), won=caucusRng(k+"|prim|"+GAME.turn)()<odds;
+    const rw=caucusRow(k), lean=rw&&rw[3]!=null?rw[3]:50, own=Math.round(caucusPartyOf(m)==="D"?lean:100-lean);
+    const base={k, old:p.name, n:p.n, spent:p.spent, odds:Math.round(odds*100), own, place:caucusPlace(m.ch,m.id), title:caucusTitle(k)};
     if(won){
       C.nom[k]={n:p.n, old:p.name};
       caucusNote(m,"_prim","Lost the primary you backed against them",-10); m.L=clamp(m.L-10,0,100);
       GAME.log.push(ico('ballot')+" "+p.n+" beat "+p.name+" in the primary for "+caucusCode(k)+", "+caucusPlace(m.ch,m.id)+", and carries the seat into the general.");
-      C.primNews.push({k, won:true, nominee:true, old:p.name, n:p.n});
+      night.push(Object.assign(base,{won:true}));
     } else {
       m.g=clamp((m.g||0)-12,-30,30); caucusNote(m,"_prim","Survived the primary you backed",-12); m.L=clamp(m.L-8,0,100);
       GAME.log.push(ico('ballot')+" "+p.name+" held off your challenger in the primary for "+caucusCode(k)+", and will not forget it.");
-      C.primNews.push({k, won:false, old:p.name, n:p.n});
+      night.push(Object.assign(base,{won:false, L:Math.round(m.L)}));
     }
   }
+  if(night.length)GAME.pendingPrimaries={turn:GAME.turn, gen:nb.quartersAway, kind:nb.kind, list:night};
+}
+/* PRIMARY NIGHT. Only the districts where you backed somebody. */
+function showPrimaryNight(P,next){
+  const card=document.getElementById("caucusNewsCard"), modal=document.getElementById("caucusNewsModal");
+  if(!card||!modal||!P||!P.list){ if(next)next(); return; }
+  const L=P.list.filter(x=>!x.moot), won=L.filter(x=>x.won).length;
+  const gen=P.kind==="midterm"?"the midterm":"the general election";
+  const seat=o=>o>=62?"a safe seat for your party":o>=55?"a seat that leans your way":"a swing seat";
+  let h=`<div class="sectionhdr">${ico('ballot')} Primary night: your challengers won ${won} of ${L.length}</div>
+    <div class="sectionsub">Winners are your party's nominees, not yet members. They take office only if they win ${gen} in ${P.gen} quarters; until then the members they beat serve out their terms and still vote.</div>`;
+  h+=L.map(x=>`<div class="pn-row ${x.won?"won":"lost"}"><span class="cn-code">${caucusCode(x.k)}</span>
+    <span class="cn-who"><b>${x.won?`${x.n} beat ${x.title}`:`${x.title} held off ${x.n}`}</b>
+      <i>${x.place} · ◈${x.spent} behind them, ${x.odds}% odds</i>
+      <i>${x.won?`Now the nominee in ${seat(x.own)} (${x.own}% for your party). ${x.old} is a lame duck and knows who did it.`:`${x.old} is still your member, and angrier: loyalty ${x.L}.`}</i></span>
+    <span class="pn-tag">${x.won?"nominee":"held"}</span></div>`).join("");
+  P.list.filter(x=>x.moot).forEach(x=>h+=`<div class="cn-fac"><b>${caucusCode(x.k)}</b> Moot: the seat did not stay with your party.</div>`);
+  h+=`<div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap"><button class="enactbtn" id="pnOk">Continue ▸</button></div>`;
+  card.innerHTML=h; modal.classList.remove("hidden"); card.scrollTop=0;
+  const openedAt=Date.now();
+  const close=()=>{ if(Date.now()-openedAt<400)return; modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); if(next)next(); };
+  const onKey=e=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); } };
+  document.getElementById("pnOk").onclick=close;
+  document.addEventListener("keydown",onKey,true);
 }
 function caucusResolvePrimaries(upSenate){
   const C=GAME.caucus; if(prOn()||!C||!C.nom)return;
@@ -22554,6 +22613,17 @@ function drawFloor(){
    estimate: a median, a range, and a win probability for every seat.
    ============================================================ */
 const FC_NAT=4.2, FC_SEAT=3.4, FC_DRAWS=3000;
+/* ELECTION NIGHT IS NOT THE MEDIAN. The forecast says the state can miss by
+   about FC_NAT points all at once and any one seat by about FC_SEAT; the
+   night itself draws both, so a result is one of the forecast's draws rather
+   than its middle. The statewide miss is one number for the whole ballot,
+   shared by your own race and every legislative seat on it. */
+function electionNightZ(){
+  if(!GAME._night||GAME._night.turn!==GAME.turn){ let u=0,v=0; while(!u)u=Math.random(); while(!v)v=Math.random();
+    GAME._night={turn:GAME.turn, z:Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}; }
+  return GAME._night.z;
+}
+function electionNightSeat(){ let u=0,v=0; while(!u)u=Math.random(); while(!v)v=Math.random(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)*FC_SEAT; }
 /* A forecast that re-rolls on every redraw is useless — you could not tell a
    campaign push from Monte Carlo noise. The draws are seeded from the state
    the forecast actually depends on, so the numbers hold still until something
@@ -23374,7 +23444,8 @@ function runLegislativeElection(approval){
   // district is decided on how the groups living THERE feel about you, so the
   // majority you end up with can be built out of a different set of seats
   // than the one you inherited.
-  const jitter=()=>(Math.random()-0.5)*5.0;   // election-night variance, per seat
+  const nightSwing=electionNightZ()*FC_NAT;     // the statewide miss, the same in every seat
+  const jitter=()=>nightSwing+electionNightSeat();   // plus each seat's own
 
   // ---- House: all 60 contested, decided by plurality ----
   // One reading of the field for the whole night, so every district is
@@ -30101,6 +30172,7 @@ document.addEventListener("keydown",e=>{
   e.preventDefault(); btn.click();
 });
 function render(){
+  reportReturnCheck();
   sandboxTopUp(); mountSandboxFrame();
   renderHUD();renderSidebar();renderRailVoters();renderRailCompass();
   // Scroll to top only on an actual NAVIGATION — a different view, or (within
