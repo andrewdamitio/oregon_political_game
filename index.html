@@ -506,6 +506,7 @@
   .cr-code{font-family:var(--font-data);font-size:12px;color:var(--muted-2)}
   .cr-who{display:flex;flex-direction:column;min-width:0}
   .cr-who i{font-style:normal;font-size:12px;color:var(--muted-2)}
+  .cr-who i.cr-up{font-size:11.5px;color:var(--muted-3)}
   .cr-loy{font-family:var(--font-data);font-weight:700;text-align:right}
   .cm-top{display:flex;gap:10px;align-items:flex-start}
   .cm-code{font-family:var(--font-data);font-weight:700;font-size:13px;background:var(--ink);color:var(--paper);padding:3px 7px;border-radius:var(--radius);white-space:nowrap}
@@ -21260,7 +21261,7 @@ function renderCaucus(){
   h+=`<div class="croster">`+ks.map(k=>{ const m=C.m[k];
     return `<div class="crow${k===sel?" on":""}" data-cseat="${k}" tabindex="0">
       <span class="cr-code">${caucusCode(k)}</span>
-      <span class="cr-who"><b>${m.n}</b><i>${caucusPlace(m.ch,m.id)} · ${caucusPartyOf(m)==="D"?"Dem":"Rep"}${(()=>{ const t=caucusTraitsOf(k); return t.length?" · "+t.map(x=>x.label).join(", "):""; })()}${m.f?" · <b class=\"cr-fac\">"+caucusFactionName(m.f)+"</b>":""}${C.prim&&C.prim[k]?" · <b class=\"cr-fac\">primary backed</b>":""}</i></span>
+      <span class="cr-who"><b>${m.n}</b><i>${caucusPlace(m.ch,m.id)} · ${caucusPartyOf(m)==="D"?"Dem":"Rep"}${(()=>{ const t=caucusTraitsOf(k); return t.length?" · "+t.map(x=>x.label).join(", "):""; })()}${m.f?" · <b class=\"cr-fac\">"+caucusFactionName(m.f)+"</b>":""}${C.prim&&C.prim[k]?" · <b class=\"cr-fac\">primary backed</b>":""}</i>${k[0]==="s"?`<i class="cr-up">${caucusSenateUp(k)}</i>`:""}</span>
       <span class="cr-views">${caucusBreakChips(m,2)}</span>
       <span class="cr-loy" style="color:${caucusColor(m)}">${Math.round(m.L)}</span></div>`; }).join("")+`</div>`;
   main.innerHTML=h;
@@ -21329,10 +21330,17 @@ function caucusBallotsAhead(k){
   let q=nb.quartersAway, kind=nb.kind;
   const nextCls=GAME.senateClass?0:1, id=+k.slice(1), upFirst=k[0]==="h"||(id%2)===(nextCls?0:1);
   for(let i=0;i<4;i++){
-    out.push({q, up:k[0]==="h"||(i%2===0?upFirst:!upFirst)});
+    out.push({q, kind, up:k[0]==="h"||(i%2===0?upFirst:!upFirst)});
     if(kind==="midterm"){ q+=(L-1)-mt; kind="election"; } else { q+=1+mt; kind="midterm"; }
   }
   return out;
+}
+/* When a Senate seat is next on the ballot, in words. Half the Senate sits
+   out each ballot, so it is not every midterm. */
+function caucusSenateUp(k){
+  const B=caucusBallotsAhead(k), i=B.findIndex(x=>x.up); if(i<0)return "";
+  const b=B[i], what=b.kind==="midterm"?"the midterm":"the general election";
+  return i===0?"up at "+what+(b.q>0?" in "+b.q+" quarter"+(b.q===1?"":"s"):""):"not up until "+what+" in "+b.q+" quarters";
 }
 /* Quarters until the primary that decides a challenge to this seat, or null. */
 function caucusPrimaryIn(k){
@@ -21684,7 +21692,7 @@ function caucusMemberCard(k){
   const mk=row?caucusMakeup(row,4):[];
   let h=`<div class="cmem">
     <div class="cm-top"><span class="cm-code">${caucusCode(k)}</span><div class="cm-topt"><div class="cm-h">${caucusTitle(k)}</div>
-    <div class="cm-sub">${caucusPlace(m.ch,m.id)} · ${party}${mine?", your party":""} · serving since ${m.yr||"?"} · seat ${Math.round(lean)}% progressive</div></div>
+    <div class="cm-sub">${caucusPlace(m.ch,m.id)} · ${party}${mine?", your party":""} · serving since ${m.yr||"?"} · seat ${Math.round(lean)}% progressive${k[0]==="s"?" · "+caucusSenateUp(k):""}</div></div>
     ${caucusLocator(k)}</div>
     <div class="cf-bar">${mine?"Loyalty":"Loyalty to the "+oppPartyPlural()} ${Math.round(m.L)} ${caucusMeter(m.L,caucusColor(m))} <span class="cm-to">heading to ${Math.round(T)}</span></div>
     <div class="cm-parts">${parts.map(p=>`<span>${p[0]}<b class="${p[1]>0.5&&p!==parts[0]?"up":p[1]<-0.5?"dn":""}">${p===parts[0]?Math.round(p[1]):(p[1]>0?"+":"")+Math.round(p[1])}</b></span>`).join("")}</div>`;
