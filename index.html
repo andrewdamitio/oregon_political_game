@@ -19797,8 +19797,11 @@ function caucusSnapLevel(pid,snap){
   if(p.mechanic==="intensity")return d.i!=null?d.i:1;
   return 1;
 }
+/* The baselines live on the district caucus when there is one; a list
+   legislature with none keeps its own, so its members still notice laws. */
+function caucusIssueStore(){ return GAME.caucus||(GAME._iref=GAME._iref||{ref:{}}); }
 function caucusRef(pid){
-  const C=GAME.caucus; if(!C)return caucusLevel(pid);
+  const C=caucusIssueStore(); C.ref=C.ref||{};
   if(C.ref[pid]==null)C.ref[pid]=caucusLevel(pid);
   return C.ref[pid];
 }
@@ -19810,12 +19813,12 @@ function caucusRef(pid){
    caucusRef.) */
 const CAUCUS_ADAPT=0.08;
 function caucusAcc(pid){
-  const C=GAME.caucus; if(!C)return caucusLevel(pid);
+  const C=caucusIssueStore();
   C.acc=C.acc||{}; if(C.acc[pid]==null)C.acc[pid]=caucusRef(pid);
   return C.acc[pid];
 }
 function caucusAdapt(){
-  const C=GAME.caucus; if(!C)return;
+  const C=caucusIssueStore();
   for(const pid in _issueOf){ const a=caucusAcc(pid); C.acc[pid]=a+(caucusLevel(pid)-a)*CAUCUS_ADAPT; }
 }
 /* How far an issue has moved in the progressive direction, against what
@@ -20794,7 +20797,8 @@ function prTick(){
   for(const m of prSeated()){ m.g=(m.g||0)*0.8; if(Math.abs(m.g)<0.3)m.g=0;
     for(const i in (m.gg||{})){ m.gg[i]*=0.8; if(Math.abs(m.gg[i])<0.3)delete m.gg[i]; }
     if(m.hist)m.hist=m.hist.filter(x=>Math.abs(x.a*Math.pow(0.8,GAME.turn-x.t))>=0.3);
-    m.L=clamp(m.L+(prTarget(m)-m.L)*0.35,0,100); }
+    m.L=clamp(m.L+(prTarget(m)-m.L)*0.3,0,100); }
+  caucusAdapt();
   // the other parties' leaderships pick their own fights
   const r=caucusRng("prflash|"+GAME.turn);
   if(r()<0.08){ const pids=PR_ORDER.filter(p=>p!==prMyParty()&&(GAME.legis.prCounts||{})[p]>=4);
@@ -30659,7 +30663,7 @@ function bootWorld(startId){
     A.funding=z.f; A.logging=z.l; delete A.fundingBase; }
   LANDUSE.index=WORLD_SEED.lu;
   GAME.legis.house=WORLD_SEED.legis.house; GAME.legis.senate=WORLD_SEED.legis.senate;
-  GAME.legis.hHeld=null; GAME.legis.sHeld=null; GAME.legis.favors={}; GAME.caucus=null; GAME.pr=null; GAME.lprom=[]; GAME.lpTrust=1;
+  GAME.legis.hHeld=null; GAME.legis.sHeld=null; GAME.legis.favors={}; GAME.caucus=null; GAME.pr=null; GAME.lprom=[]; GAME.lpTrust=1; GAME._iref=null;
   GAME.activeSituations={}; GAME.situationAge={}; GAME.eventCooldown={}; GAME.grudges=[]; GAME.history={};
   GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.surplusStreak=0; GAME.lawLock={};
   GAME.csfCorpus=2.10; GAME.csfPayout=0.08; GAME.csfElliottMult=1; GAME.csfSaleBooked=false; GAME.esfLottoIn=0; GAME.persRisk="balanced"; GAME.csfRisk="balanced";
