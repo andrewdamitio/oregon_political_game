@@ -551,6 +551,7 @@
   .cn-l{font-family:var(--font-data);font-weight:700;color:var(--clay);white-space:nowrap}
   .cn-fac{font-size:13.5px;padding:4px 0}
   .cn-more{font-size:12px;color:var(--muted-3);padding:3px 4px}
+  .cn-party{font-family:var(--font-display);font-size:16px;margin:16px 0 0;padding-top:8px;border-top:2px solid var(--line)}
   .cm-prim{display:flex;flex-direction:column;gap:6px;font-size:13px}
   .ec-mem{cursor:pointer}
   .ec-memread{font-size:13px;min-height:1.5em;margin:6px 0 2px;text-align:center;color:var(--muted-1)}
@@ -6062,9 +6063,11 @@ const CATALOG={
     value:0.5, revenueFull:1.5, capital:9, enactCapital:13, taxDir:"burden",
     real:{min:0,max:60,unit:"$/ton",decimals:0,label:"price per ton"},
     effects:{environment:8,gdp:-0.3,gasPrice:0.45,taxBurden:7,electricRate:2.6}, ideology:{environment:-0.7,economic:-0.4,govSize:-0.3}},
+  // a rate cut, not a spending line: revenueBySource takes its dollars off the
+  // income tax and the corporate taxes (TAX_CUT_FULL a year at full strength)
   taxCut:{name:"Across-the-Board Tax Cut", domain:"economy", icon:"chart-down", mechanic:"slider",
-    desc:"Broad personal and business tax relief funded by spending restraint. Popular with taxpayers and business; blows a hole in the General Fund that forces service cuts.",
-    value:0.5, revenue:-2.5, capital:10, enactCapital:14, taxDir:"cut",
+    desc:"Cuts the personal income tax and the corporate taxes across every bracket, by up to $2.5B a year at full strength, split in proportion to what each raises. Popular with taxpayers and business; the hole it leaves in the General Fund forces service cuts.",
+    value:0.5, capital:10, enactCapital:14, taxDir:"cut",
     effects:{gdp:0.35,unemployment:-0.3,taxBurden:-12}, ideology:{economic:0.7,govSize:0.6}},
   // Water law is not a bill you pass. Oregon has had one since 1909 and will
   // have one whatever you do — the only question a governor gets to answer is
@@ -9383,8 +9386,18 @@ function proposalLive(c){
 function proposalCosts(c){
   const pol=proposalPolicy(c); if(!pol)return null;
   if(c.pkind==="adjust")return {now:Math.max(2,Math.round((pol.capital||6)*0.45))};
-  const base=(pol.enactCapital!==undefined)?pol.enactCapital:8, m=oppositionCapitalMult();
-  return {full:Math.max(1,Math.round(base*m)), disc:Math.max(1,Math.round(base*m*APPT_PROPOSAL_DISCOUNT))};
+  // what the whip would cost, with and without the director's discount
+  const had=(GAME.apptDiscount||{})[c.ppolicy];
+  GAME.apptDiscount=GAME.apptDiscount||{}; GAME.apptDiscount[c.ppolicy]=APPT_PROPOSAL_DISCOUNT;
+  const w1=whipCount(c.ppolicy,"enact",null,1), w0=whipCount(c.ppolicy,"enact",null,0);
+  const cu=(w1&&w1.possible&&(window.SANDBOX||GAME.capital>=w1.cost)), w=cu?w1:w0;
+  delete GAME.apptDiscount[c.ppolicy];
+  // the same whip, with the same vote to spare, without their discount
+  const full=whipCount(c.ppolicy,"enact",null,cu?1:0,true);
+  if(had!=null)GAME.apptDiscount[c.ppolicy]=had;
+  const ok=!!(w&&w.possible&&(window.SANDBOX||GAME.capital>=w.cost)&&!floorFrozen());
+  return {disc:w?w.cost:0, full:full?full.cost:0, odds:w?Math.round((w.odds||0)*100):0, ok,
+    why:floorFrozen()?"There is no quorum while the walkout lasts.":(!w||!w.possible)?"The votes are not there at any price.":"You cannot afford the whip: ◈ "+w.cost+"."};
 }
 function maybeFireProposal(){
   if(GAME.pendingProposal)return;
@@ -9401,17 +9414,18 @@ function maybeFireProposal(){
   GAME.lastProposalTurn=GAME.turn;
   GAME.log.push(ico('doc')+" "+c.pname+" ("+APPT_POSTS[c.ppost].name+") has a proposal for you");
 }
-function resolveProposal(accept){
+function resolveProposal(accept,after){
   const c=GAME.pendingProposal; GAME.pendingProposal=null;
-  if(!c||!proposalLive(c)){ render(); return; }
+  const done=()=>{ if(after)after(); };
+  if(!c||!proposalLive(c)){ render(); done(); return; }
   const pol=proposalPolicy(c), cost=proposalCosts(c);
   if(!accept){
     const h=apptHolder(c.ppost); if(h)h.rebuffed=(h.rebuffed||0)+1;
     GAME.log.push(ico('doc')+" Left "+pol.name+" in the drawer");
-    render(); return;
+    render(); done(); return;
   }
   if(c.pkind==="adjust"){
-    const a=c.padj; if(!a){ render(); return; }
+    const a=c.padj; if(!a){ render(); done(); return; }
     // a department moving its own setting is a fraction of what the same
     // move costs a governor reaching in from outside
     GAME.capital=clamp(GAME.capital-cost.now,0,100);
@@ -9420,14 +9434,26 @@ function resolveProposal(accept){
     else pol.value=a.target;
     GAME.log.push(ico('doc')+" "+c.pname+" moved "+pol.name+" to "+a.label+" — ◈ "+cost.now);
   } else {
-    // the discount is real and it is theirs: it rides on the policy so the
-    // floor screen and the catalog both price it the same way
+    // APPROVED MEANS VOTED ON, NOW. Whipped at their discount, with a vote to
+    // spare when you can afford one, and the result comes straight back.
     GAME.apptDiscount=GAME.apptDiscount||{};
     GAME.apptDiscount[c.ppolicy]=APPT_PROPOSAL_DISCOUNT;
-    GAME.log.push(ico('doc')+" "+c.pname+" brought you "+pol.name
-      +" — it is in New Policies at ◈ "+cost.disc+" instead of ◈ "+cost.full);
+    const w1=whipCount(c.ppolicy,"enact",null,1,true), w0=whipCount(c.ppolicy,"enact",null,0,true);
+    const cu=(w1&&w1.possible&&(window.SANDBOX||GAME.capital>=w1.cost))?1:0, w=cu?w1:w0;
+    if(!w||!w.possible||(!window.SANDBOX&&GAME.capital<w.cost)||floorFrozen()){
+      delete GAME.apptDiscount[c.ppolicy];
+      GAME.log.push(ico('doc')+" "+c.pname+"'s "+pol.name+" could not be brought to a vote: "
+        +(floorFrozen()?"there is no quorum":(!w||!w.possible)?"the votes are not there at any price":"you cannot afford the whip"));
+      render(); done(); return;
+    }
+    GAME.log.push(ico('doc')+" "+c.pname+" brought you "+pol.name+"; it goes to the floor now at ◈ "+w.cost);
+    window._voteDone=done;
+    passBill(c.ppolicy,"enact",null,cu);
+    delete GAME.apptDiscount[c.ppolicy];
+    if(window._voteDone===done){ window._voteDone=null; done(); }    // no result screen came up
   }
   render();
+  if(c.pkind==="adjust")done();
 }
 /* A director's proposal, drawn in full. attr names the answer buttons, so
    its own screen and the briefing can each wire them. */
@@ -9447,8 +9473,9 @@ function proposalCardHTML(c,attr){
     facts+=row("Route","Made inside the department this quarter. No vote.");
     facts+=row("Cost",`◈ <b>${cost.now}</b>, spent now`);
   } else {
-    facts+=row("Route","A new bill, voted on the floor like any other");
-    facts+=row("Cost",`◈ <b>${cost.disc}</b> on the floor instead of ◈ ${cost.full}, for as long as it waits in New Policies`);
+    facts+=row("Route","A new bill, whipped and voted on now if you approve it");
+    facts+=row("Cost",cost.ok?`◈ <b>${cost.disc}</b> to whip it through, instead of ◈ ${cost.full} without them; about <b>${cost.odds}%</b> to pass`
+      :`<span style="color:var(--clay)">${cost.why}</span>`);
   }
   let h=`<div class="prop-kicker">${ico(post.icon)} A proposal from ${post.name}</div>
     <h2 class="prop-who">${c.pname} ${apptTraitChip(c.ptrait)}</h2>
@@ -9456,10 +9483,10 @@ function proposalCardHTML(c,attr){
     <div class="ebgroup prop-facts">${facts}</div>`;
   h+=apptDeliveryPanelHTML(pol);
   h+=`<div class="dilemma-opts prop-opts">
-    <button class="dilemma-opt" ${attr}="1"><span class="do-label">${adjusting?"Tell them to go ahead":"Take it to the floor"}</span>
+    <button class="dilemma-opt" ${attr}="1" ${!adjusting&&!cost.ok?"disabled":""}><span class="do-label">${adjusting?"Tell them to go ahead":"Take it to the floor now"}</span>
       <span class="do-sub">${adjusting
         ? "The change is made this quarter, which is what makes it cheap, and it is yours from the moment it is announced."
-        : "It goes into New Policies at their discount with your name on it. You still choose when to call the vote."}</span></button>
+        : cost.ok?"Whipped at their discount and voted on now, with a vote to spare when you can afford one. If it passes it is law today.":cost.why}</span></button>
     <button class="dilemma-opt" ${attr}="0"><span class="do-label">${adjusting?"Tell them to leave it alone":"Leave it in the drawer"}</span>
       <span class="do-sub">You tell them it is good work and that this is not the quarter. Nothing is spent.</span></button>
   </div>
@@ -9476,7 +9503,7 @@ function renderProposal(){
   if(!GAME._openProposal&&(GAME._briefPending||(GAME.briefing&&GAME.briefing.items.some(i=>i.kind==="proposal"&&i.key===c.turn+"|"+c.ppost)))){ modal.classList.add("hidden"); return; }
   card.innerHTML=proposalCardHTML(c,"data-prop");
   modal.classList.remove("hidden");
-  card.querySelectorAll('[data-prop]').forEach(b=>b.addEventListener('click',()=>{ const fromBrief=GAME._openProposal; resolveProposal(b.dataset.prop==="1"); if(fromBrief)briefReturn(); }));
+  card.querySelectorAll('[data-prop]').forEach(b=>b.addEventListener('click',()=>{ if(b.disabled)return; const fromBrief=GAME._openProposal; resolveProposal(b.dataset.prop==="1", fromBrief?briefReturn:null); }));
 }
 function maybeFireDilemma(){
   if(GAME.pendingDilemma)return;
@@ -11389,9 +11416,12 @@ function agencySpend(a){
    tax sliders show the actual RATE (e.g. "9.9%"), spending sliders and
    intensity dials show actual DOLLARS (e.g. "$3.30B/yr"). */
 function policyRealLabel(p){
+  // the tax cut is a rate cut: it shows on the two taxes it cuts, and on itself
+  if(p===POLICIES.taxCut)return "−$"+taxCutAmount().toFixed(2)+"B/yr off income and corporate tax";
   if(p.real){
     const v=p.real.min+(p.real.max-p.real.min)*(p.mechanic==="intensity"?p.intensity:p.value);
-    return v.toFixed(p.real.decimals)+p.real.unit;
+    const cut=(p===POLICIES.incomeTax||p===POLICIES.corpTax)&&(GAME._taxCutFrac||0)>0.001;
+    return v.toFixed(p.real.decimals)+p.real.unit+(cut?", cut "+Math.round(GAME._taxCutFrac*100)+"% across the board":"");
   }
   if(p.mechanic==="slider"||p.mechanic==="allocation"){
     if(p.costFull)return "$"+(p.costFull*p.value).toFixed(2)+"B/yr";
@@ -13293,6 +13323,9 @@ function collectionFactor(){
 /* How far short the inherited budget opens, $B a year. The authored budget
    opened about $2.1B short; this eases it slightly, not away. */
 const BUDGET_OPEN_GAP=-1.5;
+/* $B a year the across-the-board tax cut takes off the income and corporate taxes. */
+const TAX_CUT_FULL=2.5;
+function taxCutAmount(){ const p=POLICIES.taxCut; return (p&&p.enacted!==false)?TAX_CUT_FULL*policyLevel(p):0; }
 function revenueBySource(){
   const out={};
   const collFactor = collectionFactor();
@@ -13392,6 +13425,10 @@ function revenueBySource(){
     }
     out[id]=amt;
   }
+  // the across-the-board tax cut comes off the two big taxes, in proportion
+  const tcut=taxCutAmount(), ta=out.personalIncome||0, tb=out.corpActivity||0;
+  GAME._taxCutFrac=0;
+  if(tcut>0&&ta+tb>0){ const f=Math.min(0.5,tcut/(ta+tb)); out.personalIncome=ta*(1-f); out.corpActivity=tb*(1-f); GAME._taxCutFrac=f; }
   // revenue-generating policies WITHOUT their own ledger line (psilocybin
   // licensing, kicker retention, carbon tax, etc.) roll up here
   const linked=new Set(Object.values(REVENUE).map(r=>r.linkedPolicy).filter(Boolean));
@@ -15943,7 +15980,10 @@ function startQuarterSequence(){
 function seqNext(){
   const B=GAME.briefing; if(!B||!B.steps)return;
   do{ B.pos++; }while(B.pos<B.steps.length&&B.steps[B.pos].decision&&briefDone(B.steps[B.pos]));
-  if(B.pos>=B.steps.length){ seqPill(false); GAME._openDilemma=false; GAME._openProposal=false; render(); return; }
+  if(B.pos>=B.steps.length){ seqPill(false); GAME._openDilemma=false; GAME._openProposal=false;
+    // somewhere the player asked to go once the briefing was over
+    if(window._afterSeq){ const a=window._afterSeq; window._afterSeq=null; a(); }
+    render(); return; }
   seqPill(true);
   seqOpen(B.steps[B.pos]);
 }
@@ -20181,7 +20221,7 @@ function caucusCollectNews(facs0,before){
   const now=Object.keys(C.facs||{});
   N.formed=now.filter(f=>!facs0.includes(f));
   N.broken=facs0.filter(f=>!now.includes(f));
-  N.livid=[]; N.angry=[]; N.dropped=[]; N.wavering=[];
+  N.livid=[]; N.angry=[]; N.dropped=[]; N.wavering=[]; N.oppDropped=[];
   for(const k in C.m){ const m=C.m[k], b=before[k]; if(!b||b.p!==m.p||m.switched===GAME.turn)continue;
     const from=b.last!=null?b.last:b.L;
     if(m.p==="mine"){
@@ -20189,6 +20229,7 @@ function caucusCollectNews(facs0,before){
       else if(m.L<at&&from>=at)N.angry.push(k);
       else if(from-m.L>=8)N.dropped.push(k);
     } else if(m.L<40&&from>=40)N.wavering.push(k);
+    else if(from-m.L>=8)N.oppDropped.push(k);
   }
   const byDrop=(a,b)=>((before[b].last??before[b].L)-C.m[b].L)-((before[a].last??before[a].L)-C.m[a].L);
   N.angry.sort(byDrop); N.dropped.sort(byDrop);
@@ -20196,8 +20237,9 @@ function caucusCollectNews(facs0,before){
   C.lastL={}; for(const k in C.m)C.lastL[k]=C.m[k].L;
   N.prim=C.primNews||[]; C.primNews=[];
   N.retired=C.retNews||[]; C.retNews=[];
-  N.from={}; ["livid","angry","dropped","wavering"].forEach(t=>N[t].forEach(k=>{ const b=before[k]; N.from[k]=Math.round(b.last!=null?b.last:b.L); }));
-  const any=["lp","flash","prim","retired","formed","broken","crossed","joined","livid","angry","dropped","wavering"].some(t=>(N[t]||[]).length);
+  N.oppDropped.sort(byDrop);
+  N.from={}; ["livid","angry","dropped","wavering","oppDropped"].forEach(t=>N[t].forEach(k=>{ const b=before[k]; N.from[k]=Math.round(b.last!=null?b.last:b.L); }));
+  const any=["lp","flash","prim","retired","formed","broken","crossed","joined","livid","angry","dropped","wavering","oppDropped"].some(t=>(N[t]||[]).length);
   if(any&&GAME.turn>1)GAME.pendingCaucusNews={turn:GAME.turn, n:JSON.parse(JSON.stringify(N))};
   C._news={};
 }
@@ -20206,6 +20248,11 @@ function caucusWhy(m){
   const hs=caucusHist(m).filter(x=>(m.p==="mine"?x.now<0:x.now>0)).slice(0,2).map(x=>x.nm);
   if(hs.length)return hs.join(", ");
   const st=caucusSat(m); return st.worst?"Where "+ISSUES[st.worst].name.toLowerCase()+" has gone":"";
+}
+/* Why an opposition member is losing faith in their own party. */
+function caucusWhyOpp(m){
+  const hs=caucusHist(m).filter(x=>x.now>0).slice(0,2).map(x=>x.nm);
+  return hs.length?hs.join(", "):"Where their issues have gone under you";
 }
 function caucusNewsTitle(N){
   const n=t=>(N[t]||[]).length;
@@ -20222,19 +20269,27 @@ function caucusNewsTitle(N){
   if(n("retired"))return n("retired")+" of your members retired";
   if(n("flash"))return "The "+oppPartyPlural()+" are fighting among themselves";
   if(n("wavering"))return n("wavering")+" "+oppPartyName()+" member"+(n("wavering")===1?" is":"s are")+" wavering";
+  if(n("oppDropped"))return n("oppDropped")+" "+oppPartyName()+" member"+(n("oppDropped")===1?"":"s")+" lost faith in their party";
   return "Your party this quarter";
 }
+/* Go to the Legislators tab, but only once the quarter's briefing is over. */
+function caucusMoreQueued(){ const B=GAME.briefing; return !!(B&&B.steps&&B.pos<B.steps.length-1); }
+function caucusOpenAfterBriefing(go,next){
+  if(next&&caucusMoreQueued()){ window._afterSeq=go; next(); return; }
+  go(); render(); if(next)next();
+}
+function caucusOpenLabel(){ return caucusMoreQueued()?"Open Legislators after the briefing":"Open Legislators"; }
 function showCaucusNews(news,next){
   const card=document.getElementById("caucusNewsCard"), modal=document.getElementById("caucusNewsModal");
   // under PR the news is a list of lines
   if(news.pr){ if(!card||!modal){ if(next)next(); return; }
     card.innerHTML=`<div class="sectionhdr">${ico('people')} ${news.title}</div>`+news.lines.map(t=>`<div class="cn-fac">${t}</div>`).join("")
-      +`<div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap"><button class="enactbtn" id="cnOpen">Open Legislators</button><button class="enactbtn ghost" id="cnOk">Continue ▸</button></div>`;
+      +`<div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap"><button class="enactbtn" id="cnOpen">${caucusOpenLabel()}</button><button class="enactbtn ghost" id="cnOk">Continue ▸</button></div>`;
     modal.classList.remove("hidden");
     const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",k2,true); };
     const k2=e=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); if(next)next(); } };
     document.getElementById("cnOk").onclick=()=>{ close(); if(next)next(); };
-    document.getElementById("cnOpen").onclick=()=>{ close(); currentView="caucus"; document.querySelectorAll("nav.rail button").forEach(b=>b.classList.toggle("active",b.dataset.view==="caucus")); render(); if(next)next(); };
+    document.getElementById("cnOpen").onclick=()=>{ close(); caucusOpenAfterBriefing(()=>{ currentView="caucus"; document.querySelectorAll("nav.rail button").forEach(b=>b.classList.toggle("active",b.dataset.view==="caucus")); }, next); };
     document.addEventListener("keydown",k2,true); return; }
   const N=news.n, C=GAME.caucus;
   if(!card||!modal||!C){ if(next)next(); return; }
@@ -20250,20 +20305,31 @@ function showCaucusNews(news,next){
   h+=sec("Retired", N.retired, r=>`<div class="cn-fac"><b>${caucusCode(r.k)}</b> ${r.old} (loyalty ${r.L}) retired; ${r.n} holds the seat for your party.`+"</div>", 8);
   h+=sec("Crossed the floor", N.crossed, k=>row(k,"now sits with the "+oppPartyPlural()));
   h+=sec("Joined your party", N.joined, k=>row(k,"left the "+oppPartyPlural()));
-  h+=sec("New factions", N.formed, fk=>{ const F=C.facs[fk], op=caucusFactionParts(fk).opp; return `<div class="cn-fac"><b>${caucusFactionName(fk)}</b> · ${F?F.keys.length:0} members. ${op?`At odds with their own leadership, they want ${caucusFactionWant(fk).toLowerCase()}, and carry less of their party's discipline against you while it lasts.`:`They want ${caucusFactionWant(fk).toLowerCase()}, and vote against your bills as a bloc until they calm down.`}</div>`; });
-  h+=sec("The "+oppPartyPlural()+"' own fights", N.flash, x=>`<div class="cn-fac">Their leadership whipped them on ${ISSUES[x.i].name.toLowerCase()}, and ${x.n} who break with the party on it balked.</div>`);
+  const mineF=(N.formed||[]).filter(f=>!caucusFactionParts(f).opp), oppF=(N.formed||[]).filter(f=>caucusFactionParts(f).opp);
+  const mineB=(N.broken||[]).filter(f=>!caucusFactionParts(f).opp), oppB=(N.broken||[]).filter(f=>caucusFactionParts(f).opp);
+  h+=sec("New factions", mineF, fk=>{ const F=C.facs[fk], op=caucusFactionParts(fk).opp; return `<div class="cn-fac"><b>${caucusFactionName(fk)}</b> · ${F?F.keys.length:0} members. ${op?`At odds with their own leadership, they want ${caucusFactionWant(fk).toLowerCase()}, and carry less of their party's discipline against you while it lasts.`:`They want ${caucusFactionWant(fk).toLowerCase()}, and vote against your bills as a bloc until they calm down.`}</div>`; });
   h+=sec("Livid, and could cross the floor", N.livid, k=>row(k,caucusWhy(C.m[k])));
   h+=sec("Turned against you", N.angry, k=>row(k,caucusWhy(C.m[k])));
   h+=sec("Less loyal", N.dropped, k=>row(k,caucusWhy(C.m[k])));
-  h+=sec("Factions that broke up", N.broken, fk=>`<div class="cn-fac">The ${caucusFactionName(fk)}: its members have calmed down.</div>`);
-  h+=sec(oppPartyPlural()+" wavering on their party", N.wavering, k=>row(k,"open to your bills"));
-  h+=`<div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap"><button class="enactbtn" id="cnOpen">Open Legislators</button><button class="enactbtn ghost" id="cnOk">Continue ▸</button></div>`;
+  h+=sec("Factions that broke up", mineB, fk=>`<div class="cn-fac">The ${caucusFactionName(fk)}: its members have calmed down.</div>`);
+  // the other party, after your own
+  const oppAny=oppF.length||oppB.length||(N.flash||[]).length||(N.oppDropped||[]).length||(N.wavering||[]).length;
+  if(oppAny)h+=`<div class="cn-party">The ${oppPartyPlural()}</div>`;
+  h+=sec("New factions among them", oppF, fk=>{ const F=C.facs[fk]; return `<div class="cn-fac"><b>${caucusFactionName(fk)}</b> · ${F?F.keys.length:0} members. At odds with their own leadership, they want ${caucusFactionWant(fk).toLowerCase()}, and carry less of their party's discipline against you while it lasts.</div>`; });
+  h+=sec("Their own fights", N.flash, x=>`<div class="cn-fac">Their leadership whipped them on ${ISSUES[x.i].name.toLowerCase()}, and ${x.n} who break with the party on it balked.</div>`);
+  h+=sec("Wavering on their party", N.wavering, k=>row(k,"open to your bills"));
+  h+=sec("Losing faith in their party", N.oppDropped, k=>row(k,caucusWhyOpp(C.m[k])));
+  h+=sec("Their factions that broke up", oppB, fk=>`<div class="cn-fac">The ${caucusFactionName(fk)}: its members have made up with their leadership.</div>`);
+  h+=`<div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap"><button class="enactbtn" id="cnOpen">${caucusOpenLabel()}</button><button class="enactbtn ghost" id="cnOk">Continue ▸</button></div>`;
   card.innerHTML=h; modal.classList.remove("hidden"); card.scrollTop=0;
   const openedAt=Date.now(), armed=()=>Date.now()-openedAt>=400;
   const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
   const done=()=>{ if(!armed())return; close(); if(next)next(); };
-  const go=k=>{ if(!armed())return; close(); if(k){ window._caucusSel=k; window._caucusCh=k[0]==="h"?"house":"senate"; window._caucusScroll=true; }
-    currentView="caucus"; detailKey=null; document.querySelectorAll("nav.rail button").forEach(b=>b.classList.toggle("active",b.dataset.view==="caucus")); render(); if(next)next(); };
+  // NOT A WAY OUT OF THE BRIEFING. Anything still queued this quarter is
+  // shown first; the tab opens when the last screen is done.
+  const go=k=>{ if(!armed())return; close();
+    caucusOpenAfterBriefing(()=>{ if(k){ window._caucusSel=k; window._caucusCh=k[0]==="h"?"house":"senate"; window._caucusScroll=true; }
+      currentView="caucus"; detailKey=null; document.querySelectorAll("nav.rail button").forEach(b=>b.classList.toggle("active",b.dataset.view==="caucus")); }, next); };
   const onKey=e=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
   document.getElementById("cnOk").onclick=done;
   document.getElementById("cnOpen").onclick=()=>go(null);
@@ -21524,7 +21590,8 @@ function whipCount(id, dir, narrowed, cushion, skipOdds){
   const cu=cushion||0;
   const H=chamberWhip("house",scaled,dir,ctx,cu), S=chamberWhip("senate",scaled,dir,ctx,cu);
   const base=Math.round(BILL_FLOOR_COST*oppositionCapitalMult());
-  const _cost=H.cost+S.cost+base;
+  // a bill a director brought you costs less to whip: the drafting and the agency are done
+  const _cost=Math.round((H.cost+S.cost+base)*(dir==="enact"?apptDiscountFor(id):1));
   const w={house:H, senate:S, narrowed:nw, cushion:cu, needsSuper:billNeedsSuper(pol),
           cost:_cost, base,
           overCap:_cost>CAPITAL_MAX,
@@ -21646,7 +21713,9 @@ function showVoteResult(o){
       : "You whipped and you lost — the political capital is gone either way. Build the margin, weaken the bill, or win the seats."}</div>`}
     <button class="enactbtn" id="voteResOk">Continue ▸</button>`;
   modal.classList.remove("hidden");
-  const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
+  // whoever called the vote may be waiting on it (a proposal in the quarter's sequence)
+  const after=window._voteDone; window._voteDone=null;
+  const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); if(after)after(); };
   const onKey=e=>{ if(modal.classList.contains("hidden"))return;
     if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); } };
   document.getElementById("voteResOk").onclick=close;
