@@ -20976,7 +20976,7 @@ function floorHoldoutsHTML(w,billKey,pid){
     if(!pr&&!caucusProjFor(r.key).some(p=>p.k===r.key))acts.push(`<button class="cf-chbtn" data-hold="proj" data-hch="${x.chamber}" data-hid="${x.id}">District project · $0.05B/yr</button>`);
     if(!lpActive(r.target)){ const o=lpOptions(m).find(o=>o.pid!==pid); if(o)acts.push(`<button class="cf-chbtn" data-hold="prom" data-hch="${x.chamber}" data-hid="${x.id}" data-hp="${o.pid}|${o.want}">Promise: ${o.label}</button>`); }
     return `<div class="hold-row"><span class="hold-who"><b>${who}</b><span class="hold-lean">${lean} · ${pr?"":"loyalty "}${pr?"":Math.round(m.L)}${pr?"loyalty "+Math.round(m.L):""}</span></span><span class="hold-acts">${acts.join("")}</span></div>`; }).join("");
-  if(dealt.length)h+=`<div class="hold-done">Committed to this vote: ${dealt.map(d=>`${d.r.pr?prTitle(d.r.m):caucusTitle(d.r.key)} (${d.kind})`).join(", ")}</div>`;
+  if(dealt.length)h+=`<div class="hold-done">Certain yes on this vote: ${dealt.map(d=>`${d.r.pr?prTitle(d.r.m):caucusTitle(d.r.key)} (${d.kind})`).join(", ")}</div>`;
   return h+`</div>`;
 }
 function floorHoldoutWire(root,billKey,redraw){
@@ -21688,7 +21688,7 @@ function chamberWhip(chamber, pol, dir, ctx, cushion){
   // the expected vote — the sum of each member's probability of voting for it —
   // so the headline number means something and the odds follow from it.
   const _sd=ctx.voteSD||VOTE_SD;
-  const pr=members.map(m=>votePr(m.incl,_sd));
+  const pr=members.map(m=>m.dealt?1:votePr(m.incl,_sd));   // a member you dealt with is a certain yes
   let expect=0; for(const p of pr)expect+=p;
   const yes=members.filter(m=>m.incl>0);
   // The line is not the expected count. A chamber of sixty members sitting at
@@ -21800,7 +21800,7 @@ function _voteGauss(r){ let u=0,v=0; while(!u)u=r(); while(!v)v=r();
 function votePassOdds(w){
   let h=(w.narrowed*1000)|0;
   for(const C of [w.house,w.senate]){ h=(h*31+C.need)|0; h=(h*31+C.yes)|0; h=(h*31+C.buy.length)|0;
-    for(const m of C.members)h=(h*31+Math.round(m.incl*10))|0; }
+    for(const m of C.members)h=(h*31+Math.round(m.incl*10)+(m.dealt?7:0))|0; }
   const rnd=_voteRng(h);
   let pass=0;
   for(let d=0;d<VOTE_DRAWS;d++){
@@ -21814,6 +21814,7 @@ function votePassOdds(w){
       const bought=new Set(w.overCap?[]:C.buy.map(m=>m.id));
       let yes=0;
       for(const m of C.members){
+        if(m.dealt){ yes++; _voteGauss(rnd); continue; }   // dealt with by name: certain
         const base=bought.has(m.id)?VOTE_PROMISE:m.incl;
         if(base+_voteGauss(rnd)*(w.voteSD||VOTE_SD)>0)yes++;
       }
@@ -21837,7 +21838,7 @@ function runFloorVote(w){
     const roll=[];
     for(const m of C.members){
       const base=bought.has(m.id)?VOTE_PROMISE:m.incl;
-      const v=base+gauss()*(w.voteSD||VOTE_SD)>0;
+      const v=m.dealt?true:base+gauss()*(w.voteSD||VOTE_SD)>0;
       if(v)yes++; roll.push([m.id,v]);
     }
     out[key]={yes, need:C.need, ok:_sb?true:yes>=C.need, real:yes>=C.need, roll};
@@ -22099,9 +22100,9 @@ function whipChamberHTML(w, pol, dir){
   const nm=w.chamber==="senate"?"Senate":(prOn()?"Assembly":"House");
   const ok=w.short===0&&w.expect>=w.need;
   const pips=w.members.map(m=>{
-    const cls=m.incl>0?(m.mine?"y own":"y cross"):(w.buy.indexOf(m)>=0?"buy":(m.buyable?"n":"n hard"));
+    const cls=m.dealt?"buy":m.incl>0?(m.mine?"y own":"y cross"):(w.buy.indexOf(m)>=0?"buy":(m.buyable?"n":"n hard"));
     const tag=w.chamber==="senate"?"SD":"HD";
-    return `<i class="wp ${cls}" title="${floorName(w.chamber,m.id)} — ${m.incl>0?"yes":"no"}${m.dealt?" · committed to you on this vote":""}${m.owed>0?" · owes you nothing, you already spent it":""}${m.incl<=0?" · "+holdoutReason(m,pol,dir):""}"></i>`;
+    return `<i class="wp ${cls}" title="${floorName(w.chamber,m.id)} — ${m.incl>0?"yes":"no"}${m.dealt?" · a certain yes: you made a deal for this vote":""}${m.owed>0?" · owes you nothing, you already spent it":""}${m.incl<=0?" · "+holdoutReason(m,pol,dir):""}"></i>`;
   }).join("");
   return `<div class="whip-ch">
     <div class="whip-top"><span class="whip-nm">${nm}</span>
