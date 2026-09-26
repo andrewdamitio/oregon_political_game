@@ -488,6 +488,8 @@
   .cf-live .ico{width:13px;height:13px}
   .cf-dorm{font-size:12.5px;color:var(--muted-3);align-self:center}
   .cf-chairs{font-size:12.5px;border-top:1px dashed var(--line);padding-top:5px}
+  .cfacs-under{grid-template-columns:1fr;margin-top:4px}
+  .cfac.opp{border-left:3px solid #5b3a78}
   .cf-mems{display:flex;flex-wrap:wrap}
   .cchip{display:inline-block;font-size:11.5px;padding:1px 7px;border:1px solid var(--line);border-radius:10px;background:var(--paper);color:var(--ink);margin:1px 3px 1px 0;white-space:nowrap}
   .cchip.conv{border-style:dashed}
@@ -15318,7 +15320,7 @@ function renderCompass(){
         <span><i style="background:var(--gold)"></i>Starting mandate</span>
         <span><i style="background:var(--clay)"></i>Your enacted agenda</span>
         ${EC_TAB_OPTS.centroid?'<span><i style="background:var(--ink)"></i>Electorate center of gravity</span>':''}
-        ${EC_TAB_OPTS.members&&!prOn()?`<span><i style="background:#3d6a3f"></i>${myPartyPlural()}, by loyalty to you (larger: senators)</span><span><i style="background:var(--paper);border:1.5px solid #9b938e"></i>${oppPartyPlural()}, by loyalty to their party</span><span><i style="background:var(--moss);transform:rotate(45deg);border:1px solid var(--ink)"></i>Each party's centre</span>`:''}
+        ${EC_TAB_OPTS.members&&!prOn()?`<span><i style="background:#3d6a3f"></i>${myPartyPlural()}, by loyalty to you (larger: senators)</span><span><i style="background:var(--paper);border:1.5px solid #5b3a78"></i>${oppPartyPlural()}, by loyalty to their party</span><span><i style="background:var(--moss);transform:rotate(45deg);border:1px solid var(--ink)"></i>Each party's centre</span>`:''}
       </div>
       <div class="compass-read">
         <div class="cr"><div class="cr-h">Economic axis</div>
@@ -19759,8 +19761,11 @@ function caucusTargetParts(m,key){
     const b=caucusBase(m);
     parts.push([(caucusPartyOf(m)==="D"?"Democrat":"Republican")+", "+caucusSeatWord(b),b]);
     parts.push(["Where their issues have gone under you",-st.sat*18]);
+    // their party's own fortunes: restless when you are popular, rallying when you are not
+    const fort=-(overallApproval()-50)*0.5;
+    if(Math.abs(fort)>=0.5)parts.push([fort<0?"Their party is losing ground to you":"Their party is rallying against you",fort]);
   }
-  if(m.g){ const k=m.p==="mine"?1:-0.8, hs=caucusHist(m); let left=(m.g||0);
+  if(m.g){ const k=m.p==="mine"?1:-1, hs=caucusHist(m); let left=(m.g||0);
     // the grudge is capped at 30 either way; the itemized record is scaled to it
     const tot=hs.reduce((a,x)=>a+x.now,0), f=(tot&&Math.sign(tot)===Math.sign(m.g)&&Math.abs(tot)>Math.abs(m.g))?m.g/tot:1;
     hs.slice(0,5).forEach(x=>{ parts.push([x.nm+", "+caucusQ(x.t),x.now*f*k]); left-=x.now*f; });
@@ -19929,8 +19934,8 @@ function caucusFactionKey(m){
   // a faction forms within a chamber: House and Senate members do not caucus together
   const v=m.v[st.worst]; return m.ch[0]+":"+st.worst+":"+(v.pos<0?0:1);
 }
-function caucusFactionParts(fk){ const p=fk.split(":"); return {ch:p[0], i:p[1], side:+p[2]}; }
-function caucusFactionName(fk){ const f=caucusFactionParts(fk); return (f.ch==="s"?"Senate ":"House ")+ISSUES[f.i].fac[f.side]; }
+function caucusFactionParts(fk){ const p=fk.split(":"); return {ch:p[0], i:p[1], side:+p[2], opp:p[3]==="o"}; }
+function caucusFactionName(fk){ const f=caucusFactionParts(fk); return (f.ch==="s"?"Senate ":"House ")+(f.opp?oppPartyName()+" ":"")+ISSUES[f.i].fac[f.side]; }
 function caucusFactionWant(fk){ const f=caucusFactionParts(fk); return ISSUES[f.i].want[f.side]; }
 /* Would this member band together with others over this grievance? A trait
    of the member, fixed for as long as they hold the seat. */
@@ -19938,13 +19943,50 @@ function caucusJoins(k,m,fk){
   const v=m.v&&m.v[caucusFactionParts(fk).i];
   return caucusRng(k+"|"+m.n+"|joins")()<(v&&v.int>=1?0.65:0.4);
 }
+/* An opposition member at odds with their own party: over the issue they
+   break with it on hardest, or one their leadership whipped them on, or one
+   you moved their way. */
+const CAUCUS_OPP_ANGRY=47;
+/* At odds with their party: well below where their seat would put them.
+   A safe-seat member does not have to fall as far as a marginal one. */
+function caucusOppOdds(m){ return Math.max(CAUCUS_OPP_ANGRY, caucusBase(m)-24); }
+function caucusOppFactionKey(m){
+  const pl=caucusPartyOf(m)==="D"?1:-1; let best=null, bs=0.25;
+  for(const i in (m.v||{})){ if(ISSUES[i].partisan===false)continue; const v=m.v[i];
+    const sc=v.int*Math.abs(v.pos-pl)+Math.max(0,(m.gg&&m.gg[i])||0)/10+(m.lf===i?1:0);
+    if(sc>bs){ bs=sc; best=i; } }
+  return best?m.ch[0]+":"+best+":"+(m.v[best].pos<0?0:1)+":o":null;
+}
+/* THE OTHER SIDE HAS ITS OWN FIGHTS. Now and then the opposition's
+   leadership whips its members against their districts on an issue, and
+   the ones who break with the party on it pay for it in party loyalty.
+   It happens whatever you do. */
+function caucusOppFlashpoint(){
+  const C=GAME.caucus, r=caucusRng("flash|"+GAME.turn);
+  if(r()>=0.15)return;
+  const by={};
+  for(const k in C.m){ const m=C.m[k]; if(m.p!=="opp"||!m.v)continue;
+    caucusBreaks(m).filter(i=>ISSUES[i].partisan!==false).forEach(i=>(by[i]=by[i]||[]).push(k)); }
+  const iss=Object.keys(by).filter(i=>by[i].length>=3); if(!iss.length)return;
+  const i=iss[Math.floor(r()*iss.length)], ks=by[i];
+  // hardest on the members whose districts care about it
+  ks.forEach(k=>{ const m=C.m[k], w=(m.v[i]&&m.v[i].int>=1)?1:0.5, a=30*w;
+    m.g=clamp((m.g||0)+a,-30,30); m.gg=m.gg||{}; m.gg[i]=clamp((m.gg[i]||0)+a,-30,30); m.lf=i;
+    caucusNote(m,"_lead",oppPartyName()+" leadership whipped them on "+ISSUES[i].name.toLowerCase(),a); m.L=clamp(m.L-16*w,0,100); });
+  GAME.log.push(ico('people')+" The "+oppPartyName()+" leadership whipped its members on "+ISSUES[i].name.toLowerCase()+". "+ks.length+" who break with the party on it balked.");
+  caucusNews("flash",{i, n:ks.length});
+}
 function caucusFormFactions(){
   const C=GAME.caucus, at=caucusAngryAt(), groups={};
   // a save from before factions were per chamber: drop the old keys quietly
-  for(const fk in (C.facs||{}))if(fk.split(":").length!==3)delete C.facs[fk];
+  for(const fk in (C.facs||{})){ const q=fk.split(":").length; if(q!==3&&q!==4)delete C.facs[fk]; }
   for(const k in C.m){ const m=C.m[k];
-    if(m.f&&m.f.split(":").length!==3)m.f=null;
-    if(m.p!=="mine"){ m.f=null; continue; }
+    if(m.f&&m.f.split(":").length<3)m.f=null;
+    if(m.p!=="mine"){
+      if(m.f&&(!caucusFactionParts(m.f).opp||m.L>=caucusOppOdds(m)+8))m.f=null;
+      if(m.L<caucusOppOdds(m)){ const fk=m.f||caucusOppFactionKey(m); if(fk&&(m.f||caucusJoins(k,m,fk)))(groups[fk]=groups[fk]||[]).push(k); }
+      continue; }
+    if(m.f&&caucusFactionParts(m.f).opp)m.f=null;
     // calm enough to leave
     if(m.f&&m.L>=at+8)m.f=null;
     if(m.L<at){ const fk=m.f||caucusFactionKey(m); if(fk&&(m.f||caucusJoins(k,m,fk)))(groups[fk]=groups[fk]||[]).push(k); }
@@ -19955,7 +19997,9 @@ function caucusFormFactions(){
     if(ks.length>=3||(was[fk]&&ks.length>=2)){
       C.facs[fk]={since:was[fk]?was[fk].since:GAME.turn, keys:ks};
       ks.forEach(k=>C.m[k].f=fk);
-      if(!was[fk])GAME.log.push(ico('warning')+" "+ks.length+" of your members have formed the "+caucusFactionName(fk)+": they want "+caucusFactionWant(fk).toLowerCase()+". See Party Loyalty.");
+      if(!was[fk])GAME.log.push(caucusFactionParts(fk).opp
+        ? ico('people')+" "+ks.length+" "+oppPartyPlural()+" at odds with their leadership have formed the "+caucusFactionName(fk)+": they want "+caucusFactionWant(fk).toLowerCase()+"."
+        : ico('warning')+" "+ks.length+" of your members have formed the "+caucusFactionName(fk)+": they want "+caucusFactionWant(fk).toLowerCase()+". See Party Loyalty.");
     } else ks.forEach(k=>{ if(C.m[k].f===fk)C.m[k].f=null; });
   }
   for(const k in C.m){ const m=C.m[k]; if(m.f&&!C.facs[m.f])m.f=null; }
@@ -19985,6 +20029,8 @@ function caucusTick(){
     if(m.hist)m.hist=m.hist.filter(x=>Math.abs(x.a*Math.pow(0.8,GAME.turn-x.t))>=0.3);
     m.L=clamp(m.L+(caucusTarget(m,k)-m.L)*0.35,0,100); }
   caucusControlCalc();
+  for(const k in C.m){ const m=C.m[k]; if(m.lf&&!(m.gg&&m.gg[m.lf]))m.lf=null; }
+  caucusOppFlashpoint();
   caucusFormFactions();
   caucusDefections();
   caucusCollectNews(facs0,before);
@@ -20010,7 +20056,7 @@ function caucusCollectNews(facs0,before){
   N.prim=C.primNews||[]; C.primNews=[];
   N.retired=C.retNews||[]; C.retNews=[];
   N.from={}; ["livid","angry","dropped","wavering"].forEach(t=>N[t].forEach(k=>{ const b=before[k]; N.from[k]=Math.round(b.last!=null?b.last:b.L); }));
-  const any=["prim","retired","formed","broken","crossed","joined","livid","angry","dropped","wavering"].some(t=>(N[t]||[]).length);
+  const any=["flash","prim","retired","formed","broken","crossed","joined","livid","angry","dropped","wavering"].some(t=>(N[t]||[]).length);
   if(any&&GAME.turn>1)GAME.pendingCaucusNews={turn:GAME.turn, n:JSON.parse(JSON.stringify(N))};
   C._news={};
 }
@@ -20030,6 +20076,7 @@ function caucusNewsTitle(N){
   if(n("joined"))return "A member of the "+oppPartyPlural()+" has joined your party";
   if(n("dropped"))return n("dropped")+" of your members became less loyal";
   if(n("broken"))return "The "+caucusFactionName(N.broken[0])+" has broken up";
+  if(n("flash"))return "The "+oppPartyPlural()+" are fighting among themselves";
   return n("wavering")+" "+oppPartyName()+" member"+(n("wavering")===1?" is":"s are")+" wavering";
 }
 function showCaucusNews(news,next){
@@ -20047,7 +20094,8 @@ function showCaucusNews(news,next){
   h+=sec("Retired", N.retired, r=>`<div class="cn-fac"><b>${caucusCode(r.k)}</b> ${r.old} (loyalty ${r.L}) retired; ${r.n} holds the seat for your party.`+"</div>", 8);
   h+=sec("Crossed the floor", N.crossed, k=>row(k,"now sits with the "+oppPartyPlural()));
   h+=sec("Joined your party", N.joined, k=>row(k,"left the "+oppPartyPlural()));
-  h+=sec("New factions", N.formed, fk=>{ const F=C.facs[fk]; return `<div class="cn-fac"><b>${caucusFactionName(fk)}</b> · ${F?F.keys.length:0} members. They want ${caucusFactionWant(fk).toLowerCase()}, and vote against your bills as a bloc until they calm down.</div>`; });
+  h+=sec("New factions", N.formed, fk=>{ const F=C.facs[fk], op=caucusFactionParts(fk).opp; return `<div class="cn-fac"><b>${caucusFactionName(fk)}</b> · ${F?F.keys.length:0} members. ${op?`At odds with their own leadership, they want ${caucusFactionWant(fk).toLowerCase()}, and carry less of their party's discipline against you while it lasts.`:`They want ${caucusFactionWant(fk).toLowerCase()}, and vote against your bills as a bloc until they calm down.`}</div>`; });
+  h+=sec("The "+oppPartyPlural()+"' own fights", N.flash, x=>`<div class="cn-fac">Their leadership whipped them on ${ISSUES[x.i].name.toLowerCase()}, and ${x.n} who break with the party on it balked.</div>`);
   h+=sec("Livid, and could cross the floor", N.livid, k=>row(k,caucusWhy(C.m[k])));
   h+=sec("Turned against you", N.angry, k=>row(k,caucusWhy(C.m[k])));
   h+=sec("Less loyal", N.dropped, k=>row(k,caucusWhy(C.m[k])));
@@ -20206,7 +20254,7 @@ function caucusOpenChair(postId,groups,side){
 function caucusColor(m){
   if(m.p==="mine"){ const t=m.L/100;
     return t<0.5?cmMix(t/0.5,"#a8452f","#c9a24a"):cmMix((t-0.5)/0.5,"#c9a24a","#3d6a3f"); }
-  return cmMix(clamp((88-m.L)/55,0,1),"#9b938e","#3f6590");   // their party's grey, going blue as it slips
+  return cmMix(clamp((88-m.L)/55,0,1),"#5b3a78","#d4ade6");   // plum while loyal to their party, lilac as it slips
 }
 function caucusMeter(L,col){ return `<span class="cf-meter"><i style="width:${Math.round(clamp(L,0,100))}%;background:${col}"></i></span>`; }
 function caucusViewLabel(i,pos){ const I=ISSUES[i]; return I.partisan===false?I.view[1]:(pos<-0.2?I.view[0]:pos>0.2?I.view[1]:"Torn on "+I.name.toLowerCase()); }
@@ -20238,39 +20286,44 @@ function renderCaucus(){
     <p>A member counts as angry below about 47, or higher when your party control slips. Three or more angry members of the same chamber with the same grievance form a faction, which votes against your bills as a bloc until its members calm down. Anger also changes how a member votes. A few points above the anger line they stop being a reliable vote on a tax increase; well below it they start voting with the other party on issues they care little about, and at their angriest on most things. A member below ${CAUCUS_LIVID} is livid and may, rarely, cross the floor, taking the seat.</p>
     <p>Not every angry member joins a faction: some band together, others stay angry on their own. Against any angry member of your own party you can back a primary challenger for ◈1 at a time. The first ◈ gives the challenger a 20% chance, each one after adds to it, and it never passes 90%. The member knows once you start and resents it, and resents it far more if they survive. It is decided when their seat is next on the ballot; a winner starts loyal and owes you the seat.</p>
     <p>A district project costs $0.05B a year for two years and adds 20 to a member's loyalty; a faction package covers every member of a faction for up to $0.2B a year and adds 14. Neither costs capital, but every other member of your party loses ${CAUCUS_STING_ONE} for a single project and ${CAUCUS_STING_FAC} for a faction package, and courting the other party costs your whole bench ${CAUCUS_STING_OPP}.</p>
+    <p>The other party has fights of its own. Now and then its leadership whips its members against their districts on an issue, and members at odds with their party form factions of their own, which carry a quarter less of their party's discipline against you. It happens whatever you do.</p>
     <p>The other party's members are scored on loyalty to their own party, high in a safe seat and lower in a marginal one. Moving their issues their way, district projects in their districts and cross-aisle appointees from their districts' groups wear it down, and a member with little left carries less of their party's discipline against you. Below ${CAUCUS_LIVID} they may cross the floor to your party.</p>
   </div></details>`;
   // the scoreboard
   const mineN={h:0,s:0}; let angry=0; const at=caucusAngryAt();
   for(const k in C.m){ const m=C.m[k]; if(m.p==="mine"){ mineN[k[0]]++; if(m.L<at)angry++; } }
   const live=C.proj.filter(p=>p.until>GAME.turn), spend=caucusProjectSpend();
-  const facs=Object.keys(C.facs);
+  const facs=Object.keys(C.facs).sort((a,b)=>caucusFactionParts(a).opp-caucusFactionParts(b).opp), myFacN=facs.filter(f=>!caucusFactionParts(f).opp).length;
+  const oppAngry=Object.keys(C.m).filter(k=>C.m[k].p==="opp"&&C.m[k].L<caucusOppOdds(C.m[k])).length;
   const ctlCol=ctl>=60?"var(--moss)":ctl>=45?"var(--gold)":"var(--clay)";
   h+=`<div class="ascore">
     <div class="as-cell wide"><div class="as-k">Party control</div><div class="as-v" style="color:${ctlCol}">${ctl}<span> ${caucusControlLabel(ctl).toLowerCase()}</span></div>
       <div class="as-meter"><span class="as-fill" style="left:0;width:${ctl}%;background:${ctlCol}"></span></div></div>
     <div class="as-cell"><div class="as-k">Your members</div><div class="as-v">${mineN.h}<span>/60 House</span></div><div class="as-sub">${mineN.s}/30 Senate</div></div>
-    <div class="as-cell"><div class="as-k">Angry</div><div class="as-v" style="color:${angry?"var(--clay)":"inherit"}">${angry}<span> · ${facs.length} faction${facs.length===1?"":"s"}</span></div><div class="as-sub">Angry below ${Math.round(at)}</div></div>
+    <div class="as-cell"><div class="as-k">Angry</div><div class="as-v" style="color:${angry?"var(--clay)":"inherit"}">${angry}<span> · ${myFacN} faction${myFacN===1?"":"s"}</span></div><div class="as-sub">Angry below ${Math.round(at)}${oppAngry?" · "+oppAngry+" "+oppPartyPlural()+" at odds with their party":""}</div></div>
     <div class="as-cell"><div class="as-k">District projects</div><div class="as-v">${live.length?"$"+spend.toFixed(2)+"B":`<span class="as-none">None</span>`}</div><div class="as-sub">${live.length?live.length+" running, a year":"Paid from the General Fund"}</div></div>
   </div>`;
-  // factions, only when there are any
+  // factions, both parties', drawn under the map
+  let facH="";
   if(facs.length){
-    h+=`<div class="aarea">Factions</div><div class="cfacs">`;
-    facs.forEach(fk=>{ const F=C.facs[fk], ks=F.keys, avg=ks.reduce((a,k)=>a+C.m[k].L,0)/ks.length;
-      const iid=caucusFactionParts(fk).i, on=C.proj.find(p=>p.k==="f:"+fk&&p.until>GAME.turn), c=caucusProjectCost("f:"+fk);
+    facH+=`<div class="aarea">Factions</div><div class="cfacs cfacs-under">`;
+    facs.forEach(fk=>{ const F=C.facs[fk], ks=F.keys, avg=ks.reduce((a,k)=>a+C.m[k].L,0)/ks.length, fp=caucusFactionParts(fk), op=fp.opp;
+      const iid=fp.i, on=C.proj.find(p=>p.k==="f:"+fk&&p.until>GAME.turn), c=caucusProjectCost("f:"+fk);
       const moved=ISSUES[iid].pols.filter(([pid,dir])=>Math.abs(caucusLevel(pid)-caucusRef(pid))>0.02).map(([pid])=>(POLICIES[pid]||CATALOG[pid]||{}).name).filter(Boolean);
       const grp={}; ks.forEach(k=>{ const row=caucusRow(k); if(row)caucusMakeup(row,4).forEach(x=>grp[x.b]=(grp[x.b]||0)+1); });
       const groups=Object.keys(grp).sort((a,b)=>grp[b]-grp[a]).slice(0,3);
-      h+=`<div class="cfac${window._caucusFac===fk?" on":""}" data-cfac="${fk}">
-        <div class="cf-h"><b>${caucusFactionName(fk)}</b><span class="cf-n">${myPartyPlural()} · ${ks.length} members</span></div>
-        <div class="cf-bar">Loyalty ${Math.round(avg)} ${caucusMeter(avg,caucusColor({p:"mine",L:avg}))}</div>
-        <div class="cf-blurb">They want ${caucusFactionWant(fk).toLowerCase()}.${moved.length?" The laws behind it: "+moved.join(", ")+".":""} Until they calm down they vote against your bills as a bloc.</div>
+      facH+=`<div class="cfac${op?" opp":""}${window._caucusFac===fk?" on":""}" data-cfac="${fk}">
+        <div class="cf-h"><b>${caucusFactionName(fk)}</b><span class="cf-n">${op?oppPartyPlural():myPartyPlural()} · ${ks.length} members</span></div>
+        <div class="cf-bar">${op?"Loyalty to their party":"Loyalty"} ${Math.round(avg)} ${caucusMeter(avg,caucusColor({p:op?"opp":"mine",L:avg}))}</div>
+        <div class="cf-blurb">${op
+          ?`At odds with their own leadership, they want ${caucusFactionWant(fk).toLowerCase()}. While it lasts they carry a quarter less of their party's discipline against you, so a bill that gives them it can win their votes.`
+          :`They want ${caucusFactionWant(fk).toLowerCase()}.${moved.length?" The laws behind it: "+moved.join(", ")+".":""} Until they calm down they vote against your bills as a bloc.`}</div>
         <div class="cf-mems">${ks.map(k=>`<span class="cchip click" data-cseat="${k}">${caucusCode(k)} ${C.m[k].n.split(" ").slice(-1)[0]}</span>`).join("")}</div>
-        ${caucusApptListsHTML(ks,groups,"mine","they")}
-        ${on?`<div class="cf-live">${ico('houses')} Projects in their districts for ${on.until-GAME.turn} more quarters</div>`
-            :`<div><button class="fcard-btn" data-cfund="f:${fk}">Fund their districts · $${c.amt.toFixed(2)}B/yr</button></div>`}
+        ${caucusApptListsHTML(ks,groups,op?"opp":"mine","they")}
+        ${on?`<div class="cf-live">${ico('houses')} District projects running · cooldown ${on.until-GAME.turn} quarter${on.until-GAME.turn===1?"":"s"}</div>`
+            :`<div><button class="fcard-btn" data-cfund="f:${fk}">${op?"Court them":"Fund their districts"} · $${c.amt.toFixed(2)}B/yr</button></div>`}
       </div>`; });
-    h+=`</div>`;
+    facH+=`</div>`;
   }
   // the livid
   const livid=Object.keys(C.m).filter(k=>C.m[k].p==="mine"&&C.m[k].L<CAUCUS_LIVID);
@@ -20297,7 +20350,7 @@ function renderCaucus(){
     <div class="cch"><button data-cch="house" class="${ch==="house"?"on":""}">House</button><button data-cch="senate" class="${ch==="senate"?"on":""}">Senate</button>${fac?`<button data-cfacoff="1">Show everyone</button>`:""}</div>
     <div class="cmap-row"><div>${legMapFrame(`<svg class="leg-map-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Every member, by loyalty">${svg}${edge}</svg>`)}
       <div class="legmap-read cmap-read" id="cmapRead" data-dflt="${hv("Hover a district or a member to find the other","Tap a district to open its member")}">${hv("Hover a district or a member to find the other","Tap a district to open its member")}</div>
-      <div class="clegend"><span><i style="background:#3d6a3f"></i>Yours, loyal</span><span><i style="background:#c9a24a"></i>Wavering</span><span><i style="background:#a8452f"></i>Angry</span><span><i style="background:#9b938e"></i>${oppPartyPlural()}, loyal to their party</span><span><i style="background:#3f6590"></i>${oppPartyPlural()}, wavering</span></div></div>
+      <div class="clegend"><span><i style="background:#3d6a3f"></i>Yours, loyal</span><span><i style="background:#c9a24a"></i>Wavering</span><span><i style="background:#a8452f"></i>Angry</span><span><i style="background:#5b3a78"></i>${oppPartyPlural()}, loyal to their party</span><span><i style="background:#d4ade6"></i>${oppPartyPlural()}, wavering</span></div>${facH}</div>
       <div id="cmemFile">${sel?caucusMemberCard(sel):""}</div></div>`;
   // the roster
   const ks=Object.keys(C.m).filter(k=>k[0]===tag&&(side==="all"||C.m[k].p===side))
@@ -20420,7 +20473,7 @@ function caucusReportHTML(){
   const rank={livid:0,angry:1,slipping:2};
   rows.sort((a,b)=>(rank[a.zone]-rank[b.zone])||(a.m.L-b.m.L));
   const col={livid:"var(--clay)",angry:"var(--clay)",slipping:"var(--gold)"};
-  const nf=Object.keys(C.facs||{}).length;
+  const nf=Object.keys(C.facs||{}).filter(f=>!caucusFactionParts(f).opp).length;
   let h=`<div class="rsection"><div class="rsec-h">${ico('people')} Your party</div>
     <div class="rrow"><span class="rlabel">Party control</span><span class="rval">${C.control} · ${caucusControlLabel(C.control).toLowerCase()}${Math.abs(d)>=1?` <span class="rdelta ${d<0?"bad":"good"}" style="font-size:11.5px">${d<0?"▼":"▲"}${Math.abs(Math.round(d))}</span>`:""}${nf?" · "+nf+" faction"+(nf>1?"s":""):""}</span></div>`;
   h+=rows.slice(0,6).map(r=>`<div class="rrow"><span class="rlabel" style="color:${col[r.zone]}">${caucusCode(r.k)} ${caucusTitle(r.k)}, ${caucusPlace(r.m.ch,r.m.id)}</span><span class="rval" style="font-size:12.5px">${Math.round(r.m.L)}${r.drop>=1?" ▼"+Math.round(r.drop):""} · ${r.zone}${r.m.f?" · "+caucusFactionName(r.m.f):""}${C.prim&&C.prim[r.k]?" · primary backed":""}</span></div>`).join("");
@@ -20590,7 +20643,7 @@ function caucusMemberCard(k){
     h+=`<details class="cv${br?" br":""}"><summary><span class="cv-i">${ISSUES[i].name}${v.int>=1?" ★":""}</span><span class="cv-p${br&&ISSUES[i].partisan!==false?" cv-brk":""}">${caucusViewLabel(i,v.pos)}${br&&ISSUES[i].partisan!==false?(v.conv?" · personal conviction":" · breaks with party"):""}</span></summary><div class="cv-laws">${caucusIssueLaws(m,i)}</div></details>`; });
   h+=`</div><div class="cm-note">★ an issue the district cares about. In red: a view that breaks with the party. Open an issue for the laws behind it and which way each has moved since you took office.</div>`;
   if(row)h+=caucusApptListsHTML([k],mk.map(x=>x.b),m.p,mine?"they":"they");
-  if(on.length)h+=`<div class="cf-live">${ico('houses')} Projects in this district for ${Math.max(...on.map(p=>p.until))-GAME.turn} more quarters</div>`;
+  if(on.length){ const q=Math.max(...on.map(p=>p.until))-GAME.turn; h+=`<div class="cf-live">${ico('houses')} District project running · cooldown ${q} quarter${q===1?"":"s"}</div>`; }
   if(!own)h+=`<div><button class="fcard-btn" data-cfund="${k}">${mine?"District project":"Court with a project"} · $${c.amt.toFixed(2)}B/yr</button></div>`;
   return h+`</div>`;
 }
@@ -20647,7 +20700,7 @@ function floorMembers(chamber, pol, dir, ctx){
     // aimed at them. Computed from the bill, so it is the same for every
     // member of the bench.
     const disc=BILL_LOYALTY*(ctx.disc==null?1:ctx.disc)*((rcvOn()&&!prOn())?RCV_DISCIPLINE:1)
-              *oppDisciplineMult(pol,dir)*(cm&&!mine?caucusCourtMult(cm.L):1);
+              *oppDisciplineMult(pol,dir)*(cm&&!mine?caucusCourtMult(cm.L)*(cm.f?0.75:1):1);
     // THE CENTRE BENCH, under proportional representation. Elected on not
     // being either of you, so there is no caucus to whip them and nothing to
     // be loyal to. They vote the bill, and they are the votes you have to find.
