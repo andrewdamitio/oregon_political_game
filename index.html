@@ -572,6 +572,15 @@
   .ec-mem:hover{stroke:var(--ink);stroke-width:1.6}
   .cm-prim .fcard-btn{align-self:flex-start;margin-top:0}
   .lp-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .lpr{border:1px solid var(--line);border-left:3px solid var(--gold);background:var(--paper-2);border-radius:var(--radius);padding:9px 12px;margin:0 0 12px}
+  .lpr-h{font-size:11.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted-2);margin-bottom:4px;display:flex;align-items:center;gap:6px}
+  .lpr-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:5px 0;border-top:1px dashed var(--line);font-size:13.5px}
+  .lpr-row.urgent .lpr-when{color:var(--clay);font-weight:600}
+  .lpr-what{display:flex;flex-direction:column;min-width:0} .lpr-what i{font-style:normal;font-size:12px;color:var(--muted-2)}
+  .lpr-when{font-size:12.5px;color:var(--muted-2);white-space:nowrap}
+  .lpr-note{font-size:12px;color:var(--muted-3);margin-top:4px}
+  .lp-banner{border-color:var(--gold)}
+  @media (max-width:600px){ .lpr-row{grid-template-columns:1fr} }
   .lp-row select{font:inherit;font-size:13px;padding:4px 6px;border:1px solid var(--line);border-radius:var(--radius);background:var(--paper);color:var(--ink);max-width:100%}
   .cpr{max-width:640px;background:var(--paper-2);border:1px solid var(--line);border-left:3px solid var(--moss);border-radius:var(--radius);padding:14px 18px;margin-top:14px}
   .cpr-h{font-family:var(--font-display);font-size:20px;margin-bottom:4px}
@@ -16092,7 +16101,7 @@ function showQuarterReport(quiet,next){
         +`<span class="rval" style="color:var(--gold)">vacant ${open}q \u00b7 Deputy ${apptDeputy(id)||"—"}</span></div>`;
     }).join("")
     +`<div class="rforecast">A deputy keeps each of these running and brings nothing to it. An empty chair costs you ${Math.abs(apptVacantCapital()).toFixed(2)} capital a quarter and softens everything that department delivers, for as long as it stays empty. Nominations are on the Appointments page.</div></div>`:"";
-  const partyBlock=prOn()?prReportHTML():caucusReportHTML();
+  const partyBlock=(prOn()?prReportHTML():caucusReportHTML())+((GAME.lprom||[]).length?`<div class="rsection">${lpListHTML("Promises to legislators").replace(/<button[^>]*data-lpgo[^>]*>[^<]*<\/button>/g,"")}</div>`:"");
   const events=(GAME.log||[]).slice(-6).filter(l=>/began|RESOLVED|Midterms|kicker|Kicker|Reserves|Promise|Scandal|boom|Windfall|Federal|Deficit|debt|Austerity/i.test(l));
   const eventBlock=events.length?`<div class="rsection"><div class="rsec-h">${ico('doc')} This Quarter</div>${events.map(e=>`<div class="revent">${e}</div>`).join("")}</div>`:"";
   const cyc=GAME.econCycle;
@@ -20274,7 +20283,7 @@ function caucusWhyOpp(m){
 function caucusNewsTitle(N){
   const n=t=>(N[t]||[]).length;
   if(n("crossed"))return n("crossed")===1?"A member of your party has crossed the floor":n("crossed")+" members of your party have crossed the floor";
-  if(n("lp"))return (N.lp.some(t=>/broke/.test(t))?"You broke a promise to your legislators":"You kept a promise to your legislators");
+  if(n("lp"))return (N.lp.some(t=>/broke/.test(t))?"You broke a promise to your legislators":N.lp.some(t=>/kept/.test(t))?"You kept a promise to your legislators":"A promise to your legislators is almost due");
   if(n("prim"))return "Primary results";
   if(n("formed"))return "The "+caucusFactionName(N.formed[0])+" has formed"+(n("formed")>1?", and "+(n("formed")-1)+" more":"");
   if(n("livid"))return n("livid")+" of your members "+(n("livid")===1?"is":"are")+" livid";
@@ -20765,6 +20774,7 @@ function renderPRLegislators(main,h){
     <div class="as-cell"><div class="as-k">Angry</div><div class="as-v" style="color:${angry?"var(--clay)":"inherit"}">${angry}<span> · ${Object.keys(P.facs||{}).length} wing${Object.keys(P.facs||{}).length===1?"":"s"} in revolt</span></div></div>
     <div class="as-cell"><div class="as-k">Independents</div><div class="as-v">${seated.filter(m=>m.party==="ind").length}</div></div>
   </div>`;
+  h+=lpListHTML();
   // wings in revolt
   const fks=Object.keys(P.facs||{});
   if(fks.length){ h+=`<div class="aarea">Wings in revolt</div><div class="cfacs">`;
@@ -20792,7 +20802,7 @@ function renderPRLegislators(main,h){
   main.querySelectorAll("[data-prm]").forEach(b=>b.addEventListener("click",()=>{ const m=P.m[b.dataset.prm]; if(!m)return; window._prSel=m.id; window._prParty=m.party; window._caucusScroll=true; render(); }));
   main.querySelectorAll("[data-prdem]").forEach(b=>b.addEventListener("click",()=>prDemote(b.dataset.prdem)));
   main.querySelectorAll("[data-prexp]").forEach(b=>b.addEventListener("click",()=>prExpel(b.dataset.prexp)));
-  lpWire(main);
+  lpWire(main); lpGoWire(main);
   if(window._caucusScroll){ window._caucusScroll=false; const f=document.getElementById("cmemFile"); if(f&&f.scrollIntoView)f.scrollIntoView({block:"start",behavior:"smooth"}); }
 }
 function prMemberCard(m){
@@ -20901,6 +20911,8 @@ function lpMake(target,pid,want){
    deadline has passed is broken. Returns lines for the party popup. */
 function lpCheck(){
   const lines=[], keep=[];
+  // a quarter left and not yet moving: say so
+  for(const lp of (GAME.lprom||[])){ const st=lpStatus(lp); if(st.left===1&&!st.moving)lines.push("One quarter left to "+lp.word+", as you promised "+st.who+(st.n>1?" and "+(st.n-1)+" more":"")+"."); }
   for(const lp of (GAME.lprom||[])){
     const lv=caucusLevel(lp.pid), moved=(lv-lp.from)*lp.want;
     const kept=moved>=0.1||(lp.want>0&&!lp.wasOn&&!!POLICIES[lp.pid])||(lp.want<0&&lp.wasOn&&!POLICIES[lp.pid]);
@@ -20931,6 +20943,31 @@ function lpHTML(target,m,onlyIssue){
   const tr=lpTrust(), fac=target.startsWith("f:")||target.startsWith("pf:"), lift=Math.round((fac?LP_LIFT_FAC:LP_LIFT)*tr);
   return `<div class="cm-sec">Promise legislation</div><div class="cm-prim"><div>Promise to move a law ${fac?"they":"they"} want within ${LP_Q} quarters: +${lift} loyalty now${fac?" each":""}, +${LP_KEPT} if you keep it, ${LP_BROKEN} if you do not.${tr<1?` Your broken promises have cut the lift to ${Math.round(tr*100)}%.`:""}</div>
     <div class="lp-row"><select data-lpsel="${target}">${opts.map(o=>`<option value="${o.pid}|${o.want}">${o.label}</option>`).join("")}</select><button class="fcard-btn" data-lpmake="${target}">Promise it</button></div></div>`;
+}
+/* Where each promise stands, for the reminders. */
+function lpStatus(lp){
+  const left=lp.due-GAME.turn, moved=(caucusLevel(lp.pid)-lp.from)*lp.want;
+  const who=lp.fac?(lp.who.startsWith("pf:")?prFacName(lp.who.slice(3)):caucusFactionName(lp.who.slice(2))):(lp.pr?prTitle(lpMember(lp.keys[0],true)||{n:"?"}):caucusTitle(lp.keys[0]));
+  return {left, moving:moved>0.02, who, n:lp.keys.length};
+}
+function lpListHTML(title){
+  const L=GAME.lprom||[]; if(!L.length)return "";
+  const rows=L.slice().sort((a,b)=>a.due-b.due).map(lp=>{ const st=lpStatus(lp);
+    const urgent=st.left<=1&&!st.moving;
+    return `<div class="lpr-row${urgent?" urgent":""}"><span class="lpr-what"><b>${lp.word.charAt(0).toUpperCase()+lp.word.slice(1)}</b><i>promised to ${st.who}${st.n>1?", with "+(st.n-1)+" more who want it":""}</i></span>
+      <span class="lpr-when">${st.moving?"moving their way":st.left<=0?"due now":st.left+" quarter"+(st.left===1?"":"s")+" left"} · by ${caucusQ(lp.due)}</span>
+      <button class="cf-chbtn" data-lpgo="${lp.pid}">Go to the law</button></div>`; }).join("");
+  return `<div class="lpr"><div class="lpr-h">${ico('handshake')} ${title||"Your promises to legislators"}</div>${rows}<div class="lpr-note">Move the law their way before the deadline to keep it. Kept, everyone waiting on it gains; broken, they all lose, and your next promises are worth less.</div></div>`;
+}
+function lpGoWire(root){
+  root.querySelectorAll("[data-lpgo]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation();
+    const pid=b.dataset.lpgo; const m=document.getElementById("reportModal"); if(m&&!m.classList.contains("hidden"))return; openDetail("p_"+pid); }));
+}
+/* The banner on the law's own page. */
+function lpPolicyBanner(pid){
+  const L=(GAME.lprom||[]).filter(p=>p.pid===pid); if(!L.length)return "";
+  return L.map(lp=>{ const st=lpStatus(lp);
+    return `<div class="pendbanner lp-banner">${ico('handshake')} You promised ${st.who}${st.n>1?" and "+(st.n-1)+" more legislators":""} to <b>${lp.word}</b> by <b>${caucusQ(lp.due)}</b>: ${st.moving?"it is already moving their way.":st.left<=0?"it is due now.":st.left+" quarter"+(st.left===1?"":"s")+" left."}</div>`; }).join("");
 }
 function lpWire(root){
   root.querySelectorAll("select[data-lpsel]").forEach(s=>s.addEventListener("click",ev=>ev.stopPropagation()));
@@ -21135,6 +21172,7 @@ function renderCaucus(){
       </div>`; });
     facH+=`</div>`;
   }
+  h+=lpListHTML();
   h+=caucusWalkoutLine();
   // the livid
   const livid=Object.keys(C.m).filter(k=>C.m[k].p==="mine"&&C.m[k].L<CAUCUS_LIVID);
@@ -21185,7 +21223,7 @@ function renderCaucus(){
     p.addEventListener("keydown",ev=>{ if(ev.key==="Enter"){ ev.preventDefault(); pickSeat(p.dataset.cseat); } }); });
   main.querySelectorAll("[data-cfac]").forEach(c=>c.addEventListener("click",ev=>{ if(ev.target.closest("button,select,[data-cseat]"))return; const f=c.dataset.cfac; window._caucusFac=window._caucusFac===f?null:f; render(); }));
   main.querySelectorAll("[data-cfacoff]").forEach(b=>b.addEventListener("click",()=>{ window._caucusFac=null; render(); }));
-  lpWire(main);
+  lpWire(main); lpGoWire(main);
   main.querySelectorAll("[data-cprim]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation(); caucusBackPrimary(b.dataset.cprim); }));
   main.querySelectorAll("[data-cchair]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation();
     const [g,sd]=b.dataset.cgroups.split("|"); caucusOpenChair(b.dataset.cchair,g.split(","),sd); }));
@@ -26251,6 +26289,7 @@ function renderDetail(){
   const pendCost = (fundPendActive ? chargeFor(key, GAME.pending.snap, snapshotFor(key)) : 0) + (logPendActive ? (AGENCIES[key.slice(2)]?.capital||4) : 0);
   let h=`<div class="detailtop"><button class="backbtn" id="backBtn">${detailHome().label}</button>`;
   h+=`</div>`;
+  if(key&&key.startsWith("p_"))h+=lpPolicyBanner(key.slice(2));
   if(pendActive)h+=(GAME.capital<pendCost
     ? `<div class="pendbanner cantafford">${ico('warning')} <b>You cannot afford this change.</b> Moving this costs <b>◈ ${pendCost}</b> and you have <b>◈ ${Math.floor(GAME.capital)}</b>. It will snap back to where it was the moment you leave this page or end the quarter — the numbers below are a preview you have not paid for.</div>`
     : `<div class="pendbanner">Unsaved change — returning to the board spends <b>◈ ${pendCost}</b> to make it official. Use <b>Undo</b> below to discard it for free.</div>`);
