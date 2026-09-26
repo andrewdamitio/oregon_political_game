@@ -550,6 +550,8 @@
   .cn-fac{font-size:13.5px;padding:4px 0}
   .cn-more{font-size:12px;color:var(--muted-3);padding:3px 4px}
   .cm-prim{display:flex;flex-direction:column;gap:6px;font-size:13px}
+  .ec-mem{cursor:pointer}
+  .ec-mem:hover{stroke:var(--ink);stroke-width:1.6}
   .cm-prim .fcard-btn{align-self:flex-start;margin-top:0}
   .cpr{max-width:640px;background:var(--paper-2);border:1px solid var(--line);border-left:3px solid var(--moss);border-radius:var(--radius);padding:14px 18px;margin-top:14px}
   .cpr-h{font-family:var(--font-display);font-size:20px;margin-bottom:4px}
@@ -15270,7 +15272,8 @@ function wireCampMap(root){
 
 /* POLITICAL COMPASS — the modelled electorate as a 2,000-dot cloud, with your
    enacted agenda riding on top and optional centre-of-gravity / past-run layers. */
-const EC_TAB_OPTS={legacy:false, centroid:false};
+const EC_TAB_OPTS={legacy:false, centroid:false, members:false};
+try{ EC_TAB_OPTS.members=localStorage.getItem("sc_compassMembers")==="1"; }catch(e){}
 try{ EC_TAB_OPTS.legacy   = localStorage.getItem("sc_compassLegacy")==="1"; }catch(e){}
 try{ EC_TAB_OPTS.centroid = localStorage.getItem("sc_compassCentroid")==="1"; }catch(e){}
 function renderCompass(){
@@ -15294,6 +15297,7 @@ function renderCompass(){
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
         <button id="ecTogCentroid" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.centroid?'Hide electorate center':'Show electorate center'}</button>
         <button id="ecTogLegacy" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.legacy?'Hide past runs':'Show past runs'}</button>
+        ${prOn()?'':`<button id="ecTogMembers" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.members?'Hide legislators':'Show legislators'}</button>`}
         <span class="mono" style="font-size:12.5px;color:var(--muted-3)">${legN?legN+' election'+(legN===1?'':'s')+' on record':'no past elections on record yet'}${EC_TAB_OPTS.legacy&&legN?' — green win, red loss; gold-ringed is this run':''}</span>
       </div>
       <div class="ec-stage" style="max-width:420px">
@@ -15308,6 +15312,7 @@ function renderCompass(){
         <span><i style="background:var(--gold)"></i>Starting mandate</span>
         <span><i style="background:var(--clay)"></i>Your enacted agenda</span>
         ${EC_TAB_OPTS.centroid?'<span><i style="background:var(--ink)"></i>Electorate center of gravity</span>':''}
+        ${EC_TAB_OPTS.members&&!prOn()?`<span><i style="background:#3d6a3f"></i>${myPartyPlural()}, by loyalty to you (larger: senators)</span><span><i style="background:var(--paper);border:1.5px solid #9b938e"></i>${oppPartyPlural()}, by loyalty to their party</span><span><i style="background:var(--moss);transform:rotate(45deg);border:1px solid var(--ink)"></i>Each party's centre</span>`:''}
       </div>
       <div class="compass-read">
         <div class="cr"><div class="cr-h">Economic axis</div>
@@ -15333,6 +15338,16 @@ function renderCompass(){
     try{ localStorage.setItem("sc_compassCentroid", EC_TAB_OPTS.centroid?"1":"0"); }catch(e){}
     render();
   };
+  const tm=document.getElementById("ecTogMembers");
+  if(tm)tm.onclick=()=>{
+    EC_TAB_OPTS.members=!EC_TAB_OPTS.members;
+    try{ localStorage.setItem("sc_compassMembers", EC_TAB_OPTS.members?"1":"0"); }catch(e){}
+    render();
+  };
+  // a legislator on the compass opens their file
+  const ecc=document.getElementById("ecCanvas"); if(ecc)ecc.addEventListener("click",ev=>{ const d=ev.target.closest&&ev.target.closest(".ec-mem"); if(!d)return;
+    const k=d.dataset.cseat; window._caucusSel=k; window._caucusCh=k[0]==="h"?"house":"senate"; window._caucusSide=GAME.caucus.m[k].p; window._caucusScroll=true;
+    currentView="caucus"; document.querySelectorAll("nav.rail button").forEach(b=>b.classList.toggle("active",b.dataset.view==="caucus")); render(); });
   const tl=document.getElementById("ecTogLegacy");
   if(tl)tl.onclick=()=>{
     EC_TAB_OPTS.legacy=!EC_TAB_OPTS.legacy;
@@ -17194,6 +17209,8 @@ function electorateCompassSVG(t, opts){
     h+=`<circle cx="${px(cN.ec)}" cy="${py(cN.so)}" r="5" fill="var(--ink)" stroke="var(--paper)" stroke-width="1.8"/>`;
     h+=`<text x="${px(cN.ec)}" y="${py(cN.so)-9}" text-anchor="middle" font-size="7" font-family="var(--font-data)" fill="var(--ink)">ELECTORATE</text>`;
   }
+  // legislators, when switched on, sit under you and the electorate centre
+  if(o.members&&typeof caucusCompassLayer==="function")h+=caucusCompassLayer(px,py);
   h+=`<circle cx="${px(aN.ec)}" cy="${py(aN.so)}" r="5" fill="var(--clay)" stroke="var(--paper)" stroke-width="1.8"/>`;
   h+=`<text x="${px(aN.ec)}" y="${py(aN.so)+14}" text-anchor="middle" font-size="7" font-family="var(--font-data)" fill="var(--clay)">YOU</text>`;
   return `<svg class="compass-svg ec-svg" viewBox="0 0 ${S} ${S}" role="img" aria-label="The electorate on the political compass">${h}`+
@@ -20326,9 +20343,9 @@ function caucusIssueLaws(m,i){
   }
   return rows.join("")||`<div class="cl">No law on the books or in the catalog.</div>`;
 }
-/* PRIMARIES. Odds of the challenger you back: 20% on the first ◈, rising
-   with every one after, never past 90%. */
-function caucusPrimaryOdds(spent){ return spent<=0?0:0.9-0.7*Math.exp(-(spent-1)/5); }
+/* PRIMARIES. Odds of the challenger you back: 20% on the first ◈, past
+   even at the third, and never past 90%. */
+function caucusPrimaryOdds(spent){ return spent<=0?0:0.9-0.7*Math.exp(-(spent-1)/3.4); }
 /* When a seat is next on the ballot: the House every election, a Senate
    seat every other one. */
 function caucusNextUp(k){
@@ -20400,6 +20417,45 @@ function caucusResolvePrimaries(upSenate){
     }
   }
   caucusControlCalc();
+}
+/* WHERE A MEMBER SITS ON THE COMPASS. Each issue points the way its laws'
+   ideology does, on the same axes the agenda is scored on (economic plus
+   government size and environment across, social up and down). A member's
+   point is their views weighted by how much they care, stretched to the
+   voters' scale, and pulled a little by how their seat leans. */
+const CAUCUS_CMP_K=2;
+let _issueAxis=null;
+function caucusIssueAxes(){
+  if(_issueAxis)return _issueAxis; _issueAxis={};
+  for(const i of ISSUE_IDS){ let ec=0,so=0,c=0;
+    for(const [pid,dir] of ISSUES[i].pols){ const p=POLICIES[pid]||CATALOG[pid], io=p&&p.ideology; if(!io)continue;
+      ec+=dir*((io.economic||0)+0.7*(io.govSize||0)+0.3*(io.environment||0)); so+=dir*(io.social||0); c++; }
+    _issueAxis[i]=c?{ec:ec/c,so:so/c}:{ec:0,so:0}; }
+  return _issueAxis;
+}
+function caucusCompassPoint(k){
+  const m=GAME.caucus&&GAME.caucus.m[k]; if(!m||!m.v)return null;
+  const ax=caucusIssueAxes(); let ec=0,so=0,w=0;
+  for(const i in m.v){ const v=m.v[i], a=ax[i]; if(!a)continue; ec+=v.int*v.pos*a.ec; so+=v.int*v.pos*a.so; w+=v.int; }
+  if(!w)return null;
+  const row=caucusRow(k), lean=row&&row[3]!=null?row[3]:50, r=caucusRng(k+"|"+m.n+"|cmp");
+  return { ec: clamp(Math.tanh(ec/w*CAUCUS_CMP_K)*0.8-(lean-50)/50*0.18+(r()-0.5)*0.05,-0.97,0.97),
+           so: clamp(Math.tanh(so/w*CAUCUS_CMP_K*1.3)*0.8+(r()-0.5)*0.05,-0.97,0.97) };
+}
+/* The layer the compass draws when legislators are switched on. */
+function caucusCompassLayer(px,py){
+  if(prOn()||!GAME.caucus)return "";
+  const C=GAME.caucus, pts={mine:[],opp:[]};
+  let h="";
+  for(const k in C.m){ const m=C.m[k], p=caucusCompassPoint(k); if(!p)continue; pts[m.p].push(p);
+    const mine=m.p==="mine", col=caucusColor(m);
+    h+=`<circle class="ec-mem" data-cseat="${k}" cx="${px(p.ec)}" cy="${py(p.so)}" r="${k[0]==="s"?3:2.4}" fill="${mine?col:"var(--paper)"}" stroke="${mine?"var(--paper)":col}" stroke-width="${mine?0.6:1.3}" fill-opacity="${mine?0.95:0.9}"><title>${caucusCode(k)} ${caucusPlace(m.ch,m.id)} · ${caucusTitle(k)} (${caucusPartyOf(m)}) · ${mine?"loyalty":"loyalty to their party"} ${Math.round(m.L)}</title></circle>`; }
+  for(const side of ["mine","opp"]){ const a=pts[side]; if(!a.length)continue;
+    const ce=a.reduce((s,p)=>s+p.ec,0)/a.length, cs=a.reduce((s,p)=>s+p.so,0)/a.length;
+    const lab=(side==="mine"?myPartyPlural():oppPartyPlural()).toUpperCase();
+    h+=`<rect x="${px(ce)-4}" y="${py(cs)-4}" width="8" height="8" transform="rotate(45 ${px(ce)} ${py(cs)})" fill="${side==="mine"?"var(--moss)":"var(--paper)"}" stroke="var(--ink)" stroke-width="1.2"/>`
+      +`<text x="${px(ce)}" y="${py(cs)+15}" text-anchor="middle" font-size="6.5" font-family="var(--font-data)" fill="var(--ink)">${lab}</text>`; }
+  return h;
 }
 function caucusMemberCard(k){
   const C=GAME.caucus, m=C.m[k]; if(!m||!m.v)return "";
