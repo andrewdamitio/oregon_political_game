@@ -18946,11 +18946,13 @@ function statewideThirds(){
 /* ONE DISTRICT, FOUR WAYS. First past the post: the seat goes to the largest
    share, which is not the same as the largest side. Either flank can be the
    one that splits you, depending on which way your coalition points. */
-function districtVote(row, sf, align, th){
+function districtVote(row, sf, align, th, ch){
   const s0=(sf==null?stateFeel():sf);
   const a0=(align==null?coalitionAlignment(s0):align);
   const t=th||statewideThirds();
   let you=clamp(districtSupport(row,s0,a0),0,100), opp=100-you;
+  // the candidate in the seat: seniority, roots and heterodoxy
+  if(ch&&typeof caucusCandidateEdge==="function"){ you=clamp(you+caucusCandidateEdge(ch,row[0]),0,100); opp=100-you; }
   const lean=row[3]!=null?row[3]:50;
   // each flank polls hardest at its own end of the state
   const homeL=1-FLANK_HOME+FLANK_HOME*clamp((lean-50)/50,0,1);
@@ -18981,7 +18983,7 @@ function chamberVote(chamber, th){
   const sf=stateFeel(), a=coalitionAlignment(sf);
   const t=th||statewideThirds();
   return rows.map(r=>{
-    const v=districtVote(r,sf,a,t);
+    const v=districtVote(r,sf,a,t,chamber);
     return {id:r[0], comp:r[1], support:v.you, vote:v};
   }).sort((x,y)=>y.support-x.support);
 }
@@ -19258,7 +19260,7 @@ function legMapSVG(rows, seatMap, contested){
     // the share the shading is already drawn from, so the readout and the
     // colour can never disagree
     const share=sm.supportOf?Math.round(clamp(sm.supportOf[id],0,100)):null;
-    base+=`<path class="leg-d" data-legd="${tag} ${id}" tabindex="0" data-who="${who}"`
+    base+=`<path class="leg-d" data-legd="${tag} ${id}" data-ck="${tag==="SD"?"s":"h"}${id}" tabindex="0" data-who="${who}"`
       +` data-share="${share==null?'':share}" data-held="${up?'':'1'}"`
       +` data-spl="${isSpl?splinterName(GAME.splinter.side):''}"`
       +` data-v="${(()=>{ const v=sm.voteOf&&sm.voteOf[id];
@@ -20095,7 +20097,7 @@ function caucusTick(){
   _caucusRows=null;
   caucusSync();
   const C=GAME.caucus;
-  C._news={}; C.ctl0=C.control;
+  C._news={}; C.ctl0=C.control; C.race=null;
   const facs0=Object.keys(C.facs||{}), at0=caucusAngryAt(), before={};
   for(const k in C.m)before[k]={p:C.m[k].p, L:C.m[k].L, last:C.lastL&&C.lastL[k]!=null?C.lastL[k]:null};
   C.proj=(C.proj||[]).filter(p=>p.until>GAME.turn);
@@ -20594,7 +20596,16 @@ function caucusFreshMember(k,m,n){
 function caucusRetirements(upSenate){
   const C=GAME.caucus; if(prOn()||!C)return;
   _caucusRows=null;
+  // every seat on the ballot has a named challenger
+  for(const k in C.m){ const id=+k.slice(1); if(k[0]==="s"&&!(upSenate&&upSenate.has(id)))continue; caucusChallenger(k); }
+  // who stood, before the seats that changed hands are re-seated
+  const pre={}; for(const k in C.m)pre[k]={n:C.m[k].n, p:caucusPartyOf(C.m[k])};
   caucusSync();
+  // a seat that flipped went to the challenger who ran for it
+  C.chal=C.chal||{};
+  for(const k in C.m){ const m=C.m[k], was=pre[k], ch=C.chal[k];
+    if(was&&caucusPartyOf(m)!==was.p&&m.since===GAME.turn&&ch&&ch.vs===was.n)m.n=ch.n; }
+  C._pre=pre;
   C.retNews=C.retNews||[];
   const gone=[];
   for(const k of Object.keys(C.m)){ const m=C.m[k], id=+k.slice(1);
@@ -20617,6 +20628,78 @@ function caucusRetirements(upSenate){
   }
   if(gone.length)GAME.log.push(ico('people')+" Retiring from your party this election: "+gone.join(", ")+".");
   caucusControlCalc();
+}
+/* WHAT A CANDIDATE BRINGS TO THE RACE, in points of your share (negative
+   when it is the other party's incumbent who brings it). Years in the seat,
+   up to +2; local roots, from -1.5 to +1.5; and heterodoxy, which in a
+   competitive or hostile seat is worth +0.8 for each break with the party
+   toward the district and -0.8 for each personal conviction against it,
+   and in a safe seat a third of that. */
+function caucusCandidateRaw(k){
+  const C=GAME.caucus; if(prOn()||!C)return null;
+  const m=C.m[k]; if(!m||!m.v)return null;
+  const row=caucusRow(k); if(!row)return null;
+  const lean=row[3]!=null?row[3]:50, yrNow=GAME.startYear+Math.floor(GAME.turn/4);
+  const served=Math.max(0,yrNow-(m.yr||yrNow));
+  const seniority=Math.min(2,served*0.25), roots=(caucusRng(k+"|"+m.n+"|roots")()-0.5)*3;
+  const pull=caucusDistrictPull(m.ch,m.id,row[1],lean), pl=caucusPartyOf(m)==="D"?1:-1;
+  let het=0, toward=0, against=0;
+  for(const i of caucusBreaks(m)){ if(ISSUES[i].partisan===false||!pull[i])continue;
+    if(Math.sign(m.v[i].pos-pl)===Math.sign(pull[i].d-pl)&&Math.abs(pull[i].d-pl)>0.2){ het+=0.8; toward++; } else { het-=0.8; against++; } }
+  const hostile=pl>0?lean<56:lean>44;
+  const heterodoxy=hostile?clamp(het,-3,3):clamp(het*0.33,-1,1);
+  return {m, seniority, roots, heterodoxy, toward, against, served, raw:seniority+roots+heterodoxy};
+}
+/* Measured against the average candidate of the same party this quarter,
+   so a typical incumbent adds nothing, neither party gains from the
+   measure itself, and only the unusual candidates move. */
+function caucusCandidateParts(k){
+  const C=GAME.caucus, p=caucusCandidateRaw(k); if(!p)return null;
+  if(C._edgeT!==GAME.turn||C._edgeN!==Object.keys(C.m).length){
+    const t={D:0,R:0}, c={D:0,R:0};
+    for(const x in C.m){ const q=caucusCandidateRaw(x); if(q){ const pt=caucusPartyOf(q.m); t[pt]+=q.raw; c[pt]++; } }
+    C._edgeMean={D:c.D?t.D/c.D:0, R:c.R?t.R/c.R:0}; C._edgeT=GAME.turn; C._edgeN=Object.keys(C.m).length; }
+  p.total=clamp(p.raw-((C._edgeMean||{})[caucusPartyOf(p.m)]||0),-4,4);
+  return p;
+}
+function caucusCandidateEdge(ch,id){
+  const p=caucusCandidateParts((ch==="house"?"h":"s")+id); if(!p)return 0;
+  return p.m.p==="mine"?p.total:-p.total;
+}
+/* The challenger for a seat's next race: named once and kept until it is run. */
+function caucusChallenger(k){
+  const C=GAME.caucus; if(!C)return null;
+  C.chal=C.chal||{};
+  const m=C.m[k]; if(!m)return null;
+  if(!C.chal[k]||C.chal[k].vs!==m.n)C.chal[k]={n:caucusNewName(), p:caucusPartyOf(m)==="D"?"R":"D", vs:m.n};
+  return C.chal[k];
+}
+function caucusCandidateLine(k){
+  if(prOn()||!GAME.caucus)return "";
+  const C=GAME.caucus, m=C.m[k]; if(!m)return "";
+  const race=C.race&&C.race.r&&C.race.r[k];
+  if(race)return `<b>${race.w}</b> (${race.wp}) beat ${race.l} (${race.lp})${race.flip?" · the seat changed hands":""}`;
+  const p=caucusCandidateParts(k), ch=caucusChallenger(k);
+  const bits=[];
+  if(p){ if(p.roots>=0.8)bits.push("deep local roots"); else if(p.roots<=-0.8)bits.push("thin local roots");
+    if(p.served>=8)bits.push(p.served+" years in the seat");
+    if(p.toward&&Math.abs(p.heterodoxy)>=0.5)bits.push("breaks with the party toward the district");
+    if(p.against&&p.heterodoxy<=-0.5)bits.push("a conviction the district dislikes"); }
+  const e=p?p.total:0;
+  return `<b>${caucusTitle(k)}</b> (${caucusPartyOf(m)}, incumbent${Math.abs(e)>=1?`, ${e>0?"+":""}${e.toFixed(1)} on their own`:""})${bits.length?": "+bits.join(", "):""} vs ${ch?ch.n+" ("+ch.p+")":"a challenger"}`;
+}
+/* Who beat whom, for the election-night maps. Kept until the next quarter. */
+function caucusRecordRaces(upSenate){
+  const C=GAME.caucus; if(prOn()||!C)return;
+  const pre=C._pre||{}, r={};
+  for(const k in C.m){ const id=+k.slice(1); if(k[0]==="s"&&!(upSenate&&upSenate.has(id)))continue;
+    const m=C.m[k], was=pre[k], ch=C.chal&&C.chal[k], wp=caucusPartyOf(m);
+    if(!was)continue;
+    const flip=was.p!==wp;
+    r[k]={w:(m.ch==="house"?"Rep. ":"Sen. ")+m.n, wp, flip,
+          l:flip?was.n:(ch&&ch.vs===was.n?ch.n:"a challenger"), lp:flip?was.p:(wp==="D"?"R":"D")};
+    if(C.chal)delete C.chal[k]; }
+  C.race={turn:GAME.turn, r}; C._pre=null; C._edgeT=null;
 }
 /* Settled on election night, for the seats on this ballot. */
 function caucusResolvePrimaries(upSenate){
@@ -21932,6 +22015,24 @@ function showQuakeScreen(next){
   setTimeout(()=>{ try{ btn&&btn.focus({preventScroll:true}); }catch(e){} },30);
 }
 /* Campaign HQ's third surface: the legislature as polling. */
+/* The next election as it stands, seat by seat: who would win each district
+   today, with the candidates on hover. Senate seats not up next time are
+   dimmed and keep their holder. */
+function legForecastMapsHTML(){
+  if(prOn())return "";
+  const hv=chamberVote("house").filter(r=>r.vote.win==="you").map(r=>r.id);
+  const hs=legisSeatMap(OR_HOUSE_DISTRICTS,hv.length,{held:hv});
+  const nextCls=GAME.senateClass?0:1;
+  const sUp=new Set(OR_SENATE_DISTRICTS.map(r=>r[0]).filter(id=>(id%2)===(nextCls?0:1)));
+  const now=new Set((GAME.legis&&Array.isArray(GAME.legis.sHeld))?GAME.legis.sHeld:[...legisSeatMap(OR_SENATE_DISTRICTS,(GAME.legis&&GAME.legis.senate)||0).mine]);
+  const sv={}; chamberVote("senate").forEach(r=>sv[r.id]=r.vote.win);
+  const sw=OR_SENATE_DISTRICTS.map(r=>r[0]).filter(id=>sUp.has(id)?sv[id]==="you":now.has(id));
+  const ss=legisSeatMap(OR_SENATE_DISTRICTS,sw.length,{held:sw,contested:sUp});
+  return `<div class="legmap-grid lfc-maps">
+    <div class="legmap-card"><div class="legmap-h">House, if the vote were today: ${hv.length} of ${LEGIS.house}</div>${legMapFrame(legMapSVG(OR_HOUSE_DISTRICTS,hs))}</div>
+    <div class="legmap-card"><div class="legmap-h">Senate, if the vote were today: ${sw.length} of ${LEGIS.senate}</div>${legMapFrame(legMapSVG(OR_SENATE_DISTRICTS,ss,sUp))}</div>
+  </div>`;
+}
 function legForecastHTML(){
   // no districts to forecast once the Assembly is elected off vote share
   if(prOn())return prForecastHTML();
@@ -21942,6 +22043,7 @@ function legForecastHTML(){
     <div class="sectionsub" style="margin-top:0">A forecast of the next legislative election, from how the groups in each district feel about you today. The map is re-run ${FC_DRAWS.toLocaleString()} times with statewide and seat-by-seat polling error; the bar is the median outcome and the shaded span the middle 80%. Work in <b>Your re-election</b> moves these seats.</div>
     <div class="fc-standing"><b>${st.label}.</b> ${st.note}</div>
     <div class="fc-grid">${forecastCardHTML(hf)}${forecastCardHTML(sf)}</div>
+    ${legForecastMapsHTML()}
     ${coalitionHTML("house", new Set(chamberSupport("house").filter(r=>r.support>50).map(r=>r.id)))}`;
 }
 /* hover readout on the forecast maps, and the zoom on them */
@@ -22041,6 +22143,8 @@ function wireLegReadout(root){
         // figures rather than given a third percentage it does not have.
         if(spl)out+=` \u00b7 <b>${spl}</b> took the seat`;
         if(el.dataset.held)out+=` \u00b7 <i>held over, not on this ballot</i>`;
+        // the candidates in the race
+        if(el.dataset.ck&&typeof caucusCandidateLine==="function"){ const cl=caucusCandidateLine(el.dataset.ck); if(cl)out+=`<br>${cl}`; }
         rd.innerHTML=out;
       };
       el.addEventListener('mouseenter',show);
@@ -22397,6 +22501,7 @@ function runLegislativeElection(approval){
   // retirements and primaries on this ballot are settled with it
   caucusRetirements(upSet);
   caucusResolvePrimaries(upSet);
+  caucusRecordRaces(upSet);
   return {before, after:{senate:L.senate,house:L.house}, senateUp:up, senateClass:cls, grace,
           sSwing:L.senate-before.senate, hSwing:L.house-before.house,
           standingBefore, standingAfter:legisStanding(L)};
@@ -23710,6 +23815,7 @@ function campHQBodyHTML(){
 /* wire the interactive bits of the campaign surface — energy pushes, county map,
    abandon-pledge. campRedraw() knows whether to re-render the popup or the page. */
 function wireCampHQ(root){
+  if(root.querySelector('.lfc-maps'))wireMapZoom(root);
   const cr=root.querySelector('#campRevise'); if(cr)cr.addEventListener('click',()=>{ const pop=document.getElementById("campPopupModal"), inPop=pop&&!pop.classList.contains("hidden"); if(inPop)pop.classList.add("hidden"); showPlatformModal({revise:true, after:()=>{ if(inPop)campRedraw(); }}); });
   root.querySelectorAll('[data-cprim]').forEach(el=>el.addEventListener('click',ev=>{ ev.stopPropagation(); caucusBackPrimary(el.dataset.cprim,campRedraw); }));
   root.querySelectorAll('[data-camptab]').forEach(el=>el.addEventListener('click',()=>{
