@@ -468,7 +468,7 @@
   #apptPanelCard .achip.on{border:1px solid var(--moss);background:color-mix(in srgb,var(--moss) 16%,var(--paper));color:var(--ink)}
   #apptPanelCard .achip.off{border:1px dashed var(--muted-2);background:transparent;color:var(--muted-2)}
   .ahow{margin-top:18px;border-top:1px solid var(--line);padding-top:8px}
-  /* Party Loyalty */
+  /* Legislators (party loyalty) */
   .cfacs{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px;margin:4px 0 6px}
   .cfac{background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;display:flex;flex-direction:column;gap:6px;cursor:pointer}
   .cfac.on{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
@@ -553,6 +553,8 @@
   .cn-more{font-size:12px;color:var(--muted-3);padding:3px 4px}
   .cm-prim{display:flex;flex-direction:column;gap:6px;font-size:13px}
   .ec-mem{cursor:pointer}
+  .ec-memread{font-size:13px;min-height:1.5em;margin:6px 0 2px;text-align:center;color:var(--muted-1)}
+  .ec-party{cursor:default}
   .cprim-note{font-size:13px;color:var(--muted-2);margin:2px 0 8px;line-height:1.45}
   .cprim-list{margin-bottom:14px;border-top:1px solid var(--line)}
   .cprim-row{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--line-faint);font-size:13.5px}
@@ -2763,7 +2765,7 @@
     <button data-view="policies">New Policies</button>
     <button data-view="execorders">Executive Orders</button>
     <button data-view="appointments">Appointments</button>
-    <button data-view="caucus">Party Loyalty</button>
+    <button data-view="caucus">Legislators</button>
     <button data-view="voters">Voters</button>
     <button data-view="budget">Budget &amp; Funds</button>
     <button data-view="camphq">Campaign HQ</button>
@@ -8754,6 +8756,7 @@ const DILEMMAS={
       {label:"Indict the executives", text:"Charges are filed against a dozen contractor heads. The complex is dismantled by force, but half the service network freezes for a year and the progressive base is in open revolt.",
        apply:()=>{
          endSituation("nonprofitComplex");
+         caucusRegionHit(m=>caucusTraitsOf((m.ch==="house"?"h":"s")+m.id).some(t=>t.id==="npc"),-18,"The nonprofit prosecutions","nonprofits");
          if(POLICIES.homelessServices)POLICIES.homelessServices.value=+(Math.max(0,(POLICIES.homelessServices.value||0.45)-0.25)).toFixed(2);
          createGrudge("m_homelessness",2.4,0.85,"Service networks frozen by the prosecutions");
          createGrudge("i_adminOverhead",-5,0.9,"Contract sprawl broken up");
@@ -8774,6 +8777,7 @@ const DILEMMAS={
       {label:"Forensic audit & rebid every contract", text:"No arrests — a top-to-bottom audit, the weakest contractors cut, the rest put out to open bid. Slower, cleaner, and the complex survives it leaner.",
        apply:()=>{
          createGrudge("i_digitization",4,0.92,"Contract data cleaned and consolidated");
+         caucusRegionHit(m=>caucusTraitsOf((m.ch==="house"?"h":"s")+m.id).some(t=>t.id==="npc"),-6,"The contract audit","nonprofits");
          createGrudge("i_adminOverhead",-3,0.92,"Weakest contractors cut");
          createGrudge("m_homelessness",-0.8,0.9,"Tighter contracts, marginally better delivery");
          createGrudge("v_liberal",-2,0.9,"Audit unsettles the sector");
@@ -8785,6 +8789,7 @@ const DILEMMAS={
       {label:"Shelve it — the sector delivers votes", text:"The task force is stood down. The contractors keep their grants, and their organizers keep turning out your voters.",
        apply:()=>{
          createGrudge("v_liberal",3,0.9,"Stood by the service sector");
+         caucusRegionHit(m=>caucusTraitsOf((m.ch==="house"?"h":"s")+m.id).some(t=>t.id==="npc"),5,"Stood by the service sector","nonprofits");
          createGrudge("v_socialist",3,0.9,"Stood by the service sector");
          createGrudge("v_publicUnions",4,0.9,"Stood by the service sector");
          createGrudge("v_conservative",-3,0.9,"Tolerated the waste");
@@ -15310,11 +15315,12 @@ function renderCompass(){
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
         <button id="ecTogCentroid" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.centroid?'Hide electorate center':'Show electorate center'}</button>
         <button id="ecTogLegacy" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.legacy?'Hide past runs':'Show past runs'}</button>
-        ${prOn()?'':`<button id="ecTogMembers" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.members?'Hide legislators':'Show legislators'}</button>`}
+        <button id="ecTogMembers" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${prOn()?(EC_TAB_OPTS.members?'Hide parties':'Show parties'):(EC_TAB_OPTS.members?'Hide legislators':'Show legislators')}</button>
         <span class="mono" style="font-size:12.5px;color:var(--muted-3)">${legN?legN+' election'+(legN===1?'':'s')+' on record':'no past elections on record yet'}${EC_TAB_OPTS.legacy&&legN?' — green win, red loss; gold-ringed is this run':''}</span>
       </div>
       <div class="ec-stage" style="max-width:420px">
         <div id="ecCanvas">${electorateCompassSVG(t, EC_TAB_OPTS)}</div>
+        ${EC_TAB_OPTS.members?`<div class="ec-memread" id="ecMemRead">${hv(prOn()?"Hover a party":"Hover a legislator for their name and district; click for their file",prOn()?"Tap a party":"Tap a legislator for their name and district")}</div>`:""}
         <div class="ec-scrub">
           <span class="ec-qlab" id="ecQLab">${ecQuarterLabel(t)}</span>
           <input type="range" id="ecSlider" min="0" max="${t}" value="${t}" step="1" aria-label="Quarter">
@@ -15325,6 +15331,7 @@ function renderCompass(){
         <span><i style="background:var(--gold)"></i>Starting mandate</span>
         <span><i style="background:var(--clay)"></i>Your enacted agenda</span>
         ${EC_TAB_OPTS.centroid?'<span><i style="background:var(--ink)"></i>Electorate center of gravity</span>':''}
+        ${EC_TAB_OPTS.members&&prOn()?`<span><i style="background:var(--moss);border:2px solid var(--ink)"></i>Parties in the Assembly, sized by seats; ringed: your government</span>`:''}
         ${EC_TAB_OPTS.members&&!prOn()?`<span><i style="background:#3d6a3f"></i>${myPartyPlural()}, by loyalty to you (larger: senators)</span><span><i style="background:var(--paper);border:1.5px solid #5b3a78"></i>${oppPartyPlural()}, by loyalty to their party</span><span><i style="background:var(--moss);transform:rotate(45deg);border:1px solid var(--ink)"></i>Each party's centre</span>`:''}
       </div>
       <div class="compass-read">
@@ -15358,7 +15365,16 @@ function renderCompass(){
     render();
   };
   // a legislator on the compass opens their file
-  const ecc=document.getElementById("ecCanvas"); if(ecc)ecc.addEventListener("click",ev=>{ const d=ev.target.closest&&ev.target.closest(".ec-mem"); if(!d)return;
+  const ecc=document.getElementById("ecCanvas"), emr=document.getElementById("ecMemRead");
+  if(ecc&&emr){ const dflt=emr.innerHTML;
+    const say=el=>{ if(el.dataset.pr){ emr.innerHTML=el.dataset.pr; return; }
+      const k=el.dataset.cseat, m=GAME.caucus&&GAME.caucus.m[k]; if(!m)return;
+      const tr=caucusTraitsOf(k).map(t=>t.label).join(", ");
+      emr.innerHTML=`<b>${caucusCode(k)} ${caucusPlace(m.ch,m.id)}</b> · ${caucusTitle(k)} (${caucusPartyOf(m)})${tr?" · "+tr:""} · ${m.p==="mine"?"loyalty":"loyalty to their party"} ${Math.round(m.L)}${m.f?" · "+caucusFactionName(m.f):""}`; };
+    ecc.addEventListener("mouseover",ev=>{ const d=ev.target.closest&&ev.target.closest(".ec-mem,.ec-party"); if(d)say(d); });
+    ecc.addEventListener("mouseout",ev=>{ const d=ev.target.closest&&ev.target.closest(".ec-mem,.ec-party"); if(d)emr.innerHTML=dflt; }); }
+  if(ecc)ecc.addEventListener("click",ev=>{ const pd=ev.target.closest&&ev.target.closest(".ec-party"); if(pd&&emr){ emr.innerHTML=pd.dataset.pr; return; }
+    if(isTouch()&&emr){ const d0=ev.target.closest&&ev.target.closest(".ec-mem"); if(d0&&emr.dataset.last!==d0.dataset.cseat){ emr.dataset.last=d0.dataset.cseat; ev.target.dispatchEvent(new MouseEvent("mouseover",{bubbles:true})); return; } } const d=ev.target.closest&&ev.target.closest(".ec-mem"); if(!d)return;
     const k=d.dataset.cseat; window._caucusSel=k; window._caucusCh=k[0]==="h"?"house":"senate"; window._caucusSide=GAME.caucus.m[k].p; window._caucusScroll=true;
     currentView="caucus"; document.querySelectorAll("nav.rail button").forEach(b=>b.classList.toggle("active",b.dataset.view==="caucus")); render(); });
   const tl=document.getElementById("ecTogLegacy");
@@ -19605,6 +19621,9 @@ const ISSUES={
     view:["",  "Wants more for rural counties"], fac:["Rural Caucus","Rural Caucus"], want:["","County payments and cheaper fuel"]},
   tolls:{name:"Tolling", partisan:false, pols:[],
     view:["","Against tolling I-205"], fac:["No Tolls Caucus","No Tolls Caucus"], want:["","Tolls dropped"]},
+  // the contracted service sector: members close to it want its programmes funded and its contracts left alone
+  nonprofits:{name:"Nonprofits", partisan:false, pols:[["homelessServices",1],["behavioralHealth",1],["affordableHousing",1],["outcomeContracting",-1]],
+    view:["","Close to the service nonprofits"], fac:["Nonprofit Caucus","Nonprofit Caucus"], want:["","The contracts left alone"]},
 };
 const ISSUE_IDS=Object.keys(ISSUES);
 const FACTION_VOTE=2.4;      // points of inclination per unit of a member's break on the bill in front of them
@@ -19685,6 +19704,8 @@ function caucusDistrictTraits(ch,id,comp,lean){
   if(deep&&rent)t.push({id:"renters", label:"Renters", issues:["rent"]});
   if(red)t.push({id:"red", label:"Deep red", issues:["abortion"]});
   if(biz&&!deep)t.push({id:"biz", label:"Business", issues:["business"]});
+  // about two in five urban-core and deep-blue seats have a member tied to the service nonprofits
+  if((core||deep)&&caucusRng(ch+id+"|npc")()<0.4)t.push({id:"npc", label:"Nonprofit ties", issues:["nonprofits"]});
   return t;
 }
 /* Where the district pulls on each issue, progressive axis -1 to 1, and
@@ -19710,11 +19731,12 @@ function caucusDistrictPull(ch,id,comp,lean){
   set("immigration", s);
   set("rural", (rur||tim)?1:0);
   set("tolls", has("clack")?1:0);
+  set("nonprofits", has("npc")?1:0);
   return o;
 }
 function caucusTraitsOf(k){ const row=caucusRow(k), m=GAME.caucus&&GAME.caucus.m[k]; return (row&&m)?caucusDistrictTraits(m.ch,m.id,row[1],row[3]!=null?row[3]:50):[]; }
 // views are rebuilt when the way they are derived changes
-const CAUCUS_VIEWS_V=2;
+const CAUCUS_VIEWS_V=3;
 /* A member's views: the party line, pulled toward the district where the
    district cares, pulled hard where the seat leans the other way, and one
    personal conviction for about a quarter of them. */
@@ -19889,7 +19911,9 @@ function caucusSync(){
       const lean=row[3]!=null?row[3]:50, left=caucusMyLetter()==="D";
       const r=caucusRng(key+p+GAME.turn);
       const m={p, ch, id, n:caucusNewName(), g:0, since:GAME.turn,
-        yr: GAME.turn<1 ? yr-Math.floor(r()*12) : yr+1,
+        // the bench you inherit: mostly recent, a long tail of veterans (Oregon's
+        // median member has served about six years; a few pass twenty)
+        yr: GAME.turn<1 ? yr-Math.floor(Math.pow(r(),1.7)*26) : yr+1,
         // a member holding a seat that leans the other way answers to it first
         x:p==="mine"&&(left?lean<48:lean>52)};
       m.v=caucusViews(m,row); m.vv=CAUCUS_VIEWS_V;
@@ -20001,14 +20025,15 @@ function caucusBillShock(pid,delta,nm){
   caucusControlCalc();
 }
 /* A regional grievance that belongs to the seat, not the bill: tolling. */
-function caucusRegionHit(test,amt,why){
+function caucusRegionHit(test,amt,why,issue){
   if(prOn())return;
   caucusSync();
-  GAME.caucus.tolls=amt<0?1:-0.3;
+  issue=issue||"tolls";
+  if(issue==="tolls")GAME.caucus.tolls=amt<0?1:-0.3;
   let n=0;
   for(const k in GAME.caucus.m){ const m=GAME.caucus.m[k]; if(!test(m))continue;
-    m.g=clamp((m.g||0)+amt,-30,30); m.gg=m.gg||{}; m.gg.tolls=clamp((m.gg.tolls||0)+amt,-30,30); caucusNote(m,"_tolls",why,amt); m.L=clamp(m.L+amt*(m.p==="mine"?0.5:-0.5),0,100); if(m.p==="mine")n++; }
-  if(n&&amt<0)GAME.log.push(ico('people')+" "+why+": "+n+" of your members from Clackamas County are furious.");
+    m.g=clamp((m.g||0)+amt,-30,30); m.gg=m.gg||{}; m.gg[issue]=clamp((m.gg[issue]||0)+amt,-30,30); caucusNote(m,"_"+issue,why,amt); m.L=clamp(m.L+amt*(m.p==="mine"?0.5:-0.5),0,100); if(m.p==="mine")n++; }
+  if(n&&amt<0)GAME.log.push(ico('people')+" "+why+": "+n+" of your members "+(issue==="tolls"?"from Clackamas County":"with ties to the service nonprofits")+" are furious.");
   caucusControlCalc();
 }
 /* FACTIONS FORM FROM ANGER. Three or more of your members angry about the
@@ -20083,7 +20108,7 @@ function caucusFormFactions(){
       ks.forEach(k=>C.m[k].f=fk);
       if(!was[fk])GAME.log.push(caucusFactionParts(fk).opp
         ? ico('people')+" "+ks.length+" "+oppPartyPlural()+" at odds with their leadership have formed the "+caucusFactionName(fk)+": they want "+caucusFactionWant(fk).toLowerCase()+"."
-        : ico('warning')+" "+ks.length+" of your members have formed the "+caucusFactionName(fk)+": they want "+caucusFactionWant(fk).toLowerCase()+". See Party Loyalty.");
+        : ico('warning')+" "+ks.length+" of your members have formed the "+caucusFactionName(fk)+": they want "+caucusFactionWant(fk).toLowerCase()+". See Legislators.");
     } else ks.forEach(k=>{ if(C.m[k].f===fk)C.m[k].f=null; });
   }
   for(const k in C.m){ const m=C.m[k]; if(m.f&&!C.facs[m.f])m.f=null; }
@@ -20185,7 +20210,7 @@ function showCaucusNews(news,next){
   h+=sec("Less loyal", N.dropped, k=>row(k,caucusWhy(C.m[k])));
   h+=sec("Factions that broke up", N.broken, fk=>`<div class="cn-fac">The ${caucusFactionName(fk)}: its members have calmed down.</div>`);
   h+=sec(oppPartyPlural()+" wavering on their party", N.wavering, k=>row(k,"open to your bills"));
-  h+=`<div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap"><button class="enactbtn" id="cnOpen">Open Party Loyalty</button><button class="enactbtn ghost" id="cnOk">Continue ▸</button></div>`;
+  h+=`<div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap"><button class="enactbtn" id="cnOpen">Open Legislators</button><button class="enactbtn ghost" id="cnOk">Continue ▸</button></div>`;
   card.innerHTML=h; modal.classList.remove("hidden"); card.scrollTop=0;
   const openedAt=Date.now(), armed=()=>Date.now()-openedAt>=400;
   const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
@@ -20300,7 +20325,10 @@ function caucusApptListsHTML(keys,groups,side,they){
   let h=`<div class="cf-chairs"><div class="cf-ch-h">Appointees ${they} like</div>`;
   h+=like.length?like.map(pid=>row(pid,false)).join(""):`<div class="cf-ch none">None yet.</div>`;
   h+=open.map(c=>{ const cost=c.vacant?0:apptRemoveCost(c.pid);
-    return `<div class="cf-ch"><span>${APPT_POSTS[c.pid].name}<i>${c.vacant?"vacant":"now "+c.h.name}</i></span><button class="cf-chbtn" data-cchair="${c.pid}" data-cgroups="${tag}">${c.vacant?"Fill with one":"Appoint one"+(cost?" · ◈"+cost:"")}</button></div>`; }).join("");
+    // replacing somebody is not free of consequence: say who, what it costs, and who likes them
+    const liked=c.vacant?0:caucusApptTies(c.h.group,c.h.foe,c.h.side).pleased.filter(k=>GAME.caucus.m[k]&&GAME.caucus.m[k].p==="mine").length;
+    const last=c.vacant?"":c.h.name.split(" ").slice(-1)[0];
+    return `<div class="cf-ch"><span>${APPT_POSTS[c.pid].name}<i>${c.vacant?"vacant":"now "+c.h.name+(c.h.side==="sitting"?", a holdover":"")+(liked?`, liked by ${liked} of your members`:"")}</i></span><button class="cf-chbtn" data-cchair="${c.pid}" data-cgroups="${tag}">${c.vacant?"Fill with one":"Replace "+last+(cost?" · ◈"+cost:" · free")}</button></div>`; }).join("");
   h+=`<div class="cf-ch-h dis">Appointees ${they} dislike</div>`;
   h+=dislike.length?dislike.map(pid=>row(pid,true)).join(""):`<div class="cf-ch none">None.</div>`;
   return h+`</div>`;
@@ -20348,7 +20376,7 @@ function caucusBreakChips(m,max){
 }
 function renderCaucus(){
   const main=document.getElementById("main");
-  let h=`<div class="sectionhdr">${ico('people')} Party Loyalty</div>`;
+  let h=`<div class="sectionhdr">${ico('people')} Legislators</div>`;
   if(prOn()){
     h+=`<div class="cpr"><div class="cpr-h">Party loyalty is assured</div>
       <p>Oregon now elects its Assembly from party lists. The party decides who is on the list and in what order, so a member who votes against it does not get a winnable place on the next one. And with no district of their own, no member has local voters pulling them away from the party line.</p>
@@ -20561,7 +20589,7 @@ function caucusReportHTML(){
   let h=`<div class="rsection"><div class="rsec-h">${ico('people')} Your party</div>
     <div class="rrow"><span class="rlabel">Party control</span><span class="rval">${C.control} · ${caucusControlLabel(C.control).toLowerCase()}${Math.abs(d)>=1?` <span class="rdelta ${d<0?"bad":"good"}" style="font-size:11.5px">${d<0?"▼":"▲"}${Math.abs(Math.round(d))}</span>`:""}${nf?" · "+nf+" faction"+(nf>1?"s":""):""}</span></div>`;
   h+=rows.slice(0,6).map(r=>`<div class="rrow"><span class="rlabel" style="color:${col[r.zone]}">${caucusCode(r.k)} ${caucusTitle(r.k)}, ${caucusPlace(r.m.ch,r.m.id)}</span><span class="rval" style="font-size:12.5px">${Math.round(r.m.L)}${r.drop>=1?" ▼"+Math.round(r.drop):""} · ${r.zone}${r.m.f?" · "+caucusFactionName(r.m.f):""}${C.prim&&C.prim[r.k]?" · primary backed":""}</span></div>`).join("");
-  if(rows.length>6)h+=`<div class="rforecast" style="font-size:12px">and ${rows.length-6} more. See Party Loyalty.</div>`;
+  if(rows.length>6)h+=`<div class="rforecast" style="font-size:12px">and ${rows.length-6} more. See Legislators.</div>`;
   else if(!rows.length)h+=`<div class="rforecast" style="font-size:12px">Nobody in your party is angry with you.</div>`;
   return h+`</div>`;
 }
@@ -20764,8 +20792,25 @@ function caucusCompassPoint(k){
            so: clamp(Math.tanh(so/w*CAUCUS_CMP_K*1.3)*0.8+(r()-0.5)*0.05,-0.97,0.97) };
 }
 /* The layer the compass draws when legislators are switched on. */
+/* Under proportional representation there are no district members to
+   place: the Assembly is its parties. Each sits by its left-right score,
+   anchored so the Democrats and Republicans land where their district
+   caucuses did, sized by seats, with your government ringed. */
+function prCompassLayer(px,py){
+  const c=(GAME.legis&&GAME.legis.prCounts)||{}, mine=typeof prMyParty==="function"?prMyParty():null;
+  const partners=new Set(typeof coalitionPartners==="function"?coalitionPartners():[]);
+  let h="";
+  for(const p of PR_PARTIES){ const seats=c[p.id]||0; if(!seats)continue;
+    const ec=-Math.tanh(p.z*1.0)*0.95, so=-Math.tanh(p.z*0.75)*0.6, r=3+Math.sqrt(seats)*1.6;
+    const gov=p.id===mine||partners.has(p.id);
+    const lab=`<b>${p.name}</b> · ${seats} of ${PR_SEATS} seats${p.id===mine?" · your party":partners.has(p.id)?" · in your government":""}`;
+    h+=`<circle class="ec-party" data-pr="${lab.replace(/"/g,"&quot;")}" cx="${px(ec)}" cy="${py(so)}" r="${r.toFixed(1)}" fill="${p.col}" fill-opacity="0.55" stroke="${gov?"var(--ink)":"var(--paper)"}" stroke-width="${gov?2:1}"><title>${p.name}: ${seats} of ${PR_SEATS} seats${p.id===mine?" (your party)":partners.has(p.id)?" (in your government)":""}</title></circle>`
+      +`<text x="${px(ec)}" y="${py(so)+r+8}" text-anchor="middle" font-size="6.5" font-family="var(--font-data)" fill="var(--ink)">${p.short.toUpperCase()} ${seats}</text>`; }
+  return h;
+}
 function caucusCompassLayer(px,py){
-  if(prOn()||!GAME.caucus)return "";
+  if(prOn())return prCompassLayer(px,py);
+  if(!GAME.caucus)return "";
   const C=GAME.caucus, pts={mine:[],opp:[]};
   let h="";
   for(const k in C.m){ const m=C.m[k], p=caucusCompassPoint(k); if(!p)continue; pts[m.p].push(p);
@@ -27908,7 +27953,7 @@ function apptCompareHTML(id){
     return cell(bv[k],`${x.w.floor.expect.toFixed(0)} of ${x.w.floor.total}, needs ${x.w.floor.need}<div class="acmp-note" style="color:${col}">${x.odds}% as it stands</div>`);
   }).join("")+`</tr>`;
   h+=`<tr><th>Pleases</th>`+cols.map(x=>`<td>${SIMULANTS[x.c.group]?SIMULANTS[x.c.group].name:"—"}</td>`).join("")+`</tr>`;
-  if(!prOn())h+=`<tr><th title="Party Loyalty: a nominee pleases your members whose districts are made of the group they come from, and angers the ones whose districts are made of the group they are against">Legislators</th>`+cols.map(x=>`<td class="acmp-ties">${caucusTiesHTML(caucusApptTies(x.c.group,x.c.foe,x.c.side),x.c.side)}</td>`).join("")+`</tr>`;
+  if(!prOn())h+=`<tr><th title="Legislators: a nominee pleases your members whose districts are made of the group they come from, and angers the ones whose districts are made of the group they are against">Legislators</th>`+cols.map(x=>`<td class="acmp-ties">${caucusTiesHTML(caucusApptTies(x.c.group,x.c.foe,x.c.side),x.c.side)}</td>`).join("")+`</tr>`;
   h+=`<tr><th>Angers</th>`+cols.map(x=>`<td>${x.c.foe&&SIMULANTS[x.c.foe]?SIMULANTS[x.c.foe].name:"—"}</td>`).join("")+`</tr>`;
   h+=`<tr><th></th>`+cols.map(x=>`<td><button class="fcard-btn" data-apptnom="${id}:${x.i}">Nominate</button></td>`).join("")+`</tr>`;
   const ovNow=Math.round(INDICATORS.adminOverhead.value);
