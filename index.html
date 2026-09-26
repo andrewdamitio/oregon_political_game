@@ -556,6 +556,15 @@
   .ec-mem{cursor:pointer}
   .ec-memread{font-size:13px;min-height:1.5em;margin:6px 0 2px;text-align:center;color:var(--muted-1)}
   .ec-party{cursor:default}
+  .hold-list{border-top:1px solid var(--line);margin-bottom:6px}
+  .hold-row{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;padding:6px 2px;border-bottom:1px solid var(--line-faint);font-size:13px}
+  .hold-who{display:flex;flex-direction:column;min-width:0} .hold-who i{font-style:normal;color:var(--muted-2);font-size:12px;font-weight:400}
+  .hold-lean{font-size:12px;color:var(--muted-2)} .hold-acts{display:flex;gap:6px;flex-wrap:wrap} .hold-no{font-size:12px;color:var(--muted-3)}
+  .hold-done{font-size:12.5px;color:var(--moss);padding:6px 2px}
+  #floorCard .hold-acts .cf-chbtn{font-family:var(--font-body);font-size:12.5px;font-weight:500;letter-spacing:0;text-transform:none;padding:4px 10px;margin:0;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius);min-height:0;width:auto;box-shadow:none}
+  #floorCard .hold-acts .cf-chbtn:hover:not([disabled]){border-color:var(--ink)}
+  #floorCard .hold-acts .cf-chbtn[disabled]{opacity:.5}
+  .cm-rec{font-size:13px}
   .cprim-note{font-size:13px;color:var(--muted-2);margin:2px 0 8px;line-height:1.45}
   .cprim-list{margin-bottom:14px;border-top:1px solid var(--line)}
   .cprim-row{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--line-faint);font-size:13.5px}
@@ -19229,6 +19238,8 @@ function walkoutPressure(){
 function walkoutTrigger(side){
   if(POLICIES.quorumReform) return false;                        // amendment ended denial-of-quorum
   if(quorumProof()) return false;                                // nobody left to walk out with
+  // too many of them would refuse to leave: the quorum would hold anyway
+  if(!prOn()&&caucusWalkoutBroken()){ if(GAME._walkHeldT!==GAME.turn){ GAME._walkHeldT=GAME.turn; GAME.log.push(ico('columns')+" The "+oppPartyPlural()+" talked about a walkout, but too many of their own members would stay in their seats to deny the quorum."); } return false; }
   if(walkoutOn()) return false;                                  // one caucus is already gone
   if(GAME.turn < (GAME.walkoutIgnoredUntil||0)) return false;    // you already chose to ignore this round
   if(GAME.turn < (GAME.walkoutCooldownUntil||0)) return false;   // not twice in one session
@@ -20194,6 +20205,7 @@ function caucusNews(kind,x){
   (N[kind]=N[kind]||[]).push(x);
 }
 function caucusTick(){
+  GAME.floorDeals={};   // a deal was for a vote; the vote has come and gone
   if(prOn()){ prTick(); return; }
   _caucusRows=null;
   caucusSync();
@@ -20214,6 +20226,11 @@ function caucusTick(){
   lpCheck().forEach(t=>caucusNews("lp",t));
   caucusFormFactions();
   caucusDefections();
+  caucusSurrogates();
+  // a walkout cannot hold if enough of the walking party stay in their seats
+  if(walkoutOn()&&caucusWalkoutBroken()){ const r=caucusWalkoutRefusers(); endWalkout();
+    const t=(r.house.length+r.senate.length)+" "+oppPartyPlural()+" at odds with their leadership came back to the floor, and the quorum is restored. The walkout is over.";
+    GAME.log.push(ico('columns')+" "+t); caucusNews("walk",t); }
   caucusCollectNews(facs0,before);
 }
 function caucusCollectNews(facs0,before){
@@ -20239,7 +20256,7 @@ function caucusCollectNews(facs0,before){
   N.retired=C.retNews||[]; C.retNews=[];
   N.oppDropped.sort(byDrop);
   N.from={}; ["livid","angry","dropped","wavering","oppDropped"].forEach(t=>N[t].forEach(k=>{ const b=before[k]; N.from[k]=Math.round(b.last!=null?b.last:b.L); }));
-  const any=["lp","flash","prim","retired","formed","broken","crossed","joined","livid","angry","dropped","wavering","oppDropped"].some(t=>(N[t]||[]).length);
+  const any=["walk","lp","flash","prim","retired","formed","broken","crossed","joined","livid","angry","dropped","wavering","oppDropped"].some(t=>(N[t]||[]).length);
   if(any&&GAME.turn>1)GAME.pendingCaucusNews={turn:GAME.turn, n:JSON.parse(JSON.stringify(N))};
   C._news={};
 }
@@ -20300,6 +20317,7 @@ function showCaucusNews(news,next){
     return `<div class="cn-sec">${t}</div>`+ks.slice(0,cap||6).map(fn).join("")+(ks.length>(cap||6)?`<div class="cn-more">and ${ks.length-(cap||6)} more</div>`:""); };
   let h=`<div class="sectionhdr">${ico('people')} ${caucusNewsTitle(N)}</div>`;
   h+=`<div class="sectionsub">Party control is ${C.control} (${caucusControlLabel(C.control).toLowerCase()}). Angry members stop being reliable on tax increases first, then start voting with the ${oppPartyPlural()}.</div>`;
+  h+=sec("The walkout", N.walk, t=>`<div class="cn-fac">${t}</div>`);
   h+=sec("Promises to legislators", N.lp, t=>`<div class="cn-fac">${t}</div>`);
   h+=sec("Primaries you backed", N.prim, p=>`<div class="cn-fac"><b>${caucusCode(p.k)}</b> ${p.moot?`Moot: the seat did not stay with your party.`:p.retired?`${p.old} retired rather than face ${p.n}, who takes the seat.`:p.won?`${p.n} beat ${p.old}, and owes you the seat.`:`${p.old} held off ${p.n}, and will not forget it.`}</div>`);
   h+=sec("Retired", N.retired, r=>`<div class="cn-fac"><b>${caucusCode(r.k)}</b> ${r.old} (loyalty ${r.L}) retired; ${r.n} holds the seat for your party.`+"</div>", 8);
@@ -20785,6 +20803,7 @@ function prMemberCard(m){
     <div class="cf-bar">${mine?"Loyalty to you":"Loyalty to their party"} ${Math.round(m.L)} ${caucusMeter(m.L,caucusColor({p:mine?"mine":"opp",L:m.L}))} <span class="cm-to">heading to ${Math.round(T)}</span></div>
     <div class="cm-parts">${parts.map((p,i)=>`<span>${p[0]}<b class="${i&&p[1]>0.5?"up":p[1]<-0.5?"dn":""}">${i?(p[1]>0?"+":"")+Math.round(p[1]):Math.round(p[1])}</b></span>`).join("")}</div>`;
   if(m.party!=="ind"&&m.L<prAngryAt(m))h+=`<div class="cm-flag">${m.L<prLividAt(m)?"Livid: could cross to the neighbouring party with their seat.":"Angry with their leadership."}${mine?" No longer a reliable vote on a tax increase.":""}</div>`;
+  h+=caucusVotesHTML(m,mine);
   if(m.f)h+=`<div class="cm-flag">In the <b>${prFacName(m.f)}</b>.</div>`;
   if(P.demoted[m.id])h+=`<div class="cm-flag">Demoted: goes to the bottom of the list at the next election.</div>`;
   h+=`<div class="cm-sec">Views</div><div class="cm-views">`;
@@ -20896,6 +20915,123 @@ function lpWire(root){
     const t=b.dataset.lpmake, sel=[...root.querySelectorAll("select[data-lpsel]")].find(x=>x.dataset.lpsel===t); if(!sel||!sel.value)return;
     const [pid,want]=sel.value.split("|"); lpMake(t,pid,+want); }));
 }
+/* ---------- THE FLOOR, BY NAME ---------- */
+/* The member in a seat, under either system. */
+function floorMemberRec(ch,id){
+  if(prOn()){ const m=prMemberAt(id); return m?{m, key:m.id, target:"pr:"+m.id, pr:true}:null; }
+  const k=(ch==="house"?"h":"s")+id, m=GAME.caucus&&GAME.caucus.m[k];
+  return m?{m, key:k, target:"m:"+k, pr:false}:null;
+}
+function floorName(ch,id){
+  const r=floorMemberRec(ch,id);
+  if(!r)return (ch==="senate"?"SD ":prOn()?"Seat ":"HD ")+id;
+  return r.pr?prTitle(r.m)+" ("+(r.m.party==="ind"?"Ind.":prPartyWord(r.m.party))+")":caucusTitle(r.key)+" ("+caucusCode(r.key)+")";
+}
+function floorDealt(billKey,ch,id){ return !!(GAME.floorDeals&&GAME.floorDeals[billKey]&&GAME.floorDeals[billKey][ch+id]); }
+function floorDeal(billKey,ch,id,kind){ const D=GAME.floorDeals=GAME.floorDeals||{}; (D[billKey]=D[billKey]||{})[ch+id]=kind; }
+/* The members closest to a yes who are not a sure yes, and what each would take. */
+function floorHoldoutsHTML(w,billKey,pid){
+  if(!w)return "";
+  const pool=[], dealt=[];
+  for(const C of [w.house,w.senate]){ if(!C||!C.members)continue;
+    for(const x of C.members){ if(x.splinter)continue; const r=floorMemberRec(x.chamber,x.id); if(!r)continue;
+      if(floorDealt(billKey,x.chamber,x.id)){ dealt.push({x,r,kind:GAME.floorDeals[billKey][x.chamber+x.id]}); continue; }
+      if(x.incl>1.2)continue; if(!x.buyable&&x.incl<-5)continue; pool.push({x,r}); } }
+  pool.sort((a,b)=>b.x.incl-a.x.incl);
+  const top=pool.slice(0,6);
+  if(!top.length&&!dealt.length)return "";
+  const cap=GAME.capital;
+  let h=`<div class="conc-h" style="margin-top:12px">${ico('handshake')} The holdouts: the members closest to a yes, and what each would take</div><div class="hold-list">`;
+  h+=top.map(({x,r})=>{ const m=r.m, pr=r.pr;
+    const who=pr?`${prTitle(m)} <i>${m.party==="ind"?"Independent":prPartyWord(m.party)+" list #"+((GAME.pr.lists[m.party]||[]).indexOf(m.id)+1)}${m.f?" · "+prFacName(m.f):""}</i>`
+                :`${caucusTitle(r.key)} <i>${caucusCode(r.key)} ${caucusPlace(m.ch,m.id)} · ${caucusPartyOf(m)}${m.f?" · "+caucusFactionName(m.f):""}</i>`;
+    const lean=x.incl>0?"leaning yes":x.incl>-1.5?"on the fence":x.incl>-4?"leaning no":"opposed";
+    const wc=Math.max(1,Math.ceil(x.resist*BILL_WHIP));
+    const acts=[];
+    acts.push(x.buyable?`<button class="cf-chbtn" data-hold="whip" data-hch="${x.chamber}" data-hid="${x.id}" data-hc="${wc}" ${(window.SANDBOX||cap>=wc)?"":"disabled"}>Whip · ◈${wc}</button>`
+                      :`<span class="hold-no">not for sale</span>`);
+    if(!pr&&!caucusProjFor(r.key).some(p=>p.k===r.key))acts.push(`<button class="cf-chbtn" data-hold="proj" data-hch="${x.chamber}" data-hid="${x.id}">District project · $0.05B/yr</button>`);
+    if(!lpActive(r.target)){ const o=lpOptions(m).find(o=>o.pid!==pid); if(o)acts.push(`<button class="cf-chbtn" data-hold="prom" data-hch="${x.chamber}" data-hid="${x.id}" data-hp="${o.pid}|${o.want}">Promise: ${o.label}</button>`); }
+    return `<div class="hold-row"><span class="hold-who"><b>${who}</b><span class="hold-lean">${lean} · ${pr?"":"loyalty "}${pr?"":Math.round(m.L)}${pr?"loyalty "+Math.round(m.L):""}</span></span><span class="hold-acts">${acts.join("")}</span></div>`; }).join("");
+  if(dealt.length)h+=`<div class="hold-done">Committed to this vote: ${dealt.map(d=>`${d.r.pr?prTitle(d.r.m):caucusTitle(d.r.key)} (${d.kind})`).join(", ")}</div>`;
+  return h+`</div>`;
+}
+function floorHoldoutWire(root,billKey,redraw){
+  root.querySelectorAll("[data-hold]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation(); if(b.disabled)return;
+    const ch=b.dataset.hch, id=+b.dataset.hid, r=floorMemberRec(ch,id); if(!r)return;
+    const kind=b.dataset.hold;
+    if(kind==="whip"){ const c=+b.dataset.hc; if(!window.SANDBOX&&GAME.capital<c)return; GAME.capital=clamp(GAME.capital-c,0,CAPITAL_MAX);
+      GAME.legis.favors=GAME.legis.favors||{}; GAME.legis.favors[ch+id]=(GAME.legis.favors[ch+id]||0)+1;
+      floorDeal(billKey,ch,id,"whipped, ◈"+c); GAME.log.push(ico('columns')+" You whipped "+(r.pr?prTitle(r.m):caucusTitle(r.key))+" for ◈"+c+"."); }
+    else if(kind==="proj"){ caucusFund(r.key); floorDeal(billKey,ch,id,"a district project"); }
+    else if(kind==="prom"){ const [pid,want]=b.dataset.hp.split("|"); lpMake(r.target,pid,+want); floorDeal(billKey,ch,id,"a promise"); }
+    redraw(); }));
+}
+/* The roll call, kept on every member. */
+function caucusRecordRoll(res,nm){
+  for(const ch of ["house","senate"]){ const R=res&&res[ch]; if(!R||!R.roll)continue;
+    for(const [id,y] of R.roll){ const r=floorMemberRec(ch,id); if(!r)continue;
+      const v=r.m.votes=r.m.votes||[]; v.push({t:GAME.turn, nm, y:!!y}); if(v.length>24)v.splice(0,v.length-24); } }
+}
+function caucusVotesHTML(m,mine){
+  const v=m.votes||[]; if(!v.length)return `<div class="cm-sub">No votes on your bills yet.</div>`;
+  const yes=v.filter(x=>x.y), no=v.filter(x=>!x.y);
+  const list=(arr)=>arr.slice(-3).reverse().map(x=>x.nm+" ("+caucusQ(x.t)+")").join(", ");
+  return `<div class="cm-rec"><b>Voting record on your bills:</b> ${mine?"with you":"for you"} on ${yes.length} of ${v.length}${
+    mine?(no.length?`; broke on ${list(no)}`:"; never broke with you")
+        :(yes.length?`; crossed over for ${list(yes)}`:"; never crossed over")}.</div>`;
+}
+/* ON THE TRAIL. In the four quarters before an election your members
+   campaign in their districts: the ones warmer than where they started for
+   you, the ones who have cooled against you, among the groups their
+   districts are made of. */
+function caucusSurrogates(){
+  if(prOn()||!GAME.caucus||typeof nextBallotInfo!=="function")return;
+  const nb=nextBallotInfo(); const C=GAME.caucus;
+  if(!nb||nb.quartersAway>4){ C.surr=null; return; }
+  const tot={};
+  for(const k in C.m){ const m=C.m[k]; if(m.p!=="mine")continue; const row=caucusRow(k); if(!row)continue;
+    const sgn=clamp((m.L-caucusBase(m))/30,-1,1); if(Math.abs(sgn)<0.1)continue;
+    for(const x of caucusMakeup(row,4))tot[x.b]=(tot[x.b]||0)+sgn*x.over; }
+  const out=[];
+  for(const b in tot){ const v=+clamp(tot[b]*0.6,-1.5,1.5).toFixed(2); if(Math.abs(v)<0.2||!SIMULANTS[b])continue;
+    createGrudge("v_"+b, v, 0.75, v>0?"Your legislators campaigning for you":"Your own legislators speaking against you"); out.push([b,v]); }
+  C.surr={turn:GAME.turn, out:out.sort((a,b)=>b[1]-a[1])};
+}
+function caucusSurrogatesHTML(){
+  if(prOn()||!GAME.caucus)return "";
+  const C=GAME.caucus, S=C.surr;
+  let h=`<div class="camp-sec">${ico('people')} Your legislators on the trail</div>`;
+  if(!S||!S.out.length)return h+`<div class="cprim-note">In the four quarters before an election your members campaign in their districts: the ones warmer toward you than where they started win you ground with the groups their districts are made of, and the ones who have cooled cost you it. ${S?"Right now it is a wash.":"The next election is further off than that."}</div>`;
+  const plus=S.out.filter(x=>x[1]>0), minus=S.out.filter(x=>x[1]<0);
+  const cold=Object.keys(C.m).filter(k=>C.m[k].p==="mine"&&C.m[k].L-caucusBase(C.m[k])<-15).sort((a,b)=>C.m[a].L-C.m[b].L).slice(0,4);
+  return h+`<div class="cprim-note">This quarter, from your own members campaigning in their districts:
+    ${plus.length?`<span style="color:var(--moss)">${plus.map(x=>SIMULANTS[x[0]].name+" +"+x[1].toFixed(1)).join(", ")}</span>`:""}${plus.length&&minus.length?"; ":""}
+    ${minus.length?`<span style="color:var(--clay)">${minus.map(x=>SIMULANTS[x[0]].name+" "+x[1].toFixed(1)).join(", ")}</span>`:""}.
+    ${cold.length?`Speaking against you at home: ${cold.map(k=>caucusTitle(k)+" ("+caucusCode(k)+")").join(", ")}.`:""}</div>`;
+}
+/* WALKOUTS ARE PEOPLE. The members of the walking party who are at odds with
+   their leadership stay in their seats. If enough of them stay, the quorum
+   holds in both chambers and there is no walkout. */
+function caucusWalkoutRefusers(){
+  const out={house:[],senate:[]}; if(prOn()||!GAME.caucus)return out;
+  for(const k in GAME.caucus.m){ const m=GAME.caucus.m[k]; if(m.p!=="opp")continue;
+    if(m.L<caucusOppOdds(m)||m.f)out[m.ch].push(k); }
+  return out;
+}
+function caucusWalkoutBroken(){
+  if(prOn()||!GAME.caucus)return false;
+  const L=GAME.legis||{}, r=caucusWalkoutRefusers();
+  return (L.house||0)+r.house.length>=LEGIS.quorumH && (L.senate||0)+r.senate.length>=LEGIS.quorumS;
+}
+function caucusWalkoutLine(){
+  if(prOn()||!GAME.caucus)return "";
+  const L=GAME.legis||{}; if((L.house||0)>=LEGIS.quorumH&&(L.senate||0)>=LEGIS.quorumS)return "";
+  const r=caucusWalkoutRefusers();
+  const needH=Math.max(0,LEGIS.quorumH-(L.house||0)), needS=Math.max(0,LEGIS.quorumS-(L.senate||0));
+  const ok=r.house.length>=needH&&r.senate.length>=needS;
+  return `<div class="cprim-note" style="margin:0 0 10px">${ico('warning')} If the ${oppPartyPlural()} walk out: ${r.house.length} of their House members and ${r.senate.length} of their senators are at odds with their leadership and would stay. The quorum needs ${needH} and ${needS}. ${ok?"<b>It would hold: no walkout can work right now.</b>":"Not enough to hold it."}</div>`;
+}
 function renderCaucus(){
   const main=document.getElementById("main");
   let h=`<div class="sectionhdr">${ico('people')} Legislators</div>`;
@@ -20956,6 +21092,7 @@ function renderCaucus(){
       </div>`; });
     facH+=`</div>`;
   }
+  h+=caucusWalkoutLine();
   // the livid
   const livid=Object.keys(C.m).filter(k=>C.m[k].p==="mine"&&C.m[k].L<CAUCUS_LIVID);
   if(livid.length){
@@ -21357,6 +21494,7 @@ function caucusMemberCard(k){
     <div class="cf-bar">${mine?"Loyalty":"Loyalty to the "+oppPartyPlural()} ${Math.round(m.L)} ${caucusMeter(m.L,caucusColor(m))} <span class="cm-to">heading to ${Math.round(T)}</span></div>
     <div class="cm-parts">${parts.map(p=>`<span>${p[0]}<b class="${p[1]>0.5&&p!==parts[0]?"up":p[1]<-0.5?"dn":""}">${p===parts[0]?Math.round(p[1]):(p[1]>0?"+":"")+Math.round(p[1])}</b></span>`).join("")}</div>`;
   if(mine)h+=`<div class="cm-vote${caucusAnger(m)?" bad":""}"><b>How they vote:</b> ${caucusVoteLine(m)}</div>`;
+  h+=caucusVotesHTML(m,mine);
   if(m.f)h+=`<div class="cm-flag">In the <b>${caucusFactionName(m.f)}</b>: angry enough to vote against you as a bloc.</div>`;
   if(m.switched!=null)h+=`<div class="cm-flag">${m.joined?"Crossed the floor to your party.":"Crossed the floor from your party."}</div>`;
   if(!mine&&m.L<CAUCUS_LIVID&&m.switched==null)h+=`<div class="cm-flag" style="color:var(--moss)">Livid with their own party: could cross the floor to yours.</div>`;
@@ -21479,9 +21617,11 @@ function floorMembers(chamber, pol, dir, ctx){
     const marginal=1-clamp(Math.abs(support-50)/22,0,1);       // 1 = knife-edge
     // what the whip costs, and how far it reaches, depends on their loyalty
     const wt=caucusWhipTerms(cm||pm, mine||ally);
-    const resist=Math.max(0.4,VOTE_PROMISE-incl)*(0.55+0.95*marginal)*0.42*wt.f;
-    out.push({id, chamber, mine, incl, verdict, support, marginal, resist, owed, fac:cm?cm.f:null,
-              buyable:resist<=BILL_UNBUYABLE*wt.reach});
+    // a member you made a deal with on this vote is committed to it
+    const dealt=!!(ctx.billKey&&floorDealt(ctx.billKey,chamber,id)), inclF=dealt?Math.max(incl,VOTE_PROMISE+0.5):incl;
+    const resist=Math.max(0.4,VOTE_PROMISE-inclF)*(0.55+0.95*marginal)*0.42*wt.f;
+    out.push({id, chamber, mine, incl:inclF, verdict, support, marginal, resist, owed, fac:cm?cm.f:null, dealt,
+              buyable:!dealt&&resist<=BILL_UNBUYABLE*wt.reach});
   }
   return out.sort((a,b)=>b.incl-a.incl);
 }
@@ -21569,6 +21709,7 @@ function whipCount(id, dir, narrowed, cushion, skipOdds){
   // has been narrowed, so a half-strength bill is half the loyalty test —
   // rather than staying a full one because its uncut form was well over the cap.
   ctx.disc=BILL_LOY_FLOOR+(1-BILL_LOY_FLOOR)*clamp(billSalience(pol)*nw,0,1);
+  ctx.billKey="b:"+dir+":"+id;
   if(!GAME.caucus)caucusSync();
   prEnsure();
   if(!pol.reform)ctx.demand={pid:id, delta:dir==="repeal"?-caucusLevel(id):(nw-caucusLevel(id))};
@@ -21647,11 +21788,13 @@ function runFloorVote(w){
     const C=w[key];
     const bought=new Set(C.buy.map(m=>m.id));
     let yes=0;
+    const roll=[];
     for(const m of C.members){
       const base=bought.has(m.id)?VOTE_PROMISE:m.incl;
-      if(base+gauss()*(w.voteSD||VOTE_SD)>0)yes++;
+      const v=base+gauss()*(w.voteSD||VOTE_SD)>0;
+      if(v)yes++; roll.push([m.id,v]);
     }
-    out[key]={yes, need:C.need, ok:_sb?true:yes>=C.need, real:yes>=C.need};
+    out[key]={yes, need:C.need, ok:_sb?true:yes>=C.need, real:yes>=C.need, roll};
     if(!_sb && yes<C.need)passed=false;
   }
   out.passed=_sb?true:passed;
@@ -21912,7 +22055,7 @@ function whipChamberHTML(w, pol, dir){
   const pips=w.members.map(m=>{
     const cls=m.incl>0?(m.mine?"y own":"y cross"):(w.buy.indexOf(m)>=0?"buy":(m.buyable?"n":"n hard"));
     const tag=w.chamber==="senate"?"SD":"HD";
-    return `<i class="wp ${cls}" title="${tag} ${m.id} — ${m.incl>0?"yes":"no"}${m.owed>0?" · owes you nothing, you already spent it":""}${m.incl<=0?" · "+holdoutReason(m,pol,dir):""}"></i>`;
+    return `<i class="wp ${cls}" title="${floorName(w.chamber,m.id)} — ${m.incl>0?"yes":"no"}${m.dealt?" · committed to you on this vote":""}${m.owed>0?" · owes you nothing, you already spent it":""}${m.incl<=0?" · "+holdoutReason(m,pol,dir):""}"></i>`;
   }).join("");
   return `<div class="whip-ch">
     <div class="whip-top"><span class="whip-nm">${nm}</span>
@@ -21922,7 +22065,7 @@ function whipChamberHTML(w, pol, dir){
     <div class="whip-pips">${pips}</div>
     ${w.buy.length?`<div class="whip-buy">To close it: ${w.buy.map(m=>{
       const tag=w.chamber==="senate"?"SD":"HD";
-      return `<b>${tag} ${m.id}</b> <span class="wb-why">(${holdoutReason(m,pol,dir)}${m.marginal>0.6?", and on a knife-edge margin":""})</span>`;
+      return `<b>${floorName(w.chamber,m.id)}</b> <span class="wb-why">(${holdoutReason(m,pol,dir)}${m.marginal>0.6?", and on a knife-edge margin":""})</span>`;
     }).join(", ")}</div>`:``}
     ${(!w.possible)?`<div class="whip-dead">There are not enough members who could vote for this and survive. It cannot pass this chamber at any price.</div>`:``}
   </div>`;
@@ -22161,6 +22304,7 @@ function drawFloor(){
       <button class="enactbtn ghost" id="floorNo">Pull the bill</button>
     </div>
     ${w.possible?"":eoHintHTML(pol)}
+    ${floorHoldoutsHTML(w,"b:"+F.dir+":"+F.id,F.id)}
     ${apptDeliveryPanelHTML(pol)}
     <div class="floor-roll">${ico('columns')} The count, seat by seat</div>
     ${whipChamberHTML(w.house,pol,F.dir)}
@@ -22173,6 +22317,7 @@ function drawFloor(){
     GAME.pendingFloor.narrowed=+el.dataset.conc; drawFloor(); }));
   card.querySelectorAll('[data-cush]').forEach(el=>el.addEventListener('click',()=>{
     GAME.pendingFloor.cushion=+el.dataset.cush; drawFloor(); }));
+  floorHoldoutWire(card,"b:"+F.dir+":"+F.id,()=>drawFloor());
   card.querySelectorAll('[data-variant]').forEach(el=>el.addEventListener('click',()=>{
     const id=GAME.pendingFloor.id, v=el.dataset.variant;
     if(id==="propRep")GAME.prVariantDraft=v; else (GAME.variantDraft=GAME.variantDraft||{})[id]=v;
@@ -22181,7 +22326,7 @@ function drawFloor(){
     document.removeEventListener("keydown",onKey,true); };
   const onKey=e=>{ if(modal.classList.contains("hidden"))return;
     if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); render(); } };
-  document.getElementById("floorNo").onclick=()=>{ close(); render(); };
+  document.getElementById("floorNo").onclick=()=>{ if(GAME.floorDeals)delete GAME.floorDeals["b:"+F.dir+":"+F.id]; close(); render(); };
   const go=document.getElementById("floorGo");
   if(go)go.onclick=()=>{
     const {id,dir,narrowed,cushion}=GAME.pendingFloor;
@@ -24338,7 +24483,7 @@ function campHQBodyHTML(){
     <button class="camptab ${tab==="opp"?"on":""}" data-camptab="opp">${ico('warning')} The opposition</button>
   </div>`;
   if(tab==="ballot")return h+ballotCampaignHTML();
-  if(tab==="legis")return h+caucusCampaignHTML()+legForecastHTML();
+  if(tab==="legis")return h+caucusSurrogatesHTML()+caucusCampaignHTML()+legForecastHTML();
   if(tab==="opp")return h+oppositionTabHTML();
   h+=challengerPointerHTML();
   // ---- platform this term: read-only. Pledges are committed right after you
@@ -27061,6 +27206,8 @@ function passBill(id, dir, narrowed, cushion){
   // the vote itself. The capital is spent either way — you whipped, you just lost.
   const _lv0=caucusLevel(id);
   const res=runFloorVote(w);
+  caucusRecordRoll(res,nm);
+  if(GAME.floorDeals)delete GAME.floorDeals["b:"+dir+":"+id];
   if(!res.passed){
     const lost=[];
     if(!res.house.ok)lost.push("the House "+res.house.yes+"-"+(w.house.total-res.house.yes)+" (needed "+res.house.need+")");
@@ -27574,6 +27721,7 @@ function pendingWhip(key, origSnap, curSnap, cushion){
   const _cvSD=contentionVoteSD(spec.cont);
   const _cvMgn=spec.cont>=0.35 ? VOTE_MARGIN+(spec.cont-0.35)*3.0 : 0;
   const ctx={ sf:_sf, align:coalitionAlignment(_sf), ease:spec.ease, supportW:spec.supportW, margin:_cvMgn, voteSD:_cvSD,
+    billKey:"c:"+key,
     demand:key.startsWith("p_")?{pid:key.slice(2), delta:caucusSnapLevel(key.slice(2),curSnap)-caucusSnapLevel(key.slice(2),origSnap)}:null,
     // The change path already says a contested question is where "party
     // discipline is the first thing to go" and members "vote their district" —
@@ -27633,6 +27781,8 @@ function resolvePendingVote(key, origSnap, curSnap, cushion, quiet){
   const whipped=[...w.house.buy,...w.senate.buy];
   for(const m of whipped)GAME.legis.favors[m.chamber+m.id]=(GAME.legis.favors[m.chamber+m.id]||0)+1;
   const res=runFloorVote(w);
+  caucusRecordRoll(res,nm);
+  if(GAME.floorDeals)delete GAME.floorDeals["c:"+key];
   const isCut=!!(w.spec&&w.spec.cut);
   const isRev=(w.kind!=="program")&&!isCut;
   if(!res.passed){
@@ -27840,6 +27990,7 @@ function paintPendingFloor(){
           :"Call the vote"+(w.cost?` — whipping ${w.house.buy.length+w.senate.buy.length}`:"")}</button>
         <button class="enactbtn ghost" id="pfNo">Withdraw the change</button>
       </div>
+      ${floorHoldoutsHTML(w,"c:"+key,key.startsWith("p_")?key.slice(2):null)}
       <div class="floor-roll">${ico('columns')} The count, seat by seat</div>
       ${whipChamberHTML(w.house,spec.bill,"enact")}
       ${whipChamberHTML(w.senate,spec.bill,"enact")}
@@ -27850,9 +28001,10 @@ function paintPendingFloor(){
   const done=F.onDone, close=F._close;
   body.querySelectorAll('[data-pcush]').forEach(el=>el.addEventListener('click',()=>{
     GAME.pendingFloorChange.cushion=+el.dataset.pcush; paintPendingFloor(); }));
+  floorHoldoutWire(body,"c:"+key,()=>paintPendingFloor());
   const no=document.getElementById("pfNo");
   if(no)no.onclick=()=>{
-    const k=F.key,o=F.origSnap; if(close)close(); restoreFrom(k,o);
+    const k=F.key,o=F.origSnap; if(GAME.floorDeals)delete GAME.floorDeals["c:"+k]; if(close)close(); restoreFrom(k,o);
     GAME.log.push("You pulled the change to "+nameFor(k)+" before it reached the floor. No capital spent.");
     render(); if(done)done(); };
   const go=document.getElementById("pfGo");
