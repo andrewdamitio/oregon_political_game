@@ -4630,12 +4630,14 @@ function signExecOrder(id){
                        resigns:(st&&st.resigns)||0, cost,
                        expires:E.emergency?GAME.turn+E.emergency:null, renewals:0};
   GAME.log.push(ico(E.icon)+" Executive order signed — "+E.name);
+  const pu=(E.blocEffect||{}).publicUnions; if(pu)caucusUnionHit(pu,"Signed the "+E.name);
   return true;
 }
 function rescindExecOrder(id){
   const o=eoState(id); if(!o)return;
   delete GAME.execOrders[id];
   GAME.log.push(ico('ban')+" Executive order rescinded — "+EXEC_ORDERS[id].name);
+  const pu=(EXEC_ORDERS[id].blocEffect||{}).publicUnions; if(pu<0)caucusUnionHit(-pu*0.5,"Rescinded the "+EXEC_ORDERS[id].name);
 }
 /* Quarterly: expire orders with the term, roll for filings, resolve rulings. */
 function tickExecOrders(){
@@ -9652,6 +9654,7 @@ function resolveDilemma(optIndex){
    ============================================================ */
 function createGrudge(target,value,decay,label){
   if(target==="capital"){GAME.capital=clamp(GAME.capital+value,0,100);return;}
+  if(target==="v_publicUnions"&&typeof caucusUnionHit==="function")caucusUnionHit(value,label);
   GAME.grudges.push({target,value,decay:decay!==undefined?decay:0.9,label:label||""});
 }
 function groupGrudge(sid){
@@ -19755,6 +19758,9 @@ const ISSUES={
   // the contracted service sector: members close to it want its programmes funded and its contracts left alone
   nonprofits:{name:"Nonprofits", partisan:false, pols:[["homelessServices",1],["behavioralHealth",1],["affordableHousing",1],["outcomeContracting",-1]],
     view:["","Close to the service nonprofits"], fac:["Nonprofit Caucus","Nonprofit Caucus"], want:["","The contracts left alone"]},
+  // the public-sector unions: members they elected want public workers left alone
+  pubunions:{name:"Public workers", partisan:false, pols:[["collectiveBargaining",1],["persReform",-1],["rightToWork",-1],["civilServiceReform",-1],["adminSimplification",-1],["spendingCap",-1],["schoolChoice",-1],["charterSchools",-1],["prevailingWageRepeal",-1]],
+    view:["","Close to the public-sector unions"], fac:["Public Employees Caucus","Public Employees Caucus"], want:["","Public workers left alone"]},
 };
 const ISSUE_IDS=Object.keys(ISSUES);
 const FACTION_VOTE=2.4;      // points of inclination per unit of a member's break on the bill in front of them
@@ -19837,6 +19843,10 @@ function caucusDistrictTraits(ch,id,comp,lean){
   if(biz&&!deep)t.push({id:"biz", label:"Business", issues:["business"]});
   // about two in five urban-core and deep-blue seats have a member tied to the service nonprofits
   if((core||deep)&&caucusRng(ch+id+"|npc")()<0.4)t.push({id:"npc", label:"Nonprofit ties", issues:["nonprofits"]});
+  // the public-sector unions put a good share of the blue seats' members
+  // there: most often in union towns and where public employees live
+  if(lean>=50&&caucusRng(ch+id+"|pu")()<Math.min(0.6,0.15+(union?0.3:0)+(comp[CB_PU]>=0.12?0.15:0)+((core||deep)?0.1:0)))
+    t.push({id:"pu", label:"Public-union ties", issues:["pubunions"]});
   return t;
 }
 /* Where the district pulls on each issue, progressive axis -1 to 1, and
@@ -19863,11 +19873,12 @@ function caucusDistrictPull(ch,id,comp,lean){
   set("rural", (rur||tim)?1:0);
   set("tolls", has("clack")?1:0);
   set("nonprofits", has("npc")?1:0);
+  set("pubunions", has("pu")?1:0);
   return o;
 }
 function caucusTraitsOf(k){ const row=caucusRow(k), m=GAME.caucus&&GAME.caucus.m[k]; return (row&&m)?caucusDistrictTraits(m.ch,m.id,row[1],row[3]!=null?row[3]:50):[]; }
 // views are rebuilt when the way they are derived changes
-const CAUCUS_VIEWS_V=3;
+const CAUCUS_VIEWS_V=4;
 /* A member's views: the party line, pulled toward the district where the
    district cares, pulled hard where the seat leans the other way, and one
    personal conviction for about a quarter of them. */
@@ -20212,9 +20223,15 @@ function caucusRegionHit(test,amt,why,issue){
   if(issue==="tolls")GAME.caucus.tolls=amt<0?1:-0.3;
   let n=0;
   for(const k in GAME.caucus.m){ const m=GAME.caucus.m[k]; if(!test(m))continue;
-    m.g=clamp((m.g||0)+amt,-30,30); m.gg=m.gg||{}; m.gg[issue]=clamp((m.gg[issue]||0)+amt,-30,30); caucusNote(m,"_"+issue,why,amt); m.L=clamp(m.L+amt*(m.p==="mine"?0.5:-0.5),0,100); if(m.p==="mine")n++; }
-  if(n&&amt<0)GAME.log.push(ico('people')+" "+why+": "+n+" of your members "+(issue==="tolls"?"from Clackamas County":"with ties to the service nonprofits")+" are furious.");
+    m.g=clamp((m.g||0)+amt,-30,30); m.gg=m.gg||{}; m.gg[issue]=clamp((m.gg[issue]||0)+amt,-30,30); caucusNote(m,"_"+issue+"|"+why,why,amt); m.L=clamp(m.L+amt*(m.p==="mine"?0.5:-0.5),0,100); if(m.p==="mine")n++; }
+  if(n&&amt<0)GAME.log.push(ico('people')+" "+why+": "+n+" of your members "+(issue==="tolls"?"from Clackamas County":issue==="pubunions"?"close to the public-sector unions":"with ties to the service nonprofits")+" are furious.");
   caucusControlCalc();
+}
+/* Anything that lands on the public-sector unions lands on the members they
+   elected, half again as hard: a strike broken, a hiring freeze, a cut. */
+function caucusUnionHit(v,why){
+  if(prOn()||!GAME.caucus||Math.abs(v)<2)return;
+  caucusRegionHit(m=>caucusTraitsOf((m.ch==="house"?"h":"s")+m.id).some(t=>t.id==="pu"),clamp(v*1.5,-18,12),why||"Public workers","pubunions");
 }
 /* FACTIONS FORM FROM ANGER. Three or more of your members angry about the
    same issue, in the same direction, are a faction until they calm down. */
