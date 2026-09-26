@@ -576,7 +576,11 @@
   .pn-tag{font-size:11.5px;text-transform:uppercase;letter-spacing:.8px;padding:2px 7px;border-radius:9px;border:1px solid var(--line)}
   .pn-row.won .pn-tag{color:var(--moss);border-color:var(--moss)} .pn-row.lost .pn-tag{color:var(--clay);border-color:var(--clay)}
   .rvac{cursor:pointer;border-radius:4px} .rvac:hover,.rvac:focus{background:var(--paper-2);outline:none} .rvac-go{margin-left:6px;font-weight:600}
-  .pn-maps{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 2px} .pn-map{flex:1 1 200px;margin:0;max-width:260px} .pn-map svg{width:100%;height:auto;display:block}
+  .pn-maps{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin:8px 0 2px;width:min(900px,94vw)} .pn-map{flex:1 1 300px;margin:0;max-width:440px} .pn-map svg{width:100%;height:auto;display:block}
+  .pn-map path[data-pn]{cursor:pointer;outline:none} .pn-map path[data-pn]:hover,.pn-map path[data-pn]:focus{filter:brightness(1.15);stroke-width:2}
+  .pn-grand .pn-key{justify-content:center} .pn-grand .pn-bar{height:18px;width:min(420px,88vw)}
+  .pn-tally{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;font-size:14px;color:var(--muted-1)}
+  .pn-grand .pn-row{text-align:left}
   .pn-map figcaption{font-size:11.5px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.8px;text-align:center}
   .pn-map path.pn-mw{fill:var(--moss);stroke:var(--ink);stroke-width:1} .pn-map path.pn-mh{fill:var(--clay);stroke:var(--ink);stroke-width:1}
   .pn-map path.pn-ow{fill:var(--gold);stroke:var(--ink);stroke-width:1} .pn-map path.pn-oh{fill:var(--muted-3);stroke:var(--ink);stroke-width:1}
@@ -2835,6 +2839,7 @@
 </div>
 
 <div id="electionModal" class="modal hidden"><div class="card" id="electionCard"></div></div>
+<div id="primaryModal" class="modal hidden"><div class="card" id="primaryCard"></div></div>
 <div id="dilemmaModal" class="modal hidden"><div class="card" id="dilemmaCard"></div></div>
 <div id="proposalModal" class="modal hidden"><div class="card" id="proposalCard"></div></div>
 <div id="apptPanelModal" class="modal hidden"><div class="card" id="apptPanelCard"></div></div>
@@ -21679,16 +21684,22 @@ function caucusOppPrimaries(){
   }
   return out;
 }
+/* The races of a primary night in one list: yours, then the other party's,
+   each with the class its district is drawn in. */
+function primaryNightRaces(P){
+  return (P.list||[]).filter(x=>!x.moot).map(x=>({x,cls:x.won?"pn-mw":"pn-mh"}))
+    .concat((P.opp||[]).map(x=>({x,cls:x.won?"pn-ow":"pn-oh"})));
+}
 /* A map of the districts that had a challenger on primary night, and no
    others, one per chamber that had any. */
 function primaryNightMap(P){
-  const all=(P.list||[]).filter(x=>!x.moot).map(x=>({x,cls:x.won?"pn-mw":"pn-mh"})).concat((P.opp||[]).map(x=>({x,cls:x.won?"pn-ow":"pn-oh"})));
+  const all=primaryNightRaces(P);
   const maps=[["h","House",OR_HOUSE_DISTRICTS],["s","Senate",OR_SENATE_DISTRICTS]].map(([t,nm,rows])=>{
-    const here=all.filter(a=>a.x.k[0]===t); if(!here.length)return "";
-    const paths=here.map(a=>{ const r=rows.find(z=>z[0]===+a.x.k.slice(1)); if(!r)return "";
-      return `<path class="${a.cls}" d="${r[1]}"><title>${caucusCode(a.x.k)} ${a.x.place}: ${a.x.won?a.x.n+" won":a.x.old+" held on"}</title></path>`; }).join("");
+    const here=all.map((a,i)=>({a,i})).filter(o=>o.a.x.k[0]===t); if(!here.length)return "";
+    const paths=here.map(({a,i})=>{ const r=rows.find(z=>z[0]===+a.x.k.slice(1)); if(!r)return "";
+      return `<path class="${a.cls}" data-pn="${i}" tabindex="0" d="${r[1]}"></path>`; }).join("");
     return `<figure class="pn-map"><svg viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="${nm} districts with a primary challenger">`
-      +OR_COUNTIES.map(c=>`<path d="${c[2]}" fill="var(--paper)" stroke="var(--line)" stroke-width="0.8"/>`).join("")+paths+`</svg><figcaption>${nm}</figcaption></figure>`; }).join("");
+      +OR_COUNTIES.map(c=>`<path d="${c[2]}" fill="var(--paper)" stroke="var(--line)" stroke-width="0.8"/>`).join("")+paths+`</svg><figcaption>${nm} · ${here.length} district${here.length===1?"":"s"}</figcaption></figure>`; }).join("");
   if(!maps)return "";
   // the key names only what is on the map
   const has=new Set(all.map(a=>a.cls)), key=[];
@@ -21703,31 +21714,62 @@ function primaryNightTitle(P){
   if(L.length)return "Primary night: your challengers won "+L.filter(x=>x.won).length+" of "+L.length+(O.length?"; the "+oppPartyPlural()+" went after "+O.length+" of their own":"");
   return "Primary night: the "+oppPartyPlural()+" went after "+O.length+" of their own";
 }
-/* PRIMARY NIGHT. Only the districts where somebody was challenged: yours,
-   then the other party's. */
+/* PRIMARY NIGHT. A results page of its own, like election night, for only
+   the districts where somebody was challenged: yours, then the other party's. */
 function showPrimaryNight(P,next){
-  const card=document.getElementById("caucusNewsCard"), modal=document.getElementById("caucusNewsModal");
+  const card=document.getElementById("primaryCard"), modal=document.getElementById("primaryModal");
   if(!card||!modal||!P||!P.list){ if(next)next(); return; }
-  const L=P.list.filter(x=>!x.moot), O=P.opp||[];
+  const L=P.list.filter(x=>!x.moot), O=P.opp||[], races=primaryNightRaces(P);
+  const won=L.filter(x=>x.won).length, purged=O.filter(x=>x.won).length;
   const gen=P.kind==="midterm"?"the midterm":"the general election";
+  const yr=GAME.startYear+Math.floor(((P.turn||GAME.turn)+(P.gen||0))/4);
   const seat=o=>o>=62?"a safe seat for your party":o>=55?"a seat that leans your way":"a swing seat";
-  let h=`<div class="sectionhdr">${ico('ballot')} ${primaryNightTitle(P)}</div>
-    <div class="sectionsub">Winners are their party's nominees, not yet members. They take office only if they win ${gen} in ${P.gen} quarters; until then the members they beat serve out their terms and still vote.</div>`;
-  h+=primaryNightMap(P);
-  if(L.length)h+=`<div class="cn-sec">Your challengers</div>`+L.map(x=>`<div class="pn-row ${x.won?"won":"lost"}"><span class="cn-code">${caucusCode(x.k)}</span>
-    <span class="cn-who"><b>${x.won?`${x.n} beat ${x.title}`:`${x.title} held off ${x.n}`}</b>
-      <i>${x.place} · ◈${x.spent} behind them, ${x.odds}% odds</i>
-      <i>${x.won?`Now the nominee in ${seat(x.own)} (${x.own}% for your party). ${x.old} is a lame duck and knows who did it.`:`${x.old} is still your member, and angrier: loyalty ${x.L}.`}</i></span>
-    <span class="pn-tag">${x.won?"nominee":"held"}</span></div>`).join("");
-  P.list.filter(x=>x.moot).forEach(x=>h+=`<div class="cn-fac"><b>${caucusCode(x.k)}</b> Moot: the seat did not stay with your party.</div>`);
-  if(O.length)h+=`<div class="cn-sec">The ${oppPartyPlural()}' own primaries</div><div class="cprim-note">Their leadership went after members who have broken with it.</div>`
+  // the headline: your night if you had one, theirs if not
+  const big=L.length?won+" OF "+L.length:purged+" PURGED";
+  const good=L.length?won*2>=L.length:true;
+  const sub=L.length?(won===L.length?"Every challenger you backed won":won===0?"Every member you targeted held on":"Your challengers won "+won+" of "+L.length+" primaries")
+    :"The "+oppPartyPlural()+" went after "+O.length+" of their own and removed "+purged;
+  const tally=[];
+  if(L.length)tally.push(`<span><b>${won}</b> nominee${won===1?"":"s"} of yours, <b>${L.length-won}</b> held on</span>`);
+  if(O.length)tally.push(`<span>${oppPartyName()} leadership: <b>${purged}</b> purged, <b>${O.length-purged}</b> held on</span>`);
+  const bar=(a,b,ca,cb,la,lb)=>(a+b)?`<div class="eg-bar pn-bar"><i style="width:${a/(a+b)*100}%;background:${ca}" title="${la}"></i><i style="width:${b/(a+b)*100}%;background:${cb}" title="${lb}"></i></div>`:"";
+  let h=`<div class="egrand pn-grand">
+    <div class="eg-kicker">PRIMARY NIGHT · ${yr} · STATE OF OREGON</div>
+    <div class="eg-result ${good?"win":"lose"}">${big}</div>
+    <div class="wm-rule"></div>
+    <div class="eg-sub" style="font-size:19px">${sub}</div>
+    ${L.length&&O.length?`<div class="eg-sub" style="font-size:15px">The ${oppPartyPlural()} went after ${O.length} of their own and removed ${purged}.</div>`:""}
+    ${bar(won,L.length-won,"var(--moss)","var(--clay)","Your challengers who won","Members who held on")}
+    ${bar(purged,O.length-purged,"var(--gold)","var(--muted-3)",oppPartyName()+" members purged",oppPartyName()+" members who held on")}
+    <div class="pn-tally">${tally.join("")}</div>
+    <div class="eg-sub" style="font-size:14px;max-width:640px">Winners are their party's nominees, not yet members. They take office only if they win ${gen} in ${P.gen} quarters; until then the members they beat serve out their terms and still vote.</div>
+    ${primaryNightMap(P)}
+    <div class="eg-ctyread" id="pnRead">${hv("Hover","Tap")} a district for its race · scroll for every race ↓</div>`;
+  if(L.length)h+=`<div class="eg-section"><div class="eg-h3">Your challengers</div><div class="eg-note">Members of your party you backed a challenger against.</div>`
+    +L.map(x=>`<div class="pn-row ${x.won?"won":"lost"}"><span class="cn-code">${caucusCode(x.k)}</span>
+      <span class="cn-who"><b>${x.won?`${x.n} beat ${x.title}`:`${x.title} held off ${x.n}`}</b>
+        <i>${x.place} · ◈${x.spent} behind them, ${x.odds}% odds</i>
+        <i>${x.won?`Now the nominee in ${seat(x.own)} (${x.own}% for your party). ${x.old} is a lame duck and knows who did it.`:`${x.old} is still your member, and angrier: loyalty ${x.L}.`}</i></span>
+      <span class="pn-tag">${x.won?"nominee":"held"}</span></div>`).join("")+`</div>`;
+  const moot=P.list.filter(x=>x.moot);
+  if(moot.length)h+=`<div class="eg-section">`+moot.map(x=>`<div class="cn-fac"><b>${caucusCode(x.k)}</b> Moot: the seat did not stay with your party.</div>`).join("")+`</div>`;
+  if(O.length)h+=`<div class="eg-section"><div class="eg-h3">The ${oppPartyPlural()}' own primaries</div><div class="eg-note">Their leadership went after members who have broken with it.</div>`
     +O.map(x=>`<div class="pn-row ${x.won?"lost":"won"}"><span class="cn-code">${caucusCode(x.k)}</span>
-    <span class="cn-who"><b>${x.won?`${x.n} beat ${x.title}`:`${x.title} held off ${x.n}`}</b>
-      <i>${x.place}${x.fac?" · "+x.fac:""} · loyalty to their party ${x.L0}, ${x.odds}% odds for the leadership</i>
-      <i>${x.won?`The leadership's pick is the nominee${x.open?"; a member who was open to your bills is on the way out":""}.`:`Survived their own party, and further from it than ever: loyalty ${x.L}${x.open?", and still open to your bills":""}.`}</i></span>
-    <span class="pn-tag">${x.won?"purged":"held"}</span></div>`).join("");
-  h+=`<div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap"><button class="enactbtn" id="pnOk">Continue ▸</button></div>`;
-  card.innerHTML=h; modal.classList.remove("hidden"); card.scrollTop=0;
+      <span class="cn-who"><b>${x.won?`${x.n} beat ${x.title}`:`${x.title} held off ${x.n}`}</b>
+        <i>${x.place}${x.fac?" · "+x.fac:""} · loyalty to their party ${x.L0}, ${x.odds}% odds for the leadership</i>
+        <i>${x.won?`The leadership's pick is the nominee${x.open?"; a member who was open to your bills is on the way out":""}.`:`Survived their own party, and further from it than ever: loyalty ${x.L}${x.open?", and still open to your bills":""}.`}</i></span>
+      <span class="pn-tag">${x.won?"purged":"held"}</span></div>`).join("")+`</div>`;
+  h+=`<button class="enactbtn" id="pnOk">Continue ▸</button></div>`;
+  card.innerHTML=h;
+  modal.classList.add("grand"); modal.classList.remove("hidden"); card.scrollTop=0;
+  // read a district
+  const rd=card.querySelector("#pnRead"), dflt=rd?rd.innerHTML:"";
+  const say=i=>{ const a=races[i]; if(!a||!rd)return; const x=a.x;
+    rd.innerHTML=`<b>${caucusCode(x.k)} ${x.place}</b>: ${x.won?`${x.n} beat ${x.title}`:`${x.title} held off ${x.n}`}${x.opp?" (the "+oppPartyPlural()+"' primary)":""}`; };
+  card.querySelectorAll("[data-pn]").forEach(el=>{
+    el.addEventListener("mouseenter",()=>say(+el.dataset.pn)); el.addEventListener("focus",()=>say(+el.dataset.pn));
+    el.addEventListener("click",()=>say(+el.dataset.pn));
+    el.addEventListener("mouseleave",()=>{ if(rd)rd.innerHTML=dflt; }); });
   const openedAt=Date.now();
   const close=()=>{ if(Date.now()-openedAt<400)return; modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); if(next)next(); };
   const onKey=e=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); } };
