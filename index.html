@@ -561,6 +561,8 @@
   @media (max-width:600px){ .cprim-row{grid-template-columns:44px minmax(0,1fr)} .cprim-row .cf-chbtn{grid-column:2;justify-self:start} }
   .ec-mem:hover{stroke:var(--ink);stroke-width:1.6}
   .cm-prim .fcard-btn{align-self:flex-start;margin-top:0}
+  .lp-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .lp-row select{font:inherit;font-size:13px;padding:4px 6px;border:1px solid var(--line);border-radius:var(--radius);background:var(--paper);color:var(--ink);max-width:100%}
   .cpr{max-width:640px;background:var(--paper-2);border:1px solid var(--line);border-left:3px solid var(--moss);border-radius:var(--radius);padding:14px 18px;margin-top:14px}
   .cpr-h{font-family:var(--font-display);font-size:20px;margin-bottom:4px}
   .cpr p{font-size:14px;line-height:1.55;color:var(--muted-1);margin:8px 0}
@@ -20169,6 +20171,7 @@ function caucusTick(){
   caucusControlCalc();
   for(const k in C.m){ const m=C.m[k]; if(m.lf&&!(m.gg&&m.gg[m.lf]))m.lf=null; }
   caucusOppFlashpoint();
+  lpCheck().forEach(t=>caucusNews("lp",t));
   caucusFormFactions();
   caucusDefections();
   caucusCollectNews(facs0,before);
@@ -20194,7 +20197,7 @@ function caucusCollectNews(facs0,before){
   N.prim=C.primNews||[]; C.primNews=[];
   N.retired=C.retNews||[]; C.retNews=[];
   N.from={}; ["livid","angry","dropped","wavering"].forEach(t=>N[t].forEach(k=>{ const b=before[k]; N.from[k]=Math.round(b.last!=null?b.last:b.L); }));
-  const any=["flash","prim","retired","formed","broken","crossed","joined","livid","angry","dropped","wavering"].some(t=>(N[t]||[]).length);
+  const any=["lp","flash","prim","retired","formed","broken","crossed","joined","livid","angry","dropped","wavering"].some(t=>(N[t]||[]).length);
   if(any&&GAME.turn>1)GAME.pendingCaucusNews={turn:GAME.turn, n:JSON.parse(JSON.stringify(N))};
   C._news={};
 }
@@ -20207,6 +20210,7 @@ function caucusWhy(m){
 function caucusNewsTitle(N){
   const n=t=>(N[t]||[]).length;
   if(n("crossed"))return n("crossed")===1?"A member of your party has crossed the floor":n("crossed")+" members of your party have crossed the floor";
+  if(n("lp"))return (N.lp.some(t=>/broke/.test(t))?"You broke a promise to your legislators":"You kept a promise to your legislators");
   if(n("prim"))return "Primary results";
   if(n("formed"))return "The "+caucusFactionName(N.formed[0])+" has formed"+(n("formed")>1?", and "+(n("formed")-1)+" more":"");
   if(n("livid"))return n("livid")+" of your members "+(n("livid")===1?"is":"are")+" livid";
@@ -20241,6 +20245,7 @@ function showCaucusNews(news,next){
     return `<div class="cn-sec">${t}</div>`+ks.slice(0,cap||6).map(fn).join("")+(ks.length>(cap||6)?`<div class="cn-more">and ${ks.length-(cap||6)} more</div>`:""); };
   let h=`<div class="sectionhdr">${ico('people')} ${caucusNewsTitle(N)}</div>`;
   h+=`<div class="sectionsub">Party control is ${C.control} (${caucusControlLabel(C.control).toLowerCase()}). Angry members stop being reliable on tax increases first, then start voting with the ${oppPartyPlural()}.</div>`;
+  h+=sec("Promises to legislators", N.lp, t=>`<div class="cn-fac">${t}</div>`);
   h+=sec("Primaries you backed", N.prim, p=>`<div class="cn-fac"><b>${caucusCode(p.k)}</b> ${p.moot?`Moot: the seat did not stay with your party.`:p.retired?`${p.old} retired rather than face ${p.n}, who takes the seat.`:p.won?`${p.n} beat ${p.old}, and owes you the seat.`:`${p.old} held off ${p.n}, and will not forget it.`}</div>`);
   h+=sec("Retired", N.retired, r=>`<div class="cn-fac"><b>${caucusCode(r.k)}</b> ${r.old} (loyalty ${r.L}) retired; ${r.n} holds the seat for your party.`+"</div>", 8);
   h+=sec("Crossed the floor", N.crossed, k=>row(k,"now sits with the "+oppPartyPlural()));
@@ -20592,6 +20597,7 @@ function prTick(){
   for(const m of prSeated()){ if(m.party!==prMyParty())continue; const b=before[m.id]; if(b==null)continue;
     if(m.L<prLividAt(m)&&b>=prLividAt(m))news.push(prTitle(m)+" (list #"+(P.lists[m.party].indexOf(m.id)+1)+") is livid: "+Math.round(b)+" → "+Math.round(m.L)+".");
     else if(m.L<prAngryAt(m)&&b>=prAngryAt(m))news.push(prTitle(m)+" (list #"+(P.lists[m.party].indexOf(m.id)+1)+") has turned against you: "+Math.round(b)+" → "+Math.round(m.L)+"."); }
+  lpCheck().forEach(t=>news.push(t));
   P.qFrom=before;
   if(news.length&&GAME.turn>1)GAME.pendingCaucusNews={turn:GAME.turn, pr:true, lines:news, title:news.length===1?"The Assembly":"The Assembly: "+news.length+" developments"};
 }
@@ -20683,7 +20689,8 @@ function renderPRLegislators(main,h){
       h+=`<div class="cfac${pid!==mineP?" opp":""}"><div class="cf-h"><b>${prFacName(fk)}</b><span class="cf-n">${ms.length} members</span></div>
         <div class="cf-bar">Loyalty to their party ${a} ${caucusMeter(a,caucusColor({p:pid===mineP?"mine":"opp",L:a}))}</div>
         <div class="cf-blurb">They want ${prFacWant(fk).toLowerCase()}.${pid===mineP?" Until they settle, they are unreliable on tax increases and a little further from your bills.":partners.includes(pid)?" A partner bench in revolt strains the coalition agreement.":" Their party's discipline against you is weaker while it lasts."}</div>
-        <div class="cf-mems">${ms.map(m=>`<span class="cchip click" data-prm="${m.id}">#${(P.lists[m.party]||[]).indexOf(m.id)+1} ${m.n.split(" ").slice(-1)[0]}</span>`).join("")}</div></div>`; });
+        <div class="cf-mems">${ms.map(m=>`<span class="cchip click" data-prm="${m.id}">#${(P.lists[m.party]||[]).indexOf(m.id)+1} ${m.n.split(" ").slice(-1)[0]}</span>`).join("")}</div>
+        ${pid===mineP||partners.includes(pid)?lpHTML("pf:"+fk,ms[0],fk.split(":")[1]):""}</div>`; });
     h+=`</div>`; }
   // party chips
   h+=`<div class="cch" style="margin-top:14px">`+PR_ORDER.slice().reverse().concat(["ind"]).filter(p=>(GAME.legis.prCounts||{})[p]).map(p=>`<button data-prp="${p}" class="${p===sel?"on":""}">${p==="ind"?"Independents":prPartyWord(p)} ${(GAME.legis.prCounts||{})[p]}${p===mineP?" · yours":partners.includes(p)?" · partner":""}</button>`).join("")+`</div>`;
@@ -20701,6 +20708,7 @@ function renderPRLegislators(main,h){
   main.querySelectorAll("[data-prm]").forEach(b=>b.addEventListener("click",()=>{ const m=P.m[b.dataset.prm]; if(!m)return; window._prSel=m.id; window._prParty=m.party; window._caucusScroll=true; render(); }));
   main.querySelectorAll("[data-prdem]").forEach(b=>b.addEventListener("click",()=>prDemote(b.dataset.prdem)));
   main.querySelectorAll("[data-prexp]").forEach(b=>b.addEventListener("click",()=>prExpel(b.dataset.prexp)));
+  lpWire(main);
   if(window._caucusScroll){ window._caucusScroll=false; const f=document.getElementById("cmemFile"); if(f&&f.scrollIntoView)f.scrollIntoView({block:"start",behavior:"smooth"}); }
 }
 function prMemberCard(m){
@@ -20724,6 +20732,7 @@ function prMemberCard(m){
       <div>Or expel them now (◈4): they sit as an independent until the next election and vote on each bill alone. Your whole bench resents it.</div>
       <button class="fcard-btn" data-prexp="${m.id}" ${window.SANDBOX||GAME.capital>=4?"":"disabled"}>Expel from the party · ◈4</button></div>`;
   }
+  if(m.seat&&m.party!=="ind")h+=lpHTML("pr:"+m.id,m);
   return h+`</div>`;
 }
 /* The compass under PR: each member around their party's point, with the
@@ -20737,6 +20746,89 @@ function prCompassMembers(px,py){
     const lab=`<b>${prTitle(m)}</b> · ${m.party==="ind"?"Independent":prPartyWord(m.party)+" list #"+((GAME.pr.lists[m.party]||[]).indexOf(m.id)+1)} · ${m.party===prMyParty()?"loyalty to you":"loyalty to their party"} ${Math.round(m.L)}${m.f?" · "+prFacName(m.f):""}`;
     h+=`<circle class="ec-party" data-pr="${lab.replace(/"/g,"&quot;")}" cx="${px(ec)}" cy="${py(so)}" r="2.2" fill="${m.party==="ind"?"var(--paper)":p.col}" stroke="var(--ink)" stroke-width="${m.L<prAngryAt(m)?1.2:0.3}" fill-opacity="${clamp(0.35+m.L/150,0.35,1)}"/>`; }
   return h;
+}
+/* PROMISES TO LEGISLATORS: pass a law they want within four quarters. */
+const LP_Q=4, LP_LIFT=8, LP_LIFT_FAC=6, LP_KEPT=5, LP_BROKEN=-18;
+function lpTrust(){ return GAME.lpTrust==null?1:GAME.lpTrust; }
+function lpMember(key,pr){ return pr?(GAME.pr&&GAME.pr.m[key]):(GAME.caucus&&GAME.caucus.m[key]); }
+function lpKeys(target){
+  const i=target.indexOf(":"), kind=target.slice(0,i), id=target.slice(i+1);
+  if(kind==="m")return {keys:[id], pr:false};
+  if(kind==="pr")return {keys:[id], pr:true};
+  if(kind==="f")return {keys:((GAME.caucus&&GAME.caucus.facs[id])||{}).keys||[], pr:false};
+  if(kind==="pf")return {keys:((GAME.pr&&GAME.pr.facs[id])||{}).ids||[], pr:true};
+  return {keys:[], pr:false};
+}
+function lpActive(target){ return (GAME.lprom||[]).find(p=>p.who===target); }
+/* The laws a member (or a faction) would want passed or strengthened, or
+   repealed or weakened, that are not already where they want them. */
+function lpOptions(m,onlyIssue){
+  const out=[], seen=new Set();
+  const iss=Object.keys(m.v||{}).filter(i=>(!onlyIssue||i===onlyIssue)&&Math.abs(m.v[i].pos)>=0.3).sort((a,b)=>m.v[b].int-m.v[a].int);
+  for(const i of iss){ const v=m.v[i];
+    for(const [pid,dir] of (ISSUES[i].pols||[])){ if(seen.has(pid))continue;
+      const p=POLICIES[pid]||CATALOG[pid]; if(!p||p.reform)continue;
+      const want=Math.sign(v.pos*dir), lv=caucusLevel(pid), on=!!POLICIES[pid];
+      const dial=p.mechanic==="tier"||p.mechanic==="slider"||p.mechanic==="intensity"||p.mechanic==="allocation";
+      if(want>0&&lv>=0.95)continue; if(want<0&&lv<=0.05)continue; if(want<0&&!on)continue;
+      if(want<0&&!dial&&p.noRepeal)continue;
+      seen.add(pid);
+      out.push({pid, want, label:want>0?(on&&dial?"Strengthen "+p.name:"Pass "+p.name):(dial?"Weaken "+p.name:"Repeal "+p.name)}); } }
+  return out.slice(0,6);
+}
+function lpMake(target,pid,want){
+  const {keys,pr}=lpKeys(target); if(!keys.length||lpActive(target))return;
+  const p=POLICIES[pid]||CATALOG[pid]; if(!p)return;
+  const fac=target.startsWith("f:")||target.startsWith("pf:"), lift=(fac?LP_LIFT_FAC:LP_LIFT)*lpTrust(), due=GAME.turn+LP_Q;
+  const dial=p.mechanic==="tier"||p.mechanic==="slider"||p.mechanic==="intensity"||p.mechanic==="allocation";
+  const word=(want>0?(POLICIES[pid]&&dial?"strengthen ":"pass "):(dial?"weaken ":"repeal "))+p.name;
+  (GAME.lprom=GAME.lprom||[]).push({who:target, pid, want:+want, from:caucusLevel(pid), wasOn:!!POLICIES[pid], due, made:GAME.turn, keys:keys.slice(), pr, word, fac});
+  for(const k of keys){ const m=lpMember(k,pr); if(!m)continue;
+    const opp=pr?!(m.party===prMyParty()||coalitionPartners().includes(m.party)):m.p!=="mine", cap=pr?20:30;
+    m.g=clamp((m.g||0)+lift,-cap,cap); caucusNote(m,"_lp"+pid,"You promised to "+word+" by "+caucusQ(due),lift);
+    m.L=clamp(m.L+lift*(opp?-0.3:0.5),0,100); }
+  GAME.log.push(ico('handshake')+" You promised "+(fac?"the "+(target.startsWith("pf:")?prFacName(target.slice(3)):caucusFactionName(target.slice(2))):(pr?prTitle(lpMember(keys[0],true)):caucusTitle(keys[0])))+" to "+word+" by "+caucusQ(due)+".");
+  if(!pr)caucusControlCalc();
+  render();
+}
+/* Each quarter: a promise whose law has moved their way is kept; one whose
+   deadline has passed is broken. Returns lines for the party popup. */
+function lpCheck(){
+  const lines=[], keep=[];
+  for(const lp of (GAME.lprom||[])){
+    const lv=caucusLevel(lp.pid), moved=(lv-lp.from)*lp.want;
+    const kept=moved>=0.1||(lp.want>0&&!lp.wasOn&&!!POLICIES[lp.pid])||(lp.want<0&&lp.wasOn&&!POLICIES[lp.pid]);
+    const due=GAME.turn>=lp.due;
+    if(!kept&&!due){ keep.push(lp); continue; }
+    const amt=kept?LP_KEPT:LP_BROKEN;
+    for(const k of lp.keys){ const m=lpMember(k,lp.pr); if(!m)continue;
+      const opp=lp.pr?!(m.party===prMyParty()||coalitionPartners().includes(m.party)):m.p!=="mine", cap=lp.pr?20:30;
+      m.g=clamp((m.g||0)+amt,-cap,cap); caucusNote(m,"_lpd"+lp.pid,(kept?"Kept your promise to ":"Broke your promise to ")+lp.word,amt);
+      m.L=clamp(m.L+amt*(opp?-0.3:0.5),0,100); }
+    GAME.lpTrust=clamp(lpTrust()+(kept?0.05:-0.2),0.3,1);
+    const who=lp.fac?(lp.who.startsWith("pf:")?prFacName(lp.who.slice(3)):caucusFactionName(lp.who.slice(2))):(lp.pr?prTitle(lpMember(lp.keys[0],true)||{n:"?"}):caucusTitle(lp.keys[0]));
+    const t=kept?"You kept your promise to "+who+": "+lp.word+".":"You broke your promise to "+who+" to "+lp.word+". Your word counts for less with every member now.";
+    GAME.log.push(ico(kept?'handshake':'warning')+" "+t); lines.push(t);
+  }
+  GAME.lprom=keep;
+  return lines;
+}
+/* The block in a member's file, or on a faction card. */
+function lpHTML(target,m,onlyIssue){
+  const a=lpActive(target);
+  if(a){ const left=a.due-GAME.turn, moved=(caucusLevel(a.pid)-a.from)*a.want;
+    return `<div class="cm-sec">Your promise</div><div class="cm-prim"><div>You promised to <b>${a.word}</b> by ${caucusQ(a.due)}: ${left} quarter${left===1?"":"s"} left${moved>0.02?", and it is moving their way":""}. Keep it and they will remember it; let the deadline pass and they will remember that more.</div></div>`; }
+  if(!m)return "";
+  const opts=lpOptions(m,onlyIssue); if(!opts.length)return "";
+  const tr=lpTrust(), fac=target.startsWith("f:")||target.startsWith("pf:"), lift=Math.round((fac?LP_LIFT_FAC:LP_LIFT)*tr);
+  return `<div class="cm-sec">Promise legislation</div><div class="cm-prim"><div>Promise to move a law ${fac?"they":"they"} want within ${LP_Q} quarters: +${lift} loyalty now${fac?" each":""}, +${LP_KEPT} if you keep it, ${LP_BROKEN} if you do not.${tr<1?` Your broken promises have cut the lift to ${Math.round(tr*100)}%.`:""}</div>
+    <div class="lp-row"><select data-lpsel="${target}">${opts.map(o=>`<option value="${o.pid}|${o.want}">${o.label}</option>`).join("")}</select><button class="fcard-btn" data-lpmake="${target}">Promise it</button></div></div>`;
+}
+function lpWire(root){
+  root.querySelectorAll("select[data-lpsel]").forEach(s=>s.addEventListener("click",ev=>ev.stopPropagation()));
+  root.querySelectorAll("[data-lpmake]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation();
+    const t=b.dataset.lpmake, sel=[...root.querySelectorAll("select[data-lpsel]")].find(x=>x.dataset.lpsel===t); if(!sel||!sel.value)return;
+    const [pid,want]=sel.value.split("|"); lpMake(t,pid,+want); }));
 }
 function renderCaucus(){
   const main=document.getElementById("main");
@@ -20755,6 +20847,7 @@ function renderCaucus(){
     <p>Loyalty drifts toward a target you can see in each member's file: how safe their seat is, where their issues have gone since you took office, your recent stances that pleased or angered them, whether a law or a decision like tolling (fading over about a year), district projects, and appointees.</p>
     <p>An appointee pleases each of your members whose district is made of the group they come from (+3, up to +9) and angers each whose district is made of the group they are against (−3, up to −9). Holdovers from the last administration count for nothing. The nomination screen shows how many members each nominee pleases and angers and which factions back or oppose them, and a faction card lists the chairs its districts' groups could fill.</p>
     <p>A member counts as angry below about 47, or higher when your party control slips. Three or more angry members of the same chamber with the same grievance form a faction, which votes against your bills as a bloc until its members calm down. Anger also changes how a member votes, and it builds gradually rather than switching on: from about sixteen points above the anger line a member grows steadily more reluctant on tax increases and drifts toward the other party on issues they care little about, and at their angriest they vote with the other party on most things. The whip works through loyalty too: a loyal member can be whipped cheaply even against their own view, while a disloyal one costs more and eventually cannot be bought. The other party's members drift toward you, and come within the whip's reach, as their loyalty to their own party falls. A member below ${CAUCUS_LIVID} is livid and may, rarely, cross the floor, taking the seat.</p>
+    <p>You can promise a member, or a whole faction, to move a law they want within four quarters. It lifts their loyalty at once. Move the law their way in time and it is kept, with a little more; let the deadline pass and it is broken, costing far more than it gave, and every broken promise makes the next one worth less to anyone.</p>
     <p>Not every angry member joins a faction: some band together, others stay angry on their own. Against any angry member of your own party you can back a primary challenger for ◈1 at a time. The first ◈ gives the challenger a 20% chance, each one after adds to it, and it never passes 90%. The member knows once you start and resents it, and resents it far more if they survive. It is decided when their seat is next on the ballot; a winner starts loyal and owes you the seat.</p>
     <p>A district project costs $0.05B a year for two years and adds 20 to a member's loyalty; a faction package covers every member of a faction for up to $0.2B a year and adds 14. Neither costs capital, but every other member of your party loses ${CAUCUS_STING_ONE} for a single project and ${CAUCUS_STING_FAC} for a faction package, and courting the other party costs your whole bench ${CAUCUS_STING_OPP}.</p>
     <p>The other party has fights of its own. Now and then its leadership whips its members against their districts on an issue, and members at odds with their party form factions of their own, which carry a quarter less of their party's discipline against you. It happens whatever you do.</p>
@@ -20791,6 +20884,7 @@ function renderCaucus(){
           :`They want ${caucusFactionWant(fk).toLowerCase()}.${moved.length?" The laws behind it: "+moved.join(", ")+".":""} Until they calm down they vote against your bills as a bloc.`}</div>
         <div class="cf-mems">${ks.map(k=>`<span class="cchip click" data-cseat="${k}">${caucusCode(k)} ${C.m[k].n.split(" ").slice(-1)[0]}</span>`).join("")}</div>
         ${caucusApptListsHTML(ks,groups,op?"opp":"mine","they")}
+        ${C.m[ks[0]]?lpHTML("f:"+fk,C.m[ks[0]],fp.i):""}
         ${on?`<div class="cf-live">${ico('houses')} District projects running · cooldown ${on.until-GAME.turn} quarter${on.until-GAME.turn===1?"":"s"}</div>`
             :`<div><button class="fcard-btn" data-cfund="f:${fk}">${op?"Court them":"Fund their districts"} · $${c.amt.toFixed(2)}B/yr</button></div>`}
       </div>`; });
@@ -20843,8 +20937,9 @@ function renderCaucus(){
   main.querySelectorAll("[data-csort]").forEach(b=>b.addEventListener("click",()=>{ window._caucusSort=b.dataset.csort; render(); }));
   main.querySelectorAll("[data-cseat]").forEach(p=>{ p.addEventListener("click",ev=>{ ev.stopPropagation(); pickSeat(p.dataset.cseat); });
     p.addEventListener("keydown",ev=>{ if(ev.key==="Enter"){ ev.preventDefault(); pickSeat(p.dataset.cseat); } }); });
-  main.querySelectorAll("[data-cfac]").forEach(c=>c.addEventListener("click",ev=>{ if(ev.target.closest("button,[data-cseat]"))return; const f=c.dataset.cfac; window._caucusFac=window._caucusFac===f?null:f; render(); }));
+  main.querySelectorAll("[data-cfac]").forEach(c=>c.addEventListener("click",ev=>{ if(ev.target.closest("button,select,[data-cseat]"))return; const f=c.dataset.cfac; window._caucusFac=window._caucusFac===f?null:f; render(); }));
   main.querySelectorAll("[data-cfacoff]").forEach(b=>b.addEventListener("click",()=>{ window._caucusFac=null; render(); }));
+  lpWire(main);
   main.querySelectorAll("[data-cprim]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation(); caucusBackPrimary(b.dataset.cprim); }));
   main.querySelectorAll("[data-cchair]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation();
     const [g,sd]=b.dataset.cgroups.split("|"); caucusOpenChair(b.dataset.cchair,g.split(","),sd); }));
@@ -21202,6 +21297,7 @@ function caucusMemberCard(k){
   if(mine&&m.L<CAUCUS_LIVID)h+=`<div class="cm-flag">Livid: could cross the floor.</div>`;
   if(mine&&!m.f&&m.L<caucusAngryAt())h+=`<div class="cm-flag">Angry, but acting alone rather than with a faction.</div>`;
   if(mine)h+=caucusPrimaryHTML(k);
+  h+=lpHTML("m:"+k,m);
   const tr=caucusTraitsOf(k);
   h+=`<div class="cm-sec">The district</div>`;
   if(tr.length)h+=`<div class="cm-traits">${tr.map(t=>`<span class="ctrait"><b>${t.label}</b>${t.issues.map(i=>ISSUES[i].name.toLowerCase()).join(", ")}</span>`).join("")}</div>`;
@@ -29903,7 +29999,7 @@ function bootWorld(startId){
     A.funding=z.f; A.logging=z.l; delete A.fundingBase; }
   LANDUSE.index=WORLD_SEED.lu;
   GAME.legis.house=WORLD_SEED.legis.house; GAME.legis.senate=WORLD_SEED.legis.senate;
-  GAME.legis.hHeld=null; GAME.legis.sHeld=null; GAME.legis.favors={}; GAME.caucus=null;
+  GAME.legis.hHeld=null; GAME.legis.sHeld=null; GAME.legis.favors={}; GAME.caucus=null; GAME.pr=null; GAME.lprom=[]; GAME.lpTrust=1;
   GAME.activeSituations={}; GAME.situationAge={}; GAME.eventCooldown={}; GAME.grudges=[]; GAME.history={};
   GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.surplusStreak=0; GAME.lawLock={};
   GAME.csfCorpus=2.10; GAME.csfPayout=0.08; GAME.csfElliottMult=1; GAME.csfSaleBooked=false; GAME.esfLottoIn=0; GAME.persRisk="balanced"; GAME.csfRisk="balanced";
