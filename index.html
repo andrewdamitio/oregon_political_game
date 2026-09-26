@@ -20844,7 +20844,21 @@ function lpKeys(target){
   if(kind==="pf")return {keys:((GAME.pr&&GAME.pr.facs[id])||{}).ids||[], pr:true};
   return {keys:[], pr:false};
 }
-function lpActive(target){ return (GAME.lprom||[]).find(p=>p.who===target); }
+function lpActive(target){
+  const i=target.indexOf(":"), kind=target.slice(0,i), id=target.slice(i+1);
+  return (GAME.lprom||[]).find(p=>p.who===target||((kind==="m"||kind==="pr")&&p.keys.includes(id)));
+}
+/* Is this law already promised, in this direction? */
+function lpPromisedLaw(pid,want){ return (GAME.lprom||[]).some(p=>p.pid===pid&&p.want===want); }
+/* Everyone whose views want this law moved this way, and how much they care. */
+function lpWanters(pid,want,pr){
+  const out={}, list=_issueOf[pid]; if(!list)return out;
+  const members=pr?prSeated().map(m=>[m.id,m]):Object.keys((GAME.caucus&&GAME.caucus.m)||{}).map(k=>[k,GAME.caucus.m[k]]);
+  for(const [k,m] of members){ if(!m||!m.v)continue; let w=0;
+    for(const [i,dir] of list){ const v=m.v[i]; if(v&&Math.abs(v.pos)>=0.3&&Math.sign(v.pos*dir)===want)w=Math.max(w,v.int); }
+    if(w)out[k]=w; }
+  return out;
+}
 /* The laws a member (or a faction) would want passed or strengthened, or
    repealed or weakened, that are not already where they want them. */
 function lpOptions(m,onlyIssue){
@@ -20857,22 +20871,29 @@ function lpOptions(m,onlyIssue){
       const dial=p.mechanic==="tier"||p.mechanic==="slider"||p.mechanic==="intensity"||p.mechanic==="allocation";
       if(want>0&&lv>=0.95)continue; if(want<0&&lv<=0.05)continue; if(want<0&&!on)continue;
       if(want<0&&!dial&&p.noRepeal)continue;
+      if(lpPromisedLaw(pid,want)||lpPromisedLaw(pid,-want))continue;   // already promised, one way or the other
       seen.add(pid);
       out.push({pid, want, label:want>0?(on&&dial?"Strengthen "+p.name:"Pass "+p.name):(dial?"Weaken "+p.name:"Repeal "+p.name)}); } }
   return out.slice(0,6);
 }
 function lpMake(target,pid,want){
-  const {keys,pr}=lpKeys(target); if(!keys.length||lpActive(target))return;
+  const {keys,pr}=lpKeys(target); if(!keys.length||lpPromisedLaw(pid,+want)||lpPromisedLaw(pid,-want))return;
   const p=POLICIES[pid]||CATALOG[pid]; if(!p)return;
   const fac=target.startsWith("f:")||target.startsWith("pf:"), lift=(fac?LP_LIFT_FAC:LP_LIFT)*lpTrust(), due=GAME.turn+LP_Q;
   const dial=p.mechanic==="tier"||p.mechanic==="slider"||p.mechanic==="intensity"||p.mechanic==="allocation";
   const word=(want>0?(POLICIES[pid]&&dial?"strengthen ":"pass "):(dial?"weaken ":"repeal "))+p.name;
-  (GAME.lprom=GAME.lprom||[]).push({who:target, pid, want:+want, from:caucusLevel(pid), wasOn:!!POLICIES[pid], due, made:GAME.turn, keys:keys.slice(), pr, word, fac});
-  for(const k of keys){ const m=lpMember(k,pr); if(!m)continue;
+  // the member (or faction) you promised, in full; everyone else who wants
+  // the same law, by how much they care about it
+  const wf={}; keys.forEach(k=>wf[k]=1);
+  const others=lpWanters(pid,+want,pr); for(const k in others)if(wf[k]==null)wf[k]=+(0.75*Math.min(1,others[k])).toFixed(2);
+  const all=Object.keys(wf);
+  (GAME.lprom=GAME.lprom||[]).push({who:target, pid, want:+want, from:caucusLevel(pid), wasOn:!!POLICIES[pid], due, made:GAME.turn, keys:all, wf, pr, word, fac});
+  for(const k of all){ const m=lpMember(k,pr); if(!m)continue; const a=lift*wf[k];
     const opp=pr?!(m.party===prMyParty()||coalitionPartners().includes(m.party)):m.p!=="mine", cap=pr?20:30;
-    m.g=clamp((m.g||0)+lift,-cap,cap); caucusNote(m,"_lp"+pid,"You promised to "+word+" by "+caucusQ(due),lift);
-    m.L=clamp(m.L+lift*(opp?-0.3:0.5),0,100); }
-  GAME.log.push(ico('handshake')+" You promised "+(fac?"the "+(target.startsWith("pf:")?prFacName(target.slice(3)):caucusFactionName(target.slice(2))):(pr?prTitle(lpMember(keys[0],true)):caucusTitle(keys[0])))+" to "+word+" by "+caucusQ(due)+".");
+    m.g=clamp((m.g||0)+a,-cap,cap); caucusNote(m,"_lp"+pid,"You promised to "+word+" by "+caucusQ(due),a);
+    m.L=clamp(m.L+a*(opp?-0.3:0.5),0,100); }
+  const more=all.length-keys.length;
+  GAME.log.push(ico('handshake')+" You promised "+(fac?"the "+(target.startsWith("pf:")?prFacName(target.slice(3)):caucusFactionName(target.slice(2))):(pr?prTitle(lpMember(keys[0],true)):caucusTitle(keys[0])))+" to "+word+" by "+caucusQ(due)+"."+(more>0?" "+more+" other legislator"+(more===1?"":"s")+" who want"+(more===1?"s":"")+" the same "+(more===1?"is":"are")+" with you on it.":""));
   if(!pr)caucusControlCalc();
   render();
 }
@@ -20885,14 +20906,16 @@ function lpCheck(){
     const kept=moved>=0.1||(lp.want>0&&!lp.wasOn&&!!POLICIES[lp.pid])||(lp.want<0&&lp.wasOn&&!POLICIES[lp.pid]);
     const due=GAME.turn>=lp.due;
     if(!kept&&!due){ keep.push(lp); continue; }
-    const amt=kept?LP_KEPT:LP_BROKEN;
-    for(const k of lp.keys){ const m=lpMember(k,lp.pr); if(!m)continue;
+    const amt0=kept?LP_KEPT:LP_BROKEN;
+    for(const k of lp.keys){ const m=lpMember(k,lp.pr); if(!m)continue; const amt=amt0*((lp.wf&&lp.wf[k])||1);
       const opp=lp.pr?!(m.party===prMyParty()||coalitionPartners().includes(m.party)):m.p!=="mine", cap=lp.pr?20:30;
       m.g=clamp((m.g||0)+amt,-cap,cap); caucusNote(m,"_lpd"+lp.pid,(kept?"Kept your promise to ":"Broke your promise to ")+lp.word,amt);
       m.L=clamp(m.L+amt*(opp?-0.3:0.5),0,100); }
     GAME.lpTrust=clamp(lpTrust()+(kept?0.05:-0.2),0.3,1);
     const who=lp.fac?(lp.who.startsWith("pf:")?prFacName(lp.who.slice(3)):caucusFactionName(lp.who.slice(2))):(lp.pr?prTitle(lpMember(lp.keys[0],true)||{n:"?"}):caucusTitle(lp.keys[0]));
-    const t=kept?"You kept your promise to "+who+": "+lp.word+".":"You broke your promise to "+who+" to "+lp.word+". Your word counts for less with every member now.";
+    const n2=lp.keys.length;
+    const t=kept?"You kept your promise to "+who+": "+lp.word+"."+(n2>1?" All "+n2+" legislators who wanted it noticed.":"")
+                :"You broke your promise to "+who+" to "+lp.word+"."+(n2>1?" All "+n2+" legislators who wanted it are angry.":"")+" Your word counts for less with every member now.";
     GAME.log.push(ico(kept?'handshake':'warning')+" "+t); lines.push(t);
   }
   GAME.lprom=keep;
@@ -20901,8 +20924,8 @@ function lpCheck(){
 /* The block in a member's file, or on a faction card. */
 function lpHTML(target,m,onlyIssue){
   const a=lpActive(target);
-  if(a){ const left=a.due-GAME.turn, moved=(caucusLevel(a.pid)-a.from)*a.want;
-    return `<div class="cm-sec">Your promise</div><div class="cm-prim"><div>You promised to <b>${a.word}</b> by ${caucusQ(a.due)}: ${left} quarter${left===1?"":"s"} left${moved>0.02?", and it is moving their way":""}. Keep it and they will remember it; let the deadline pass and they will remember that more.</div></div>`; }
+  if(a){ const left=a.due-GAME.turn, moved=(caucusLevel(a.pid)-a.from)*a.want, direct=a.who===target;
+    return `<div class="cm-sec">Your promise</div><div class="cm-prim"><div>You promised ${direct?"":"someone else who wants the same "}to <b>${a.word}</b> by ${caucusQ(a.due)}: ${left} quarter${left===1?"":"s"} left${moved>0.02?", and it is moving their way":""}. Keep it and they will remember it; let the deadline pass and they will remember that more.</div></div>`; }
   if(!m)return "";
   const opts=lpOptions(m,onlyIssue); if(!opts.length)return "";
   const tr=lpTrust(), fac=target.startsWith("f:")||target.startsWith("pf:"), lift=Math.round((fac?LP_LIFT_FAC:LP_LIFT)*tr);
@@ -20964,22 +20987,42 @@ function floorHoldoutWire(root,billKey,redraw){
       GAME.legis.favors=GAME.legis.favors||{}; GAME.legis.favors[ch+id]=(GAME.legis.favors[ch+id]||0)+1;
       floorDeal(billKey,ch,id,"whipped, ◈"+c); GAME.log.push(ico('columns')+" You whipped "+(r.pr?prTitle(r.m):caucusTitle(r.key))+" for ◈"+c+"."); }
     else if(kind==="proj"){ caucusFund(r.key); floorDeal(billKey,ch,id,"a district project"); }
-    else if(kind==="prom"){ const [pid,want]=b.dataset.hp.split("|"); lpMake(r.target,pid,+want); floorDeal(billKey,ch,id,"a promise"); }
+    else if(kind==="prom"){ const [pid,want]=b.dataset.hp.split("|"); lpMake(r.target,pid,+want);
+      // the holdouts on this list who want the same law come with it; the
+      // rest of the legislators who want it are warmer toward you, not bound
+      const lp=(GAME.lprom||[]).find(p=>p.pid===pid&&p.want===+want), word=lp?lp.word:"a promise";
+      const here=new Set([...root.querySelectorAll(".hold-row [data-hch]")].map(e=>e.dataset.hch+e.dataset.hid));
+      if(lp)for(const k of lp.keys){ const m=lpMember(k,lp.pr); if(!m)continue;
+        const c2=lp.pr?"house":(k[0]==="h"?"house":"senate"), i2=lp.pr?m.seat:m.id;
+        if(i2&&(here.has(c2+i2)||(c2===ch&&i2===id)))floorDeal(billKey,c2,i2,"your promise to "+word); } }
     redraw(); }));
 }
 /* The roll call, kept on every member. */
-function caucusRecordRoll(res,nm){
+function caucusRecordRoll(res,nm,w){
   for(const ch of ["house","senate"]){ const R=res&&res[ch]; if(!R||!R.roll)continue;
+    // what each member's district wanted on this bill: positive for yes
+    const dv={}; ((w&&w[ch]&&w[ch].members)||[]).forEach(x=>dv[x.id]=+clamp((x.verdict||0)/3,-1,1).toFixed(2));
     for(const [id,y] of R.roll){ const r=floorMemberRec(ch,id); if(!r)continue;
-      const v=r.m.votes=r.m.votes||[]; v.push({t:GAME.turn, nm, y:!!y}); if(v.length>24)v.splice(0,v.length-24); } }
+      const v=r.m.votes=r.m.votes||[]; v.push({t:GAME.turn, nm, y:!!y, dv:dv[id]||0}); if(v.length>24)v.splice(0,v.length-24); } }
+}
+/* How a member's record reads at home: +1 for each vote with what the
+   district wanted, -1 against, weighted by how much it cared, over the last
+   four years. */
+function caucusRecordScore(m){
+  let s=0,with_=0,against=0;
+  for(const x of (m.votes||[])){ if(GAME.turn-x.t>16||Math.abs(x.dv||0)<0.15)continue;
+    const agree=x.y===(x.dv>0); s+=(agree?1:-1)*Math.abs(x.dv); if(agree)with_++; else against++; }
+  return {s, with_, against};
 }
 function caucusVotesHTML(m,mine){
   const v=m.votes||[]; if(!v.length)return `<div class="cm-sub">No votes on your bills yet.</div>`;
   const yes=v.filter(x=>x.y), no=v.filter(x=>!x.y);
   const list=(arr)=>arr.slice(-3).reverse().map(x=>x.nm+" ("+caucusQ(x.t)+")").join(", ");
+  const cp=(!prOn()&&m.ch)?caucusCandidateParts((m.ch==="house"?"h":"s")+m.id):null;
+  const home=cp&&(cp.recWith+cp.recAgainst)?` At home they voted with the district on ${cp.recWith} of ${cp.recWith+cp.recAgainst} contested votes: ${cp.record>=0.3?`<span style="color:var(--moss)">+${cp.record.toFixed(1)}</span> at the next election`:cp.record<=-0.3?`<span style="color:var(--clay)">${cp.record.toFixed(1)}</span> at the next election`:"about even at the next election"}.`:"";
   return `<div class="cm-rec"><b>Voting record on your bills:</b> ${mine?"with you":"for you"} on ${yes.length} of ${v.length}${
     mine?(no.length?`; broke on ${list(no)}`:"; never broke with you")
-        :(yes.length?`; crossed over for ${list(yes)}`:"; never crossed over")}.</div>`;
+        :(yes.length?`; crossed over for ${list(yes)}`:"; never crossed over")}.${home}</div>`;
 }
 /* ON THE TRAIL. In the four quarters before an election your members
    campaign in their districts: the ones warmer than where they started for
@@ -21340,7 +21383,9 @@ function caucusCandidateRaw(k){
     if(Math.sign(m.v[i].pos-pl)===Math.sign(pull[i].d-pl)&&Math.abs(pull[i].d-pl)>0.2){ het+=0.8; toward++; } else { het-=0.8; against++; } }
   const hostile=pl>0?lean<56:lean>44;
   const heterodoxy=hostile?clamp(het,-3,3):clamp(het*0.33,-1,1);
-  return {m, seniority, roots, heterodoxy, toward, against, served, raw:seniority+roots+heterodoxy};
+  // the record they take home: votes with the district help, votes against it hurt
+  const rs=caucusRecordScore(m), record=clamp(rs.s*0.6,-2.5,2.5)*(hostile?1:0.33);
+  return {m, seniority, roots, heterodoxy, toward, against, served, record, recWith:rs.with_, recAgainst:rs.against, raw:seniority+roots+heterodoxy+record};
 }
 /* Measured against the average candidate of the same party this quarter,
    so a typical incumbent adds nothing, neither party gains from the
@@ -21376,7 +21421,8 @@ function caucusCandidateLine(k){
   if(p){ if(p.roots>=0.8)bits.push("deep local roots"); else if(p.roots<=-0.8)bits.push("thin local roots");
     if(p.served>=8)bits.push(p.served+" years in the seat");
     if(p.toward&&Math.abs(p.heterodoxy)>=0.5)bits.push("breaks with the party toward the district");
-    if(p.against&&p.heterodoxy<=-0.5)bits.push("a conviction the district dislikes"); }
+    if(p.against&&p.heterodoxy<=-0.5)bits.push("a conviction the district dislikes");
+    if(p.record>=0.5)bits.push("a record the district likes"); else if(p.record<=-0.5)bits.push("votes the district resents"); }
   const e=p?p.total:0;
   return `<b>${caucusTitle(k)}</b> (${caucusPartyOf(m)}, incumbent${Math.abs(e)>=1?`, ${e>0?"+":""}${e.toFixed(1)} on their own`:""})${bits.length?": "+bits.join(", "):""} vs ${ch?ch.n+" ("+ch.p+")":"a challenger"}`;
 }
@@ -27206,7 +27252,7 @@ function passBill(id, dir, narrowed, cushion){
   // the vote itself. The capital is spent either way — you whipped, you just lost.
   const _lv0=caucusLevel(id);
   const res=runFloorVote(w);
-  caucusRecordRoll(res,nm);
+  caucusRecordRoll(res,nm,w);
   if(GAME.floorDeals)delete GAME.floorDeals["b:"+dir+":"+id];
   if(!res.passed){
     const lost=[];
@@ -27781,7 +27827,7 @@ function resolvePendingVote(key, origSnap, curSnap, cushion, quiet){
   const whipped=[...w.house.buy,...w.senate.buy];
   for(const m of whipped)GAME.legis.favors[m.chamber+m.id]=(GAME.legis.favors[m.chamber+m.id]||0)+1;
   const res=runFloorVote(w);
-  caucusRecordRoll(res,nm);
+  caucusRecordRoll(res,nm,w);
   if(GAME.floorDeals)delete GAME.floorDeals["c:"+key];
   const isCut=!!(w.spec&&w.spec.cut);
   const isRev=(w.kind!=="program")&&!isCut;
