@@ -576,6 +576,12 @@
   .pn-tag{font-size:11.5px;text-transform:uppercase;letter-spacing:.8px;padding:2px 7px;border-radius:9px;border:1px solid var(--line)}
   .pn-row.won .pn-tag{color:var(--moss);border-color:var(--moss)} .pn-row.lost .pn-tag{color:var(--clay);border-color:var(--clay)}
   .rvac{cursor:pointer;border-radius:4px} .rvac:hover,.rvac:focus{background:var(--paper-2);outline:none} .rvac-go{margin-left:6px;font-weight:600}
+  .pn-maps{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 2px} .pn-map{flex:1 1 200px;margin:0;max-width:260px} .pn-map svg{width:100%;height:auto;display:block}
+  .pn-map figcaption{font-size:11.5px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.8px;text-align:center}
+  .pn-map path.pn-mw{fill:var(--moss);stroke:var(--ink);stroke-width:1} .pn-map path.pn-mh{fill:var(--clay);stroke:var(--ink);stroke-width:1}
+  .pn-map path.pn-ow{fill:var(--gold);stroke:var(--ink);stroke-width:1} .pn-map path.pn-oh{fill:var(--muted-3);stroke:var(--ink);stroke-width:1}
+  .pn-key{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted-2);margin-bottom:6px} .pn-key i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  .pn-key i.pn-mw{background:var(--moss)} .pn-key i.pn-mh{background:var(--clay)} .pn-key i.pn-ow{background:var(--gold)} .pn-key i.pn-oh{background:var(--muted-3)}
   .cprim-key{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:11.5px;color:var(--muted-3);margin:0 0 6px}
   .cprim-more>summary{cursor:pointer;font-size:12.5px;color:var(--muted-2);padding:6px 4px}
   @media (max-width:600px){ .cprim-row{grid-template-columns:44px minmax(0,1fr)} .cprim-row .cf-chbtn{grid-column:2;justify-self:start} }
@@ -15979,7 +15985,7 @@ function briefCollect(){
   }
   if(GAME.pendingNominee){ GAME.pendingNominee=false; const C=GAME.challenger; if(C&&C.nominee!=null)items.push({kind:"nominee", icon:"people", title:C.field[C.nominee].name+" is the "+oppPartyName()+" nominee"}); }
   if(GAME.pendingBallotNotice){ const bn=GAME.pendingBallotNotice; GAME.pendingBallotNotice=null; items.push({kind:"ballot", bn, icon:"ballot", title:bn.measures.length+" citizen initiative"+(bn.measures.length===1?" has":"s have")+" qualified for the ballot"}); }
-  if(GAME.pendingPrimaries){ const pp=GAME.pendingPrimaries; GAME.pendingPrimaries=null; if(!prOn()&&GAME.caucus){ const w=pp.list.filter(x=>x.won).length, all=pp.list.filter(x=>!x.moot).length; items.push({kind:"primaries", pp, icon:"ballot", title:"Primary night: your challengers won "+w+" of "+all}); } }
+  if(GAME.pendingPrimaries){ const pp=GAME.pendingPrimaries; GAME.pendingPrimaries=null; if(!prOn()&&GAME.caucus){ const w=pp.list.filter(x=>x.won).length, all=pp.list.filter(x=>!x.moot).length; items.push({kind:"primaries", pp, icon:"ballot", title:primaryNightTitle(pp)}); } }
   if(GAME.pendingCaucusNews){ const cn=GAME.pendingCaucusNews; GAME.pendingCaucusNews=null; if(cn.pr||(!prOn()&&GAME.caucus))items.push({kind:"caucus", news:cn, icon:"people", title:cn.pr?cn.title:caucusNewsTitle(cn.n)}); }
   if(GAME.pendingTermLimitWarn){ const w=GAME.pendingTermLimitWarn; GAME.pendingTermLimitWarn=null; items.push({kind:"termlimit", w, icon:"warning", title:"Your second term ends after the next election"}); }
 
@@ -21615,7 +21621,7 @@ function caucusRecordRaces(upSenate){
    to a seat on it is decided. A winner is the nominee; the member they
    beat serves out the term and the seat changes hands at the general. */
 function caucusPrimaryDay(){
-  const C=GAME.caucus; if(prOn()||!C||!C.prim)return;
+  const C=GAME.caucus; if(prOn()||!C)return; C.prim=C.prim||{};
   const nb=(typeof nextBallotInfo==="function")?nextBallotInfo():null;
   if(!nb||nb.quartersAway!==CAUCUS_PRIMARY_LEAD||C.primDay===GAME.turn)return;
   C.primDay=GAME.turn; C.nom=C.nom||{}; const night=[];
@@ -21640,23 +21646,86 @@ function caucusPrimaryDay(){
       night.push(Object.assign(base,{won:false, L:Math.round(m.L)}));
     }
   }
-  if(night.length)GAME.pendingPrimaries={turn:GAME.turn, gen:nb.quartersAway, kind:nb.kind, list:night};
+  const theirs=caucusOppPrimaries();
+  if(night.length||theirs.length)GAME.pendingPrimaries={turn:GAME.turn, gen:nb.quartersAway, kind:nb.kind, list:night, opp:theirs};
 }
-/* PRIMARY NIGHT. Only the districts where you backed somebody. */
+/* THE OTHER PARTY'S PRIMARIES. A member who has fallen out with their own
+   leadership (loyalty to their party under 45) may find it backing somebody
+   against them, likelier the further they have strayed and likelier still in
+   one of the factions fighting it. A purged member is replaced by a loyal
+   one, which is a vote you could have peeled off gone. A member who beats
+   the leadership comes back further from it than ever. */
+const OPP_PRIM_AT=45;
+function caucusOppPrimaries(){
+  const C=GAME.caucus, out=[]; C.nom=C.nom||{};
+  for(const k of Object.keys(C.m)){ const m=C.m[k]; if(m.p!=="opp"||m.L>=OPP_PRIM_AT)continue;
+    const b=caucusBallotsAhead(k)[0]; if(!b||!b.up||b.q!==CAUCUS_PRIMARY_LEAD)continue;
+    if(C.nom[k])continue;
+    const r=caucusRng(k+"|"+m.n+"|oppprim|"+GAME.turn);
+    const chance=clamp((OPP_PRIM_AT-m.L)/35+(m.f?0.15:0),0,0.75);
+    if(r()>=chance)continue;
+    const odds=clamp(0.35+(OPP_PRIM_AT-m.L)/70+(m.f?0.08:0),0.25,0.75), won=r()<odds;
+    const nm=caucusNewName(), L0=Math.round(m.L), open=m.L<40;
+    const base={k, opp:true, old:m.n, n:nm, odds:Math.round(odds*100), place:caucusPlace(m.ch,m.id), title:caucusTitle(k), L0, open, fac:m.f?caucusFactionName(m.f):null};
+    if(won){
+      C.nom[k]={n:nm, old:m.n, p:"opp"};
+      GAME.log.push(ico('ballot')+" The "+oppPartyPlural()+" purged "+caucusTitle(k)+" ("+caucusCode(k)+"): "+nm+", the leadership's pick, won the primary.");
+      out.push(Object.assign(base,{won:true}));
+    } else {
+      m.L=clamp(m.L-8,0,100); caucusNote(m,"_oprim","Beat their own leadership's challenger",-8);
+      GAME.log.push(ico('ballot')+" "+caucusTitle(k)+" ("+caucusCode(k)+") beat the challenger the "+oppPartyPlural()+" sent after them.");
+      out.push(Object.assign(base,{won:false, L:Math.round(m.L)}));
+    }
+  }
+  return out;
+}
+/* A map of the districts that had a challenger on primary night, and no
+   others, one per chamber that had any. */
+function primaryNightMap(P){
+  const all=(P.list||[]).filter(x=>!x.moot).map(x=>({x,cls:x.won?"pn-mw":"pn-mh"})).concat((P.opp||[]).map(x=>({x,cls:x.won?"pn-ow":"pn-oh"})));
+  const maps=[["h","House",OR_HOUSE_DISTRICTS],["s","Senate",OR_SENATE_DISTRICTS]].map(([t,nm,rows])=>{
+    const here=all.filter(a=>a.x.k[0]===t); if(!here.length)return "";
+    const paths=here.map(a=>{ const r=rows.find(z=>z[0]===+a.x.k.slice(1)); if(!r)return "";
+      return `<path class="${a.cls}" d="${r[1]}"><title>${caucusCode(a.x.k)} ${a.x.place}: ${a.x.won?a.x.n+" won":a.x.old+" held on"}</title></path>`; }).join("");
+    return `<figure class="pn-map"><svg viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="${nm} districts with a primary challenger">`
+      +OR_COUNTIES.map(c=>`<path d="${c[2]}" fill="var(--paper)" stroke="var(--line)" stroke-width="0.8"/>`).join("")+paths+`</svg><figcaption>${nm}</figcaption></figure>`; }).join("");
+  if(!maps)return "";
+  // the key names only what is on the map
+  const has=new Set(all.map(a=>a.cls)), key=[];
+  if(has.has("pn-mw"))key.push(`<span><i class="pn-mw"></i>your challenger won</span>`);
+  if(has.has("pn-mh"))key.push(`<span><i class="pn-mh"></i>your member held on</span>`);
+  if(has.has("pn-ow"))key.push(`<span><i class="pn-ow"></i>${oppPartyName()} leadership's pick won</span>`);
+  if(has.has("pn-oh"))key.push(`<span><i class="pn-oh"></i>${oppPartyName()} member held on</span>`);
+  return `<div class="pn-maps">${maps}</div><div class="pn-key">${key.join("")}</div>`;
+}
+function primaryNightTitle(P){
+  const L=(P.list||[]).filter(x=>!x.moot), O=P.opp||[];
+  if(L.length)return "Primary night: your challengers won "+L.filter(x=>x.won).length+" of "+L.length+(O.length?"; the "+oppPartyPlural()+" went after "+O.length+" of their own":"");
+  return "Primary night: the "+oppPartyPlural()+" went after "+O.length+" of their own";
+}
+/* PRIMARY NIGHT. Only the districts where somebody was challenged: yours,
+   then the other party's. */
 function showPrimaryNight(P,next){
   const card=document.getElementById("caucusNewsCard"), modal=document.getElementById("caucusNewsModal");
   if(!card||!modal||!P||!P.list){ if(next)next(); return; }
-  const L=P.list.filter(x=>!x.moot), won=L.filter(x=>x.won).length;
+  const L=P.list.filter(x=>!x.moot), O=P.opp||[];
   const gen=P.kind==="midterm"?"the midterm":"the general election";
   const seat=o=>o>=62?"a safe seat for your party":o>=55?"a seat that leans your way":"a swing seat";
-  let h=`<div class="sectionhdr">${ico('ballot')} Primary night: your challengers won ${won} of ${L.length}</div>
-    <div class="sectionsub">Winners are your party's nominees, not yet members. They take office only if they win ${gen} in ${P.gen} quarters; until then the members they beat serve out their terms and still vote.</div>`;
-  h+=L.map(x=>`<div class="pn-row ${x.won?"won":"lost"}"><span class="cn-code">${caucusCode(x.k)}</span>
+  let h=`<div class="sectionhdr">${ico('ballot')} ${primaryNightTitle(P)}</div>
+    <div class="sectionsub">Winners are their party's nominees, not yet members. They take office only if they win ${gen} in ${P.gen} quarters; until then the members they beat serve out their terms and still vote.</div>`;
+  h+=primaryNightMap(P);
+  if(L.length)h+=`<div class="cn-sec">Your challengers</div>`+L.map(x=>`<div class="pn-row ${x.won?"won":"lost"}"><span class="cn-code">${caucusCode(x.k)}</span>
     <span class="cn-who"><b>${x.won?`${x.n} beat ${x.title}`:`${x.title} held off ${x.n}`}</b>
       <i>${x.place} · ◈${x.spent} behind them, ${x.odds}% odds</i>
       <i>${x.won?`Now the nominee in ${seat(x.own)} (${x.own}% for your party). ${x.old} is a lame duck and knows who did it.`:`${x.old} is still your member, and angrier: loyalty ${x.L}.`}</i></span>
     <span class="pn-tag">${x.won?"nominee":"held"}</span></div>`).join("");
   P.list.filter(x=>x.moot).forEach(x=>h+=`<div class="cn-fac"><b>${caucusCode(x.k)}</b> Moot: the seat did not stay with your party.</div>`);
+  if(O.length)h+=`<div class="cn-sec">The ${oppPartyPlural()}' own primaries</div><div class="cprim-note">Their leadership went after members who have broken with it.</div>`
+    +O.map(x=>`<div class="pn-row ${x.won?"lost":"won"}"><span class="cn-code">${caucusCode(x.k)}</span>
+    <span class="cn-who"><b>${x.won?`${x.n} beat ${x.title}`:`${x.title} held off ${x.n}`}</b>
+      <i>${x.place}${x.fac?" · "+x.fac:""} · loyalty to their party ${x.L0}, ${x.odds}% odds for the leadership</i>
+      <i>${x.won?`The leadership's pick is the nominee${x.open?"; a member who was open to your bills is on the way out":""}.`:`Survived their own party, and further from it than ever: loyalty ${x.L}${x.open?", and still open to your bills":""}.`}</i></span>
+    <span class="pn-tag">${x.won?"purged":"held"}</span></div>`).join("");
   h+=`<div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap"><button class="enactbtn" id="pnOk">Continue ▸</button></div>`;
   card.innerHTML=h; modal.classList.remove("hidden"); card.scrollTop=0;
   const openedAt=Date.now();
@@ -21671,18 +21740,19 @@ function caucusResolvePrimaries(upSenate){
   caucusSync();
   const yr=GAME.startYear+Math.floor(GAME.turn/4);
   C.primNews=C.primNews||[];
-  // the nominees you backed take the seats at the general
-  for(const k of Object.keys(C.nom)){ const p=C.nom[k], id=+k.slice(1);
+  // the nominees take the seats at the general: yours, and the ones the
+  // other party's leadership put up against its own
+  for(const k of Object.keys(C.nom)){ const p=C.nom[k], id=+k.slice(1), side=p.p||"mine";
     if(k[0]==="s"&&!(upSenate&&upSenate.has(id)))continue;           // not on this ballot
     delete C.nom[k];
     const m=C.m[k];
-    if(!m||m.p!=="mine"||m.n!==p.old)continue;
+    if(!m||m.p!==side||m.n!==p.old)continue;
     const row=caucusRow(k);
-    const nm={p:"mine", ch:m.ch, id:m.id, n:p.n, g:8, since:GAME.turn, yr, x:m.x};
+    const nm={p:side, ch:m.ch, id:m.id, n:p.n, g:side==="mine"?8:0, since:GAME.turn, yr, x:m.x};
     nm.v=caucusViews(nm,row); nm.vv=CAUCUS_VIEWS_V;
-    caucusNote(nm,"_prim","Won the primary you backed",8);
+    if(side==="mine")caucusNote(nm,"_prim","Won the primary you backed",8);
     C.m[k]=nm; nm.L=caucusTarget(nm,k);
-    GAME.log.push(ico('ballot')+" "+p.n+", the nominee you backed, takes "+caucusCode(k)+" from "+p.old+".");
+    GAME.log.push(ico('ballot')+" "+p.n+(side==="mine"?", the nominee you backed, takes ":", the "+oppPartyPlural()+"' leadership pick, takes ")+caucusCode(k)+" from "+p.old+".");
   }
   caucusControlCalc();
 }
