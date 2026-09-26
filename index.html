@@ -14951,11 +14951,11 @@ function mobilizationsHTML(){
   return h+`</div>`;
 }
 /* the platform-promise picker grid; `list` is the currently-pledged ids */
-function promiseGridHTML(list){
+function promiseGridHTML(list,keep){
   let h=`<div class="promgrid">`;
   for(const pid in PROMISES){
     const pr=PROMISES[pid], on=list.includes(pid);
-    if(!on&&(GAME.pastPromises||[]).includes(pid))continue;   // already pledged in an earlier term — one bite each
+    if(!on&&(GAME.pastPromises||[]).includes(pid)&&!(keep&&keep.includes(pid)))continue;   // already pledged in an earlier term — one bite each
     if(pr.check()&&!on&&!pr.defensive)continue;   // already achieved & not pledged — hide (unless it's a "keep it this way" pledge)
     const metCount=pr.criteria.filter(cr=>cr.check()).length, total=pr.criteria.length;
     const allMet=metCount===total, someMet=!allMet&&metCount>0;
@@ -15364,12 +15364,36 @@ function renderCompass(){
   };
 }
 /* at the start of a new term, judge the promises made last campaign */
+/* PROMISES AND THE LEGISLATURE. Your members ran on your platform too, so
+   they all feel a kept or broken promise a little, and the ones whose
+   districts are made of the groups it was made to feel it a lot. The other
+   party's members from those districts warm a little to a promise kept to
+   their voters, which wears their party loyalty. */
+const PROMISE_LEG={kept:6, partial:1, broken:-8, abandoned:-4, revised:-1.5};
+const PROMISE_LEG_WORD={kept:"Kept your promise", partial:"Partial progress on your promise", broken:"Broke your promise",
+  abandoned:"Abandoned your promise", revised:"Dropped your promise at the midterm"};
+function caucusPromiseEffect(pr,outcome){
+  if(prOn()||!GAME.caucus||!pr)return;
+  const a=PROMISE_LEG[outcome]; if(!a)return;
+  const groups=new Set(pr.bloc), C=GAME.caucus; let hit=0;
+  for(const k in C.m){ const m=C.m[k], row=caucusRow(k); if(!row)continue;
+    const near=caucusMakeup(row,6).some(x=>groups.has(x.b));
+    const amt=m.p==="mine"?(near?a:a*0.35):(near?a*0.5:0);
+    if(!amt)continue;
+    m.g=clamp((m.g||0)+amt,-30,30);
+    caucusNote(m,"_pr_"+pr.id+outcome,PROMISE_LEG_WORD[outcome]+": "+pr.label,amt);
+    m.L=clamp(m.L+amt*(m.p==="mine"?0.5:-0.3),0,100);
+    if(m.p==="mine"&&near)hit++; }
+  if(hit)GAME.log.push(ico('people')+" "+hit+" of your members from districts it was made to took note: "+PROMISE_LEG_WORD[outcome].toLowerCase()+", "+pr.label+".");
+  caucusControlCalc();
+}
 function evaluatePromises(){
   if(!GAME.activePromises||!GAME.activePromises.length)return;
   // first pass: classify each promise
   const outcomes={};
   for(const ap of GAME.activePromises){
     const pr=PROMISES[ap.id]; if(!pr)continue;
+    if(ap.revised!=null){ outcomes[ap.id]='revised'; continue; }
     if(ap.abandoned!=null){ outcomes[ap.id]='abandoned'; continue; }
     const metCount=pr.criteria.filter(c=>c.check()).length;
     const total=pr.criteria.length;
@@ -15385,6 +15409,7 @@ function evaluatePromises(){
       // a group that has watched you drop pledges gives less for a kept one
       if(outcome==='kept'){ createGrudge("v_"+sid, 4*pledgeTrust(sid), 0.9, "Kept their promise: "+pr.label); }
       else if(outcome==='abandoned'){ createGrudge("v_"+sid, -2.5, 0.92, "Abandoned their promise: "+pr.label); }
+      else if(outcome==='revised'){ createGrudge("v_"+sid, -1, 0.92, "Dropped their promise at the midterm: "+pr.label); }
       else if(outcome==='partial'&&otherAllKept){ createGrudge("v_"+sid, 1.5, 0.9, "Made partial progress on: "+pr.label); }
       else if(outcome==='broken'){ createGrudge("v_"+sid, -5, 0.92, "Broke their promise: "+pr.label);
         SIMULANTS[sid].cynicism=(SIMULANTS[sid].cynicism||0)+2; }
@@ -15393,8 +15418,10 @@ function evaluatePromises(){
     else if(outcome==='partial'&&otherAllKept)GAME.log.push("~ Partial progress on: "+pr.label);
     else if(outcome==='partial')GAME.log.push("~ Partial (no bonus — other promises not fully kept): "+pr.label);
     else if(outcome==='abandoned')GAME.log.push("✗ Abandoned, counted as half a broken promise: "+pr.label);
+    else if(outcome==='revised')GAME.log.push("~ Dropped at the midterm, a small cost: "+pr.label);
     else GAME.log.push("✗ Promise broken: "+pr.label);
     if(outcome==='broken')GAME.uturnCount=(GAME.uturnCount||0)+1;
+    if(outcome==='kept'||outcome==='broken'||(outcome==='partial'&&otherAllKept))caucusPromiseEffect(pr,outcome);
   }
   GAME._promiseScore=promiseScorecard();   // the statewide swing lands in applyPromiseSwing()
   GAME.activePromises=[];
@@ -15409,6 +15436,7 @@ function promiseScorecard(){
   const rows=aps.map(ap=>{
     const pr=PROMISES[ap.id]; if(!pr)return null;
     const met=pr.criteria.filter(c=>c.check()).length, tot=pr.criteria.length;
+    if(ap.revised!=null)return {id:ap.id, label:pr.label, status:'revised', met, tot};
     if(ap.abandoned!=null)return {id:ap.id, label:pr.label, status:'abandoned', met, tot};
     return {id:ap.id, label:pr.label, status:met===tot?'kept':met>0?'partial':'broken', met, tot};
   }).filter(Boolean);
@@ -15416,9 +15444,10 @@ function promiseScorecard(){
   const partN=rows.filter(r=>r.status==='partial').length;
   const brokN=rows.filter(r=>r.status==='broken').length;
   const abN=rows.filter(r=>r.status==='abandoned').length;
-  // an abandoned pledge is half a broken one
-  const swing=+clamp(keptN*1.6 + partN*0.4 - brokN*2.2 - abN*1.1, -6, 5).toFixed(1);
-  return {rows, keptN, partN, brokN, abN, swing};
+  const revN=rows.filter(r=>r.status==='revised').length;
+  // an abandoned pledge is half a broken one; one dropped at the midterm, a small fraction
+  const swing=+clamp(keptN*1.6 + partN*0.4 - brokN*2.2 - abN*1.1 - revN*0.3, -6, 5).toFixed(1);
+  return {rows, keptN, partN, brokN, abN, revN, swing};
 }
 /* Apply the frozen swing to every bloc and every voter, exact, just before the
    vote is counted — after the normal ticks so nothing washes it back out. */
@@ -15443,6 +15472,7 @@ function promiseScorecardHTML(){
     const chip=r.status==='kept'?'<b style="color:var(--good)">Kept</b>'
       :r.status==='partial'?`<b style="color:var(--warn)">Partial, ${r.met} of ${r.tot}</b>`
       :r.status==='abandoned'?'<b style="color:var(--bad)">Abandoned (half)</b>'
+      :r.status==='revised'?'<b style="color:var(--warn)">Dropped at the midterm (small)</b>'
       :'<b style="color:var(--bad)">Broken</b>';
     h+=`<div class="rrow"><span class="rlabel">${r.label}</span><span class="rval">${chip}</span></div>`;
   }
@@ -15473,6 +15503,7 @@ function abandonPromise(id){
       (GAME.opposition.dropped=GAME.opposition.dropped||[]).push(pr.label);
     }
     GAME.log.push("✗ Abandoned pledge: "+pr.label+". "+pr.bloc.map(b=>SIMULANTS[b]?SIMULANTS[b].name:b).join(" and ")+" will trust your next pledges less");
+    caucusPromiseEffect(pr,'abandoned');
   }
   campRedraw();
 }
@@ -15485,6 +15516,14 @@ function platformProgressHTML(){
   let h=`<div class="promgrid">`;
   for(const ap of aps){
     const pr=PROMISES[ap.id]; if(!pr)continue;
+    if(ap.revised!=null){
+      h+=`<div class="promcard promdropped">
+        <div class="promlabel">${pr.label}</div>
+        <div class="promblocs">${pr.bloc.map(b=>SIMULANTS[b]?SIMULANTS[b].name:b).join(' · ')}</div>
+        <div class="prom-status partial">Dropped at the midterm, ${turnLabel(ap.revised)}</div>
+        <div class="prom-dropnote">A small cost at the election, far less than a pledge abandoned mid-term.</div></div>`;
+      continue;
+    }
     if(ap.abandoned!=null){
       h+=`<div class="promcard promdropped">
         <div class="promlabel">${pr.label}</div>
@@ -15680,22 +15719,40 @@ function showWelcome(onDone){
 /* Platform-setting modal — shown just AFTER an election win (and once, after the
    welcome, at the start of a fresh game). This is where you commit to the term
    ahead; the pledges lock in and are judged at the next election. */
-function showPlatformModal(){
+/* ONE CHANCE TO AMEND. The midterm opens a window, to the end of the next
+   quarter, in which you can add pledges and drop others once. */
+function platformReviseOpen(){
+  const w=GAME.reviseWindow;
+  return !!(w&&w.term===GAME.term&&GAME.turn<=w.until&&GAME.revisedTerm!==GAME.term&&!GAME.gameOver);
+}
+function platformAfterMidterm(){ return (GAME.turn-(GAME.term-1)*GAME.termLengthTurns)>GAME.midtermTurn; }
+function showPlatformModal(opts){
+  const rev=!!(opts&&opts.revise), after=opts&&opts.after;
+  if(rev&&!platformReviseOpen()){ if(after)after(); return; }
   const modal=document.getElementById("platformModal"), card=document.getElementById("platformCard");
   if(!modal||!card)return;
   GAME.campaign=GAME.campaign||{effort:{},promises:[],pool:10};
-  const draft = GAME._platformDraft = (GAME._platformDraft||[]);
-  const commitLabel=()=> draft.length
+  const cur=rev?(GAME.activePromises||[]).filter(a=>a.abandoned==null&&a.revised==null).map(a=>a.id):[];
+  const draft = rev ? cur.slice() : (GAME._platformDraft = (GAME._platformDraft||[]));
+  const commitLabel=()=> rev
+    ? (()=>{ const add=draft.filter(p=>!cur.includes(p)).length, drop=cur.filter(p=>!draft.includes(p)).length;
+        return add||drop?`Amend: ${add?"add "+add:""}${add&&drop?", ":""}${drop?"drop "+drop:""} →`:`Keep the platform as it is →`; })()
+    : draft.length
     ? `Take office with ${draft.length} promise${draft.length===1?'':'s'} →`
     : `Take office with no promises →`;
   const paint=()=>{
     const btn=`<button class="enactbtn" data-commit style="width:100%">${commitLabel()}</button>`;
-    let h=`<div class="sectionhdr">${ico('doc')} Your Platform — Term ${GAME.term}</div>
-      <div class="sectionsub">Pledge what you'll deliver this term. At the next election, each promise <b>kept</b> rewards you with the blocs that cared; each one <b>broken</b> breeds cynicism and a hit to your mandate. Pick what you can realistically deliver.</div>
-      <div class="platform-warn">${ico('warning')}<span>This is the <b>only</b> time you set your platform. Later — from Campaign HQ — you can <b>drop</b> a pledge that's out of reach (it still counts as broken), but you <b>can't add</b> a new one until you win re-election.</span></div>
+    let h=rev
+      ? `<div class="sectionhdr">${ico('doc')} Amend Your Platform — Term ${GAME.term}</div>
+      <div class="sectionsub">The midterm is behind you. This is your one chance to amend the platform you took office on: add pledges you can now deliver, and drop ones that are out of reach.</div>
+      <div class="platform-warn">${ico('warning')}<span>A pledge dropped <b>now</b> costs a little, with the groups it was made to and with your legislators, far less than one abandoned later. After this you can still abandon a pledge from Campaign HQ, at the full cost, but you <b>can't add</b> another until you win re-election.</span></div>`
+      : `<div class="sectionhdr">${ico('doc')} Your Platform — Term ${GAME.term}</div>
+      <div class="sectionsub">Pledge what you'll deliver this term. At the next election, each promise <b>kept</b> rewards you with the blocs that cared and with the legislators from their districts; each one <b>broken</b> breeds cynicism, costs you a hit to your mandate and cools your members. Pick what you can realistically deliver.</div>
+      <div class="platform-warn">${ico('warning')}<span>You get <b>one other chance</b> to amend this platform: right after the midterm, when you can add pledges and drop others at a small cost. Outside that, from Campaign HQ, you can <b>abandon</b> a pledge that's out of reach (it counts as half a broken promise), but you <b>can't add</b> one.</span></div>`;
+    h+=`
       <div style="margin:12px 0 4px">${btn}</div>
       <div style="font-size:12.5px;color:var(--muted-3);margin-bottom:6px">Tap a card to pledge or unpledge it. A term with no pledges carries no reward or penalty.</div>`;
-    h+=promiseGridHTML(draft);
+    h+=promiseGridHTML(draft,rev?cur:null);
     h+=`<div class="platform-commit-bottom" style="margin-top:18px">${btn}</div>`;
     card.innerHTML=h;
     const sy=card.scrollTop; card.scrollTop=sy;
@@ -15707,6 +15764,7 @@ function showPlatformModal(){
     card.querySelectorAll('[data-commit]').forEach(b=>b.onclick=commit);
   };
   const commit=()=>{
+    if(rev){ platformRevise(cur,draft); modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); render(); if(after)after(); return; }
     GAME.activePromises=draft.slice().map(pid=>({id:pid, madeTerm:GAME.term}));
     // a pledge can only be made once per run — bank it so later platforms exclude it
     GAME.pastPromises=(GAME.pastPromises||[]).concat(draft.filter(p=>!(GAME.pastPromises||[]).includes(p)));
@@ -15726,6 +15784,21 @@ function showPlatformModal(){
   setTimeout(()=>{try{(card.querySelector("[data-commit]")||{}).focus({preventScroll:true});card.scrollTop=0;}catch(e){}},30);
 }
 
+/* Apply a midterm revision: pledges dropped now cost a little; new ones are
+   judged at the election like the rest. */
+function platformRevise(cur,draft){
+  const drop=cur.filter(p=>!draft.includes(p)), add=draft.filter(p=>!cur.includes(p));
+  for(const id of drop){ const ap=(GAME.activePromises||[]).find(a=>a.id===id&&a.abandoned==null); if(!ap)continue;
+    ap.revised=GAME.turn; const pr=PROMISES[id]; if(!pr)continue;
+    for(const sid of pr.bloc)if(SIMULANTS[sid])SIMULANTS[sid].cynicism=(SIMULANTS[sid].cynicism||0)+0.5;
+    caucusPromiseEffect(pr,'revised'); }
+  for(const id of add){ GAME.activePromises.push({id, madeTerm:GAME.term, addedAt:GAME.turn}); }
+  GAME.pastPromises=(GAME.pastPromises||[]).concat(add.filter(p=>!(GAME.pastPromises||[]).includes(p)));
+  GAME.campaign.promises=(GAME.activePromises||[]).filter(a=>a.abandoned==null&&a.revised==null).map(a=>a.id);
+  GAME.revisedTerm=GAME.term; GAME.reviseWindow=null;
+  const lab=id=>(PROMISES[id]||{}).label||id;
+  GAME.log.push(ico('doc')+" Platform amended after the midterm"+(add.length?": added "+add.map(lab).join(", "):"")+(drop.length?(add.length?"; dropped ":": dropped ")+drop.map(lab).join(", "):"")+(!add.length&&!drop.length?": kept as it was":"")+".");
+}
 /* ====================== QUARTERLY REPORT (start-of-quarter briefing) ======
    A Democracy-style summary shown at the top of each new quarter: how the
    headline metrics moved last quarter, the budget position, notable events
@@ -16324,6 +16397,7 @@ function showMidterm(m){
     </div>
 
     ${measureResultMapsHTML(m.measures)}
+    ${platformReviseOpen()?`<div class="eg-section"><div class="eg-h3">${ico('doc')} Your platform</div><div class="eg-note">The midterm is your one chance to amend the platform you took office on: add pledges, or drop ones that are out of reach at a small cost. It stays open in Campaign HQ until the end of next quarter.</div><button id="midtermRevise" class="enactbtn ghost" style="margin-top:8px">Amend your platform</button></div>`:""}
     <button id="midtermContinue" class="enactbtn">Continue ▸</button>
   </div>`;
   const modal=document.getElementById("midtermModal");
@@ -16342,6 +16416,9 @@ function showMidterm(m){
   const onKey=(e)=>{ if(modal.classList.contains("hidden"))return;
     if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
   document.getElementById("midtermContinue").onclick=done;
+  const mr=document.getElementById("midtermRevise");
+  if(mr)mr.onclick=()=>{ modal.classList.add("hidden"); modal.classList.remove("grand"); document.removeEventListener("keydown",onKey,true);
+    showPlatformModal({revise:true, after:()=>{ if(!GAME.skipReport)showQuarterReport(); }}); };
   document.addEventListener("keydown",onKey,true);
   setTimeout(()=>{try{document.getElementById("midtermContinue").focus({preventScroll:true});}catch(e){try{document.getElementById("midtermContinue").focus();}catch(_){}}},30);
 }
@@ -22430,6 +22507,7 @@ function doEndTurn(){
   // re-elect halfway through a term, which is what makes the coalition you
   // negotiated at the start of it the one you are stuck with.
   if(into===GAME.midtermTurn){
+    GAME.reviseWindow={term:GAME.term, until:GAME.turn+1};   // one chance to amend the platform
     const oa=overallApproval();
     const prevContrib=(GAME.lastMargin||0)*40;
     GAME.lastMargin=clamp((oa-50)/50,-1,1);
@@ -23578,7 +23656,11 @@ function campHQBodyHTML(){
   //      win (showPlatformModal), then tracked here through the term ----
   const nAp=(GAME.activePromises||[]).length;
   h+=`<div class="camp-sec" style="margin-top:6px">${ico('doc')} Platform this term <span class="sec-note">— ${nAp} pledge${nAp===1?'':'s'}</span></div>
-    <div class="sectionsub" style="margin-top:0">Set when you took office — <b>you can't add more this term</b>. At the election, each promise <b>kept</b> rewards the blocs that cared; each one <b>broken</b> breeds cynicism and a mandate hit${nAp?`. If a pledge is out of reach you can <b>abandon</b> it. That costs no approval now, but the groups that cared trust your next pledges less, the opposition campaigns on it, and it counts as half a broken promise at the election`:``}.</div>`;
+    <div class="sectionsub" style="margin-top:0">${platformReviseOpen()
+      ?`<b>The midterm is your one chance to amend it</b>, open until the end of next quarter: add pledges, or drop ones at a small cost. <button class="fcard-btn" id="campRevise" style="margin:0 0 0 6px">Amend your platform</button><br>`
+      :GAME.revisedTerm===GAME.term?`You amended it after the midterm, and it is fixed now. `
+      :platformAfterMidterm()?`Set when you took office; the midterm window to amend it has passed. `
+      :`Set when you took office. You get one other chance to amend it, right after the midterm. `}At the election, each promise <b>kept</b> rewards the blocs that cared; each one <b>broken</b> breeds cynicism and a mandate hit${nAp?`. If a pledge is out of reach you can <b>abandon</b> it. That costs no approval now, but the groups that cared trust your next pledges less, the opposition campaigns on it, and it counts as half a broken promise at the election`:``}.</div>`;
   h+=platformProgressHTML();
   // ---- who's organised for / against you ----
   h+=mobilizationsHTML();
@@ -23628,6 +23710,7 @@ function campHQBodyHTML(){
 /* wire the interactive bits of the campaign surface — energy pushes, county map,
    abandon-pledge. campRedraw() knows whether to re-render the popup or the page. */
 function wireCampHQ(root){
+  const cr=root.querySelector('#campRevise'); if(cr)cr.addEventListener('click',()=>{ const pop=document.getElementById("campPopupModal"), inPop=pop&&!pop.classList.contains("hidden"); if(inPop)pop.classList.add("hidden"); showPlatformModal({revise:true, after:()=>{ if(inPop)campRedraw(); }}); });
   root.querySelectorAll('[data-cprim]').forEach(el=>el.addEventListener('click',ev=>{ ev.stopPropagation(); caucusBackPrimary(el.dataset.cprim,campRedraw); }));
   root.querySelectorAll('[data-camptab]').forEach(el=>el.addEventListener('click',()=>{
     // arriving at the ballot tab, every measure starts collapsed
