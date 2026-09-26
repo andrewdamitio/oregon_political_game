@@ -563,7 +563,12 @@
   .cpr-h{font-family:var(--font-display);font-size:20px;margin-bottom:4px}
   .cpr p{font-size:14px;line-height:1.55;color:var(--muted-1);margin:8px 0}
   details.cv{display:block;padding:0;border-top:1px dashed var(--line)}
-  details.cv>summary{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px;padding:3px 0;cursor:pointer;list-style:none}
+  details.cv>summary{display:grid;grid-template-columns:100px minmax(0,1fr) auto;gap:8px;padding:4px 2px;cursor:pointer;list-style:none;border-radius:3px}
+  .cv-open{font-size:11.5px;color:var(--muted-3);white-space:nowrap;align-self:center}
+  .cv-open i{display:inline-block;font-style:normal;margin-left:4px;transition:transform .15s ease}
+  details.cv[open]>summary .cv-open i{transform:rotate(90deg)}
+  details.cv>summary:hover .cv-open{color:var(--ink)}
+  .cv-di{font-size:11.5px;color:var(--muted-3);font-weight:400}
   details.cv>summary::-webkit-details-marker{display:none}
   details.cv>summary:hover{background:var(--hover-bg)}
   details.cv[open]>summary .cv-i{color:var(--ink)}
@@ -20631,7 +20636,7 @@ function caucusRetirements(upSenate){
 }
 /* WHAT A CANDIDATE BRINGS TO THE RACE, in points of your share (negative
    when it is the other party's incumbent who brings it). Years in the seat,
-   up to +2; local roots, from -1.5 to +1.5; and heterodoxy, which in a
+   up to +2 and fading after fourteen years; local roots, from -1.5 to +1.5; and heterodoxy, which in a
    competitive or hostile seat is worth +0.8 for each break with the party
    toward the district and -0.8 for each personal conviction against it,
    and in a safe seat a third of that. */
@@ -20641,7 +20646,9 @@ function caucusCandidateRaw(k){
   const row=caucusRow(k); if(!row)return null;
   const lean=row[3]!=null?row[3]:50, yrNow=GAME.startYear+Math.floor(GAME.turn/4);
   const served=Math.max(0,yrNow-(m.yr||yrNow));
-  const seniority=Math.min(2,served*0.25), roots=(caucusRng(k+"|"+m.n+"|roots")()-0.5)*3;
+  // up to +2 by eight years in the seat, held to fourteen, then fading: a
+  // member twenty years in reads as out of touch as often as experienced
+  const seniority=Math.min(2,served*0.25)-Math.max(0,served-14)*0.15, roots=(caucusRng(k+"|"+m.n+"|roots")()-0.5)*3;
   const pull=caucusDistrictPull(m.ch,m.id,row[1],lean), pl=caucusPartyOf(m)==="D"?1:-1;
   let het=0, toward=0, against=0;
   for(const i of caucusBreaks(m)){ if(ISSUES[i].partisan===false||!pull[i])continue;
@@ -20800,8 +20807,10 @@ function caucusMemberCard(k){
   const order=ISSUE_IDS.filter(i=>m.v[i]).sort((a,b)=>{ const ba=caucusBreaks(m).includes(a), bb=caucusBreaks(m).includes(b); return (bb-ba)||(m.v[b].int-m.v[a].int); });
   order.forEach(i=>{ const v=m.v[i], br=caucusBreaks(m).includes(i), mv=caucusIssueMoved(i)*(v.pos>=0?1:-1)*(ISSUES[i].partisan===false?1:1);
     const felt=v.pos*caucusIssueMoved(i);
-    h+=`<details class="cv${br?" br":""}"><summary><span class="cv-i">${ISSUES[i].name}${v.int>=1?" ★":""}</span><span class="cv-p${br&&ISSUES[i].partisan!==false?" cv-brk":""}">${caucusViewLabel(i,v.pos)}${br&&ISSUES[i].partisan!==false?(v.conv?" · personal conviction":" · breaks with party"):""}</span></summary><div class="cv-laws">${caucusIssueLaws(m,i)}</div></details>`; });
-  h+=`</div><div class="cm-note">★ an issue the district cares about. In red: a view that breaks with the party. Open an issue for the laws behind it and which way each has moved since you took office.</div>`;
+    // a district interest (rural aid, tolling) is not a party question, so it is never a break
+    const pb=br&&ISSUES[i].partisan!==false, di=ISSUES[i].partisan===false, nl=i==="tolls"?1:ISSUES[i].pols.filter(([pid])=>POLICIES[pid]||CATALOG[pid]).length;
+    h+=`<details class="cv${pb?" br":""}"><summary><span class="cv-i">${ISSUES[i].name}${v.int>=1?" ★":""}</span><span class="cv-p${pb?" cv-brk":""}">${caucusViewLabel(i,v.pos)}${pb?(v.conv?" · personal conviction":" · breaks with party"):""}${di?`<span class="cv-di"> · district interest</span>`:""}</span><span class="cv-open">${nl} law${nl===1?"":"s"}<i>▸</i></span></summary><div class="cv-laws">${caucusIssueLaws(m,i)}</div></details>`; });
+  h+=`</div><div class="cm-note">★ an issue the district cares about. In red: a view that breaks with the party. Click an issue to see the laws behind it and which way each has moved since you took office.</div>`;
   if(row)h+=caucusApptListsHTML([k],mk.map(x=>x.b),m.p,mine?"they":"they");
   if(on.length){ const q=Math.max(...on.map(p=>p.until))-GAME.turn; h+=`<div class="cf-live">${ico('houses')} District project running · cooldown ${q} quarter${q===1?"":"s"}</div>`; }
   if(!own)h+=`<div><button class="fcard-btn" data-cfund="${k}">${mine?"District project":"Court with a project"} · $${c.amt.toFixed(2)}B/yr</button></div>`;
