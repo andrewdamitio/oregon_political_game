@@ -3368,10 +3368,10 @@ const REVENUE={
 const SPENDING={
   humanServices:{name:"Human Services (caseloads)", base:0.35, agencies:["dhs","oha"],
     policies:["homelessServices","behavioralHealth"],
-    note:"Child welfare, aging &amp; disability, self-sufficiency, plus the Health Authority's State Hospital and behavioral health. DHS caseloads on top of the agency budgets"},
-  ohp:{name:"Oregon Health Plan", base:0, agencies:[],
+    note:"Child welfare, aging &amp; disability, self-sufficiency, plus the Oregon State Hospital. DHS caseloads on top of the agency budgets"},
+  ohp:{name:"Oregon Health Plan", base:0.23, agencies:[],
     policies:["ohpCoverage","ohpBlockGrant","medicaidWork"],
-    note:"Medicaid medical assistance, the whole programme. The federal match pays ~two-thirds; Oregon's share is what hits the General Fund, and it grows when enrollment surges in a downturn or Washington pulls its match back."},
+    note:"Medicaid medical assistance, the whole programme, and the Health Authority's public health and staff who run it. The federal match pays ~two-thirds; Oregon's share is what hits the General Fund, and it grows when enrollment surges in a downturn or Washington pulls its match back."},
   k12:{name:"K-12 Education", base:0.0, agencies:[], policies:["stateSchoolFund","phoneBanSchools"],
     note:"State School Fund ~$11.4B/biennium"},
   higherEd:{name:"Higher Education", base:0.4, agencies:[], policies:["universities","stateColleges","communityColleges","higherEd","oregonPromise"],
@@ -6467,10 +6467,10 @@ const AGENCIES={
     funding:0.5, costMin:1.6, costFull:2.6, capital:5, cutSurcharge:1.6,
     desc:"Child welfare, aging & disability, self-sufficiency.",
     effects:{health:6,inequality:-3,homelessness:-2}, indicatorEffects:{}, ideology:{economic:-0.3,govSize:-0.3}},
-  oha:{name:"Oregon Health Authority", domain:"eduHealth", icon:"hospital",
-    funding:0.6, costMin:0.1, costFull:0.9, capital:6, cutSurcharge:1.6,
-    desc:"The Oregon State Hospital and the state's behavioral-health system: psychiatric beds, crisis and addiction treatment, and the court-ordered restoration cases that fill the hospital. General health care and prevention are set on the Oregon Health Plan's eligibility and benefits dial, not here.",
-    effects:{behavioralHealth:{b:1,c:5,i:4},psychBeds:{b:2,c:10,i:3},drugUse:-1}, indicatorEffects:{}, ideology:{economic:-0.3,govSize:-0.3}},
+  oha:{name:"Oregon State Hospital", domain:"eduHealth", icon:"hospital",
+    funding:0.6, costMin:0.05, costFull:0.55, capital:6, cutSurcharge:1.6,
+    desc:"The Oregon State Hospital in Salem and Junction City, and the crisis-stabilization beds around it. Funding sets how many psychiatric beds the state keeps staffed, which is the binding constraint on civil commitment and on the court-ordered restoration cases that wait in jail for a bed; a hospital with room also takes pressure off community mental-health care. Run by the Health Authority, whose director also runs the Oregon Health Plan. General health care is set on the Health Plan's eligibility and benefits dial, not here.",
+    effects:{psychBeds:{b:2,c:14,i:3},behavioralHealth:{b:1,c:4,i:4},drugUse:-1}, indicatorEffects:{}, ideology:{economic:-0.3,govSize:-0.3}},
   odot:{name:"Dept. of Transportation (ODOT)", domain:"envInfra", icon:"road",
     funding:0.5, costMin:0.6, costFull:1.3, capital:4, seismicAgency:true,
     desc:"Highways, bridges, maintenance, transit grants — chronically short of funding as gas-tax revenue erodes. Funding level sets how much gets built; the Transportation Mix policy sets <i>what</i> gets built.",
@@ -13801,8 +13801,8 @@ const AUSTERITY_LINES=[
    note:"The largest single line in the budget, and the one districts feel within a term.",
    blocs:{parents:-9, publicUnions:-9, students:-5, liberal:-4, teachers:-6, moderate:-3},
    metrics:{eduOutcomes:-4.5, education:-2.5}},
-  {id:"oha", kind:"agency", label:"Oregon Health Authority", icon:"hospital", maxCut:0.24,
-   note:"The State Hospital and behavioral health: fewer beds, longer waits in jail for a bed.",
+  {id:"oha", kind:"agency", label:"Oregon State Hospital", icon:"hospital", maxCut:0.24,
+   note:"Fewer staffed psychiatric beds, and longer waits in jail for one.",
    blocs:{poor:-4, liberal:-4, publicUnions:-4, urban:-3, retirees:-1},
    metrics:{behavioralHealth:-5, drugUse:2}},
   {id:"ohpCoverage", kind:"policy", label:"Oregon Health Plan", icon:"hospital", maxCut:0.3,
@@ -20051,7 +20051,7 @@ function caucusTargetParts(m,key){
     const b=caucusBase(m);
     parts.push(["Party member, "+caucusSeatWord(b),b]);
     if(Math.abs(mand)>=0.5)parts.push(["Your mandate since taking office",mand]);
-    parts.push(["Where their issues have gone",st.sat*28]);
+    parts.push(["Where their issues have gone",st.sat*22]);
     if(m.x)parts.push(["Seat leans the other way",-5]);
     if(owed)parts.push(["Whipped "+owed+" time"+(owed>1?"s":"")+" already",-owed*3]);
     // a faction is a drag on its members, a serious one when it is big
@@ -20061,7 +20061,7 @@ function caucusTargetParts(m,key){
     // you is what wears it down.
     const b=caucusBase(m);
     parts.push([(caucusPartyOf(m)==="D"?"Democrat":"Republican")+", "+caucusSeatWord(b),b]);
-    parts.push(["Where their issues have gone under you",-st.sat*18]);
+    parts.push(["Where their issues have gone under you",-st.sat*14]);
     // their party's own fortunes: restless when you are popular, rallying when you are not
     const fort=-(overallApproval()-50)*0.5;
     if(Math.abs(fort)>=0.5)parts.push([fort<0?"Their party is losing ground to you":"Their party is rallying against you",fort]);
@@ -20226,6 +20226,7 @@ function caucusBillShock(pid,delta,nm){
     let s=0, top=null, tv=0; const gg=m.gg=m.gg||{}, br=caucusBreaks(m);
     for(const [i,dir] of list){ const v=m.v[i]; if(!v)continue; const c=(br.includes(i)?1.5:1)*v.int*v.pos*dir*delta; s+=c; if(Math.abs(c)>tv){ tv=Math.abs(c); top=i; } }
     if(Math.abs(s)<0.05)continue;
+    s=clamp(s,-0.7,0.7);   // however big the law, one bill moves a member only so far
     // the grudge is kept against the issue, so a member stays angriest
     // about what they care about rather than about whatever came last
     for(const [i,dir] of list){ const v=m.v[i]; if(v)gg[i]=clamp((gg[i]||0)+(br.includes(i)?1.5:1)*v.int*v.pos*dir*delta*10,-30,30); }
@@ -20250,10 +20251,10 @@ function caucusRegionHit(test,amt,why,issue){
   caucusControlCalc();
 }
 /* Anything that lands on the public-sector unions lands on the members they
-   elected, half again as hard: a strike broken, a hiring freeze, a cut. */
+   elected as well: a strike broken, a hiring freeze, a cut. */
 function caucusUnionHit(v,why){
   if(prOn()||!GAME.caucus||Math.abs(v)<2)return;
-  caucusRegionHit(m=>caucusTraitsOf((m.ch==="house"?"h":"s")+m.id).some(t=>t.id==="pu"),clamp(v*1.5,-18,12),why||"Public workers","pubunions");
+  caucusRegionHit(m=>caucusTraitsOf((m.ch==="house"?"h":"s")+m.id).some(t=>t.id==="pu"),clamp(v,-12,10),why||"Public workers","pubunions");
 }
 /* FACTIONS FORM FROM ANGER. Three or more of your members angry about the
    same issue, in the same direction, are a faction until they calm down. */
@@ -20291,16 +20292,16 @@ function caucusOppFactionKey(m){
    It happens whatever you do. */
 function caucusOppFlashpoint(){
   const C=GAME.caucus, r=caucusRng("flash|"+GAME.turn);
-  if(r()>=0.15)return;
+  if(r()>=0.1)return;
   const by={};
   for(const k in C.m){ const m=C.m[k]; if(m.p!=="opp"||!m.v)continue;
     caucusBreaks(m).filter(i=>ISSUES[i].partisan!==false).forEach(i=>(by[i]=by[i]||[]).push(k)); }
   const iss=Object.keys(by).filter(i=>by[i].length>=3); if(!iss.length)return;
   const i=iss[Math.floor(r()*iss.length)], ks=by[i];
   // hardest on the members whose districts care about it
-  ks.forEach(k=>{ const m=C.m[k], w=(m.v[i]&&m.v[i].int>=1)?1:0.5, a=30*w;
+  ks.forEach(k=>{ const m=C.m[k], w=(m.v[i]&&m.v[i].int>=1)?1:0.5, a=12*w;
     m.g=clamp((m.g||0)+a,-30,30); m.gg=m.gg||{}; m.gg[i]=clamp((m.gg[i]||0)+a,-30,30); m.lf=i;
-    caucusNote(m,"_lead",oppPartyName()+" leadership whipped them on "+ISSUES[i].name.toLowerCase(),a); m.L=clamp(m.L-16*w,0,100); });
+    caucusNote(m,"_lead",oppPartyName()+" leadership whipped them on "+ISSUES[i].name.toLowerCase(),a); m.L=clamp(m.L-5*w,0,100); });
   GAME.log.push(ico('people')+" The "+oppPartyName()+" leadership whipped its members on "+ISSUES[i].name.toLowerCase()+". "+ks.length+" who break with the party on it balked.");
   caucusNews("flash",{i, n:ks.length});
 }
@@ -20774,6 +20775,7 @@ function prBillShock(pid,delta,nm){
   for(const m of prSeated()){ let s=0; const gg=m.gg=m.gg||{};
     for(const [i,dir] of list){ const v=m.v[i]; if(!v)continue; const c=v.int*v.pos*dir*delta; s+=c; gg[i]=clamp((gg[i]||0)+c*8,-20,20); }
     if(Math.abs(s)<0.05)continue;
+    s=clamp(s,-0.7,0.7);
     m.g=clamp((m.g||0)+s*8,-20,20); caucusNote(m,pid,nm,s*8);
     const gov=m.party===prMyParty()||coalitionPartners().includes(m.party);
     m.L=clamp(m.L+s*(gov?4:-2),0,100);
@@ -20790,12 +20792,12 @@ function prTick(){
     m.L=clamp(m.L+(prTarget(m)-m.L)*0.35,0,100); }
   // the other parties' leaderships pick their own fights
   const r=caucusRng("prflash|"+GAME.turn);
-  if(r()<0.12){ const pids=PR_ORDER.filter(p=>p!==prMyParty()&&(GAME.legis.prCounts||{})[p]>=4);
+  if(r()<0.08){ const pids=PR_ORDER.filter(p=>p!==prMyParty()&&(GAME.legis.prCounts||{})[p]>=4);
     const pid=pids[Math.floor(r()*pids.length)];
     if(pid){ const by={}; prSeated().filter(m=>m.party===pid).forEach(m=>prBreaks(m).forEach(i=>(by[i]=by[i]||[]).push(m)));
       const iss=Object.keys(by).filter(i=>by[i].length>=2);
       if(iss.length){ const i=iss[Math.floor(r()*iss.length)];
-        by[i].forEach(m=>{ m.g=clamp((m.g||0)-16,-20,20); m.gg=m.gg||{}; m.gg[i]=clamp((m.gg[i]||0)-16,-20,20); caucusNote(m,"_lead",prPartyWord(pid)+" leadership whipped them on "+ISSUES[i].name.toLowerCase(),-16); m.L=clamp(m.L-8,0,100); });
+        by[i].forEach(m=>{ m.g=clamp((m.g||0)-8,-20,20); m.gg=m.gg||{}; m.gg[i]=clamp((m.gg[i]||0)-8,-20,20); caucusNote(m,"_lead",prPartyWord(pid)+" leadership whipped them on "+ISSUES[i].name.toLowerCase(),-8); m.L=clamp(m.L-3,0,100); });
         const t="The "+prPartyWord(pid)+" leadership whipped its members on "+ISSUES[i].name.toLowerCase()+"; "+by[i].length+" balked.";
         GAME.log.push(ico('people')+" "+t); news.push(t); } } }
   // wings form from anger, per party
