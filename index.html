@@ -10360,11 +10360,13 @@ const SITUATIONS={
     metricEffect:{gdp:-1.0,unemployment:0.6,loggingRate:-8}, moodMag:2, minTurns:3,
     groupMood:{blueCollar:-7,businessClass:-6,poor:-6,middleIncome:-3,moderate:-2}},
   // Oregon's own correction: a boom that ran too hot, here and nowhere else
-  oregonBust:{name:"Oregon's Boom Goes Bust", kind:"bad", category:"event", cooldown:10,
-    desc:"Oregon ran hotter than the country for too long. Home prices outran wages, the construction pipeline overbuilt, and the tech payrolls that carried the boom are being trimmed. The rest of the country is fine; Oregon is not.",
-    rules:"Oregon's own correction, set off by an economy overheated past 80%. It hits Oregon's output, jobs and the pension fund, the harder the hotter it ran, and leaves the national economy alone. Another cannot begin for ten quarters after this one.",
-    metricEffect:{gdp:-0.7,unemployment:0.4}, moodMag:2, minTurns:3,
-    groupMood:{businessClass:-5,blueCollar:-4,wealthy:-4,middleIncome:-2,renters:2}},
+  // growing faster than the state can house its people: the cost of a boom
+  overheated:{name:"An Overheated Economy", kind:"bad", category:"condition",
+    desc:"Oregon is growing faster than it can house, staff or move its people. Every new job brings a household looking for somewhere to live, rents and home prices are running well ahead of wages, and the people who were already here are being outbid for what there is.",
+    rules:"Starts when the economy has run hot past 72% overheating, and lasts until it cools below 35%. While it lasts housing gets less affordable, inequality widens and more people are priced out onto the street. Nothing crashes: growth simply costs more. Building housing and a cooler cycle both help.",
+    trigger:()=>(GAME.overheat||0)>0.72, clear:()=>(GAME.overheat||0)<0.35, minTurns:3,
+    metricEffect:{inequality:0.6, homelessness:0.7}, indicatorEffect:{housingAffordability:-8},
+    moodMag:1, groupMood:{renters:-6, poor:-4, students:-3, middleIncome:-2, businessClass:2, wealthy:2}},
   transportCliff:{name:"Transportation Funding Cliff", kind:"bad", category:"condition",
     desc:"ODOT is out of money. The gas tax erodes with every electric car sold, the 2025 layoffs were the first cut rather than the last, and the department's $354 million annual gap is now a list of maintenance crews and snowplow routes.",
     rules:"Ends when Transportation Revenue Health reaches about 70. Any mix gets there: a higher gas tax (strongest), higher registration fees (steadiest) or the EV Road Usage Charge (closes the EV gap). During a boom, heavy in-migration raises the bar.",
@@ -10990,8 +10992,8 @@ function plevelTxt(id){
     return String(p.tiers[clamp(p.tierIndex||0,0,p.tiers.length-1)]).replace(/&amp;/g,"&");
   return Math.round(policyLevel(p)*100)+"%";
 }
-/* Either downturn: the national recession or Oregon's own bust. */
-function econDownturn(){ return !!(GAME.activeSituations&&(GAME.activeSituations.recession||GAME.activeSituations.oregonBust)); }
+/* A downturn: the national recession. */
+function econDownturn(){ return !!(GAME.activeSituations&&GAME.activeSituations.recession); }
 function econWord(c){ return c>0.33?"boom":c>0.10?"expansion":c<-0.33?"recession":c<-0.10?"downturn":"steady"; }
 function econTxt(){ const c=GAME.econCycle||0; return econWord(c)+" ("+(c>=0?"+":"")+c.toFixed(2)+")"; }
 function gdpIndex(){ return effective("gdp"); }
@@ -11277,10 +11279,6 @@ const EVENT_POOL=[
   // cycle, which comes round about once in six years
   {id:"recession", prob:0.18, gate:()=>(GAME.natCycle||0)<-0.1,
    why:()=>[[ fc("The national cycle below −0.10", ((GAME.natCycle||0)>=0?"+":"")+(GAME.natCycle||0).toFixed(2), (GAME.natCycle||0)<-0.1, "budget") ]]},
-  // Oregon's own correction: set off by Oregon overheating
-  {id:"oregonBust", prob:0.18, gate:()=>(GAME.overheat||0)>0.8,
-   why:()=>[[ fc("Oregon's economy overheated past 80% — a boom with a correction owed", Math.round((GAME.overheat||0)*100)+"%", (GAME.overheat||0)>0.8, "budget") ]],
-   mult:()=>[{name:"Overheating ("+Math.round((GAME.overheat||0)*100)+"%) — the hotter it ran, the harder it lands", x:1+(GAME.overheat||0)*1.1, link:"budget"}]},
   {id:"federalWindfall", prob:0.06, gate:()=>true},
   {id:"droughtWater", prob:0.06, gate:()=>true, seasonal:[2,3],
    mult:()=>{ const wr=POLICIES.waterRights?policyLevel(POLICIES.waterRights):0, gs=growthResourceStrain();
@@ -12460,7 +12458,7 @@ function startSituation(sid){
   }
   // a recession that follows an overheated boom hits harder — the correction is
   // proportional to how far the economy got ahead of itself
-  if((sid==="recession"||sid==="oregonBust")&&(GAME.overheat||0)>0.25){
+  if(sid==="recession"&&(GAME.overheat||0)>0.25){
     const o=GAME.overheat;
     // about half what it once was: a hot boom should carry a risk, not be a
     // thing a governor learns to avoid
@@ -12483,7 +12481,7 @@ function startSituation(sid){
     GAME.deficitStreak=(GAME.deficitStreak||0)+1;
     GAME.log.push(ico('siren')+" Emergency response: $"+res.toFixed(1)+"B of reserves gone in a weekend and $"+borrowed.toFixed(1)+"B borrowed — the state will be paying for this quake for a decade");
   }
-  if(sid==="recession"||sid==="oregonBust"){
+  if(sid==="recession"){
     // the market drop blows a hole in the pension fund — bigger after a frothy boom
     const persHit = 2.5 + (GAME.overheat||0)*2;
     GAME.persUAL=+clamp((GAME.persUAL||28) + persHit, 3, 70).toFixed(2);
