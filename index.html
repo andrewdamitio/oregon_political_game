@@ -3656,7 +3656,7 @@ const INDICATORS={
   taxGrievance:{name:"Tax-Burden Grievance", icon:"receipt", value:42,
     desc:"How resentful businesses and higher earners feel about Oregon's stacked tax load — income tax with no offsetting sales-tax relief, the CAT, gas and carbon taxes. Research shows this grievance is politically potent and <i>partly decoupled</i> from whether anyone is actually leaving: the perception drives politics regardless. Feeds business climate and the out-migration narrative.",
     derive:()=>{
-      let v=8+(METRICS.taxBurden.value-12)*0.9;            // rises steeply with total burden
+      let v=44+(METRICS.taxBurden.value-52)*1.8;           // rises steeply with total burden above where Oregon starts
       v+=(METRICS.gasPrice.value-3.6)*3;
       if(POLICIES.salesTax&&policyLevel(POLICIES.salesTax)>0)v+=8;  // a sales tax on TOP of income tax inflames it
       if(GAME.activeSituations.taxRevolt)v+=12;
@@ -3670,8 +3670,8 @@ const INDICATORS={
       return clamp(v,0,100);
     },
     drivers:()=>[
-      {name:"⊕ baseline",v:8,base:true},
-      {name:ico(METRICS.taxBurden.icon)+" Tax Burden",v:(METRICS.taxBurden.value-12)*0.9,link:"m_taxBurden"},
+      {name:"⊕ baseline",v:44,base:true},
+      {name:ico(METRICS.taxBurden.icon)+" Tax Burden",v:(METRICS.taxBurden.value-52)*1.8,link:"m_taxBurden"},
       {name:ico(METRICS.gasPrice.icon)+" Gas Price",v:(METRICS.gasPrice.value-3.6)*3,link:"m_gasPrice"},
       ...(POLICIES.salesTax&&policyLevel(POLICIES.salesTax)>0?[{name:ico('cart')+" Sales Tax (on top of income tax)",v:8,link:"p_salesTax"}]:[]),
       {name:ico(INDICATORS.digitization.icon)+" State Capacity (friction)",v:-(INDICATORS.digitization.value-40)*0.05,link:"i_digitization"},
@@ -10362,9 +10362,9 @@ const SITUATIONS={
     groupMood:{businessClass:-10, wealthy:-7, suburban:-4, blueCollar:-4, rural:-3}},
   taxRevolt:{name:"Tax Revolt", kind:"bad", category:"condition",
     desc:"An anti-tax ballot measure campaign has caught fire. Oregon's stacked income, payroll, and property taxes have pushed voter frustration past the tipping point — initiative petitions are circulating, town halls are getting heated, and your governing mandate is under siege. The revolt persists until tax grievance cools significantly.",
-    trigger:()=>INDICATORS.taxGrievance.value>68, onClear:{capital:3},
-    clear:()=>INDICATORS.taxGrievance.value<53,
-    watch:{indicator:"taxGrievance", startAt:68, clearAt:53, badHigh:true},
+    trigger:()=>INDICATORS.taxGrievance.value>62, onClear:{capital:3},
+    clear:()=>INDICATORS.taxGrievance.value<50,
+    watch:{indicator:"taxGrievance", startAt:62, clearAt:50, badHigh:true},
     metricEffect:{taxBurden:-2}, moodAxes:{economic:0.5,govSize:0.5}, moodMag:2, minTurns:3,
     onTrigger:{capital:-5},
     groupMood:{wealthy:-9,businessClass:-8,rural:-7,suburban:-4,conservative:-3,libertarian:-3,motorists:-2}},
@@ -22870,7 +22870,11 @@ function drawFloor(){
       <span class="conc-l">${lab}</span>
       <span class="conc-c">${!q.possible?"dead":q.cost<=w.base?"floor time only":"◈"+q.cost}${q.possible?" · "+Math.round(q.odds*100)+"%":""}</span></button>`;
   }).join("");
-  const cush=[0,2,4,6].map(cv=>{
+  // spare votes are offered only where they raise the odds: at 100%, or at a
+  // contested change's ceiling, they buy nothing, and past the capital limit
+  // they make the bill unpassable
+  const cushOK=[2,4,6].filter(cv=>{ const q=whipCount(F.id,F.dir,F.narrowed,cv); return q.possible&&q.odds>=w.odds+0.02; });
+  const cush=(cushOK.length?[0].concat(cushOK):[]).map(cv=>{
     const q=whipCount(F.id,F.dir,F.narrowed,cv);
     const on=cv===(F.cushion||0);
     return `<button class="conc ${on?'on':''}${(GAME.capital>=q.cost&&q.possible)?'':' broke'}" data-cush="${cv}">
@@ -22926,8 +22930,8 @@ function drawFloor(){
     ${whipChamberHTML(w.house,pol,F.dir)}
     ${whipChamberHTML(w.senate,pol,F.dir)}
     <div class="whip-legend"><span><i class="wp y own"></i>your members, yes</span><span><i class="wp y cross"></i>crossover yes</span><span><i class="wp buy"></i>whipped</span><span><i class="wp n"></i>no</span><span><i class="wp n hard"></i>not for sale</span></div>
-    <div class="conc-h" style="margin-top:14px">${ico('shield')} How big a margin — spare votes are insurance, not waste</div>
-    <div class="conc-row">${cush}</div>
+    ${cush?`<div class="conc-h" style="margin-top:14px">${ico('shield')} How big a margin — spare votes are insurance, not waste</div>
+    <div class="conc-row">${cush}</div>`:""}
     ${floorHoldoutsHTML(w,"b:"+F.dir+":"+F.id,F.id)}`;
   modal.classList.remove("hidden");
   card.querySelectorAll('[data-conc]').forEach(el=>el.addEventListener('click',()=>{
@@ -28893,7 +28897,11 @@ function paintPendingFloor(){
     const spec=w.spec, isCut=!!spec.cut, isRev=(w.kind!=="program")&&!isCut;
     const total=w.cost+changeCost;
     const afford=GAME.capital>=total||!!window.SANDBOX;
-    const cush=[0,2,4,6].map(cv=>{
+    // spare votes only where they raise the odds (not at 100%, not at a
+    // contested change's ceiling, not past the capital limit)
+    const w0=pendingWhip(key,orig,cur,0);
+    const cushOK=[2,4,6].filter(cv=>{ const q=pendingWhip(key,orig,cur,cv); return q&&q.possible&&w0&&q.odds>=w0.odds+0.02; });
+    const cush=(cushOK.length?[0].concat(cushOK):[]).map(cv=>{
       const q=pendingWhip(key,orig,cur,cv);
       if(!q)return '';
       const qt=q.cost+changeCost, on=cv===(F.cushion||0);
@@ -28955,8 +28963,8 @@ function paintPendingFloor(){
       ${whipChamberHTML(w.house,spec.bill,"enact")}
       ${whipChamberHTML(w.senate,spec.bill,"enact")}
       <div class="whip-legend"><span><i class="wp y own"></i>your members, yes</span><span><i class="wp y cross"></i>crossover yes</span><span><i class="wp buy"></i>whipped</span><span><i class="wp n"></i>no</span><span><i class="wp n hard"></i>not for sale</span></div>
-      <div class="conc-h" style="margin-top:14px">${ico('shield')} How big a margin — spare votes are insurance, not waste</div>
-      <div class="conc-row">${cush}</div>
+      ${cush?`<div class="conc-h" style="margin-top:14px">${ico('shield')} How big a margin — spare votes are insurance, not waste</div>
+      <div class="conc-row">${cush}</div>`:""}
       ${floorHoldoutsHTML(w,"c:"+key,key.startsWith("p_")?key.slice(2):null)}`;
   }
   const done=F.onDone, close=F._close;
