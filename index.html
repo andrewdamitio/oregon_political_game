@@ -6496,7 +6496,10 @@ const AGENCIES={
     effects:{environment:11},   // fire crews, thinning and replanting: the forest itself
     loggingEffects:{loggingRate:30},   // the harvest level is THE lever on the logging rate
     loggingIndicatorEffects:{ruralAlienation:-5},
-    ideology:{environment:0.5},
+    // fire crews and forest health are mildly green, and the groups with a
+    // direct stake in them: the fires are rural Oregon's, the forests everyone's
+    ideology:{environment:-0.2},
+    fundBloc:{rural:2.5, timber:2, liberal:1.5, socialist:1, collegeEducated:1},
     loggingIdeology:{environment:0.6,economic:0.2}},
   ohcs:{name:"Housing & Community Services (OHCS)", domain:"social", icon:"house",
     funding:0.5, costMin:0.5, costFull:1.3, capital:5, cutSurcharge:1.4, seismicAgency:true,
@@ -13251,6 +13254,7 @@ function approvalTarget(sid, raw){
     for(const id in AGENCIES){
       const a=AGENCIES[id];
       if(a.ideology)policyMood+=dot(a.ideology,sim.ideology)*((a.funding??0.5)-0.5)*6;
+      if(a.fundBloc&&a.fundBloc[sid]!==undefined)policyMood+=a.fundBloc[sid]*((a.funding??0.5)-0.5)*2;   // a direct stake
       if(a.loggingIdeology)policyMood+=dot(a.loggingIdeology,sim.ideology)*((a.logging??0.5)-0.5)*6;
     }
     // land use posture
@@ -25846,8 +25850,11 @@ function blocReaction(kind,obj,sim){
       if(metricSensKey(k)&&Math.abs(s[metricSensKey(k)]||0)>=1.4)engaged=true;
   } else if(kind==="agency"){
     if(obj.ideology)m+=dot(obj.ideology,sim.ideology)*((obj.funding??0.5)-0.5)*6;
+    if(obj.fundBloc&&obj.fundBloc[sim.id]!==undefined){ m+=obj.fundBloc[sim.id]*((obj.funding??0.5)-0.5)*2; engaged=true; }
     if(obj.loggingIdeology)m+=dot(obj.loggingIdeology,sim.ideology)*((obj.logging??0.5)-0.5)*6;
-    for(const k in (obj.effects||{}))
+    // an agency that names its stakeholders is judged by them, not by every
+    // group that cares about a metric it happens to move
+    if(!obj.fundBloc)for(const k in (obj.effects||{}))
       if(metricSensKey(k)&&Math.abs(s[metricSensKey(k)]||0)>=1.4)engaged=true;
     for(const k in (obj.loggingEffects||{}))
       if(metricSensKey(k)&&Math.abs(s[metricSensKey(k)]||0)>=1.4)engaged=true;
@@ -28239,6 +28246,8 @@ function agencyBloc(a, id){
   if(id==="oha"){ add("poor",2); add("retirees",1.5); }
   if(id==="odot"){ add("motorists",2); add("rural",1.5); }
   if(id==="forestry"){ add("rural",1.5); add("timber",1.5); }
+  // the groups an agency names as stakeholders (forestry's rural and timber are counted above)
+  for(const b in (a.fundBloc||{}))if(!(id==="forestry"&&(b==="rural"||b==="timber")))add(b,a.fundBloc[b]);
   return out;
 }
 function agencyAdapter(id){
