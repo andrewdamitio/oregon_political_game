@@ -24455,7 +24455,7 @@ function measureBreakdown(m){
     if(stance)net+=stance*((v.approval-50)*BALLOT_STANDING+endorse);
     for(const sid in bPull){ const mw=v.m[sid]; if(mw>0)net+=bPull[sid]*mw; }
     if(cAny&&v.cw)for(let ci=0;ci<v.cw.length;ci++){ const wq=v.cw[ci]; if(wq>0&&cPull[ci])net+=cPull[ci]*wq; }
-    net+=gen+ev-BALLOT_NO_BIAS;
+    net+=gen+ev-(m._noBias?0:BALLOT_NO_BIAS);
     const prob=clamp(0.5+net*BALLOT_SENSITIVITY,0.02,0.98);
     const t=clamp(turnoutProb(v),0.03,0.98)*BALLOT_DROPOFF;
     tot+=t; yes+=t*prob;
@@ -24746,9 +24746,17 @@ function generateCitizenMeasures(){
    the next can see what you changed: enacted, repealed, or a dial moved. */
 function lawLevelOf(p){ return p.mechanic==="tier"?(p.tierIndex||0):p.mechanic==="intensity"?(p.intensity||0):(p.mechanic==="slider"||p.mechanic==="allocation")?(p.value||0):null; }
 function lawSnapshot(){ const o={}; for(const id in POLICIES){ const p=POLICIES[id]; if(!p||p.reform)continue; o[id]={lv:lawLevelOf(p)}; } return o; }
-/* What you changed since the last cycle that the voters would undo: each
-   change, the measure that reverses it, and how that measure polls. Only
-   the ones a large part of the state would vote to reverse are candidates. */
+/* HOW OREGON FEELS ABOUT A CHANGE, hidden from the player: the share of the
+   modelled electorate that favours it, each voter placed on the compass
+   (economic and social) and in their groups. It is the reversal of the
+   change asked as a plain question, with none of the ballot's lean toward
+   no, and turned round. */
+function changeFavor(c){
+  return 1-measureYesShare({id:c.id, dir:c.dir, target:c.target, energy:0, _noBias:true});
+}
+/* What you changed since the last cycle, each with the measure that would
+   reverse it and how the state feels about the change. The ones the state
+   does not favour are candidates, least popular first. */
 function backlashCandidates(){
   const S=GAME.ballot&&GAME.ballot.lawSnap; if(!S)return [];
   const out=[];
@@ -24757,21 +24765,21 @@ function backlashCandidates(){
     const lv=lawLevelOf(p); if(lv==null||was.lv==null)continue;
     const d=Math.abs(lv-was.lv); if(p.mechanic==="tier"?d>=1:d>=0.1)out.push({id, dir:"set", target:was.lv}); }   // moved since
   for(const id in S)if(!POLICIES[id]&&CATALOG[id]&&!CATALOG[id].reform)out.push({id, dir:"enact"});   // repealed since
-  for(const c of out)c.poll=measureYesShare({id:c.id, dir:c.dir, target:c.target, energy:0});
-  // controversial, not only rejected: measures start behind (voters lean no
-  // when in doubt), so a reversal polling 45% is a law a large part of the
-  // state wants gone
-  return out.filter(c=>c.poll>=0.45).sort((a,b)=>b.poll-a.poll);
+  for(const c of out){ c.fav=changeFavor(c); c.poll=measureYesShare({id:c.id, dir:c.dir, target:c.target, energy:0}); }
+  GAME.ballot.favLog=out.map(c=>({id:c.id, dir:c.dir, fav:+c.fav.toFixed(3)}));   // kept, never shown
+  return out.filter(c=>c.fav<0.5).sort((a,b)=>a.fav-b.fav);
 }
-/* Put this cycle's citizen initiatives on the ballot, and any referendum
-   petition against what you changed: up to two, each taking the place of an
-   ordinary initiative, likelier the more the voters oppose the change. */
+/* Put this cycle's citizen initiatives on the ballot, and the referendum
+   petitions against the least popular of your changes: the first likelier
+   the less the state favours it, a second sometimes, a third rarely, each
+   taking the place of an ordinary initiative. */
 function refreshCitizenBallot(){
   const refs=[];
   if(initiativeLimit()!=="noInitiatives"){
-    for(const c of backlashCandidates()){ if(refs.length>=2)break;
-      if(pendingMeasure(c.id))continue;
-      if(Math.random()<clamp((c.poll-0.42)*3,0,0.7))refs.push(c); }
+    const cand=backlashCandidates().filter(c=>!pendingMeasure(c.id));
+    // the first: from 1 in 10 for a change the state is split on, to 85% for one it clearly dislikes
+    const odds=[f=>clamp(0.1+(0.5-f)*5,0,0.85), f=>clamp((0.47-f)*4,0,0.55), f=>clamp((0.42-f)*2,0,0.15)];
+    for(let i=0;i<cand.length&&refs.length<3;i++){ if(Math.random()<odds[refs.length](cand[i].fav))refs.push(cand[i]); else break; }
   }
   // the next cycle measures from here
   GAME.ballot.lawSnap=lawSnapshot();
