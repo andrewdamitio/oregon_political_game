@@ -23985,6 +23985,7 @@ function doEndTurn(){
   // roughly four quarters out, citizens put their own measures on the coming
   // ballot — generated once per cycle, entirely independent of you
   {
+    if(!GAME.ballot.lawSnap)GAME.ballot.lawSnap=lawSnapshot();   // what referendums measure from
     const nb=nextBallotInfo();
     const key=GAME.term+"|"+nb.kind;
     if(nb.quartersAway>=1 && nb.quartersAway<=4 && GAME.ballot.citizenGenKey!==key){
@@ -24272,6 +24273,7 @@ function measureTargetLabel(m){
 }
 /* The proposition in plain words — used everywhere a measure is named. */
 function measureTitle(m){
+  if(m&&m.backlash)return "Referendum: "+measureTitle(Object.assign({},m,{backlash:false}));
   const p=measureFor(m.id), nm=(p&&p.name)||m.name;
   if(m.variant&&MEASURE_VARIANTS[m.id]&&MEASURE_VARIANTS[m.id][m.variant]&&m.dir!=="repeal")return nm+" ("+MEASURE_VARIANTS[m.id][m.variant].label.toLowerCase()+")";
   if(m.dir==="repeal")return "Repeal — "+nm;
@@ -24389,6 +24391,16 @@ function orCountyIndex(){
   return _ORCIX;
 }
 function measureBreakdown(m){
+  // A REFERENDUM is broad, organised opposition: whatever you do to pull the
+  // yes vote down goes less far (60%), while a stance that backfires lands in
+  // full. Measured against the same measure with nobody campaigning.
+  if(m&&m.backlash&&!m._raw){
+    const bd=measureBreakdown(Object.assign({},m,{_raw:true}));
+    const base=measureBreakdown(Object.assign({},m,{_raw:true, stance:null, energy:0, blocPull:{}, countyPull:{}, swing:0}));
+    if(bd.yes<base.yes){ const y=base.yes-(base.yes-bd.yes)*0.6, sh=y-bd.yes;
+      bd.yes=y; if(Array.isArray(bd.counties))bd.counties=bd.counties.map(c=>c&&c.yes!=null?Object.assign({},c,{yes:clamp(c.yes+sh,0.01,0.99)}):c); }
+    return bd;
+  }
   const p=measureFor(m.id);
   if(!p)return {yes:0.5, blocs:{}, counties:[]};
   // for a tier "set" measure the ideological pull is the difference between the
@@ -24730,18 +24742,53 @@ function generateCitizenMeasures(){
   if(initiativeLimit()==="signatures")return out.slice(0,1+Math.floor(Math.random()*2));
   return out;
 }
-/* Put this cycle's citizen initiatives on the ballot. */
+/* THE CITIZEN REFERENDUM. What the laws were at the last ballot cycle, so
+   the next can see what you changed: enacted, repealed, or a dial moved. */
+function lawLevelOf(p){ return p.mechanic==="tier"?(p.tierIndex||0):p.mechanic==="intensity"?(p.intensity||0):(p.mechanic==="slider"||p.mechanic==="allocation")?(p.value||0):null; }
+function lawSnapshot(){ const o={}; for(const id in POLICIES){ const p=POLICIES[id]; if(!p||p.reform)continue; o[id]={lv:lawLevelOf(p)}; } return o; }
+/* What you changed since the last cycle that the voters would undo: each
+   change, the measure that reverses it, and how that measure polls. Only
+   the ones a large part of the state would vote to reverse are candidates. */
+function backlashCandidates(){
+  const S=GAME.ballot&&GAME.ballot.lawSnap; if(!S)return [];
+  const out=[];
+  for(const id in POLICIES){ const p=POLICIES[id]; if(!p||p.reform)continue; const was=S[id];
+    if(!was){ if(!p.noRepeal)out.push({id, dir:"repeal"}); continue; }          // enacted since
+    const lv=lawLevelOf(p); if(lv==null||was.lv==null)continue;
+    const d=Math.abs(lv-was.lv); if(p.mechanic==="tier"?d>=1:d>=0.1)out.push({id, dir:"set", target:was.lv}); }   // moved since
+  for(const id in S)if(!POLICIES[id]&&CATALOG[id]&&!CATALOG[id].reform)out.push({id, dir:"enact"});   // repealed since
+  for(const c of out)c.poll=measureYesShare({id:c.id, dir:c.dir, target:c.target, energy:0});
+  // controversial, not only rejected: measures start behind (voters lean no
+  // when in doubt), so a reversal polling 45% is a law a large part of the
+  // state wants gone
+  return out.filter(c=>c.poll>=0.45).sort((a,b)=>b.poll-a.poll);
+}
+/* Put this cycle's citizen initiatives on the ballot, and any referendum
+   petition against what you changed: up to two, each taking the place of an
+   ordinary initiative, likelier the more the voters oppose the change. */
 function refreshCitizenBallot(){
+  const refs=[];
+  if(initiativeLimit()!=="noInitiatives"){
+    for(const c of backlashCandidates()){ if(refs.length>=2)break;
+      if(pendingMeasure(c.id))continue;
+      if(Math.random()<clamp((c.poll-0.42)*3,0,0.7))refs.push(c); }
+  }
+  // the next cycle measures from here
+  GAME.ballot.lawSnap=lawSnapshot();
   if(initiativeLimit()==="noInitiatives")return [];   // only the legislature refers now
-  const list=generateCitizenMeasures(), created=[];
+  let list=generateCitizenMeasures().filter(c=>!refs.some(r=>r.id===c.id));
+  if(refs.length)list=list.slice(0,Math.max(1,list.length-refs.length));   // the referendums displace initiatives
+  const created=[];
   const nb=nextBallotInfo();
-  for(const c of list){
+  for(const c of refs.concat(list)){
     const p=measureFor(c.id); if(!p)continue;
+    const ref=refs.includes(c);
     const entry={id:c.id, dir:c.dir, target:c.target, name:p.name, icon:p.icon||"ballot",
       referredTurn:GAME.turn, kind:nb.kind, energy:0,
-      source:"citizen", sponsor:citizenSponsorText(c), stance:null};
+      source:"citizen", sponsor:ref?"A referendum petition: "+citizenSponsorText(c).replace(/^A /,"a ")+" gathered the signatures to put your change to the voters":citizenSponsorText(c), stance:null, backlash:ref||undefined};
     GAME.ballot.pending.push(entry);
     created.push(entry);
+    if(ref)GAME.log.push(ico('ballot')+" A referendum petition has qualified: "+measureTitle(entry)+" goes to the voters. The opposition is broad, and harder to campaign against.");
   }
   return created;
 }
@@ -30941,6 +30988,8 @@ function bootWorld(startId){
   // the electorate as inherited — every later size is held in a band round this
   GAME.sizeAnchor={}; for(const sid in SIMULANTS)GAME.sizeAnchor[sid]=SIMULANTS[sid].size;
   GAME.makeupShift={};
+  // the laws as inherited: a referendum petition can only be against what YOU changed
+  GAME.ballot=GAME.ballot||{pending:[], history:[]}; GAME.ballot.lawSnap=lawSnapshot();
   pushHistory(); // seed turn 0
   // hand gameplay its own stream, so the run plays the same however many times
   // the opening screen rebuilt the world
