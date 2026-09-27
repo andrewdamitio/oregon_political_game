@@ -490,7 +490,7 @@
   .cf-chairs{font-size:12.5px;border-top:1px dashed var(--line);padding-top:5px}
   .cfacs-under{grid-template-columns:1fr;margin-top:4px}
   .pill.pubsup{border-color:var(--line);color:var(--ink)} .pill.pubsup.good{color:var(--moss);border-color:var(--moss)} .pill.pubsup.bad{color:var(--clay);border-color:var(--clay)}
-  #floorNo+.pill.pubsup,#pfNo+.pill.pubsup{align-self:center;font-size:13px;padding:6px 10px}
+  .pubsup-inline{align-self:center;font-size:14px;color:var(--muted-1);white-space:nowrap} .pubsup-inline b{font-family:var(--font-data);font-size:16px;margin-left:3px}
   .cang{border-top:1px solid var(--line);margin:2px 0 8px}
   .cang-row{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--line-faint);font-size:13.5px;cursor:pointer}
   .cang-row:hover,.cang-row:focus{background:var(--paper-2);outline:none}
@@ -5658,7 +5658,7 @@ const POLICIES={
     blocEffect:{liberal:3, transitCommuters:2, wealthy:1, rural:-3, motorists:-2},
     real:{min:0,max:100,unit:"/100 effort",decimals:0,label:"incentive level"},
     ideology:{environment:-0.5,economic:-0.2,govSize:-0.3}},
-  charterSchools:{name:"Charter School Expansion", domain:"eduHealth", icon:"cap", enacted:true, mechanic:"slider",
+  charterSchools:{name:"Charter Schools Latitude", domain:"eduHealth", icon:"cap", enacted:true, mechanic:"slider",
     desc:"Oregon has allowed public charter schools since 1999 (ORS 338), with explicit sponsorship rules and no hard statewide cap. The slider sets how much latitude you give them. Proponents cite competition and parental choice lifting outcomes; the teachers' unions fight expansion as draining district funds.",
     value:0.35, costFull:0.1, capital:6, repealCost:8,
     effects:{eduOutcomes:{b:1,c:6,i:5}, education:1},
@@ -22880,7 +22880,7 @@ function drawFloor(){
         :"Call the vote"+(variants?" — "+variants[curVar].label.toLowerCase():binary?"":" — "+(dialed?dialLab(F.narrowed):(F.narrowed>=1?"full bill":Math.round(F.narrowed*100)+"% strength")))
           +((w.house.buy.length+w.senate.buy.length)?", whipping "+(w.house.buy.length+w.senate.buy.length):"")}</button>
       <button class="enactbtn ghost" id="floorNo">Pull the bill</button>
-      ${publicSupportPill(publicSupport(F.id,F.dir==="repeal"?"repeal":"enact",F.dir==="repeal"?1:F.narrowed),F.dir==="repeal"?"Public support for repeal":"Public support at this strength")}
+      ${publicSupportInline(publicSupport(F.id,F.dir==="repeal"?"repeal":"enact",F.dir==="repeal"?1:F.narrowed),F.dir==="repeal"?"Support for repeal":"Public support")}
     </div>
     ${w.possible?"":eoHintHTML(pol)}
     ${floorHoldoutsHTML(w,"b:"+F.dir+":"+F.id,F.id)}
@@ -24762,7 +24762,9 @@ function lawSnapshot(){ const o={}; for(const id in POLICIES){ const p=POLICIES[
      keep   — keeping a law already on the books
      set    — moving a dial from "from" to where it now stands */
 function publicSupport(id,dir,nw,from){
-  const key=id+"|"+dir+"|"+(nw==null?1:Math.round(nw*100))+"|"+(from==null?"":from)+"|"+GAME.turn;
+  // where the law stands NOW is part of the question: move the dial and it is a different change
+  const pp=POLICIES[id], now=pp?lawLevelOf(pp):null;
+  const key=id+"|"+dir+"|"+(nw==null?1:Math.round(nw*100))+"|"+(from==null?"":from)+"|"+(now==null?"":Math.round(now*1000))+"|"+(pp?1:0)+"|"+GAME.turn;
   const C=window._pubSup=(window._pubSup&&window._pubSup.t===GAME.turn&&window._pubSup.g===GAME.startId)?window._pubSup:{t:GAME.turn, g:GAME.startId, v:{}};   // a cache, never saved
   if(C.v[key]!=null)return C.v[key];
   let v=0.5;
@@ -24774,8 +24776,13 @@ function publicSupport(id,dir,nw,from){
   }catch(e){ v=0.5; }
   return C.v[key]=clamp(v,0.01,0.99);
 }
+/* The floor's version: plain text beside the buttons, the figure coloured. */
+function publicSupportInline(v,label){
+  const col=v>=0.5?"var(--good)":"var(--bad)";   // more for than against, or not
+  return `<span class="pubsup-inline" title="The share of Oregonians, as the game models them, who favour it: each voter by where they sit on the political compass and the groups they belong to.">${label||"Public support"} <b style="color:${col}">${Math.round(v*100)}%</b></span>`;
+}
 function publicSupportPill(v,label){
-  const cls=v>=0.55?"good":v<0.45?"bad":"";
+  const cls=v>=0.5?"good":"bad";
   return `<span class="pill pubsup ${cls}" title="The share of Oregonians, as the game models them, who favour it: each voter by where they sit on the political compass and the groups they belong to.">${label||"Public support"} ${Math.round(v*100)}%</span>`;
 }
 /* HOW OREGON FEELS ABOUT A CHANGE, hidden from the player: the share of the
@@ -28697,7 +28704,7 @@ function paintPendingFloor(){
         <button class="enactbtn ghost" id="pfNo">Withdraw the change</button>
         ${(()=>{ const pid=key.startsWith("p_")?key.slice(2):null, pp=pid&&POLICIES[pid]; if(!pp)return "";
           let was=null; try{ const d=JSON.parse(GAME.pendingFloorChange.origSnap); was=pp.mechanic==="tier"?d.t:pp.mechanic==="intensity"?d.i:d.v; }catch(e){}
-          return was==null?"":publicSupportPill(publicSupport(pid,"set",null,was),"Public support for this change"); })()}
+          return was==null?"":publicSupportInline(publicSupport(pid,"set",null,was),"Public support"); })()}
       </div>
       ${floorHoldoutsHTML(w,"c:"+key,key.startsWith("p_")?key.slice(2):null)}
       <div class="floor-roll">${ico('columns')} The count, seat by seat</div>
