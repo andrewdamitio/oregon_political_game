@@ -490,7 +490,10 @@
   .cf-chairs{font-size:12.5px;border-top:1px dashed var(--line);padding-top:5px}
   .cfacs-under{grid-template-columns:1fr;margin-top:4px}
   .pill.pubsup{border-color:var(--line);color:var(--ink)} .pill.pubsup.good{color:var(--moss);border-color:var(--moss)} .pill.pubsup.bad{color:var(--clay);border-color:var(--clay)}
-  .pubsup-inline{align-self:center;font-size:14px;color:var(--muted-1);white-space:nowrap} .pubsup-inline b{font-family:var(--font-data);font-size:16px;margin-left:3px}
+  .floor-act{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;margin:6px 0 4px}
+  .floor-btns{display:flex;gap:10px;flex-wrap:wrap;min-width:0}
+  .pubsup-inline{display:flex;flex-direction:column;align-items:flex-end;text-align:right;line-height:1.15;white-space:nowrap}
+  .pubsup-inline i{font-style:normal;font-size:11.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted-2)} .pubsup-inline b{font-family:var(--font-data);font-size:22px}
   .cang{border-top:1px solid var(--line);margin:2px 0 8px}
   .cang-row{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--line-faint);font-size:13.5px;cursor:pointer}
   .cang-row:hover,.cang-row:focus{background:var(--paper-2);outline:none}
@@ -22874,12 +22877,12 @@ function drawFloor(){
       <span>${(w.house.buy.length+w.senate.buy.length)?"Whipping "+(w.house.buy.length+w.senate.buy.length)+" vote"+((w.house.buy.length+w.senate.buy.length)===1?"":"s")+" plus floor time":"Floor time only — you already have the votes"}</span>
       <span class="wc-num ${afford?'':'broke'}">◈ ${w.cost} <span class="wc-have">of ◈ ${GAME.capital}</span></span></div>
     ${(w.house.buy.length+w.senate.buy.length)?`<div class="whip-owed">Members you whip will owe you nothing afterward — they have already paid. The next bill that hurts their seat, they are gone.</div>`:``}
-    <div style="display:flex;gap:10px;margin:6px 0 4px;flex-wrap:wrap">
+    <div class="floor-act"><div class="floor-btns">
       <button class="enactbtn" id="floorGo" ${((w.possible||window.SANDBOX)&&afford)?'':'disabled'}>${
         (!w.possible||!afford)?floorBlockLabel(w)
         :"Call the vote"+(variants?" — "+variants[curVar].label.toLowerCase():binary?"":" — "+(dialed?dialLab(F.narrowed):(F.narrowed>=1?"full bill":Math.round(F.narrowed*100)+"% strength")))
           +((w.house.buy.length+w.senate.buy.length)?", whipping "+(w.house.buy.length+w.senate.buy.length):"")}</button>
-      <button class="enactbtn ghost" id="floorNo">Pull the bill</button>
+      <button class="enactbtn ghost" id="floorNo">Pull the bill</button></div>
       ${publicSupportInline(publicSupport(F.id,F.dir==="repeal"?"repeal":"enact",F.dir==="repeal"?1:F.narrowed),F.dir==="repeal"?"Support for repeal":"Public support")}
     </div>
     ${w.possible?"":eoHintHTML(pol)}
@@ -24398,13 +24401,37 @@ function orCountyIndex(){
   if(!_ORCIX){ _ORCIX={}; OR_COUNTIES.forEach((r,i)=>{_ORCIX[r[0]]=i;}); }
   return _ORCIX;
 }
+/* TAXPAYER AVERSION: support lost per unit a tax's dial rises (0-1 scale),
+   by how broadly it lands on ordinary voters. A cut gains the same. */
+const TAX_AVERSION={salesTax:0.35, incomeTax:0.30, carbonTax:0.15, vehicleReg:0.12, gasTax:0.10,
+  corpTax:0.08, estateTax:0.04, cannabisTax:0.03, taxCut:-0.25};
+/* How far a measure raises a tax's dial: enacting it, repealing it, or
+   setting it from where it stands to its target. */
+function measureTaxRise(m){
+  const k=TAX_AVERSION[m.id]; if(!k)return 0;
+  const on=POLICIES[m.id], p=on||CATALOG[m.id]; if(!p)return 0;
+  const lv=on?(lawLevelOf(on)||0):0;
+  let d=0;
+  if(m.dir==="enact")d=on?0:(p.value!=null?p.value:0.5);
+  else if(m.dir==="repeal")d=-lv;
+  else if(m.dir==="set"&&m.target!=null)d=m.target-lv;
+  return k*d;
+}
 function measureBreakdown(m){
+  // TAXPAYER AVERSION on top of everything else: raising a tax costs support
+  // in proportion to the rise, cutting one earns it
+  if(m&&!m._taxed&&TAX_AVERSION[m.id]){
+    const bd=measureBreakdown(Object.assign({},m,{_taxed:true})), sh=-measureTaxRise(m);
+    if(sh){ bd.yes=clamp(bd.yes+sh,0.02,0.98); if(Array.isArray(bd.counties))bd.counties=bd.counties.map(c=>c&&c.yes!=null?Object.assign({},c,{yes:clamp(c.yes+sh,0.01,0.99)}):c); }
+    return bd;
+  }
   // A REFERENDUM is broad, organised opposition: whatever you do to pull the
   // yes vote down goes less far (60%), while a stance that backfires lands in
   // full. Measured against the same measure with nobody campaigning.
   if(m&&m.backlash&&!m._raw){
     const bd=measureBreakdown(Object.assign({},m,{_raw:true}));
     const base=measureBreakdown(Object.assign({},m,{_raw:true, stance:null, energy:0, blocPull:{}, countyPull:{}, swing:0}));
+    // (both already carry the taxpayer step: it runs before this one)
     if(bd.yes<base.yes){ const y=base.yes-(base.yes-bd.yes)*0.6, sh=y-bd.yes;
       bd.yes=y; if(Array.isArray(bd.counties))bd.counties=bd.counties.map(c=>c&&c.yes!=null?Object.assign({},c,{yes:clamp(c.yes+sh,0.01,0.99)}):c); }
     return bd;
@@ -24769,7 +24796,7 @@ function publicSupport(id,dir,nw,from){
   if(C.v[key]!=null)return C.v[key];
   let v=0.5;
   try{
-    if(dir==="enact"){ const full=measureYesShare({id,dir:"enact",energy:0,_noBias:true}); v=0.5+(full-0.5)*(nw==null?1:nw); }
+    if(dir==="enact"){ const full=measureYesShare({id,dir:"enact",energy:0,_noBias:true,_taxed:true}); v=0.5+(full-0.5)*(nw==null?1:nw)-measureTaxRise({id,dir:"enact"})*(nw==null?1:nw); }
     else if(dir==="repeal")v=measureYesShare({id,dir:"repeal",energy:0,_noBias:true});
     else if(dir==="keep")v=1-measureYesShare({id,dir:"repeal",energy:0,_noBias:true});
     else if(dir==="set")v=1-measureYesShare({id,dir:"set",target:from,energy:0,_noBias:true});
@@ -24779,7 +24806,7 @@ function publicSupport(id,dir,nw,from){
 /* The floor's version: plain text beside the buttons, the figure coloured. */
 function publicSupportInline(v,label){
   const col=v>=0.5?"var(--good)":"var(--bad)";   // more for than against, or not
-  return `<span class="pubsup-inline" title="The share of Oregonians, as the game models them, who favour it: each voter by where they sit on the political compass and the groups they belong to.">${label||"Public support"} <b style="color:${col}">${Math.round(v*100)}%</b></span>`;
+  return `<span class="pubsup-inline" title="The share of Oregonians, as the game models them, who favour it: each voter by where they sit on the political compass and the groups they belong to."><i>${label||"Public support"}</i><b style="color:${col}">${Math.round(v*100)}%</b></span>`;
 }
 function publicSupportPill(v,label){
   const cls=v>=0.5?"good":"bad";
@@ -28697,11 +28724,11 @@ function paintPendingFloor(){
       <div class="whip-cost">
         <span>${w.cost?`Whipping ${w.house.buy.length+w.senate.buy.length} vote${(w.house.buy.length+w.senate.buy.length)===1?"":"s"}, plus ◈${changeCost} for the change itself`:`◈${changeCost} for the change — you already have the votes`}</span>
         <span class="wc-num ${afford?'':'broke'}">◈ ${total} <span class="wc-have">of ◈ ${Math.floor(GAME.capital)}</span></span></div>
-      <div style="display:flex;gap:10px;margin:6px 0 4px;flex-wrap:wrap">
+      <div class="floor-act"><div class="floor-btns">
         <button class="enactbtn" id="pfGo" ${((w.possible||window.SANDBOX)&&afford)?'':'disabled'}>${
           (!w.possible||!afford)?floorBlockLabel(w)
           :"Call the vote"+(w.cost?` — whipping ${w.house.buy.length+w.senate.buy.length}`:"")}</button>
-        <button class="enactbtn ghost" id="pfNo">Withdraw the change</button>
+        <button class="enactbtn ghost" id="pfNo">Withdraw the change</button></div>
         ${(()=>{ const pid=key.startsWith("p_")?key.slice(2):null, pp=pid&&POLICIES[pid]; if(!pp)return "";
           let was=null; try{ const d=JSON.parse(GAME.pendingFloorChange.origSnap); was=pp.mechanic==="tier"?d.t:pp.mechanic==="intensity"?d.i:d.v; }catch(e){}
           return was==null?"":publicSupportInline(publicSupport(pid,"set",null,was),"Public support"); })()}
