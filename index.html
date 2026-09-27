@@ -20241,7 +20241,7 @@ function caucusBillShock(pid,delta,nm){
   for(const k in GAME.caucus.m){ const m=GAME.caucus.m[k]; if(!m.v)continue;
     let s=0, top=null, tv=0; const gg=m.gg=m.gg||{}, br=caucusBreaks(m);
     for(const [i,dir] of list){ const v=m.v[i]; if(!v)continue; const c=(br.includes(i)?1.5:1)*v.int*v.pos*dir*delta; s+=c; if(Math.abs(c)>tv){ tv=Math.abs(c); top=i; } }
-    if(Math.abs(s)<0.05)continue;
+    if(Math.abs(s)<0.02)continue;   // a small move on a dial still registers
     s=clamp(s,-0.7,0.7);   // however big the law, one bill moves a member only so far
     // the grudge is kept against the issue, so a member stays angriest
     // about what they care about rather than about whatever came last
@@ -20446,7 +20446,7 @@ function caucusWhyOpp(m){
 function caucusNewsTitle(N){
   const n=t=>(N[t]||[]).length;
   if(n("crossed"))return n("crossed")===1?"A member of your party has crossed the floor":n("crossed")+" members of your party have crossed the floor";
-  if(n("lp"))return (N.lp.some(t=>/broke/.test(t))?"You broke a promise to your legislators":N.lp.some(t=>/kept/.test(t))?"You kept a promise to your legislators":"A promise to your legislators is almost due");
+  if(n("lp"))return (N.lp.some(t=>/broke/.test(t))?"You broke a promise to your legislators":N.lp.some(t=>/of the way on the promise/.test(t))?"You got partway on a promise to your legislators":N.lp.some(t=>/kept/.test(t))?"You kept a promise to your legislators":"A promise to your legislators is almost due");
   if(n("prim"))return "Primary results";
   if(n("formed"))return "The "+caucusFactionName(N.formed[0])+" has formed"+(n("formed")>1?", and "+(n("formed")-1)+" more":"");
   if(n("livid"))return n("livid")+" of your members "+(n("livid")===1?"is":"are")+" livid";
@@ -21086,16 +21086,19 @@ function lpCheck(){
     const kept=moved>=0.1||(lp.want>0&&!lp.wasOn&&!!POLICIES[lp.pid])||(lp.want<0&&lp.wasOn&&!POLICIES[lp.pid]);
     const due=GAME.turn>=lp.due;
     if(!kept&&!due){ keep.push(lp); continue; }
-    const amt0=kept?LP_KEPT:LP_BROKEN;
+    // partway there by the deadline: credit for the share of the way you got
+    const part=kept?1:clamp(moved/0.1,0,1), partial=!kept&&part>=0.15;
+    const amt0=kept?LP_KEPT:LP_BROKEN*(1-part)+LP_KEPT*part;
     for(const k of lp.keys){ const m=lpMember(k,lp.pr); if(!m)continue; const amt=amt0*((lp.wf&&lp.wf[k])||1);
       const opp=lp.pr?!(m.party===prMyParty()||coalitionPartners().includes(m.party)):m.p!=="mine", cap=lp.pr?20:30;
-      m.g=clamp((m.g||0)+amt,-cap,cap); caucusNote(m,"_lpd"+lp.pid,(kept?"Kept your promise to ":"Broke your promise to ")+lp.word,amt);
+      m.g=clamp((m.g||0)+amt,-cap,cap); caucusNote(m,"_lpd"+lp.pid,(kept?"Kept your promise to ":partial?"Got partway on your promise to ":"Broke your promise to ")+lp.word,amt);
       m.L=clamp(m.L+amt*(opp?-0.3:0.5),0,100); }
-    GAME.lpTrust=clamp(lpTrust()+(kept?0.05:-0.2),0.3,1);
+    GAME.lpTrust=clamp(lpTrust()+(kept?0.05:-0.2*(1-part)),0.3,1);
     const who=lp.fac?(lp.who.startsWith("pf:")?prFacName(lp.who.slice(3)):caucusFactionName(lp.who.slice(2))):(lp.pr?prTitle(lpMember(lp.keys[0],true)||{n:"?"}):caucusTitle(lp.keys[0]));
     const n2=lp.keys.length;
     const when=" in "+caucusQ(lp.made);
     const t=kept?"You kept the promise you made"+when+" to "+who+": "+lp.word+"."+(n2>1?" All "+n2+" legislators who wanted it noticed.":"")
+                :partial?"You got about "+Math.round(part*100)+"% of the way on the promise you made"+when+" to "+who+" to "+lp.word+", due "+caucusQ(lp.due)+". "+(part>=0.8?"They count it as nearly kept.":"They give you credit for the part you delivered, and hold the rest against you.")
                 :"You broke the promise you made"+when+" to "+who+" to "+lp.word+", due "+caucusQ(lp.due)+"."+(n2>1?" All "+n2+" legislators who wanted it are angry.":"")+" Your word counts for less with every member now.";
     GAME.log.push(ico(kept?'handshake':'warning')+" "+t); lines.push(t);
   }
@@ -21117,16 +21120,16 @@ function lpHTML(target,m,onlyIssue){
 function lpStatus(lp){
   const left=lp.due-GAME.turn, moved=(caucusLevel(lp.pid)-lp.from)*lp.want;
   const who=lp.fac?(lp.who.startsWith("pf:")?prFacName(lp.who.slice(3)):caucusFactionName(lp.who.slice(2))):(lp.pr?prTitle(lpMember(lp.keys[0],true)||{n:"?"}):caucusTitle(lp.keys[0]));
-  return {left, moving:moved>0.02, who, n:lp.keys.length};
+  return {left, moving:moved>0.02, pct:Math.round(clamp(moved/0.1,0,1)*100), who, n:lp.keys.length};
 }
 function lpListHTML(title){
   const L=GAME.lprom||[]; if(!L.length)return "";
   const rows=L.slice().sort((a,b)=>a.due-b.due).map(lp=>{ const st=lpStatus(lp);
     const urgent=st.left<=1&&!st.moving;
     return `<div class="lpr-row${urgent?" urgent":""}"><span class="lpr-what"><b>${lp.word.charAt(0).toUpperCase()+lp.word.slice(1)}</b><i>promised to ${st.who}${st.n>1?", with "+(st.n-1)+" more who want it":""}</i></span>
-      <span class="lpr-when">${st.moving?"moving their way":st.left<=0?"due now":st.left+" quarter"+(st.left===1?"":"s")+" left"} · by ${caucusQ(lp.due)}</span>
+      <span class="lpr-when">${st.moving?(st.pct>=100?"done: kept at the next check":st.pct+"% of the way"+(st.left>0?", "+st.left+" quarter"+(st.left===1?"":"s")+" left":"")):st.left<=0?"due now":st.left+" quarter"+(st.left===1?"":"s")+" left"} · by ${caucusQ(lp.due)}</span>
       <button class="cf-chbtn" data-lpgo="${lp.pid}">Go to the law</button></div>`; }).join("");
-  return `<div class="lpr"><div class="lpr-h">${ico('handshake')} ${title||"Your promises to legislators"}</div>${rows}<div class="lpr-note">Move the law their way before the deadline to keep it. Kept, everyone waiting on it gains; broken, they all lose, and your next promises are worth less.</div></div>`;
+  return `<div class="lpr"><div class="lpr-h">${ico('handshake')} ${title||"Your promises to legislators"}</div>${rows}<div class="lpr-note">Move the law their way before the deadline to keep it. Kept, everyone waiting on it gains; broken, they all lose, and your next promises are worth less. A dial moved partway by the deadline earns credit for the share you delivered.</div></div>`;
 }
 function lpGoWire(root){
   root.querySelectorAll("[data-lpgo]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation();
@@ -21136,7 +21139,7 @@ function lpGoWire(root){
 function lpPolicyBanner(pid){
   const L=(GAME.lprom||[]).filter(p=>p.pid===pid); if(!L.length)return "";
   return L.map(lp=>{ const st=lpStatus(lp);
-    return `<div class="pendbanner lp-banner">${ico('handshake')} You promised ${st.who}${st.n>1?" and "+(st.n-1)+" more legislators":""} to <b>${lp.word}</b> by <b>${caucusQ(lp.due)}</b>: ${st.moving?"it is already moving their way.":st.left<=0?"it is due now.":st.left+" quarter"+(st.left===1?"":"s")+" left."}</div>`; }).join("");
+    return `<div class="pendbanner lp-banner">${ico('handshake')} You promised ${st.who}${st.n>1?" and "+(st.n-1)+" more legislators":""} to <b>${lp.word}</b> by <b>${caucusQ(lp.due)}</b>: ${st.moving?"it is "+st.pct+"% of the way there; partway counts for partial credit.":st.left<=0?"it is due now.":st.left+" quarter"+(st.left===1?"":"s")+" left."}</div>`; }).join("");
 }
 function lpWire(root){
   root.querySelectorAll("select[data-lpsel]").forEach(s=>s.addEventListener("click",ev=>ev.stopPropagation()));
