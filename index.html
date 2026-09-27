@@ -489,6 +489,7 @@
   .cf-dorm{font-size:12.5px;color:var(--muted-3);align-self:center}
   .cf-chairs{font-size:12.5px;border-top:1px dashed var(--line);padding-top:5px}
   .cfacs-under{grid-template-columns:1fr;margin-top:4px}
+  .eb-why{font-size:11.5px;color:var(--muted-2);font-weight:400}
   .pill.pubsup{border-color:var(--line);color:var(--ink)} .pill.pubsup.good{color:var(--moss);border-color:var(--moss)} .pill.pubsup.bad{color:var(--clay);border-color:var(--clay)}
   .floor-act{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;margin:6px 0 4px}
   .floor-btns{display:flex;gap:10px;flex-wrap:wrap;min-width:0}
@@ -25943,6 +25944,52 @@ function effectBar(label,value,scale,opts={}){
     <span class="ebval" style="color:${col}">${valLabel}</span></div>`;
 }
 
+/* WHAT A LAW DOES BEYOND WHAT IT DECLARES. Measured: every metric target and
+   indicator with the law and without it, less the effects the law's page
+   already lists. For a proposal, as if enacted at its starting level. Pure:
+   the law is put back exactly where it was, in the same order. */
+function policyDeclaredFx(p){
+  const dm=directEffects("policy",p)||{}, di={}, lvl=policyLevel(p);
+  for(const k in (p.indicatorEffects||{}))di[k]=(di[k]||0)+p.indicatorEffects[k]*lvl;
+  if(p.mechanic==="tier"&&p.tierIndicatorEffects&&p.tierIndicatorEffects[p.tierIndex])
+    for(const k in p.tierIndicatorEffects[p.tierIndex])di[k]=(di[k]||0)+p.tierIndicatorEffects[p.tierIndex][k];
+  if(p===POLICIES.civilCommitment&&typeof civilCommitmentBurden==="function"){ const cb=civilCommitmentBurden(); di.digitization=(di.digitization||0)+cb.total; }
+  return {m:dm, i:di};
+}
+function policyHiddenEffects(id){
+  const on=!!POLICIES[id]; if(!on&&!CATALOG[id])return null;
+  const key=id+"|"+GAME.turn+"|"+(on?snapshotFor("p_"+id):"proposal");
+  const C=window._hidFx=(window._hidFx&&window._hidFx.t===GAME.turn&&window._hidFx.g===GAME.startId)?window._hidFx:{t:GAME.turn, g:GAME.startId, v:{}};
+  if(C.v[key])return C.v[key];
+  const MK=Object.keys(METRICS).filter(k=>k!=="gspLevel"), IK=Object.keys(INDICATORS);
+  const snap=()=>{ const o={m:{},i:{}}; for(const k of MK)o.m[k]=metricTarget(k); for(const k of IK){ try{ o.i[k]=INDICATORS[k].derive(); }catch(e){ o.i[k]=0; } } return o; };
+  let W, WO, dec, out={m:{},i:{}};
+  try{
+    if(on){
+      const p=POLICIES[id]; W=snap(); dec=policyDeclaredFx(p);
+      // take it out, measure, and put it back in the same place
+      const keys=Object.keys(POLICIES), at=keys.indexOf(id), after=keys.slice(at+1).map(k=>[k,POLICIES[k]]);
+      for(const [k] of after)delete POLICIES[k]; delete POLICIES[id];
+      for(const [k,v] of after)POLICIES[k]=v;                  // everything but this law
+      try{ WO=snap(); } finally { for(const [k] of after)delete POLICIES[k]; POLICIES[id]=p; for(const [k,v] of after)POLICIES[k]=v; }
+    } else {
+      WO=snap();
+      const p=Object.assign({},CATALOG[id],{_id:id, enacted:true});
+      p.eff=policyLevel(p);
+      POLICIES[id]=p;
+      try{ W=snap(); dec=policyDeclaredFx(p); } finally { delete POLICIES[id]; }
+    }
+  }catch(e){ return C.v[key]={m:{},i:{}}; }
+  for(const k of MK){ const d=(W.m[k]-WO.m[k])-((dec.m&&dec.m[k])||0); if(Math.abs(d)>=0.3)out.m[k]=d; }
+  for(const k of IK){ const d=(W.i[k]-WO.i[k])-((dec.i&&dec.i[k])||0); if(Math.abs(d)>=0.6)out.i[k]=d; }
+  return C.v[key]=out;
+}
+/* The channel, where it is known. */
+function hiddenFxWhy(id,k){
+  if(k==="adminOverhead")return "the administrative load of running it";
+  if(GAME.activeSituations&&GAME.activeSituations.nonprofitComplex&&typeof NONPROFIT_DRAG_POLICIES!=="undefined"&&NONPROFIT_DRAG_POLICIES.has(id))return "more contracted money feeding the Nonprofit Industrial Complex";
+  return null;
+}
 function effectsBreakdownHTML(kind,obj){
   const direct=directEffects(kind,obj);
   // For non-tier policies phasing in, compute the ratio of target→current so we can
@@ -25991,6 +26038,22 @@ function effectsBreakdownHTML(kind,obj){
       h+=`</div>`;
     } else {
       h+=`<div class="ebnote">No direct effect on any statistic.</div>`;
+    }
+    // 1b. AND THROUGH THE REST OF THE SIMULATION: what it does that no list
+    // above declares, measured with it and without it
+    if(kind==="policy"){
+      const id=obj._id||Object.keys(POLICIES).find(k=>POLICIES[k]===obj)||Object.keys(CATALOG).find(k=>CATALOG[k]===obj);
+      const hx=id?policyHiddenEffects(id):null;
+      const mk=hx?Object.keys(hx.m):[], ik2=hx?Object.keys(hx.i):[];
+      if(mk.length||ik2.length){
+        h+=`<div class="ebgroup-label">Also, through the rest of the simulation</div><div class="ebgroup">`;
+        const sc=Math.max(1,...mk.map(k=>Math.abs(hx.m[k])),...ik2.map(k=>Math.abs(hx.i[k])));
+        for(const k of mk){ const m=METRICS[k], v=hx.m[k], good=m&&m.invert?v<0:v>0, why=hiddenFxWhy(id,k);
+          h+=effectBar((m?m.name:k)+(why?` <span class="eb-why">(${why})</span>`:""), v, sc, {color:good?'var(--good)':'var(--clay)', link:"m_"+k, fmt:v=>(v>=0?'+':'')+v.toFixed(1)}); }
+        for(const k of ik2){ const ind=INDICATORS[k], v=hx.i[k], why=hiddenFxWhy(id,k);
+          h+=effectBar((ind?ind.name:k)+(why?` <span class="eb-why">(${why})</span>`:""), v, sc, {color:indDeltaGood(k,v)?'var(--good)':'var(--clay)', link:"i_"+k, fmt:v=>(v>=0?'+':'')+v.toFixed(1)}); }
+        h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Measured: the simulation with this law and without it, less the effects listed above.</div></div>`;
+      }
     }
   }
 
@@ -30062,6 +30125,10 @@ function buildWebEdges(){
       for(const ik in (p.tierIndicatorEffects?Object.assign({},...p.tierIndicatorEffects):{})){const v=tierIndicatorReach(p,ik); if(Math.abs(v)>0.5)E.push({a:"p_"+id,b:"i_"+ik,good:indDeltaGood(ik,v),w:Math.min(2,Math.abs(v))});}
     }
     for(const ik in (p.indicatorEffects||{})){const v=p.indicatorEffects[ik]*effLevelOf(p); if(Math.abs(v)>0.5)E.push({a:"p_"+id,b:"i_"+ik,good:indDeltaGood(ik,v),w:Math.abs(v)});}
+    // and what it does that it does not declare, measured
+    const hx=policyHiddenEffects(id);
+    if(hx){ for(const k in hx.m)E.push({a:"p_"+id,b:"m_"+k,good:goodFor(k,hx.m[k]),w:Math.min(3,Math.abs(hx.m[k]))});
+            for(const ik in hx.i)E.push({a:"p_"+id,b:"i_"+ik,good:indDeltaGood(ik,hx.i[ik]),w:Math.min(3,Math.abs(hx.i[ik])/3)}); }
   }
   for(const id in AGENCIES){
     const ag=AGENCIES[id];
