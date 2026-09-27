@@ -489,6 +489,8 @@
   .cf-dorm{font-size:12.5px;color:var(--muted-3);align-self:center}
   .cf-chairs{font-size:12.5px;border-top:1px dashed var(--line);padding-top:5px}
   .cfacs-under{grid-template-columns:1fr;margin-top:4px}
+  .pill.pubsup{border-color:var(--line);color:var(--ink)} .pill.pubsup.good{color:var(--moss);border-color:var(--moss)} .pill.pubsup.bad{color:var(--clay);border-color:var(--clay)}
+  #floorNo+.pill.pubsup,#pfNo+.pill.pubsup{align-self:center;font-size:13px;padding:6px 10px}
   .cang{border-top:1px solid var(--line);margin:2px 0 8px}
   .cang-row{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--line-faint);font-size:13.5px;cursor:pointer}
   .cang-row:hover,.cang-row:focus{background:var(--paper-2);outline:none}
@@ -21231,19 +21233,24 @@ function floorDeal(billKey,ch,id,kind){ const D=GAME.floorDeals=GAME.floorDeals|
 function floorHoldoutsHTML(w,billKey,pid){
   if(!w)return "";
   const pool=[], dealt=[];
+  // the members the whip would buy come first, cheapest first, at the price
+  // the whip charges for them: whipping them by name is never dearer
+  const buying=new Set([...((w.house&&w.house.buy)||[]),...((w.senate&&w.senate.buy)||[])]);
   for(const C of [w.house,w.senate]){ if(!C||!C.members)continue;
     for(const x of C.members){ if(x.splinter)continue; const r=floorMemberRec(x.chamber,x.id); if(!r)continue;
       if(floorDealt(billKey,x.chamber,x.id)){ dealt.push({x,r,kind:GAME.floorDeals[billKey][x.chamber+x.id]}); continue; }
-      if(x.incl>0.3)continue; if(!x.buyable&&x.incl<-5)continue; pool.push({x,r}); } }
-  pool.sort((a,b)=>b.x.incl-a.x.incl);
-  // a vote that is not in doubt has no holdouts worth dealing with
-  const toBuy=((w.house&&w.house.buy)||[]).length+((w.senate&&w.senate.buy)||[]).length;
-  // only when the odds read 100%
-  if(toBuy===0&&Math.round((w.odds||0)*100)>=100&&!dealt.length)return `<div class="hold-done" style="color:var(--muted-2);margin-top:10px">${ico('handshake')} The votes are there. Nobody needs dealing with on this one.</div>`;
+      if(!buying.has(x)&&x.incl>0.3)continue; if(!x.buyable&&x.incl<-5)continue; pool.push({x,r,buy:buying.has(x)}); } }
+  pool.sort((a,b)=>(b.buy-a.buy)||(a.buy?a.x.resist-b.x.resist:b.x.incl-a.x.incl));
+  // at 100% there is nothing to deal for: the whip has it, or you already did
+  if(Math.round((w.odds||0)*100)>=100){
+    return dealt.length
+      ? `<div class="hold-done" style="margin-top:10px">${ico('handshake')} The votes are there. Certain yes on this vote: ${dealt.map(d=>`${d.r.pr?prTitle(d.r.m):caucusTitle(d.r.key)} (${d.kind})`).join(", ")}</div>`
+      : `<div class="hold-done" style="color:var(--muted-2);margin-top:10px">${ico('handshake')} The votes are there. Nobody needs dealing with on this one.</div>`;
+  }
   const top=pool.slice(0,6);
   if(!top.length&&!dealt.length)return "";
   const cap=GAME.capital;
-  let h=`<div class="conc-h" style="margin-top:12px">${ico('handshake')} The holdouts: the members closest to a yes, and what each would take</div><div class="hold-list">`;
+  let h=`<div class="conc-h" style="margin-top:12px">${ico('handshake')} The holdouts: the members the whip would buy, then the closest to a yes, and what each would take</div><div class="hold-list">`;
   h+=top.map(({x,r})=>{ const m=r.m, pr=r.pr;
     const who=pr?`${prTitle(m)} <i>${m.party==="ind"?"Independent":prPartyWord(m.party)+" list #"+((GAME.pr.lists[m.party]||[]).indexOf(m.id)+1)}${m.f?" · "+prFacName(m.f):""}</i>`
                 :`${caucusTitle(r.key)} <i>${caucusCode(r.key)} ${caucusPlace(m.ch,m.id)} · ${caucusPartyOf(m)}${m.f?" · "+caucusFactionName(m.f):""}</i>`;
@@ -22873,6 +22880,7 @@ function drawFloor(){
         :"Call the vote"+(variants?" — "+variants[curVar].label.toLowerCase():binary?"":" — "+(dialed?dialLab(F.narrowed):(F.narrowed>=1?"full bill":Math.round(F.narrowed*100)+"% strength")))
           +((w.house.buy.length+w.senate.buy.length)?", whipping "+(w.house.buy.length+w.senate.buy.length):"")}</button>
       <button class="enactbtn ghost" id="floorNo">Pull the bill</button>
+      ${publicSupportPill(publicSupport(F.id,F.dir==="repeal"?"repeal":"enact",F.dir==="repeal"?1:F.narrowed),F.dir==="repeal"?"Public support for repeal":"Public support at this strength")}
     </div>
     ${w.possible?"":eoHintHTML(pol)}
     ${floorHoldoutsHTML(w,"b:"+F.dir+":"+F.id,F.id)}
@@ -24746,6 +24754,30 @@ function generateCitizenMeasures(){
    the next can see what you changed: enacted, repealed, or a dial moved. */
 function lawLevelOf(p){ return p.mechanic==="tier"?(p.tierIndex||0):p.mechanic==="intensity"?(p.intensity||0):(p.mechanic==="slider"||p.mechanic==="allocation")?(p.value||0):null; }
 function lawSnapshot(){ const o={}; for(const id in POLICIES){ const p=POLICIES[id]; if(!p||p.reform)continue; o[id]={lv:lawLevelOf(p)}; } return o; }
+/* PUBLIC SUPPORT: the share of the modelled electorate that favours a law
+   or a change, each voter placed on the compass and in their groups, asked
+   plainly (none of the ballot's lean toward no). Cached for the quarter.
+     enact  — passing it, at strength nw (a weaker bill moves voters less)
+     repeal — repealing it
+     keep   — keeping a law already on the books
+     set    — moving a dial from "from" to where it now stands */
+function publicSupport(id,dir,nw,from){
+  const key=id+"|"+dir+"|"+(nw==null?1:Math.round(nw*100))+"|"+(from==null?"":from)+"|"+GAME.turn;
+  const C=window._pubSup=(window._pubSup&&window._pubSup.t===GAME.turn&&window._pubSup.g===GAME.startId)?window._pubSup:{t:GAME.turn, g:GAME.startId, v:{}};   // a cache, never saved
+  if(C.v[key]!=null)return C.v[key];
+  let v=0.5;
+  try{
+    if(dir==="enact"){ const full=measureYesShare({id,dir:"enact",energy:0,_noBias:true}); v=0.5+(full-0.5)*(nw==null?1:nw); }
+    else if(dir==="repeal")v=measureYesShare({id,dir:"repeal",energy:0,_noBias:true});
+    else if(dir==="keep")v=1-measureYesShare({id,dir:"repeal",energy:0,_noBias:true});
+    else if(dir==="set")v=1-measureYesShare({id,dir:"set",target:from,energy:0,_noBias:true});
+  }catch(e){ v=0.5; }
+  return C.v[key]=clamp(v,0.01,0.99);
+}
+function publicSupportPill(v,label){
+  const cls=v>=0.55?"good":v<0.45?"bad":"";
+  return `<span class="pill pubsup ${cls}" title="The share of Oregonians, as the game models them, who favour it: each voter by where they sit on the political compass and the groups they belong to.">${label||"Public support"} ${Math.round(v*100)}%</span>`;
+}
 /* HOW OREGON FEELS ABOUT A CHANGE, hidden from the player: the share of the
    modelled electorate that favours it, each voter placed on the compass
    (economic and social) and in their groups. It is the reversal of the
@@ -26989,7 +27021,7 @@ function renderDetail(){
         const afford=window.SANDBOX ? true : (cFloor ? (cMin!==null&&GAME.capital>=cMin) : GAME.capital>=ec);
         h+=`<div class="sectionhdr">${ico(c.icon)} ${c.name}</div><div class="sectionsub">${descHTML(c.desc)}</div>`;
         h+=`<div class="detailrow"><span class="pill dom">${(DOMAINS[c.domain]||{name:c.domain}).name}</span>
-          <span class="pill">Not yet enacted — a proposal on the table</span>
+          <span class="pill">Not yet enacted — a proposal on the table</span>${publicSupportPill(publicSupport(id,"enact"))}
           ${cFloor
             ? `<span class="pill cap">${cMin===null?'No version of this can pass the floor'
                 :cMin<=2?'Passes on floor time alone':'From ◈ '+cMin+' to whip'}</span>`
@@ -27019,6 +27051,7 @@ function renderDetail(){
     }
     const net=policyNetCost(p);
     h+=`<div class="sectionhdr">${ico(p.icon)} ${p.name}</div><div class="sectionsub">${descHTML(p.desc)}</div>`;
+    if(!p.reform)h+=`<div class="detailrow">${publicSupportPill(publicSupport(id,"keep"),"Public support for keeping it")}</div>`;
     {const uFricD=1+Math.min(Math.max(0,(SIMULANTS.publicUnions?.size??0.07)-0.05)*2,0.25);
     const baseCap=p.capital||5;
     let capPillTxt;
@@ -27701,7 +27734,7 @@ function renderPolicies(){
       ${beaten?`<div class="cat-beaten">${ico('ban')} Defeated on the floor — it cannot be brought back for ${back} more quarter${back===1?'':'s'}.</div>`:''}
       <div class="cat-desc">${descHTML(p.desc)}</div>
       ${MEASURE_VARIANTS[id]?`<div class="prv-note">${ico('columns')} Comes in ${Object.keys(MEASURE_VARIANTS[id]).length} forms: you choose which on the floor.</div>`:""}
-      <div class="cat-meta"><span class="pill ${isRevPol?'rev':'spend'}">${costLabel}</span>
+      <div class="cat-meta"><span class="pill ${isRevPol?'rev':'spend'}">${costLabel}</span>${publicSupportPill(publicSupport(id,"enact"))}
         ${floorPol
           ? `<span class="pill cap">${floorMin===null?'No version of this can pass the floor'
               :floorMin<=2?'Passes on floor time alone':'From ◈ '+floorMin+' to whip'}</span>`
@@ -28662,6 +28695,9 @@ function paintPendingFloor(){
           (!w.possible||!afford)?floorBlockLabel(w)
           :"Call the vote"+(w.cost?` — whipping ${w.house.buy.length+w.senate.buy.length}`:"")}</button>
         <button class="enactbtn ghost" id="pfNo">Withdraw the change</button>
+        ${(()=>{ const pid=key.startsWith("p_")?key.slice(2):null, pp=pid&&POLICIES[pid]; if(!pp)return "";
+          let was=null; try{ const d=JSON.parse(GAME.pendingFloorChange.origSnap); was=pp.mechanic==="tier"?d.t:pp.mechanic==="intensity"?d.i:d.v; }catch(e){}
+          return was==null?"":publicSupportPill(publicSupport(pid,"set",null,was),"Public support for this change"); })()}
       </div>
       ${floorHoldoutsHTML(w,"c:"+key,key.startsWith("p_")?key.slice(2):null)}
       <div class="floor-roll">${ico('columns')} The count, seat by seat</div>
@@ -30894,7 +30930,7 @@ function bootWorld(startId){
     A.funding=z.f; A.logging=z.l; delete A.fundingBase; }
   LANDUSE.index=WORLD_SEED.lu;
   GAME.legis.house=WORLD_SEED.legis.house; GAME.legis.senate=WORLD_SEED.legis.senate;
-  GAME.legis.hHeld=null; GAME.legis.sHeld=null; GAME.legis.favors={}; GAME.caucus=null; GAME.pr=null; GAME.lprom=[]; GAME.lpTrust=1; GAME._iref=null;
+  GAME.legis.hHeld=null; GAME.legis.sHeld=null; GAME.legis.favors={}; GAME.caucus=null; GAME.pr=null; GAME.lprom=[]; GAME.lpTrust=1; GAME._iref=null; window._pubSup=null;
   GAME.activeSituations={}; GAME.situationAge={}; GAME.eventCooldown={}; GAME.grudges=[]; GAME.history={};
   GAME.structuralDebt=0; GAME.deficitStreak=0; GAME.lastBalance=0; GAME.surplusStreak=0; GAME.lawLock={};
   GAME.csfCorpus=2.10; GAME.csfPayout=0.08; GAME.csfElliottMult=1; GAME.csfSaleBooked=false; GAME.esfLottoIn=0; GAME.persRisk="balanced"; GAME.csfRisk="balanced";
