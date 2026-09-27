@@ -489,6 +489,11 @@
   .cf-dorm{font-size:12.5px;color:var(--muted-3);align-self:center}
   .cf-chairs{font-size:12.5px;border-top:1px dashed var(--line);padding-top:5px}
   .cfacs-under{grid-template-columns:1fr;margin-top:4px}
+  .xfx-box{border:1px solid var(--line);background:var(--paper-2);border-radius:var(--radius);padding:8px 10px;margin:4px 0 10px}
+  .xfx-row{display:flex;flex-wrap:wrap;gap:5px 8px;align-items:center;padding:3px 0}
+  .xfx-k{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted-2);min-width:92px}
+  .xfx{font-size:12.5px;border:1px solid var(--line);border-radius:10px;padding:2px 8px;background:var(--paper)}
+  .xfx b{font-family:var(--font-data)} .xfx.good b{color:var(--good)} .xfx.bad b{color:var(--bad)}
   .eb-why{font-size:11.5px;color:var(--muted-2);font-weight:400}
   .pill.pubsup{border-color:var(--line);color:var(--ink)} .pill.pubsup.good{color:var(--moss);border-color:var(--moss)} .pill.pubsup.bad{color:var(--clay);border-color:var(--clay)}
   .floor-act{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;margin:6px 0 4px}
@@ -5668,7 +5673,9 @@ const POLICIES={
     value:0.35, costFull:0.1, capital:6, repealCost:8,
     effects:{eduOutcomes:{b:1,c:6,i:5}, education:1},
     blocEffect:{parents:4, businessClass:3, suburban:2, publicUnions:-7, liberal:-3},
-    real:{min:0,max:100,unit:"/100 looseness",decimals:0,label:"charter latitude"},
+    // conservatives take no view until charters are given real room, then want more
+    blocRamp:{conservative:{from:0.7, max:4}},
+    real:{min:0,max:100,unit:"/100 looseness",decimals:0,label:"Charter Latitude"},
     ideology:{economic:0.3,social:0.2,govSize:0.2}},
   academicTracking:{name:"Academic Tracking (Ability Grouping)", domain:"eduHealth", icon:"book", enacted:true, mechanic:"slider", noRepeal:true,
     desc:"How much Oregon schools sort students into tracks by measured ability: honors and AP, standard, remedial. The alternative is teaching everyone together. Districts, including Portland Public Schools with its math-sequencing reform, have spent a decade quietly detracking under equity pressure, while credentialed families fight to protect gifted and AP placements.\n\nMore tracking raises results at the top, and strong honors programs draw professional families. But research consistently finds it widens the gap: lower tracks get less-experienced teachers and lower expectations, and their students, disproportionately poor, fall further behind and are more likely to disengage.\n\nEvery school sorts students somehow, so this cannot be repealed, only dialed.",
@@ -13242,6 +13249,7 @@ function approvalTarget(sid, raw){
       policyMood+=(p.niche?0:dot(policyIdeology(p),sim.ideology)*lvl*5*ideoW);
       if(p.directBlocMood&&p.directBlocMood[sid]!==undefined)policyMood+=p.directBlocMood[sid]*lvl;
       // explicit per-bloc reactions — previously shown in the UI but never applied
+      if(p.blocRamp&&p.blocRamp[sid])policyMood+=blocRampMood(p,sid);
       if(p.blocEffect&&p.blocEffect[sid]!==undefined)
         policyMood+=p.blocEffect[sid]*((p.mechanic==="slider"||p.mechanic==="toggle")?lvl:1)
                    *(p.narrowed==null?1:p.narrowed);
@@ -22888,6 +22896,16 @@ function drawFloor(){
       <span class="odds-n">${Math.round(w.odds*100)}%</span>
       <span class="odds-t">to pass ${floorPlace()} — <b>${oddsWord}</b>. The whip count is what members <i>say</i>; on the day they are absent, vote their conscience, or take a deal you never heard about. A member who took yours is committed, not owned.</span>
     </div>
+    ${(()=>{ try{
+      if(F.dir==="repeal"){ const cur=POLICIES[F.id]; return cur?expectedFxHTML("policy",null,lawAt(cur,F.id)):""; }
+      const base=CATALOG[F.id]; if(!base||pol.reform)return "";
+      const nv=F.narrowed;
+      const now=lawAt(base,F.id,c=>{ c.enacted=true;
+        if(c.mechanic==="tier"&&c.tiers)c.tierIndex=Math.max(c.tierMin||0,Math.round(nv*(c.tiers.length-1)));
+        else if(c.mechanic==="slider"||c.mechanic==="allocation")c.value=Math.max(c.value||0,nv);
+        else if(c.mechanic==="intensity"){ c.enabled=true; c.intensity=Math.max(c.intensity||0,nv); }
+        else c.narrowed=nv; });
+      return expectedFxHTML("policy",now,null); }catch(e){ return ""; } })()}
     <div class="whip-cost">
       <span>${(w.house.buy.length+w.senate.buy.length)?"Whipping "+(w.house.buy.length+w.senate.buy.length)+" vote"+((w.house.buy.length+w.senate.buy.length)===1?"":"s")+" plus floor time":"Floor time only — you already have the votes"}</span>
       <span class="wc-num ${afford?'':'broke'}">◈ ${w.cost} <span class="wc-have">of ◈ ${GAME.capital}</span></span></div>
@@ -25811,6 +25829,39 @@ function wantsMoreFunding(kind,obj,sim,r){
   const sf=instPrefShortfall(kind,obj,sim);
   return sf<0 && (r-sf)>=-0.05;
 }
+/* A reaction that switches on at "from" along the slider and grows to "max" at full. */
+function blocRampMood(p,sid){
+  const r=p.blocRamp&&p.blocRamp[sid]; if(!r)return 0;
+  const lv=policyLevel(p); return lv<=r.from?0:r.max*clamp((lv-r.from)/Math.max(0.01,1-r.from),0,1);
+}
+/* EXPECTED EFFECTS of a change on the floor: statistics and groups once it is
+   in force, the law as proposed against the law as it was (null = nothing). */
+function expectedFxHTML(kind,now,was){
+  const dm={}, db={};
+  const fx=o=>{ if(!o)return {};
+    if(kind==="agency"){ const d={}; for(const k in (o.effects||{}))d[k]=effExpr(o.effects[k],o.funding??0.5);
+      for(const k in (o.loggingEffects||{}))d[k]=(d[k]||0)+effExpr(o.loggingEffects[k],o.logging??0.5); return d; }
+    return directEffects("policy",o)||{}; };
+  const a=fx(now), b=fx(was);
+  for(const k of new Set([...Object.keys(a),...Object.keys(b)])){ const v=(a[k]||0)-(b[k]||0); if(Math.abs(v)>=0.3&&METRICS[k])dm[k]=v; }
+  for(const sid in SIMULANTS){ if(sid==="everybody")continue; const S=Object.assign({id:sid},SIMULANTS[sid]);
+    const r=o=>{ if(!o)return 0; const v=blocReaction(kind,o,S); return v==null?0:v; };
+    const v=r(now)-r(was); if(Math.abs(v)>=0.5)db[sid]=v; }
+  const mk=Object.keys(dm).sort((x,y)=>Math.abs(dm[y])-Math.abs(dm[x])).slice(0,6);
+  const bk=Object.keys(db).sort((x,y)=>Math.abs(db[y])-Math.abs(db[x])).slice(0,8);
+  if(!mk.length&&!bk.length)return "";
+  const chip=(name,v,good)=>`<span class="xfx ${good?"good":"bad"}">${name} <b>${v>=0?"+":"−"}${Math.abs(v).toFixed(1)}</b></span>`;
+  let h=`<div class="conc-h" style="margin-top:10px">${ico('chart-up')} Expected effects, once it is in force</div><div class="xfx-box">`;
+  if(mk.length)h+=`<div class="xfx-row"><span class="xfx-k">Statistics</span>`+mk.map(k=>{ const m=METRICS[k], v=dm[k]; return chip(m.name,v,m.invert?v<0:v>0,"m_"+k); }).join("")+`</div>`;
+  if(bk.length)h+=`<div class="xfx-row"><span class="xfx-k">Voter groups</span>`+bk.map(sid=>chip(SIMULANTS[sid].name,db[sid],db[sid]>0,"v_"+sid)).join("")+`</div>`;
+  return h+`</div>`;
+}
+/* A law set to a given state, for the expected-effects comparison: in force
+   at full strength, not partway through phasing in. */
+function lawAt(base,id,set){
+  // its own id, so the eased-in value the live law carries does not stand in for it
+  const c=Object.assign({},base,{_id:id+"#expected"}); if(set)set(c); c.eff=policyLevel(c); return c;
+}
 function blocReaction(kind,obj,sim){
   let m=0, engaged=false;
   const s=sim.sensitivities||{};
@@ -25831,6 +25882,10 @@ function blocReaction(kind,obj,sim){
     if(obj.blocEffect&&obj.blocEffect[sim.id]!==undefined){
       m+=obj.blocEffect[sim.id]*(obj.mechanic==="slider"||obj.mechanic==="toggle"?lvl:1);
       engaged=true;
+    }
+    // a reaction that switches on partway along the slider
+    if(obj.blocRamp&&obj.blocRamp[sim.id]&&lvl>obj.blocRamp[sim.id].from){
+      m+=blocRampMood(obj,sim.id); engaged=true;
     }
     // per-tier bloc reaction: tier policies can hit specific groups differently
     // at each setting (e.g. minimum wage — rural workers react to the structure)
@@ -27835,7 +27890,7 @@ function renderDetail(){
 /* shared control markup for a policy (used in detail page + catalog preview) */
 function policyControlHTML(id,p){
   if(p.mechanic==="slider"||p.mechanic==="allocation"){
-    const lbl=p.real?(p.real.label||"rate"):"spending";
+    const lbl0=p.real?(p.real.label||"rate"):"spending", lbl=lbl0.charAt(0).toUpperCase()+lbl0.slice(1);
     const sFloor=p.sliderFloor||0;
     return `<span class="mono" style="font-size:12.5px;color:var(--muted-2)">${lbl}</span><input type="range" min="${sFloor}" max="1" step="0.05" value="${Math.max(p.value,sFloor)}" data-pol="${id}" data-kind="slider"><span class="mono">${policyRealLabel(p)}</span>`;
   }
@@ -28759,7 +28814,7 @@ function pendingDialHTML(p){
   const isInt=(p.mechanic==="intensity");
   const v=isInt?p.intensity:p.value;
   const lo=p.sliderFloor||0;
-  const lbl=p.real?(p.real.label||"rate"):"spending";
+  const lbl0=p.real?(p.real.label||"rate"):"spending", lbl=lbl0.charAt(0).toUpperCase()+lbl0.slice(1);
   return `<span class="mono" style="font-size:12.5px;color:var(--muted-2)">${lbl}</span>
     <input type="range" id="pfDial" min="${lo}" max="1" step="0.01" value="${Math.max(v,lo)}">
     <span class="mono" id="pfLevel">${policyRealLabel(p)}</span>`;
@@ -28864,6 +28919,15 @@ function paintPendingFloor(){
         <span class="odds-n">${Math.round(w.odds*100)}%</span>
         <span class="odds-t">to carry ${floorPlace()} — <b>${oddsWord}</b>. The whip count is what members <i>say</i>; on the day they are absent, vote their conscience, or take a deal you never heard about.</span>
       </div>
+      ${(()=>{ try{
+        const F2=GAME.pendingFloorChange; if(!F2)return ""; const d=JSON.parse(F2.origSnap);
+        if(key.startsWith("p_")){ const id=key.slice(2), cur=POLICIES[id]; if(!cur)return "";
+          const was=lawAt(cur,id,c=>{ if(d.v!=null)c.value=d.v; if(d.t!=null)c.tierIndex=d.t; if(d.i!=null)c.intensity=d.i; if(d.e!=null)c.enabled=d.e; });
+          return expectedFxHTML("policy",lawAt(cur,id),was); }
+        if(key.startsWith("a_")||key.startsWith("h_")){ const a=AGENCIES[key.slice(2)]; if(!a)return "";
+          const was=Object.assign({},a); if(key.startsWith("a_"))was.funding=d.v; else was.logging=d.v;
+          return expectedFxHTML("agency",Object.assign({},a),was); }
+        return ""; }catch(e){ return ""; } })()}
       <div class="whip-cost">
         <span>${(()=>{ const nb=w.house.buy.length+w.senate.buy.length, fl=w.base||0;
           return (nb?`Whipping ${nb} vote${nb===1?"":"s"}${fl?" and floor time":""}, plus ◈${changeCost} for the change itself`
