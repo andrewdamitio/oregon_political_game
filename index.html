@@ -8812,7 +8812,7 @@ const DILEMMAS={
       {label:"Indict the executives", text:"Charges are filed against a dozen contractor heads. The complex is dismantled by force, but half the service network freezes for a year and the progressive base is in open revolt.",
        apply:()=>{
          endSituation("nonprofitComplex");
-         caucusRegionHit(m=>caucusTraitsOf((m.ch==="house"?"h":"s")+m.id).some(t=>t.id==="npc"),-18,"The nonprofit prosecutions","nonprofits");
+         caucusRegionHit(m=>caucusTraitsOf((m.ch==="house"?"h":"s")+m.id).some(t=>t.id==="npc"),-12,"The nonprofit prosecutions","nonprofits");
          if(POLICIES.homelessServices)POLICIES.homelessServices.value=+(Math.max(0,(POLICIES.homelessServices.value||0.45)-0.25)).toFixed(2);
          createGrudge("m_homelessness",2.4,0.85,"Service networks frozen by the prosecutions");
          createGrudge("i_adminOverhead",-5,0.9,"Contract sprawl broken up");
@@ -20364,7 +20364,9 @@ function caucusTick(){
   const C=GAME.caucus;
   C._news={}; C.ctl0=C.control; C.race=null;
   const facs0=Object.keys(C.facs||{}), at0=caucusAngryAt(), before={};
-  for(const k in C.m)before[k]={p:C.m[k].p, L:C.m[k].L, last:C.lastL&&C.lastL[k]!=null?C.lastL[k]:null};
+  // last quarter's figure only if it was this member's: a seat with somebody new in it starts fresh
+  for(const k in C.m){ const same=C.lastN?C.lastN[k]===C.m[k].n:false;
+    before[k]={p:C.m[k].p, n:C.m[k].n, f:C.m[k].f||null, L:C.m[k].L, last:same&&C.lastL&&C.lastL[k]!=null?C.lastL[k]:null}; }
   C.proj=(C.proj||[]).filter(p=>p.until>GAME.turn);
   if(C.tolls<0)C.tolls*=0.8;
   for(const k in C.m){ const m=C.m[k];
@@ -20403,8 +20405,9 @@ function caucusCollectNews(facs0,before){
   }
   const byDrop=(a,b)=>((before[b].last??before[b].L)-C.m[b].L)-((before[a].last??before[a].L)-C.m[a].L);
   N.angry.sort(byDrop); N.dropped.sort(byDrop);
-  C.qFrom={}; for(const k in before)if(C.m[k]&&before[k].p===C.m[k].p)C.qFrom[k]=before[k].last!=null?before[k].last:before[k].L;
-  C.lastL={}; for(const k in C.m)C.lastL[k]=C.m[k].L;
+  // last quarter belongs to the member: a seat with somebody new in it has no "from"
+  C.qFrom={}; C.qFac={}; for(const k in before)if(C.m[k]&&before[k].p===C.m[k].p&&before[k].n===C.m[k].n){ C.qFrom[k]=before[k].last!=null?before[k].last:before[k].L; if(before[k].f&&!C.m[k].f)C.qFac[k]=before[k].f; }
+  C.lastL={}; C.lastN={}; for(const k in C.m){ C.lastL[k]=C.m[k].L; C.lastN[k]=C.m[k].n; }
   caucusPrimaryDay();
   N.prim=C.primNews||[]; C.primNews=[];
   N.retired=C.retNews||[]; C.retNews=[];
@@ -21525,18 +21528,28 @@ function caucusReportHTML(){
   const C=GAME.caucus, at=caucusAngryAt(), from=C.qFrom||{};
   const d=C.ctl0!=null?C.control-C.ctl0:0;
   const rows=[];
+  // news is a member getting worse, or one getting better enough to leave
+  // the angry list or a faction; an angry member who is coming round is not
+  // news, and is counted in one line
+  let mending=0;
   for(const k in C.m){ const m=C.m[k]; if(m.p!=="mine")continue;
-    const f=from[k], drop=f!=null?f-m.L:0;
-    const zone=m.L<CAUCUS_LIVID?"livid":m.L<at?"angry":(m.L<at+10&&drop>=4)?"slipping":null;
-    if(zone)rows.push({k,m,zone,drop}); }
-  const rank={livid:0,angry:1,slipping:2};
+    const f=from[k], drop=f!=null?f-m.L:0, left=(C.qFac||{})[k];
+    let zone=m.L<CAUCUS_LIVID?"livid":m.L<at?"angry":(m.L<at+10&&drop>=4)?"slipping":null;
+    if((zone==="livid"||zone==="angry")&&drop<=-1){ mending++; zone=null; }
+    if(!zone&&left)zone="left";
+    else if(!zone&&f!=null&&f<at&&m.L>=at)zone="calmed";
+    if(zone)rows.push({k,m,zone,drop,f,left}); }
+  const rank={livid:0,angry:1,slipping:2,left:3,calmed:4};
   rows.sort((a,b)=>(rank[a.zone]-rank[b.zone])||(a.m.L-b.m.L));
-  const col={livid:"var(--clay)",angry:"var(--clay)",slipping:"var(--gold)"};
+  const col={livid:"var(--clay)",angry:"var(--clay)",slipping:"var(--gold)",left:"var(--moss)",calmed:"var(--moss)"};
+  const zword=r=>r.zone==="left"?"left the "+caucusFactionName(r.left):r.zone==="calmed"?"calmed down":r.zone;
+  const move=r=>r.f!=null&&Math.abs(r.drop)>=1?`${Math.round(r.f)} → ${Math.round(r.m.L)} <span style="color:${r.drop>0?"var(--bad)":"var(--good)"}">${r.drop>0?"▼":"▲"}</span>`:`${Math.round(r.m.L)}`;
   const nf=Object.keys(C.facs||{}).filter(f=>!caucusFactionParts(f).opp).length;
   let h=`<div class="rsection"><div class="rsec-h">${ico('people')} Your party</div>
     <div class="rrow"><span class="rlabel">Party control</span><span class="rval">${C.control} · ${caucusControlLabel(C.control).toLowerCase()}${Math.abs(d)>=1?` <span class="rdelta ${d<0?"bad":"good"}" style="font-size:11.5px">${d<0?"▼":"▲"}${Math.abs(Math.round(d))}</span>`:""}${nf?" · "+nf+" faction"+(nf>1?"s":""):""}</span></div>`;
-  h+=rows.slice(0,6).map(r=>`<div class="rrow"><span class="rlabel" style="color:${col[r.zone]}">${caucusCode(r.k)} ${caucusTitle(r.k)}, ${caucusPlace(r.m.ch,r.m.id)}</span><span class="rval" style="font-size:12.5px">${Math.round(r.m.L)}${r.drop>=1?" ▼"+Math.round(r.drop):""} · ${r.zone}${r.m.f?" · "+caucusFactionName(r.m.f):""}${C.prim&&C.prim[r.k]?" · primary backed":""}</span></div>`).join("");
+  h+=rows.slice(0,6).map(r=>`<div class="rrow"><span class="rlabel" style="color:${col[r.zone]}">${caucusCode(r.k)} ${caucusTitle(r.k)}, ${caucusPlace(r.m.ch,r.m.id)}</span><span class="rval" style="font-size:12.5px">${move(r)} · ${zword(r)}${r.m.f?" · "+caucusFactionName(r.m.f):""}${C.prim&&C.prim[r.k]?" · primary backed":""}</span></div>`).join("");
   if(rows.length>6)h+=`<div class="rforecast" style="font-size:12px">and ${rows.length-6} more. See Legislators.</div>`;
+  if(mending)h+=`<div class="rforecast" style="font-size:12px">${mending} angry member${mending===1?" is":"s are"} coming round.</div>`;
   else if(!rows.length)h+=`<div class="rforecast" style="font-size:12px">Nobody in your party is angry with you.</div>`;
   return h+`</div>`;
 }
