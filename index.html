@@ -26908,7 +26908,7 @@ function openDetail(key){
   if(snap!==null)GAME.pending={key,snap};
   // track harvest-level slider independently (separate capital charge)
   GAME.pendingLog=null;
-  if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];if(a&&a.logging!==undefined)GAME.pendingLog={id:key.slice(2),snap:a.logging};}
+  // (the harvest level no longer settles here: it takes the floor, as h_<agency>)
   render();
   // on mobile the voter-bloc strip sits above #main in the flex column — scroll past it
   if(window.innerWidth<=820){
@@ -28119,6 +28119,7 @@ function syncCannabisTab(){
 function snapshotFor(key){
   if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];return p?JSON.stringify({v:p.value,t:p.tierIndex,e:p.enabled,i:p.intensity,ch:p.channels?p.channels.map(c=>c.share):null}):null;}
   if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];return a?JSON.stringify({v:a.funding}):null;}
+  if(key.startsWith("h_")){const a=AGENCIES[key.slice(2)];return a&&a.logging!==undefined?JSON.stringify({v:a.logging}):null;}
   if(key==="landuse")return JSON.stringify({t:LANDUSE.index});
   return null;
 }
@@ -28126,6 +28127,7 @@ function restoreFrom(key,snap){
   const d=JSON.parse(snap);
   if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];if(!p)return;p.value=d.v;p.tierIndex=Math.max(d.t||0,p.tierMin||0);p.enabled=d.e;p.intensity=d.i;if(d.ch&&p.channels)p.channels.forEach((c,i)=>c.share=d.ch[i]);}
   else if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];if(a)a.funding=(d.v!=null?d.v:d.f);}
+  else if(key.startsWith("h_")){const a=AGENCIES[key.slice(2)];if(a)a.logging=d.v;}
   else if(key==="landuse")LANDUSE.index=(d.t!=null?d.t:d.i)|0;
 }
 function magScale(mag){
@@ -28177,11 +28179,13 @@ function chargeFor(key, origSnap, curSnap){
     return Math.round((a.capital||4)*mult);
   }
   if(key==="landuse")return Math.round((LANDUSE.capital||8)*uFriction);
+  if(key.startsWith("h_")){ const a=AGENCIES[key.slice(2)]; return a?Math.round((a.capital||4)*uFriction):0; }
   return 0;
 }
 function nameFor(key){
   if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];return p?p.name:key;}
   if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];return a?a.name:key;}
+  if(key.startsWith("h_")){const a=AGENCIES[key.slice(2)];return a?a.name+" harvest level":key;}
   if(key==="landuse")return LANDUSE.name;
   return key;
 }
@@ -28245,6 +28249,21 @@ function agencyAdapter(id){
     blocEffect:be, ideology:a.ideology||{}
   };
 }
+/* THE HARVEST LEVEL AS A BILL. A dial of its own on the floor: more harvest
+   is timber and rural Oregon's, less is liberal, urban and college-educated
+   Oregon's, the same line the Forest Practices Act draws at its loosest. */
+const HARVEST_BLOC={timber:8,rural:5,businessClass:5,blueCollar:3,libertarian:3,conservative:2,liberal:-6,urban:-4,collegeEducated:-4,socialist:-4,students:-2};
+function harvestAdapter(id){
+  const a=AGENCIES[id]; if(!a||a.logging===undefined)return null;
+  return {
+    mechanic:"slider", _agency:id, _harvest:true,
+    get name(){ return a.name+" harvest level"; }, get icon(){ return a.icon; },
+    get value(){ return a.logging; }, set value(v){ a.logging=clamp(v,0,1); },
+    get capital(){ return a.capital||4; }, costFull:0,
+    real:{min:0, max:100, unit:"%", decimals:0, label:"harvest"},
+    blocEffect:HARVEST_BLOC, ideology:a.loggingIdeology||{}
+  };
+}
 /* The effective 0..1 level a snapshot represents, mechanic-aware: an intensity
    policy toggled off is at zero however its slider still sits. */
 function _snapLvl(pol, sv){
@@ -28256,11 +28275,12 @@ function _snapLvl(pol, sv){
 function pendingPol(key){
   if(key==="landuse")return LANDUSE_BILL;
   if(key && key.indexOf("a_")===0)return agencyAdapter(key.slice(2));
+  if(key && key.indexOf("h_")===0)return harvestAdapter(key.slice(2));
   return (key && key.indexOf("p_")===0) ? POLICIES[key.slice(2)] : null;
 }
 /* How big a move is this, as a share of the policy's whole range? */
 function pendingMagnitude(key, origSnap, curSnap){
-  if(!key||(!key.startsWith("p_")&&!key.startsWith("a_")&&key!=="landuse")||!origSnap||!curSnap)return 0;
+  if(!key||(!key.startsWith("p_")&&!key.startsWith("a_")&&!key.startsWith("h_")&&key!=="landuse")||!origSnap||!curSnap)return 0;
   const pol=pendingPol(key); if(!pol)return 0;
   let ov,cv; try{ ov=JSON.parse(origSnap); cv=JSON.parse(curSnap); }catch(e){ return 0; }
   if(pol.mechanic==="tier"&&pol.tiers)
@@ -28330,7 +28350,7 @@ function contentionOf(be){
    counting votes.
    ============================================================ */
 function pendingBillSpec(key, origSnap, curSnap){
-  if(!key||(!key.startsWith("p_")&&!key.startsWith("a_")&&key!=="landuse")||!origSnap||!curSnap)return null;
+  if(!key||(!key.startsWith("p_")&&!key.startsWith("a_")&&!key.startsWith("h_")&&key!=="landuse")||!origSnap||!curSnap)return null;
   const id=(key==="landuse")?"landuse":key.slice(2), pol=pendingPol(key); if(!pol)return null;
   let ov,cv; try{ ov=JSON.parse(origSnap); cv=JSON.parse(curSnap); }catch(e){ return null; }
   const o=_snapLvl(pol,ov), c=_snapLvl(pol,cv);
@@ -28847,7 +28867,11 @@ function wirePolicyControls(){
     const id=e.target.dataset.agencyLog, a=AGENCIES[id];
     // the permit binds the handler too, not just the markup
     if(id==="forestry"&&GAME.loggingLocked){ render(); return; }
-    if(a)a.logging=parseFloat(e.target.value);render();}));
+    if(!a)return;
+    // a harvest change is a bill: it takes the floor like any other dial
+    const hk="h_"+id;
+    if(!GAME.pending||GAME.pending.key!==hk){ if(GAME.pending)settlePending(); GAME.pending={key:hk, snap:snapshotFor(hk)}; }
+    a.logging=parseFloat(e.target.value); render(); maybeOpenFloor();}));
   // land use preset
   main.querySelectorAll('[data-landuse]').forEach(el=>el.addEventListener('click',e=>{
     const i=parseInt(e.currentTarget.dataset.landuse); if(i===LANDUSE.index)return;
