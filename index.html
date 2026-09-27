@@ -20060,6 +20060,7 @@ function caucusBase(m){
 }
 /* What loyalty is heading toward, in parts, so the dossier can show them. */
 function caucusTargetParts(m,key){
+  if(m.ind)return [["Independent: no party whip to answer to",22]];
   const row=caucusRow(key), st=caucusSat(m), parts=[];
   if(m.p==="mine"){
     const owed=Math.min(3,((GAME.legis&&GAME.legis.favors)||{})[m.ch+m.id]||0);
@@ -20067,7 +20068,9 @@ function caucusTargetParts(m,key){
     const b=caucusBase(m);
     parts.push(["Party member, "+caucusSeatWord(b),b]);
     if(Math.abs(mand)>=0.5)parts.push(["Your mandate since taking office",mand]);
-    parts.push(["Where their issues have gone",st.sat*22]);
+    // one position against them is a nudge; several, or one on their own
+    // issue, is a revolt: the drag grows steeply with how far it has gone
+    parts.push(["Where their issues have gone",st.sat>=0?st.sat*22:-22*Math.pow(-st.sat,1.6)]);
     if(m.x)parts.push(["Seat leans the other way",-5]);
     if(owed)parts.push(["Whipped "+owed+" time"+(owed>1?"s":"")+" already",-owed*3]);
     // a faction is a drag on its members, a serious one when it is big
@@ -20077,7 +20080,7 @@ function caucusTargetParts(m,key){
     // you is what wears it down.
     const b=caucusBase(m);
     parts.push([(caucusPartyOf(m)==="D"?"Democrat":"Republican")+", "+caucusSeatWord(b),b]);
-    parts.push(["Where their issues have gone under you",-st.sat*14]);
+    parts.push(["Where their issues have gone under you",st.sat<=0?-st.sat*14:-14*Math.pow(st.sat,1.6)]);
     // their party's own fortunes: restless when you are popular, rallying when you are not
     const fort=-(overallApproval()-50)*0.5;
     if(Math.abs(fort)>=0.5)parts.push([fort<0?"Their party is losing ground to you":"Their party is rallying against you",fort]);
@@ -20323,7 +20326,7 @@ function caucusOppFlashpoint(){
   const C=GAME.caucus, r=caucusRng("flash|"+GAME.turn);
   if(r()>=0.1)return;
   const by={};
-  for(const k in C.m){ const m=C.m[k]; if(m.p!=="opp"||!m.v)continue;
+  for(const k in C.m){ const m=C.m[k]; if(m.p!=="opp"||m.ind||!m.v)continue;
     caucusBreaks(m).filter(i=>ISSUES[i].partisan!==false).forEach(i=>(by[i]=by[i]||[]).push(k)); }
   const iss=Object.keys(by).filter(i=>by[i].length>=3); if(!iss.length)return;
   const i=iss[Math.floor(r()*iss.length)], ks=by[i];
@@ -20342,6 +20345,7 @@ function caucusFormFactions(){
     if(m.f&&m.f.split(":").length<3)m.f=null;
     if(m.p!=="mine"){
       if(m.f&&(!caucusFactionParts(m.f).opp||m.L>=caucusOppOdds(m)+8))m.f=null;
+      if(m.ind){ m.f=null; continue; }
       if(m.L<caucusOppOdds(m)){ const fk=m.f||caucusOppFactionKey(m); if(fk&&(m.f||caucusJoins(k,m,fk)))(groups[fk]=groups[fk]||[]).push(k); }
       continue; }
     if(m.f&&caucusFactionParts(m.f).opp)m.f=null;
@@ -20440,7 +20444,7 @@ function caucusCollectNews(facs0,before){
   // promise, a defection, a new faction of yours, several members turning.
   const has=t=>(N[t]||[]).length, mineFormed=(N.formed||[]).filter(f=>!caucusFactionParts(f).opp).length,
         bigOpp=(N.formed||[]).some(f=>caucusFactionParts(f).opp&&((C.facs[f]||{}).keys||[]).length>=5);
-  const loud=has("walk")||has("lp")||has("crossed")||has("joined")||has("livid")||has("prim")||has("retired")
+  const loud=has("walk")||has("lp")||has("crossed")||has("indep")||has("joined")||has("livid")||has("prim")||has("retired")
     ||mineFormed||bigOpp||has("angry")>=2||has("dropped")>=4;
   if(loud&&GAME.turn>1)GAME.pendingCaucusNews={turn:GAME.turn, n:JSON.parse(JSON.stringify(N))};
   C._news={};
@@ -20459,6 +20463,7 @@ function caucusWhyOpp(m){
 function caucusNewsTitle(N){
   const n=t=>(N[t]||[]).length;
   if(n("crossed"))return n("crossed")===1?"A member of your party has crossed the floor":n("crossed")+" members of your party have crossed the floor";
+  if(n("indep"))return n("indep")===1?"A member of your party has gone independent":n("indep")+" members of your party have gone independent";
   if(n("lp"))return (N.lp.some(t=>/broke/.test(t))?"You broke a promise to your legislators":N.lp.some(t=>/of the way on the promise/.test(t))?"You got partway on a promise to your legislators":N.lp.some(t=>/kept/.test(t))?"You kept a promise to your legislators":"A promise to your legislators is almost due");
   if(n("prim"))return "Primary results";
   if(n("formed"))return "The "+caucusFactionName(N.formed[0])+" has formed"+(n("formed")>1?", and "+(n("formed")-1)+" more":"");
@@ -20509,6 +20514,7 @@ function showCaucusNews(news,next){
   h+=sec("Primaries you backed", N.prim, p=>`<div class="cn-fac"><b>${caucusCode(p.k)}</b> ${p.moot?`Moot: the seat did not stay with your party.`:p.retired?`${p.old} retired rather than face ${p.n}, who takes the seat.`:p.won?(p.nominee?`${p.n} beat ${p.old} for the nomination and carries the seat into the general. ${p.old} serves out the term.`:`${p.n} beat ${p.old}, and owes you the seat.`):`${p.old} held off ${p.n}, and will not forget it.`}</div>`);
   h+=sec("Retired", N.retired, r=>`<div class="cn-fac"><b>${caucusCode(r.k)}</b> ${r.old} (loyalty ${r.L}) retired; ${r.n} holds the seat for your party.`+"</div>", 8);
   h+=sec("Crossed the floor", N.crossed, k=>row(k,"now sits with the "+oppPartyPlural()));
+  h+=sec("Went independent", N.indep, k=>row(k,"sits outside both parties, and votes issue by issue"));
   h+=sec("Joined your party", N.joined, k=>row(k,"left the "+oppPartyPlural()));
   const mineF=(N.formed||[]).filter(f=>!caucusFactionParts(f).opp), oppF=(N.formed||[]).filter(f=>caucusFactionParts(f).opp);
   const mineB=(N.broken||[]).filter(f=>!caucusFactionParts(f).opp), oppB=(N.broken||[]).filter(f=>caucusFactionParts(f).opp);
@@ -20543,6 +20549,15 @@ function showCaucusNews(news,next){
 }
 /* CROSSING THE FLOOR. Very rare, and only a member who is livid. The seat
    goes with them, so the chamber count moves. */
+/* Where a member leaving your party would go: to the other party if their
+   views lean its way overall, and otherwise out on their own. */
+function caucusFitsOpp(m){
+  // the share of what they care about on which they already sit on the other
+  // side: only the genuinely heterodox (about a fifth of their issues) cross
+  const my=caucusMyLetter()==="D"?1:-1; let s=0,w=0;
+  for(const i in (m.v||{})){ if(ISSUES[i].partisan===false)continue; const v=m.v[i]; w+=v.int; if(v.pos*my<-0.2)s+=v.int; }
+  return w?s/w>=0.18:false;
+}
 function caucusDefections(){
   const C=GAME.caucus, Lg=GAME.legis; if(!C||!Lg||prOn())return;
   for(const k in C.m){ const m=C.m[k];
@@ -20554,6 +20569,12 @@ function caucusDefections(){
     Lg[arr]=Lg[arr].filter(id=>id!==m.id);
     if(sen)Lg.senate=Math.max(0,(Lg.senate||0)-1); else Lg.house=Math.max(0,(Lg.house||0)-1);
     const f=m.f?caucusFactionName(m.f):null;
+    if(!caucusFitsOpp(m)){
+      // furious with you, but no Republican either: an independent
+      m.p="opp"; m.ind=true; m.f=null; m.x=false; m.g=0; m.L=22; m.switched=GAME.turn;
+      GAME.log.push(ico('warning')+" "+caucusTitle(k)+" ("+caucusCode(k)+", "+caucusPlace(m.ch,m.id)+(f?", "+f:"")+") has left your party and will sit as an independent. "+(sen?"Senate":"House")+" now "+(sen?Lg.senate+"/30":Lg.house+"/60")+" for your party.");
+      caucusNews("indep",k); continue;
+    }
     m.p="opp"; m.f=null; m.x=false; m.g=0; m.L=4; m.switched=GAME.turn;
     GAME.log.push(ico('warning')+" "+caucusTitle(k)+" ("+caucusCode(k)+", "+caucusPlace(m.ch,m.id)+(f?", "+f:"")+") has left your party and will sit with the "+oppPartyPlural()+". "+(sen?"Senate":"House")+" now "+(sen?Lg.senate+"/30":Lg.house+"/60")+".");
     caucusNews("crossed",k);
@@ -20683,6 +20704,7 @@ function caucusOpenChair(postId,groups,side){
 
 /* ---------- the tab ---------- */
 function caucusColor(m){
+  if(m.ind)return "#8a8680";
   if(m.p==="mine"){ const t=m.L/100;
     return t<0.5?cmMix(t/0.5,"#a8452f","#c9a24a"):cmMix((t-0.5)/0.5,"#c9a24a","#3d6a3f"); }
   return cmMix(clamp((88-m.L)/55,0,1),"#5b3a78","#d4ade6");   // plum while loyal to their party, lilac as it slips
@@ -21400,7 +21422,7 @@ function renderCaucus(){
     <div class="cch"><button data-cch="house" class="${ch==="house"?"on":""}">House</button><button data-cch="senate" class="${ch==="senate"?"on":""}">Senate</button>${fac?`<button data-cfacoff="1">Show everyone</button>`:""}</div>
     <div class="cmap-row"><div>${legMapFrame(`<svg class="leg-map-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Every member, by loyalty">${svg}${edge}</svg>`)}
       <div class="legmap-read cmap-read" id="cmapRead" data-dflt="${hv("Hover a district or a member to find the other","Tap a district to open its member")}">${hv("Hover a district or a member to find the other","Tap a district to open its member")}</div>
-      <div class="clegend"><span><i style="background:#3d6a3f"></i>Yours, loyal</span><span><i style="background:#c9a24a"></i>Wavering</span><span><i style="background:#a8452f"></i>Angry</span><span><i style="background:#5b3a78"></i>${oppPartyPlural()}, loyal to their party</span><span><i style="background:#d4ade6"></i>${oppPartyPlural()}, wavering</span></div>${angH}${facH}</div>
+      <div class="clegend"><span><i style="background:#3d6a3f"></i>Yours, loyal</span><span><i style="background:#c9a24a"></i>Wavering</span><span><i style="background:#a8452f"></i>Angry</span><span><i style="background:#5b3a78"></i>${oppPartyPlural()}, loyal to their party</span><span><i style="background:#d4ade6"></i>${oppPartyPlural()}, wavering</span><span><i style="background:#8a8680"></i>Independent</span></div>${angH}${facH}</div>
       <div id="cmemFile">${sel?caucusMemberCard(sel):""}</div></div>`;
   // the roster
   const ks=Object.keys(C.m).filter(k=>k[0]===tag&&(side==="all"||C.m[k].p===side))
@@ -21410,7 +21432,7 @@ function renderCaucus(){
   h+=`<div class="croster">`+ks.map(k=>{ const m=C.m[k];
     return `<div class="crow${k===sel?" on":""}" data-cseat="${k}" tabindex="0">
       <span class="cr-code">${caucusCode(k)}</span>
-      <span class="cr-who"><b>${m.n}</b><i>${caucusPlace(m.ch,m.id)} · ${caucusPartyOf(m)==="D"?"Dem":"Rep"}${(()=>{ const t=caucusTraitsOf(k); return t.length?" · "+t.map(x=>x.label).join(", "):""; })()}${m.f?" · <b class=\"cr-fac\">"+caucusFactionName(m.f)+"</b>":""}${C.prim&&C.prim[k]?" · <b class=\"cr-fac\">primary backed</b>":""}</i>${k[0]==="s"?`<i class="cr-up">${caucusSenateUp(k)}</i>`:""}</span>
+      <span class="cr-who"><b>${m.n}</b><i>${caucusPlace(m.ch,m.id)} · ${m.ind?"Ind":caucusPartyOf(m)==="D"?"Dem":"Rep"}${(()=>{ const t=caucusTraitsOf(k); return t.length?" · "+t.map(x=>x.label).join(", "):""; })()}${m.f?" · <b class=\"cr-fac\">"+caucusFactionName(m.f)+"</b>":""}${C.prim&&C.prim[k]?" · <b class=\"cr-fac\">primary backed</b>":""}</i>${k[0]==="s"?`<i class="cr-up">${caucusSenateUp(k)}</i>`:""}</span>
       <span class="cr-views">${caucusBreakChips(m,2)}</span>
       <span class="cr-loy" style="color:${caucusColor(m)}">${Math.round(m.L)}</span></div>`; }).join("")+`</div>`;
   main.innerHTML=h;
@@ -21610,8 +21632,11 @@ function caucusBackPrimary(k,redraw){
     const nm=caucusNewName();
     p=Pm[k]={spent:0, since:GAME.turn, n:nm, name:m.n};
     // they know
-    m.g=clamp((m.g||0)-5,-30,30); caucusNote(m,"_prim","You backed a primary challenger",-5); m.L=clamp(m.L-3,0,100);
+    m.g=clamp((m.g||0)-4,-30,30); caucusNote(m,"_prim","You backed a primary challenger",-4); m.L=clamp(m.L-2,0,100);
     GAME.log.push(ico('ballot')+" You are backing "+nm+" against "+caucusTitle(k)+" ("+caucusCode(k)+") in the primary.");
+  } else {
+    // and every ◈ after is more money they hear about
+    m.g=clamp((m.g||0)-1.5,-30,30); caucusNote(m,"_prim","You backed a primary challenger",-1.5); m.L=clamp(m.L-1,0,100);
   }
   p.spent++;
   caucusControlCalc();
@@ -21789,7 +21814,7 @@ function caucusPrimaryDay(){
 const OPP_PRIM_AT=45;
 function caucusOppPrimaries(){
   const C=GAME.caucus, out=[]; C.nom=C.nom||{};
-  for(const k of Object.keys(C.m)){ const m=C.m[k]; if(m.p!=="opp"||m.L>=OPP_PRIM_AT)continue;
+  for(const k of Object.keys(C.m)){ const m=C.m[k]; if(m.p!=="opp"||m.ind||m.L>=OPP_PRIM_AT)continue;
     const b=caucusBallotsAhead(k)[0]; if(!b||!b.up||b.q!==CAUCUS_PRIMARY_LEAD)continue;
     if(C.nom[k])continue;
     const r=caucusRng(k+"|"+m.n+"|oppprim|"+GAME.turn);
@@ -21983,7 +22008,7 @@ function caucusCompassLayer(px,py){
 function caucusMemberCard(k){
   const C=GAME.caucus, m=C.m[k]; if(!m||!m.v)return "";
   const row=caucusRow(k), lean=row&&row[3]!=null?row[3]:50, mine=m.p==="mine";
-  const party=caucusPartyOf(m)==="D"?"Democrat":"Republican";
+  const party=m.ind?"Independent, formerly "+(caucusMyLetter()==="D"?"a Democrat":"a Republican"):caucusPartyOf(m)==="D"?"Democrat":"Republican";
   const on=caucusProjFor(k), c=caucusProjectCost(k), own=on.find(p=>p.k===k);
   const T=caucusTarget(m,k), parts=caucusTargetParts(m,k);
   const mk=row?caucusMakeup(row,4):[];
@@ -23883,7 +23908,7 @@ function doEndTurn(){
     }
     // the party reads the night: your approval, and the seats it won or cost them
     { const seats=legis?(legis.hSwing||0)+(legis.sSwing||0):0;
-      const pts=clamp((oa-49)*0.6+seats*0.25,-5,10);
+      const pts=clamp((oa-49)*0.6+seats*0.25,-3,10);
       partyElectionRally(pts, pts>0?(oa>=53?"The midterm wave":"The midterm win"):"The midterm rebuke"); }
     // any amendments you referred are on this same ballot — voters decide them now
     const measures=resolveBallot("midterm");
