@@ -21244,10 +21244,15 @@ function floorHoldoutsHTML(w,billKey,pid){
       if(floorDealt(billKey,x.chamber,x.id)){ dealt.push({x,r,kind:GAME.floorDeals[billKey][x.chamber+x.id]}); continue; }
       if(!buying.has(x)&&x.incl>0.3)continue; if(!x.buyable&&x.incl<-5)continue; pool.push({x,r,buy:buying.has(x)}); } }
   pool.sort((a,b)=>(b.buy-a.buy)||(a.buy?a.x.resist-b.x.resist:b.x.incl-a.x.incl));
-  // at 100% there is nothing to deal for: the whip has it, or you already did
-  if(Math.round((w.odds||0)*100)>=100){
+  // nothing to deal for: at 100%, or when both chambers are comfortable and
+  // the whip has nobody left to buy (a contested change is capped short of
+  // 100%, and no whip removes that last risk)
+  const comfy=buying.size===0&&(!w.house||!w.house.total||w.house.short===0)&&(!w.senate||!w.senate.total||w.senate.short===0);
+  if(Math.round((w.odds||0)*100)>=100||comfy){
+    const capNote=w.capped?` On a contested change, ${Math.round(w.odds*100)}% is as sure as it gets: no whip removes the chance something goes sideways on the day.`:"";
+    if(capNote&&!dealt.length)return `<div class="hold-done" style="color:var(--muted-2);margin-top:10px">${ico('handshake')} The votes are there. Nobody needs dealing with on this one.${capNote}</div>`;
     return dealt.length
-      ? `<div class="hold-done" style="margin-top:10px">${ico('handshake')} The votes are there. Certain yes on this vote: ${dealt.map(d=>`${d.r.pr?prTitle(d.r.m):caucusTitle(d.r.key)} (${d.kind})`).join(", ")}</div>`
+      ? `<div class="hold-done" style="margin-top:10px">${ico('handshake')} The votes are there. Certain yes on this vote: ${dealt.map(d=>`${d.r.pr?prTitle(d.r.m):caucusTitle(d.r.key)} (${d.kind})`).join(", ")}.${capNote}</div>`
       : `<div class="hold-done" style="color:var(--muted-2);margin-top:10px">${ico('handshake')} The votes are there. Nobody needs dealing with on this one.</div>`;
   }
   const top=pool.slice(0,6);
@@ -28505,7 +28510,7 @@ function pendingWhip(key, origSnap, curSnap, cushion){
   w.odds=votePassOdds(w);
   // a real fight is never a certainty, however comfortable the arithmetic looks:
   // something goes sideways on a divisive vote often enough that you cannot bank it
-  if(spec.cont>=0.4) w.odds=Math.min(w.odds, 1-(spec.cont-0.4)*0.38);
+  if(spec.cont>=0.4){ const cap=1-(spec.cont-0.4)*0.38; if(w.odds>cap){ w.odds=cap; w.capped=true; } }
   return w;
 }
 /* Roll a pending change's vote on a whip count you have already paid for. */
@@ -28740,12 +28745,15 @@ function paintPendingFloor(){
         <span class="odds-t">to carry ${floorPlace()} — <b>${oddsWord}</b>. The whip count is what members <i>say</i>; on the day they are absent, vote their conscience, or take a deal you never heard about.</span>
       </div>
       <div class="whip-cost">
-        <span>${w.cost?`Whipping ${w.house.buy.length+w.senate.buy.length} vote${(w.house.buy.length+w.senate.buy.length)===1?"":"s"}, plus ◈${changeCost} for the change itself`:`◈${changeCost} for the change — you already have the votes`}</span>
+        <span>${(()=>{ const nb=w.house.buy.length+w.senate.buy.length, fl=w.base||0;
+          return (nb?`Whipping ${nb} vote${nb===1?"":"s"}${fl?" and floor time":""}, plus ◈${changeCost} for the change itself`
+            :fl?`Floor time ◈${fl}, plus ◈${changeCost} for the change itself — you already have the votes`
+            :`◈${changeCost} for the change — you already have the votes`); })()}</span>
         <span class="wc-num ${afford?'':'broke'}">◈ ${total} <span class="wc-have">of ◈ ${Math.floor(GAME.capital)}</span></span></div>
       <div class="floor-act"><div class="floor-btns">
         <button class="enactbtn" id="pfGo" ${((w.possible||window.SANDBOX)&&afford)?'':'disabled'}>${
           (!w.possible||!afford)?floorBlockLabel(w)
-          :"Call the vote"+(w.cost?` — whipping ${w.house.buy.length+w.senate.buy.length}`:"")}</button>
+          :"Call the vote"+((w.house.buy.length+w.senate.buy.length)?` — whipping ${w.house.buy.length+w.senate.buy.length}`:"")}</button>
         <button class="enactbtn ghost" id="pfNo">Withdraw the change</button></div>
         ${(()=>{ const pid=key.startsWith("p_")?key.slice(2):null, pp=pid&&POLICIES[pid]; if(!pp)return "";
           let was=null; try{ const d=JSON.parse(GAME.pendingFloorChange.origSnap); was=pp.mechanic==="tier"?d.t:pp.mechanic==="intensity"?d.i:d.v; }catch(e){}
