@@ -6111,7 +6111,8 @@ const CATALOG={
   taxCut:{name:"Across-the-Board Tax Cut", domain:"economy", icon:"chart-down", mechanic:"slider",
     desc:"Cuts the personal income tax and the corporate taxes across every bracket, by up to $2.5B a year at full strength, split in proportion to what each raises. Popular with taxpayers and business; the hole it leaves in the General Fund forces service cuts.",
     value:0.5, capital:10, enactCapital:14, taxDir:"cut",
-    effects:{gdp:0.35,unemployment:-0.3,taxBurden:-12}, ideology:{economic:0.7,govSize:0.6}},
+    // per dollar, what cutting the income and corporate rates on the dials does
+    effects:{gdp:0.13,unemployment:-0.09,taxBurden:-1.4}, ideology:{economic:0.7,govSize:0.6}},
   // Water law is not a bill you pass. Oregon has had one since 1909 and will
   // have one whatever you do — the only question a governor gets to answer is
   // how far the state goes in managing it, which is a ladder and not a switch.
@@ -19900,7 +19901,7 @@ function caucusDistrictPull(ch,id,comp,lean){
 }
 function caucusTraitsOf(k){ const row=caucusRow(k), m=GAME.caucus&&GAME.caucus.m[k]; return (row&&m)?caucusDistrictTraits(m.ch,m.id,row[1],row[3]!=null?row[3]:50):[]; }
 // views are rebuilt when the way they are derived changes
-const CAUCUS_VIEWS_V=4;
+const CAUCUS_VIEWS_V=5;
 /* A member's views: the party line, pulled toward the district where the
    district cares, pulled hard where the seat leans the other way, and one
    personal conviction for about a quarter of them. */
@@ -19910,10 +19911,14 @@ function caucusViews(m,row){
   const r=caucusRng(m.ch+m.id+m.n);
   const partisanIds=ISSUE_IDS.filter(i=>ISSUES[i].partisan!==false);
   const conv=r()<0.25?partisanIds[Math.floor(r()*partisanIds.length)]:null;
+  // NOT EVERY MEMBER IS THEIR DISTRICT. About a third are party loyalists
+  // who vote the party line and feel their district only lightly; most are
+  // somewhere between; a fifth are their district first.
+  const fr=caucusRng(m.ch+m.id+m.n+"|fid")(), fid=fr<0.35?0.3:fr<0.8?0.7:1;
   const v={};
   for(const i of ISSUE_IDS){ const P=pull[i], I=ISSUES[i];
-    if(I.partisan===false){ if(P.d>0)v[i]={pos:P.d, int:P.care?1:0.5}; continue; }
-    let w=0.12+(P.care?0.7:0)+(cross?0.4:0);
+    if(I.partisan===false){ if(P.d>0)v[i]={pos:P.d, int:P.care&&fid>=0.7?1:0.5}; continue; }
+    let w=(0.12+(P.care?0.7:0)+(cross?0.4:0))*fid;
     let d=P.d;
     if(i===conv){ w+=0.45; d=r()<0.5?-party:P.d; if(Math.abs(d-party)<0.5)d=-party; }
     const pos=clamp(party+(d-party)*Math.min(w,0.95),-1,1);
@@ -20043,14 +20048,14 @@ function caucusSeatWord(b){ return b>=85?"safe seat":b>=74?"leaning seat":"margi
 function caucusBase(m){
   const row=caucusRow((m.ch==="house"?"h":"s")+m.id), lean=row&&row[3]!=null?row[3]:50;
   const safe=caucusPartyOf(m)==="D"?lean-50:50-lean;
-  return 66+clamp(safe/14,0,1)*26;
+  return 72+clamp(safe/14,0,1)*20;
 }
 /* What loyalty is heading toward, in parts, so the dossier can show them. */
 function caucusTargetParts(m,key){
   const row=caucusRow(key), st=caucusSat(m), parts=[];
   if(m.p==="mine"){
     const owed=Math.min(3,((GAME.legis&&GAME.legis.favors)||{})[m.ch+m.id]||0);
-    const mand=INDICATORS.mandate?(INDICATORS.mandate.value-(GAME.caucus&&GAME.caucus.mand0!=null?GAME.caucus.mand0:50))*0.25:0;
+    const mand=INDICATORS.mandate?clamp((INDICATORS.mandate.value-(GAME.caucus&&GAME.caucus.mand0!=null?GAME.caucus.mand0:50))*0.25,-4,4):0;
     const b=caucusBase(m);
     parts.push(["Party member, "+caucusSeatWord(b),b]);
     if(Math.abs(mand)>=0.5)parts.push(["Your mandate since taking office",mand]);
@@ -20392,9 +20397,9 @@ function caucusCollectNews(facs0,before){
     if(m.p==="mine"){
       if(m.L<CAUCUS_LIVID&&from>=CAUCUS_LIVID)N.livid.push(k);
       else if(m.L<at&&from>=at)N.angry.push(k);
-      else if(from-m.L>=8)N.dropped.push(k);
+      else if(from-m.L>=10)N.dropped.push(k);
     } else if(m.L<40&&from>=40)N.wavering.push(k);
-    else if(from-m.L>=8)N.oppDropped.push(k);
+    else if(from-m.L>=10)N.oppDropped.push(k);
   }
   const byDrop=(a,b)=>((before[b].last??before[b].L)-C.m[b].L)-((before[a].last??before[a].L)-C.m[a].L);
   N.angry.sort(byDrop); N.dropped.sort(byDrop);
@@ -20405,8 +20410,15 @@ function caucusCollectNews(facs0,before){
   N.retired=C.retNews||[]; C.retNews=[];
   N.oppDropped.sort(byDrop);
   N.from={}; N.to={}; N.who={}; ["livid","angry","dropped","wavering","oppDropped"].forEach(t=>N[t].forEach(k=>{ const b=before[k]; N.from[k]=Math.round(b.last!=null?b.last:b.L); N.to[k]=Math.round(C.m[k].L); N.who[k]=C.m[k].n; }));
-  const any=["walk","lp","flash","prim","retired","formed","broken","crossed","joined","livid","angry","dropped","wavering","oppDropped"].some(t=>(N[t]||[]).length);
-  if(any&&GAME.turn>1)GAME.pendingCaucusNews={turn:GAME.turn, n:JSON.parse(JSON.stringify(N))};
+  // WHAT IS WORTH A POPUP. Most quarters most members are simply loyal, and
+  // one of them slipping, or the other party's squabbles, is for the
+  // quarterly report. The popup is for things that happened: a walkout, a
+  // promise, a defection, a new faction of yours, several members turning.
+  const has=t=>(N[t]||[]).length, mineFormed=(N.formed||[]).filter(f=>!caucusFactionParts(f).opp).length,
+        bigOpp=(N.formed||[]).some(f=>caucusFactionParts(f).opp&&((C.facs[f]||{}).keys||[]).length>=5);
+  const loud=has("walk")||has("lp")||has("crossed")||has("joined")||has("livid")||has("prim")||has("retired")
+    ||mineFormed||bigOpp||has("angry")>=2||has("dropped")>=4;
+  if(loud&&GAME.turn>1)GAME.pendingCaucusNews={turn:GAME.turn, n:JSON.parse(JSON.stringify(N))};
   C._news={};
 }
 /* Why a member moved: the biggest things in their record, else their issues. */
@@ -23612,6 +23624,12 @@ function runLegislativeElection(approval){
   // than the one you inherited.
   const nightSwing=electionNightZ()*FC_NAT;     // the statewide miss, the same in every seat
   const jitter=()=>nightSwing+electionNightSeat();   // plus each seat's own
+  // INCUMBENCY AT THE MIDTERM. A member of your party defending their own
+  // seat runs a point and a half ahead of the mood: on the same bad nights
+  // that is about two House seats more on average, a few more in the worst
+  // quarter of them, and nobody saved from a real wave.
+  const mtCush=(GAME.turn-(GAME.term-1)*GAME.termLengthTurns)===GAME.midtermTurn?1.5:0;
+  const heldH=caucusHeld("house"), heldS=caucusHeld("senate");
 
   // ---- House: all 60 contested, decided by plurality ----
   // One reading of the field for the whole night, so every district is
@@ -23620,7 +23638,7 @@ function runLegislativeElection(approval){
   const hRank=chamberVote("house", _th);
   const hWon=[], spHL=[], spHR=[];
   for(const r of hRank){
-    const you=r.vote.you+grace+jitter(), v=r.vote;
+    const you=r.vote.you+grace+jitter()+(heldH.has(r.id)?mtCush:0), v=r.vote;
     const top=Math.max(you, v.opp, v.spL, v.spR);
     if(top===v.spL) spHL.push(r.id);
     else if(top===v.spR) spHR.push(r.id);
@@ -23640,7 +23658,7 @@ function runLegislativeElection(approval){
   const wonUp=[], spSL=[], spSR=[];
   for(const r of sRank){
     if(!upSet.has(r.id))continue;
-    const you=r.vote.you+grace+jitter(), v=r.vote;
+    const you=r.vote.you+grace+jitter()+(heldS.has(r.id)?mtCush:0), v=r.vote;
     const top=Math.max(you, v.opp, v.spL, v.spR);
     if(top===v.spL) spSL.push(r.id);
     else if(top===v.spR) spSR.push(r.id);
