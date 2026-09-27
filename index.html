@@ -20444,7 +20444,7 @@ function caucusCollectNews(facs0,before){
   // promise, a defection, a new faction of yours, several members turning.
   const has=t=>(N[t]||[]).length, mineFormed=(N.formed||[]).filter(f=>!caucusFactionParts(f).opp).length,
         bigOpp=(N.formed||[]).some(f=>caucusFactionParts(f).opp&&((C.facs[f]||{}).keys||[]).length>=5);
-  const loud=has("walk")||has("lp")||has("crossed")||has("indep")||has("joined")||has("livid")||has("prim")||has("retired")
+  const loud=has("walk")||has("lp")||has("crossed")||has("indep")||has("oppIndep")||has("joined")||has("livid")||has("prim")||has("retired")
     ||mineFormed||bigOpp||has("angry")>=2||has("dropped")>=4;
   if(loud&&GAME.turn>1)GAME.pendingCaucusNews={turn:GAME.turn, n:JSON.parse(JSON.stringify(N))};
   C._news={};
@@ -20470,6 +20470,7 @@ function caucusNewsTitle(N){
   if(n("livid"))return n("livid")+" of your members "+(n("livid")===1?"is":"are")+" livid";
   if(n("angry"))return n("angry")+" of your members turned against you";
   if(n("joined"))return "A member of the "+oppPartyPlural()+" has joined your party";
+  if(n("oppIndep"))return n("oppIndep")===1?"A member of the "+oppPartyPlural()+" has gone independent":n("oppIndep")+" members of the "+oppPartyPlural()+" have gone independent";
   if(n("dropped"))return n("dropped")+" of your members became less loyal";
   if(n("broken"))return "The "+caucusFactionName(N.broken[0])+" has broken up";
   if(n("flash"))return "The "+oppPartyPlural()+" are fighting among themselves";
@@ -20515,6 +20516,7 @@ function showCaucusNews(news,next){
   h+=sec("Retired", N.retired, r=>`<div class="cn-fac"><b>${caucusCode(r.k)}</b> ${r.old} (loyalty ${r.L}) retired; ${r.n} holds the seat for your party.`+"</div>", 8);
   h+=sec("Crossed the floor", N.crossed, k=>row(k,"now sits with the "+oppPartyPlural()));
   h+=sec("Went independent", N.indep, k=>row(k,"sits outside both parties, and votes issue by issue"));
+  h+=sec("Left the "+oppPartyPlural()+" for the independents", N.oppIndep, k=>row(k,"no longer under their whip, and open to your bills"));
   h+=sec("Joined your party", N.joined, k=>row(k,"left the "+oppPartyPlural()));
   const mineF=(N.formed||[]).filter(f=>!caucusFactionParts(f).opp), oppF=(N.formed||[]).filter(f=>caucusFactionParts(f).opp);
   const mineB=(N.broken||[]).filter(f=>!caucusFactionParts(f).opp), oppB=(N.broken||[]).filter(f=>caucusFactionParts(f).opp);
@@ -20553,8 +20555,9 @@ function showCaucusNews(news,next){
    views lean its way overall, and otherwise out on their own. */
 function caucusFitsOpp(m){
   // the share of what they care about on which they already sit on the other
-  // side: only the genuinely heterodox (about a fifth of their issues) cross
-  const my=caucusMyLetter()==="D"?1:-1; let s=0,w=0;
+  // side of their own party: only the genuinely heterodox (about a fifth of
+  // their issues) cross; the rest go independent
+  const my=caucusPartyOf(m)==="D"?1:-1; let s=0,w=0;
   for(const i in (m.v||{})){ if(ISSUES[i].partisan===false)continue; const v=m.v[i]; w+=v.int; if(v.pos*my<-0.2)s+=v.int; }
   return w?s/w>=0.18:false;
 }
@@ -20586,6 +20589,12 @@ function caucusDefections(){
     const sen=m.ch==="senate", arr=sen?"sHeld":"hHeld", tot=sen?LEGIS.senate:LEGIS.house;
     if(!Array.isArray(Lg[arr]))Lg[arr]=[...caucusHeld(m.ch)];
     if(Lg[arr].includes(m.id))continue;
+    if(!caucusFitsOpp(m)){
+      // done with their party, but no fit for yours: an independent
+      m.ind=true; m.f=null; m.g=0; m.L=22; m.switched=GAME.turn;
+      GAME.log.push(ico('warning')+" "+caucusTitle(k)+" ("+caucusCode(k)+", "+caucusPlace(m.ch,m.id)+") has left the "+oppPartyPlural()+" and will sit as an independent.");
+      caucusNews("oppIndep",k); continue;
+    }
     Lg[arr]=Lg[arr].concat([m.id]);
     if(sen)Lg.senate=Math.min(tot,(Lg.senate||0)+1); else Lg.house=Math.min(tot,(Lg.house||0)+1);
     m.p="mine"; m.f=null; m.g=0; m.switched=GAME.turn; m.joined=true; m.x=true; m.L=60;
@@ -21664,7 +21673,7 @@ function caucusRetirements(upSenate){
   // every seat on the ballot has a named challenger
   for(const k in C.m){ const id=+k.slice(1); if(k[0]==="s"&&!(upSenate&&upSenate.has(id)))continue; caucusChallenger(k); }
   // who stood, before the seats that changed hands are re-seated
-  const pre={}; for(const k in C.m)pre[k]={n:C.m[k].n, p:caucusPartyOf(C.m[k])};
+  const pre={}; for(const k in C.m)pre[k]={n:C.m[k].n, p:C.m[k].ind?"I":caucusPartyOf(C.m[k])};
   caucusSync();
   // a seat that flipped went to the challenger who ran for it
   C.chal=C.chal||{};
@@ -21676,6 +21685,7 @@ function caucusRetirements(upSenate){
   for(const k of Object.keys(C.m)){ const m=C.m[k], id=+k.slice(1);
     if(k[0]==="s"&&!(upSenate&&upSenate.has(id)))continue;
     if(m.since===GAME.turn)continue;                           // arrived tonight
+    if(m.ind)continue;                                         // ran, as an independent
     if(C.nom&&C.nom[k]&&C.nom[k].old===m.n)continue;          // lost the primary: the nominee takes it
     if(caucusRng(k+"|"+m.n+"|retire|"+GAME.turn)()>=caucusRetireChance(k))continue;
     const p=C.prim&&C.prim[k];
@@ -21736,6 +21746,19 @@ function caucusCandidateEdge(ch,id){
   const p=caucusCandidateParts((ch==="house"?"h":"s")+id); if(!p)return 0;
   return p.m.p==="mine"?p.total:-p.total;
 }
+/* AN INDEPENDENT ON THE BALLOT. Their own vote, in points: bigger where
+   neither party has the district locked, bigger for a strong candidate, and
+   widely spread, because an independent's night turns on things no poll
+   sees. It comes out of every party's share, and they keep the seat only
+   if it beats all of them. */
+function caucusIndVote(tag,id){
+  const C=GAME.caucus; if(prOn()||!C)return null;
+  const k=tag+id, m=C.m[k]; if(!m||!m.ind)return null;
+  const row=caucusRow(k), lean=row&&row[3]!=null?row[3]:50, raw=(caucusCandidateRaw(k)||{raw:0}).raw;
+  let u=0,v=0; while(!u)u=Math.random(); while(!v)v=Math.random();
+  const z=Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+  return {k, share:clamp(18+Math.max(0,9-Math.abs(lean-50)*0.3)+clamp(raw,-3,3)+z*6.5,4,60)};
+}
 /* The challenger for a seat's next race: named once and kept until it is run. */
 function caucusChallenger(k){
   const C=GAME.caucus; if(!C)return null;
@@ -21764,7 +21787,7 @@ function caucusRecordRaces(upSenate){
   const C=GAME.caucus; if(prOn()||!C)return;
   const pre=C._pre||{}, r={};
   for(const k in C.m){ const id=+k.slice(1); if(k[0]==="s"&&!(upSenate&&upSenate.has(id)))continue;
-    const m=C.m[k], was=pre[k], ch=C.chal&&C.chal[k], wp=caucusPartyOf(m);
+    const m=C.m[k], was=pre[k], ch=C.chal&&C.chal[k], wp=m.ind?"I":caucusPartyOf(m);
     if(!was)continue;
     const flip=was.p!==wp;
     r[k]={w:(m.ch==="house"?"Rep. ":"Sen. ")+m.n, wp, flip,
@@ -23722,8 +23745,12 @@ function runLegislativeElection(approval){
   const _th=statewideThirds();
   const hRank=chamberVote("house", _th);
   const hWon=[], spHL=[], spHR=[];
+  const indKept=[], indLost=[];
   for(const r of hRank){
-    const you=r.vote.you+grace+jitter()+(heldH.has(r.id)?mtCush:0), v=r.vote;
+    let you=r.vote.you+grace+jitter()+(heldH.has(r.id)?mtCush:0), v=r.vote;
+    const iv=caucusIndVote("h",r.id);
+    if(iv){ const f=1-iv.share/100; you*=f; v={opp:v.opp*f, spL:v.spL*f, spR:v.spR*f};
+      if(iv.share>Math.max(you,v.opp,v.spL,v.spR)){ indKept.push(iv.k); continue; } indLost.push(iv.k); }
     const top=Math.max(you, v.opp, v.spL, v.spR);
     if(top===v.spL) spHL.push(r.id);
     else if(top===v.spR) spHR.push(r.id);
@@ -23743,7 +23770,10 @@ function runLegislativeElection(approval){
   const wonUp=[], spSL=[], spSR=[];
   for(const r of sRank){
     if(!upSet.has(r.id))continue;
-    const you=r.vote.you+grace+jitter()+(heldS.has(r.id)?mtCush:0), v=r.vote;
+    let you=r.vote.you+grace+jitter()+(heldS.has(r.id)?mtCush:0), v=r.vote;
+    const iv=caucusIndVote("s",r.id);
+    if(iv){ const f=1-iv.share/100; you*=f; v={opp:v.opp*f, spL:v.spL*f, spR:v.spR*f};
+      if(iv.share>Math.max(you,v.opp,v.spL,v.spR)){ indKept.push(iv.k); continue; } indLost.push(iv.k); }
     const top=Math.max(you, v.opp, v.spL, v.spR);
     if(top===v.spL) spSL.push(r.id);
     else if(top===v.spR) spSR.push(r.id);
@@ -23771,6 +23801,15 @@ function runLegislativeElection(approval){
     }
   }
 
+  // independents: the ones who held on keep their seats; the ones who lost
+  // hand them to whoever beat them (your party's are re-seated by caucusSync)
+  if(GAME.caucus&&!prOn()){
+    for(const k of indKept){ const m=GAME.caucus.m[k]; if(m)GAME.log.push(ico('ballot')+" "+caucusTitle(k)+" held "+caucusCode(k)+", "+caucusPlace(m.ch,m.id)+", as an independent, beating both parties."); }
+    for(const k of indLost){ const m=GAME.caucus.m[k]; if(!m||!m.ind)continue;
+      const mineNow=(k[0]==="h"?L.hHeld:L.sHeld).includes(+k.slice(1));
+      GAME.log.push(ico('ballot')+" "+caucusTitle(k)+", the independent in "+caucusCode(k)+", lost the seat to "+(mineNow?"your party":"the "+oppPartyPlural())+".");
+      if(!mineNow){ const nm=caucusFreshMember(k,m); GAME.caucus.m[k]=nm; nm.L=caucusTarget(nm,k); } }
+  }
   // retirements and primaries on this ballot are settled with it
   caucusRetirements(upSet);
   caucusResolvePrimaries(upSet);
