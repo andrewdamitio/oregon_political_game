@@ -4786,6 +4786,7 @@ const METRIC_LINKS=[
   {from:"incarcerationRate", to:"violentCrime", coef:-0.10, ref:50}, // incapacitation cuts violent crime
   {from:"incarcerationRate", to:"drugUse",     coef:-0.07, ref:50}, // enforcement suppresses open drug use
   {from:"loggingRate", to:"environment",   coef:-0.13, ref:38},  // harvest degrades environment
+  {from:"loggingRate", to:"unemployment",  coef:-0.006,ref:40},  // mills and crews hire in the timber counties
   {from:"gdp",         to:"loggingRate",   coef:7.0,   ref:2.0},  // national economy drives lumber demand
   {from:"inequality",  to:"violentCrime",  coef:0.03, ref:55},
   {from:"inequality",  to:"propertyCrime", coef:0.04, ref:55},
@@ -25868,6 +25869,20 @@ function blocReaction(kind,obj,sim){
   if(engaged||Math.abs(m)>=REACT_THRESHOLD)return m;
   return null;
 }
+/* WHAT A METRIC DRIVES BEYOND THE METRIC LINKS, for its page: the budget,
+   indicators, voters and the situations it can set off. */
+const METRIC_DRIVES_EXTRA={
+  loggingRate:()=>{
+    const Lr=METRICS.loggingRate.value, d=Lr-40, out=[];
+    out.push({name:ico('tractor')+" Rural Alienation (lower is better)", v:-d*0.30, good:d>=0, link:"i_ruralAlienation", fmt:v=>(v>=0?"+":"")+v.toFixed(1)+" pts"});
+    out.push({name:ico('chart-up')+" GDP growth (the timber economy)", v:d*0.0018, good:d>=0, link:"m_gdp", fmt:v=>(v>=0?"+":"")+v.toFixed(3)+" pts/yr"});
+    if(REVENUE.timber)out.push({name:ico('tree')+" State forest timber receipts", v:REVENUE.timber.base*(Lr/40)-REVENUE.timber.base, good:d>=0, link:"budget", fmt:v=>(v>=0?"+$":"−$")+Math.abs(v).toFixed(2)+"B/yr vs. 40"});
+    out.push({name:ico('bank')+" Common School Fund deposits", v:0.04*((Lr-40)/40)*(GAME.csfElliottMult??1), good:d>=0, link:"budget", fmt:v=>(v>=0?"+$":"−$")+Math.abs(v*1000).toFixed(0)+"M/yr vs. 40"});
+    out.push({name:ico('people')+" Timber-economy voters: happier the more is cut, restless below 40 (see the groups below)"});
+    out.push({name:ico('warning')+" At 55 or more: <b>The Timber Wars Return</b>. Below 25, with county finances unreformed: <b>Timber Counties Fiscal Crisis</b>"});
+    return out;
+  }
+};
 /* map a metric key to the matching voter sensitivity key (some differ) */
 function metricSensKey(metricKey){
   const map={unemployment:"unemployment",education:"education",violentCrime:"crime",propertyCrime:"crime",
@@ -27058,7 +27073,8 @@ function renderDetail(){
     // ---- downstream: what this metric currently pushes ----
     {
       const downLinks=METRIC_LINKS.filter(L=>L.from===k);
-      if(downLinks.length){
+      const extra=METRIC_DRIVES_EXTRA[k]?METRIC_DRIVES_EXTRA[k]():[];
+      if(downLinks.length||extra.length){
         const goodForM=(mk,v)=>{const tm=METRICS[mk];return tm&&tm.invert?v<0:v>0;};
         const allAbs=downLinks.map(L=>Math.abs((m.value-L.ref)*L.coef*0.25));
         const scale=Math.max(0.05,...allAbs);
@@ -27069,7 +27085,12 @@ function renderDetail(){
           h+=effectBar(ico(tm?.icon)+' '+(tm?.name||L.to),delta,scale,
             {color:goodForM(L.to,delta)?'var(--good)':'var(--clay)',link:'m_'+L.to,fmt:v=>(v>=0?'+':'')+v.toFixed(2)});
         }
-        h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Per-turn equilibrium nudge on linked metrics at the current value.</div>`;
+        if(downLinks.length)h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Per-turn equilibrium nudge on linked metrics at the current value.</div>`;
+        // what it drives beyond the metric links: the budget, indicators, voters, situations
+        for(const x of extra){
+          if(x.v!=null)h+=effectBar(x.name,x.v,Math.max(0.05,Math.abs(x.v)),{color:x.good==null?'var(--muted-2)':(x.good?'var(--good)':'var(--clay)'),link:x.link||null,fmt:x.fmt});
+          else h+=`<div class="threshline" style="margin-top:4px">${x.name}</div>`;
+        }
         h+=`</div>`;
       }
     }
