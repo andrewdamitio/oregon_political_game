@@ -22676,8 +22676,7 @@ function whipChamberHTML(w, pol, dir){
 }
 /* THE CONFIRMATION FLOOR. The bill screen, minus everything a nomination
    does not have: there is no strength dial on a person, no three-fifths
-   threshold, and no second chamber. What is left is the count, the room, and
-   how big a margin you want to pay for. */
+   threshold, and no second chamber. What is left is the count and the room. */
 function showApptFloor(postId, idx){
   const slate=apptSlate(postId), cand=slate&&slate[idx];
   if(!cand)return;
@@ -22829,6 +22828,7 @@ function drawFloor(){
   const pol=(F.dir==="repeal")?POLICIES[F.id]:CATALOG[F.id];
   if(!pol)return;
   const card=document.getElementById("floorCard"), modal=document.getElementById("floorModal");
+  F.cushion=0;   // no margin choice any more: the whip buys to a safe count
   const w=whipCount(F.id,F.dir,F.narrowed,F.cushion);
   const afford=GAME.capital>=w.cost||!!window.SANDBOX;
   const verb=pol.reform ? (F.dir==="repeal"?"Refer a repeal of":"Refer")
@@ -22869,17 +22869,6 @@ function drawFloor(){
     return `<button class="conc ${on?'on':''}${(GAME.capital>=q.cost&&q.possible)?'':' broke'}" data-conc="${nv}">
       <span class="conc-l">${lab}</span>
       <span class="conc-c">${!q.possible?"dead":q.cost<=w.base?"floor time only":"◈"+q.cost}${q.possible?" · "+Math.round(q.odds*100)+"%":""}</span></button>`;
-  }).join("");
-  // spare votes are offered only where they raise the odds: at 100%, or at a
-  // contested change's ceiling, they buy nothing, and past the capital limit
-  // they make the bill unpassable
-  const cushOK=[2,4,6].filter(cv=>{ const q=whipCount(F.id,F.dir,F.narrowed,cv); return q.possible&&q.odds>=w.odds+0.02; });
-  const cush=(cushOK.length?[0].concat(cushOK):[]).map(cv=>{
-    const q=whipCount(F.id,F.dir,F.narrowed,cv);
-    const on=cv===(F.cushion||0);
-    return `<button class="conc ${on?'on':''}${(GAME.capital>=q.cost&&q.possible)?'':' broke'}" data-cush="${cv}">
-      <span class="conc-l">${cv===0?"No cushion":"+"+cv+" spare votes"}</span>
-      <span class="conc-c">◈${q.cost} · ${Math.round(q.odds*100)}%</span></button>`;
   }).join("");
   const oddsWord=w.odds>=0.95?"near-certain":w.odds>=0.8?"likely":w.odds>=0.55?"probable":w.odds>=0.4?"a coin flip":w.odds>=0.15?"an outside chance":"almost hopeless";
   card.innerHTML=`<div class="sectionhdr">${ico('columns')} ${verb} — ${pol.name}</div>
@@ -22930,8 +22919,6 @@ function drawFloor(){
     ${whipChamberHTML(w.house,pol,F.dir)}
     ${whipChamberHTML(w.senate,pol,F.dir)}
     <div class="whip-legend"><span><i class="wp y own"></i>your members, yes</span><span><i class="wp y cross"></i>crossover yes</span><span><i class="wp buy"></i>whipped</span><span><i class="wp n"></i>no</span><span><i class="wp n hard"></i>not for sale</span></div>
-    ${cush?`<div class="conc-h" style="margin-top:14px">${ico('shield')} How big a margin — spare votes are insurance, not waste</div>
-    <div class="conc-row">${cush}</div>`:""}
     ${floorHoldoutsHTML(w,"b:"+F.dir+":"+F.id,F.id)}`;
   modal.classList.remove("hidden");
   card.querySelectorAll('[data-conc]').forEach(el=>el.addEventListener('click',()=>{
@@ -28879,6 +28866,7 @@ function paintPendingFloor(){
   const key=F.key, orig=F.origSnap, cur=snapshotFor(key);
   const pol=pendingPol(key);
   const same=(cur===orig);
+  F.cushion=0;   // no margin choice any more
   const w=same?null:pendingWhip(key,orig,cur,F.cushion||0);
   const changeCost=same?0:chargeFor(key,orig,cur);
   const title=document.getElementById("pfTitle");
@@ -28897,18 +28885,6 @@ function paintPendingFloor(){
     const spec=w.spec, isCut=!!spec.cut, isRev=(w.kind!=="program")&&!isCut;
     const total=w.cost+changeCost;
     const afford=GAME.capital>=total||!!window.SANDBOX;
-    // spare votes only where they raise the odds (not at 100%, not at a
-    // contested change's ceiling, not past the capital limit)
-    const w0=pendingWhip(key,orig,cur,0);
-    const cushOK=[2,4,6].filter(cv=>{ const q=pendingWhip(key,orig,cur,cv); return q&&q.possible&&w0&&q.odds>=w0.odds+0.02; });
-    const cush=(cushOK.length?[0].concat(cushOK):[]).map(cv=>{
-      const q=pendingWhip(key,orig,cur,cv);
-      if(!q)return '';
-      const qt=q.cost+changeCost, on=cv===(F.cushion||0);
-      return `<button class="conc ${on?'on':''}${(GAME.capital>=qt&&q.possible)?'':' broke'}" data-pcush="${cv}">
-        <span class="conc-l">${cv===0?"No cushion":"+"+cv+" spare votes"}</span>
-        <span class="conc-c">◈${qt} · ${Math.round(q.odds*100)}%</span></button>`;
-    }).join("");
     const oddsWord=w.odds>=0.95?"near-certain":w.odds>=0.8?"likely":w.odds>=0.55?"probable":w.odds>=0.4?"a coin flip":w.odds>=0.15?"an outside chance":"almost hopeless";
     const lede = isCut
       ? `You are <b>forgoing ${fmtB(spec.yield,2)}/yr</b>. A cut does not need the three-fifths a rise does — a simple majority carries it — but the members who have to balance the budget will want to know how you are paying for it.${
@@ -28963,8 +28939,6 @@ function paintPendingFloor(){
       ${whipChamberHTML(w.house,spec.bill,"enact")}
       ${whipChamberHTML(w.senate,spec.bill,"enact")}
       <div class="whip-legend"><span><i class="wp y own"></i>your members, yes</span><span><i class="wp y cross"></i>crossover yes</span><span><i class="wp buy"></i>whipped</span><span><i class="wp n"></i>no</span><span><i class="wp n hard"></i>not for sale</span></div>
-      ${cush?`<div class="conc-h" style="margin-top:14px">${ico('shield')} How big a margin — spare votes are insurance, not waste</div>
-      <div class="conc-row">${cush}</div>`:""}
       ${floorHoldoutsHTML(w,"c:"+key,key.startsWith("p_")?key.slice(2):null)}`;
   }
   const done=F.onDone, close=F._close;
