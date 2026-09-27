@@ -22898,13 +22898,15 @@ function drawFloor(){
     </div>
     ${(()=>{ try{
       if(F.dir==="repeal"){ const cur=POLICIES[F.id]; return cur?expectedFxHTML("policy",null,lawAt(cur,F.id)):""; }
-      const base=CATALOG[F.id]; if(!base||pol.reform)return "";
+      const base=CATALOG[F.id]; if(!base)return "";   // an amendment: what it does if the voters pass it
       const nv=F.narrowed;
       const now=lawAt(base,F.id,c=>{ c.enacted=true;
         if(c.mechanic==="tier"&&c.tiers)c.tierIndex=Math.max(c.tierMin||0,Math.round(nv*(c.tiers.length-1)));
         else if(c.mechanic==="slider"||c.mechanic==="allocation")c.value=Math.max(c.value||0,nv);
         else if(c.mechanic==="intensity"){ c.enabled=true; c.intensity=Math.max(c.intensity||0,nv); }
-        else c.narrowed=nv; });
+        else c.narrowed=nv;
+        // an amendment that comes in forms: the groups react to the form chosen
+        if(F.id==="initiativeLimits"){ const v=INIT_VARIANTS[measureVariantDraft(F.id)]; if(v)c.blocEffect=Object.assign({},v.bloc); } });
       return expectedFxHTML("policy",now,null); }catch(e){ return ""; } })()}
     <div class="whip-cost">
       <span>${(w.house.buy.length+w.senate.buy.length)?"Whipping "+(w.house.buy.length+w.senate.buy.length)+" vote"+((w.house.buy.length+w.senate.buy.length)===1?"":"s")+" plus floor time":"Floor time only — you already have the votes"}</span>
@@ -25839,6 +25841,7 @@ function blocRampMood(p,sid){
 function expectedFxHTML(kind,now,was){
   const dm={}, db={};
   const fx=o=>{ if(!o)return {};
+    if(kind==="landuse"){ const d={}; for(const k in (o.effects||{}))d[k]=o.effects[k][o.index]||0; return d; }
     if(kind==="agency"){ const d={}; for(const k in (o.effects||{}))d[k]=effExpr(o.effects[k],o.funding??0.5);
       for(const k in (o.loggingEffects||{}))d[k]=(d[k]||0)+effExpr(o.loggingEffects[k],o.logging??0.5); return d; }
     return directEffects("policy",o)||{}; };
@@ -25849,7 +25852,7 @@ function expectedFxHTML(kind,now,was){
     const rn=r(now), rw=r(was), v=rn-rw; if(Math.abs(v)>=0.5){ db[sid]=v; ob[sid]=rw; nb[sid]=rn; } }
   const mk=Object.keys(dm).sort((x,y)=>Math.abs(dm[y])-Math.abs(dm[x])).slice(0,6);
   const bk=Object.keys(db).sort((x,y)=>Math.abs(db[y])-Math.abs(db[x])).slice(0,8);
-  if(!mk.length&&!bk.length)return "";
+  if(!mk.length&&!bk.length)return `<div class="conc-h" style="margin-top:10px">${ico('chart-up')} Expected effects, once it is in force</div><div class="xfx-box"><div class="xfx-row" style="color:var(--muted-2);font-size:13px">No measurable effect on any statistic or voter group at this setting.</div></div>`;
   // with a law already in force, each item reads "what it does now → what it would do";
   // the colour is whether the change is for the better
   const f1=v=>Math.abs(v)<0.05?"0":(v>0?"+":"−")+Math.abs(v).toFixed(1);
@@ -28927,6 +28930,8 @@ function paintPendingFloor(){
         if(key.startsWith("p_")){ const id=key.slice(2), cur=POLICIES[id]; if(!cur)return "";
           const was=lawAt(cur,id,c=>{ if(d.v!=null)c.value=d.v; if(d.t!=null)c.tierIndex=d.t; if(d.i!=null)c.intensity=d.i; if(d.e!=null)c.enabled=d.e; });
           return expectedFxHTML("policy",lawAt(cur,id),was); }
+        if(key==="landuse"){ const was=Object.assign({},LANDUSE,{index:(d.t!=null?d.t:d.i)|0});
+          return expectedFxHTML("landuse",Object.assign({},LANDUSE),was); }
         if(key.startsWith("a_")||key.startsWith("h_")){ const a=AGENCIES[key.slice(2)]; if(!a)return "";
           const was=Object.assign({},a); if(key.startsWith("a_"))was.funding=d.v; else was.logging=d.v;
           return expectedFxHTML("agency",Object.assign({},a),was); }
