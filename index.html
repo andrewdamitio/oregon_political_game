@@ -25842,18 +25842,21 @@ function expectedFxHTML(kind,now,was){
     if(kind==="agency"){ const d={}; for(const k in (o.effects||{}))d[k]=effExpr(o.effects[k],o.funding??0.5);
       for(const k in (o.loggingEffects||{}))d[k]=(d[k]||0)+effExpr(o.loggingEffects[k],o.logging??0.5); return d; }
     return directEffects("policy",o)||{}; };
-  const a=fx(now), b=fx(was);
-  for(const k of new Set([...Object.keys(a),...Object.keys(b)])){ const v=(a[k]||0)-(b[k]||0); if(Math.abs(v)>=0.3&&METRICS[k])dm[k]=v; }
+  const a=fx(now), b=fx(was), om={}, ob={}, nmv={}, nb={};
+  for(const k of new Set([...Object.keys(a),...Object.keys(b)])){ const v=(a[k]||0)-(b[k]||0); if(Math.abs(v)>=0.3&&METRICS[k]){ dm[k]=v; om[k]=b[k]||0; nmv[k]=a[k]||0; } }
   for(const sid in SIMULANTS){ if(sid==="everybody")continue; const S=Object.assign({id:sid},SIMULANTS[sid]);
     const r=o=>{ if(!o)return 0; const v=blocReaction(kind,o,S); return v==null?0:v; };
-    const v=r(now)-r(was); if(Math.abs(v)>=0.5)db[sid]=v; }
+    const rn=r(now), rw=r(was), v=rn-rw; if(Math.abs(v)>=0.5){ db[sid]=v; ob[sid]=rw; nb[sid]=rn; } }
   const mk=Object.keys(dm).sort((x,y)=>Math.abs(dm[y])-Math.abs(dm[x])).slice(0,6);
   const bk=Object.keys(db).sort((x,y)=>Math.abs(db[y])-Math.abs(db[x])).slice(0,8);
   if(!mk.length&&!bk.length)return "";
-  const chip=(name,v,good)=>`<span class="xfx ${good?"good":"bad"}">${name} <b>${v>=0?"+":"−"}${Math.abs(v).toFixed(1)}</b></span>`;
-  let h=`<div class="conc-h" style="margin-top:10px">${ico('chart-up')} Expected effects, once it is in force</div><div class="xfx-box">`;
-  if(mk.length)h+=`<div class="xfx-row"><span class="xfx-k">Statistics</span>`+mk.map(k=>{ const m=METRICS[k], v=dm[k]; return chip(m.name,v,m.invert?v<0:v>0,"m_"+k); }).join("")+`</div>`;
-  if(bk.length)h+=`<div class="xfx-row"><span class="xfx-k">Voter groups</span>`+bk.map(sid=>chip(SIMULANTS[sid].name,db[sid],db[sid]>0,"v_"+sid)).join("")+`</div>`;
+  // with a law already in force, each item reads "what it does now → what it would do";
+  // the colour is whether the change is for the better
+  const f1=v=>Math.abs(v)<0.05?"0":(v>0?"+":"−")+Math.abs(v).toFixed(1);
+  const chip=(name,oldV,newV,good)=>`<span class="xfx ${good?"good":"bad"}">${name} ${was?`<i>${f1(oldV)}</i> → `:""}<b>${f1(newV)}</b></span>`;
+  let h=`<div class="conc-h" style="margin-top:10px">${ico('chart-up')} Expected effects, once it is in force${was?`: <span style="font-weight:400">what it does now → at the level you propose</span>`:""}</div><div class="xfx-box">`;
+  if(mk.length)h+=`<div class="xfx-row"><span class="xfx-k">Statistics</span>`+mk.map(k=>{ const m=METRICS[k], v=dm[k]; return chip(m.name,om[k],nmv[k],m.invert?v<0:v>0); }).join("")+`</div>`;
+  if(bk.length)h+=`<div class="xfx-row"><span class="xfx-k">Voter groups</span>`+bk.map(sid=>chip(SIMULANTS[sid].name,ob[sid],nb[sid],db[sid]>0)).join("")+`</div>`;
   return h+`</div>`;
 }
 /* A law set to a given state, for the expected-effects comparison: in force
