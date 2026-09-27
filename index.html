@@ -20272,6 +20272,19 @@ function caucusUnionHit(v,why){
   if(prOn()||!GAME.caucus||Math.abs(v)<2)return;
   caucusRegionHit(m=>caucusTraitsOf((m.ch==="house"?"h":"s")+m.id).some(t=>t.id==="pu"),clamp(v,-12,10),why||"Public workers","pubunions");
 }
+/* WINNING RALLIES THE PARTY. After a ballot, every member of your party
+   moves by pts: a win lifts them, more for a bigger one, and a rebuke costs a
+   little. Under either system. */
+function partyElectionRally(pts,label){
+  pts=Math.round(pts*10)/10; if(Math.abs(pts)<0.5)return;
+  let n=0;
+  if(prOn()){ prEnsure(); for(const m of prSeated()){ if(m.party!==prMyParty())continue;
+      m.g=clamp((m.g||0)+pts,-20,20); caucusNote(m,"_elect|"+GAME.turn,label,pts); m.L=clamp(m.L+pts*0.5,0,100); n++; } }
+  else if(GAME.caucus){ for(const k in GAME.caucus.m){ const m=GAME.caucus.m[k]; if(m.p!=="mine")continue;
+      m.g=clamp((m.g||0)+pts,-30,30); caucusNote(m,"_elect|"+GAME.turn,label,pts); m.L=clamp(m.L+pts*0.5,0,100); n++; }
+    caucusControlCalc(); }
+  if(n)GAME.log.push(ico('people')+" "+label+": your party "+(pts>0?"rallies behind you (+"+pts.toFixed(0)+" loyalty, fading over a year)":"is shaken ("+pts.toFixed(0)+" loyalty)")+".");
+}
 /* FACTIONS FORM FROM ANGER. Three or more of your members angry about the
    same issue, in the same direction, are a faction until they calm down. */
 function caucusFactionKey(m){
@@ -23868,6 +23881,10 @@ function doEndTurn(){
       GAME.log.push(ico('columns')+" Legislature: Senate "+legis.after.senate+"/30, House "+legis.after.house+"/60"
         +(legis.hSwing||legis.sSwing?" ("+(legis.sSwing>=0?"+":"")+legis.sSwing+" / "+(legis.hSwing>=0?"+":"")+legis.hSwing+")":""));
     }
+    // the party reads the night: your approval, and the seats it won or cost them
+    { const seats=legis?(legis.hSwing||0)+(legis.sSwing||0):0;
+      const pts=clamp((oa-49)*0.6+seats*0.25,-5,10);
+      partyElectionRally(pts, pts>0?(oa>=53?"The midterm wave":"The midterm win"):"The midterm rebuke"); }
     // any amendments you referred are on this same ballot — voters decide them now
     const measures=resolveBallot("midterm");
     GAME.pendingMidterm={approval:oa, verdict, big, deltaPts, capPerQ:deltaPts*0.1,
@@ -23938,6 +23955,9 @@ function doElectionTurn(){
   // the Assembly chooses the governor: no race of your own tonight
   if(prParliament()&&!flippedByMeasure){ render(); showAssemblyNight(legis); return; }
   const res=runElection(); res.measures=measures; res.legis=legis;
+  // re-elected: the party rallies, the more so the bigger the margin
+  if(res.won&&!flippedByMeasure){ const m=(res.share-0.5)*200;
+    partyElectionRally(clamp(3+m*0.35+((legis&&(legis.hSwing||0)+(legis.sSwing||0))||0)*0.2,3,12), "Re-elected by "+Math.abs(m).toFixed(0)+" points"); }
   if(flippedByMeasure){
     res.successor=true; res.flippedByMeasure=true;
     GAME.log.push(ico('medal')+" A measure on tonight's ballot reinstated the two-term limit — this race counts as your successor's");
