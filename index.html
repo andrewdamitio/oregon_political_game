@@ -20182,6 +20182,16 @@ function caucusBase(m){
 /* Where a district's biggest group turns the member: below this approval
    yours pull away from you, above that theirs pull away from their party. */
 const TOPGROUP_COLD=40, TOPGROUP_WARM=60;
+/* THE GROUP A MEMBER IS ALIGNED WITH: their most specific tie, in this
+   order, from the traits their district gives them; with none, their
+   party's base. Nonprofit ties have no voter group of their own. */
+const ALIGN_TRAIT=[["pu","publicUnions"],["ag","rural"],["timber","timber"],["union","blueCollar"],["biz","businessClass"],["renters","renters"],
+  ["core","urban"],["rural","rural"],["red","conservative"],["deep","liberal"],["wealthy","wealthy"],["suburb","suburban"],["clack","motorists"]];
+function caucusAlignedGroup(m,key){
+  const tr=caucusTraitsOf(key).map(t=>t.id);
+  for(const [id,b] of ALIGN_TRAIT)if(tr.includes(id)&&SIMULANTS[b])return b;
+  return caucusPartyOf(m)==="D"?"liberal":"conservative";
+}
 function caucusTargetParts(m,key){
   if(m.ind)return [["Independent: no party whip to answer to",22]];
   const row=caucusRow(key), st=caucusSat(m), parts=[];
@@ -20215,12 +20225,12 @@ function caucusTargetParts(m,key){
     const tot=hs.reduce((a,x)=>a+x.now,0), f=(tot&&Math.sign(tot)===Math.sign(m.g)&&Math.abs(tot)>Math.abs(m.g))?m.g/tot:1;
     hs.slice(0,5).forEach(x=>{ parts.push([x.nm+", "+caucusQ(x.t),x.now*f*k]); left-=x.now*f; });
     if(Math.abs(left)>=0.5)parts.push([hs.length?"Other recent stances":"Recent stances",left*k]); }
-  // THE GROUP THEY ANSWER TO: their district's most over-represented group.
+  // THE GROUP THEY ANSWER TO: the interest group they are aligned with.
   // Yours feel it when that group turns on you; theirs, when it warms to you.
-  { const top=row?caucusMakeup(row,1)[0]:null, S=top&&SIMULANTS[top.b];
+  { const S=SIMULANTS[caucusAlignedGroup(m,key)];
     if(S){ const a=S.approval??50;
-      if(m.p==="mine"&&a<TOPGROUP_COLD)parts.push(["Their district's biggest group, "+S.name+", dislikes you ("+Math.round(a)+"%)",-clamp((TOPGROUP_COLD-a)*0.5,0,8)]);
-      if(m.p!=="mine"&&a>TOPGROUP_WARM)parts.push(["Their district's biggest group, "+S.name+", likes you ("+Math.round(a)+"%)",-clamp((a-TOPGROUP_WARM)*0.5,0,8)]); } }
+      if(m.p==="mine"&&a<TOPGROUP_COLD)parts.push(["Their interest group, "+S.name+", dislikes you ("+Math.round(a)+"%)",-clamp((TOPGROUP_COLD-a)*0.5,0,8)]);
+      if(m.p!=="mine"&&a>TOPGROUP_WARM)parts.push(["Their interest group, "+S.name+", likes you ("+Math.round(a)+"%)",-clamp((a-TOPGROUP_WARM)*0.5,0,8)]); } }
   const pr=caucusProjBoost(key); if(pr)parts.push([m.p==="mine"?"District projects":"Your projects in their district",m.p==="mine"?pr:-pr]);
   const ap=row?caucusApptSplit(m,row):[0,0];
   if(m.p==="mine"){
@@ -20954,7 +20964,7 @@ function caucusOpenChair(postId,groups,side){
 /* PARTY COLOURS. Each party in its own hue, full while loyal and paler as
    loyalty slips; your own members who turn angry go orange, a colour
    neither party owns. */
-const CAUCUS_HUE={D:{full:"#2f5d9e", pale:"#b7c6e0"}, R:{full:"#b23a3a", pale:"#e6b8b2"}, angry:"#eda052", angryDeep:"#b8520c", ind:"#8a8680"};
+const CAUCUS_HUE={D:{full:"#2f5d9e", pale:"#b7c6e0"}, R:{full:"#b23a3a", pale:"#e6b8b2"}, angry:"#eda052", angryDeep:"#b8520c", waver:"#d9ad2c", waverLight:"#ead37a", ind:"#8a8680"};
 function caucusHue(mine){ const my=caucusMyLetter(); return CAUCUS_HUE[mine?my:(my==="D"?"R":"D")]; }
 /* The colour follows the same lines the game uses. Your members: orange
    below the anger line, deepening toward livid; pale at the line, full by
@@ -20964,7 +20974,9 @@ function caucusColor(m){
   if(m.ind)return CAUCUS_HUE.ind;
   if(m.p==="mine"){ const H=caucusHue(true), at=caucusAngryAt();
     if(m.L<at)return cmMix(clamp((at-m.L)/30,0,1),CAUCUS_HUE.angry,CAUCUS_HUE.angryDeep);
-    return cmMix(clamp((m.L-at)/(88-at),0,1),H.pale,H.full); }
+    // wavering, the twelve points above the anger line: yellow, lighter as they firm up
+    if(m.L<at+12)return cmMix((m.L-at)/12,CAUCUS_HUE.waver,CAUCUS_HUE.waverLight);
+    return cmMix(clamp((m.L-at-12)/(88-at-12),0,1),H.pale,H.full); }
   const H=caucusHue(false), odds=(m.ch&&m.id!=null)?caucusOppOdds(m):CAUCUS_OPP_ANGRY;
   return cmMix(clamp((m.L-odds)/30,0,1),H.pale,H.full);
 }
@@ -22556,6 +22568,7 @@ function caucusMemberCard(k){
   }
   const tr=caucusTraitsOf(k);
   h+=`<div class="cm-sec">The district</div>`;
+  if(!m.ind){ const ag=SIMULANTS[caucusAlignedGroup(m,k)]; if(ag)h+=`<div class="cm-note" style="margin-bottom:6px">Aligned with <b>${ag.name}</b> (${Math.round(ag.approval??50)}% approve of you). ${mine?"If they turn on you (under "+TOPGROUP_COLD+"%), so does this member.":"If they warm to you (over "+TOPGROUP_WARM+"%), this member drifts from their party."}</div>`; }
   if(tr.length)h+=`<div class="cm-traits">${tr.map(t=>`<span class="ctrait"><b>${t.label}</b>${t.issues.map(i=>ISSUES[i].name.toLowerCase()).join(", ")}</span>`).join("")}</div>`;
   else h+=`<div class="cm-note">No issue stands out here, so the member holds the party line where they hold anything.</div>`;
   if(mk.length)h+=`<div class="cm-mk">${mk.map(x=>`<span>${x.name}<b>${Math.round(x.share*100)}%</b><i>state ${Math.round((SIMULANTS[x.b].size||0)*100)}%</i></span>`).join("")}</div>`;
