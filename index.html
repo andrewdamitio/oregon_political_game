@@ -524,6 +524,8 @@
   .cr-who{display:flex;flex-direction:column;min-width:0}
   .cr-who i{font-style:normal;font-size:12px;color:var(--muted-2)}
   .cr-who i.cr-up{font-size:11.5px;color:var(--muted-3)}
+  .cr-who i.cr-ret{color:var(--clay);font-style:normal}
+  .cm-ret{color:var(--clay);font-weight:600}
   .cr-loy{font-family:var(--font-data);font-weight:700;text-align:right}
   .cm-top{display:flex;gap:10px;align-items:flex-start}
   .cm-code{font-family:var(--font-data);font-weight:700;font-size:13px;background:var(--ink);color:var(--paper);padding:3px 7px;border-radius:var(--radius);white-space:nowrap}
@@ -21486,7 +21488,7 @@ function renderCaucus(){
   h+=`<div class="croster">`+ks.map(k=>{ const m=C.m[k];
     return `<div class="crow${k===sel?" on":""}" data-cseat="${k}" tabindex="0">
       <span class="cr-code">${caucusCode(k)}</span>
-      <span class="cr-who"><b>${m.n}</b><i>${caucusPlace(m.ch,m.id)} · ${m.ind?"Ind":caucusPartyOf(m)==="D"?"Dem":"Rep"}${(()=>{ const t=caucusTraitsOf(k); return t.length?" · "+t.map(x=>x.label).join(", "):""; })()}${m.f?" · <b class=\"cr-fac\">"+caucusFactionName(m.f)+"</b>":""}${C.prim&&C.prim[k]?" · <b class=\"cr-fac\">primary backed</b>":""}</i>${k[0]==="s"?`<i class="cr-up">${caucusSenateUp(k)}</i>`:""}</span>
+      <span class="cr-who"><b>${m.n}</b><i>${caucusPlace(m.ch,m.id)} · ${m.ind?"Ind":caucusPartyOf(m)==="D"?"Dem":"Rep"}${(()=>{ const t=caucusTraitsOf(k); return t.length?" · "+t.map(x=>x.label).join(", "):""; })()}${m.f?" · <b class=\"cr-fac\">"+caucusFactionName(m.f)+"</b>":""}${C.prim&&C.prim[k]?" · <b class=\"cr-fac\">primary backed</b>":""}</i>${caucusRetireNote(k)?`<i class="cr-up cr-ret">${caucusRetireNote(k)}</i>`:""}${k[0]==="s"?`<i class="cr-up">${caucusSenateUp(k)}</i>`:""}</span>
       <span class="cr-views">${caucusBreakChips(m,2)}</span>
       <span class="cr-loy" style="color:${caucusColor(m)}">${Math.round(m.L)}</span></div>`; }).join("")+`</div>`;
   main.innerHTML=h;
@@ -21637,7 +21639,7 @@ function caucusCampaignHTML(){
       :p?`◈${p.spent} behind ${p.n}: ${caucusPrimaryOddsWord(o,p.n,m.n.split(" ").slice(-1)[0])}, decided ${caucusPrimaryWhen(k)}`:"";
     return `<div class="cprim-row"><span class="cn-code">${caucusCode(k)}</span>
       <span class="cn-who"><b>${caucusTitle(k)}</b><i>${caucusPlace(m.ch,m.id)}${m.f?" · "+caucusFactionName(m.f):""}</i>
-        <span class="cprim-sc"><span style="color:${lc}"><b>${L}</b> loyalty</span><span><b>${caucusBreaks(m).length}</b> breaks</span><span><b>${own}%</b> ${seat} seat</span><span><b>${edge>=0?"+":"−"}${Math.abs(edge).toFixed(1)}</b> edge</span><span><b>${Math.round(caucusRetireChance(k)*100)}%</b> may retire</span></span>
+        <span class="cprim-sc"><span style="color:${lc}"><b>${L}</b> loyalty</span><span><b>${caucusBreaks(m).length}</b> breaks</span><span><b>${own}%</b> ${seat} seat</span><span><b>${edge>=0?"+":"−"}${Math.abs(edge).toFixed(1)}</b> edge</span>${caucusRetiring(k)?(caucusRetiring(k).go?`<span><b>Retiring</b></span>`:`<span>Running again</span>`):`<span><b>${Math.round(caucusRetireChance(k)*100)}%</b> may retire</span>`}</span>
         ${status?`<i class="cprim-st">${status}</i>`:""}</span>
       ${nom?"":`<button class="cf-chbtn" data-cprim="${k}" ${can?"":"disabled"}>${p?"More · ◈1 → "+o2+"%":"Back a challenger · ◈1"}</button>`}</div>`; };
   h+=ks.slice(0,SHOW).map(row).join("");
@@ -21706,6 +21708,34 @@ function caucusRetireChance(k){
   const p=C.prim&&C.prim[k];
   return clamp(0.07+served*0.004+(m.p==="mine"&&m.L<caucusAngryAt()?0.06:0)+(p?caucusPrimaryOdds(p.spent)*0.25:0),0,0.45);
 }
+/* ANNOUNCED RETIREMENTS. A member decides whether to run again one to three
+   quarters before their seat is on the ballot, and says so, before the
+   primary is decided. C.ret[k] holds
+   the decision with the member's name, so a successor seated in between is
+   not bound by it. Cleared once the ballot is settled. */
+function caucusRetiring(k){
+  const C=GAME.caucus, r=C&&C.ret&&C.ret[k], m=C&&C.m[k];
+  return (r&&m&&r.n===m.n)?r:null;
+}
+function caucusAnnounceRetirements(){
+  const C=GAME.caucus; if(prOn()||!C)return;
+  C.ret=C.ret||{};
+  const mine=[];
+  for(const k in C.m){ const m=C.m[k];
+    const B=caucusBallotsAhead(k), b=B[0]; if(!b||!b.up||b.q<1||b.q>CAUCUS_PRIMARY_LEAD+2)continue;   // a quarter before the primary
+    if(caucusRetiring(k))continue;                             // already decided
+    if(m.since===GAME.turn||m.ind)continue;
+    const go=caucusRng(k+"|"+m.n+"|retire|"+GAME.turn)()<caucusRetireChance(k);
+    C.ret[k]={n:m.n, go, t:GAME.turn, kind:b.kind};
+    if(go&&m.p==="mine")mine.push(m.n+" ("+caucusCode(k)+")");
+  }
+  if(mine.length)GAME.log.push(ico('people')+" Not running again: "+mine.join(", ")+". "+(mine.length===1?"The seat is":"Their seats are")+" open at the next ballot.");
+}
+/* The note on a retiring member's box and card. */
+function caucusRetireNote(k){
+  const r=caucusRetiring(k); if(!r||!r.go)return "";
+  return "Retiring at "+(r.kind==="midterm"?"the midterm":"the general election");
+}
 function caucusFreshMember(k,m,n){
   const row=caucusRow(k), yr=GAME.startYear+Math.floor(GAME.turn/4);
   const nm={p:m.p, ch:m.ch, id:m.id, n:n||caucusNewName(), g:0, since:GAME.turn, yr, x:m.x};
@@ -21732,7 +21762,8 @@ function caucusRetirements(upSenate){
     if(m.since===GAME.turn)continue;                           // arrived tonight
     if(m.ind)continue;                                         // ran, as an independent
     if(C.nom&&C.nom[k]&&C.nom[k].old===m.n)continue;          // lost the primary: the nominee takes it
-    if(caucusRng(k+"|"+m.n+"|retire|"+GAME.turn)()>=caucusRetireChance(k))continue;
+    const ann=caucusRetiring(k);
+    if(ann?!ann.go:caucusRng(k+"|"+m.n+"|retire|"+GAME.turn)()>=caucusRetireChance(k))continue;
     const p=C.prim&&C.prim[k];
     let nm;
     if(p&&m.p==="mine"&&m.n===p.name){
@@ -21748,6 +21779,8 @@ function caucusRetirements(upSenate){
     if(m.p==="mine")gone.push(m.n+" ("+caucusCode(k)+")");
   }
   if(gone.length)GAME.log.push(ico('people')+" Retiring from your party this election: "+gone.join(", ")+".");
+  // the seats on this ballot are settled; the rest keep their decisions
+  for(const k in (C.ret||{})){ const id=+k.slice(1); if(k[0]==="h"||(upSenate&&upSenate.has(id)))delete C.ret[k]; }
   caucusControlCalc();
 }
 /* WHAT A CANDIDATE BRINGS TO THE RACE, in points of your share (negative
@@ -22082,7 +22115,7 @@ function caucusMemberCard(k){
   const mk=row?caucusMakeup(row,4):[];
   let h=`<div class="cmem">
     <div class="cm-top"><span class="cm-code">${caucusCode(k)}</span><div class="cm-topt"><div class="cm-h">${caucusTitle(k)}</div>
-    <div class="cm-sub">${caucusPlace(m.ch,m.id)} · ${party}${mine?", your party":""} · serving since ${m.yr||"?"} · seat ${Math.round(lean)}% progressive${k[0]==="s"?" · "+caucusSenateUp(k):""}</div></div>
+    <div class="cm-sub">${caucusPlace(m.ch,m.id)} · ${party}${mine?", your party":""} · serving since ${m.yr||"?"} · seat ${Math.round(lean)}% progressive${k[0]==="s"?" · "+caucusSenateUp(k):""}${caucusRetireNote(k)?` · <b class="cm-ret">${caucusRetireNote(k)}</b>`:""}</div></div>
     ${caucusLocator(k)}</div>
     <div class="cf-bar">${mine?"Loyalty":"Loyalty to the "+oppPartyPlural()} ${Math.round(m.L)} ${caucusMeter(m.L,caucusColor(m))} <span class="cm-to">heading to ${Math.round(T)}</span></div>
     <div class="cm-parts">${parts.map(p=>`<span>${p[0]}<b class="${p[1]>0.5&&p!==parts[0]?"up":p[1]<-0.5?"dn":""}">${p===parts[0]?Math.round(p[1]):(p[1]>0?"+":"")+Math.round(p[1])}</b></span>`).join("")}</div>`;
@@ -23924,6 +23957,7 @@ function _calcCapital(){
 }
 function _runTicks(){
   syncNuclearBills();           // the moratorium decides which bills exist
+  caucusAnnounceRetirements();  // members up next time say whether they will run
   settleSurplusPool();          // last quarter's undirected surplus lands first
   GAME.surplusOut=0;            // the deduction belonged to the quarter just ended
   settlePending(true);
@@ -25370,7 +25404,7 @@ function wireCampHQ(root){
    persist to GAME state and show up in the End-Quarter popup. */
 function renderCampaignHQ(){
   let h=`${BACK_BTN_HTML}<div class="sectionhdr">${ico('ballot')} Campaign HQ</div>
-    <div class="sectionsub">Your platform, your opponents, and this quarter's campaign.</div>${rulesBox("Campaign energy is spent on voter groups, the county map, or a measure on the ballot. Anything you do here carries into the campaign screen when you end the quarter.")}`;
+    <div class="sectionsub">Your platform, your opponents, and this quarter's campaign. Campaign energy is spent on voter groups, the county map, or a measure on the ballot. Anything you do here carries into the campaign screen when you end the quarter.</div>`;
   h+=campHQBodyHTML();
   main.innerHTML=h;
   wireBackBtn();
