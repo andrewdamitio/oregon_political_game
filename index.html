@@ -509,12 +509,18 @@
   .ww-odds{font-family:var(--font-data);font-size:12.5px;color:var(--bad)}
   .ww-t{font-size:13px;color:var(--muted-1);margin-top:6px;line-height:1.45}
   .ww-fix{font-size:12px;color:var(--muted-3)}
-  .ww-rows{margin-top:8px;display:grid;gap:4px}
-  .ww-r{display:grid;grid-template-columns:minmax(0,1fr) 90px 110px;gap:10px;align-items:center;font-size:12.5px}
-  .ww-r b{font-family:var(--font-data);font-weight:600;text-align:right}
-  .ww-m{display:block;height:6px;background:var(--line-faint);border-radius:3px;overflow:hidden}
-  .ww-m i{display:block;height:100%;background:var(--clay)}
-  @media (max-width:560px){ .ww-r{grid-template-columns:minmax(0,1fr) 60px 90px} }
+  .ww-num{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin-top:6px}
+  .ww-big{font-family:var(--font-data);font-size:30px;font-weight:700;line-height:1}
+  .ww-of{font-size:13px;color:var(--muted-1)}
+  .ww-line{font-size:12px;color:var(--muted-3);margin-left:auto}
+  .ww-f{font-family:var(--font-data);font-size:12px;color:var(--muted-1);margin-top:4px}
+  .ww-parts{margin-top:8px;border-top:1px solid var(--line-faint)}
+  .ww-p{display:grid;grid-template-columns:minmax(0,210px) 42px minmax(0,1fr);gap:4px 10px;padding:6px 0;border-bottom:1px solid var(--line-faint);font-size:12.5px;align-items:baseline}
+  .ww-pl{color:var(--ink)}
+  .ww-pv{font-family:var(--font-data);text-align:right;color:var(--clay)}
+  .ww-pc{color:var(--muted-1)} .ww-pc b{font-family:var(--font-data);color:var(--ink);font-weight:600}
+  .ww-pc i{color:var(--muted-3);font-style:normal}
+  @media (max-width:560px){ .ww-p{grid-template-columns:minmax(0,1fr) 42px} .ww-pc{grid-column:1 / -1} }
   .cn-who i.cang-livid{color:var(--bad);font-style:normal;font-weight:600}
   .cang-n{font-family:var(--font-data);color:var(--clay);margin-left:4px}
   .cang-more>summary{cursor:pointer;font-size:12.5px;color:var(--muted-2);padding:6px 4px}
@@ -11744,8 +11750,11 @@ function policyIdeology(p){
    environment — positive = conservative in this model) weighted by how far it's
    dialled in, plus a funding-weighted read on agency posture. Compared with
    GAME.agendaBaseline (captured at game start) to see how far you've moved. */
-function agendaConservatism(){
-  let s=0;
+/* The same score item by item: "p:id" for a law, "a:id" for an agency's
+   funding, "ce" for decisions in dilemmas. The walkout watch compares it
+   with the snapshot taken at inauguration to say which laws moved it. */
+function agendaParts(){
+  const out={};
   for(const id in POLICIES){
     const p=POLICIES[id];
     if(!p||!p.enacted)continue;
@@ -11753,16 +11762,19 @@ function agendaConservatism(){
     // niche measures (psilocybin, death with dignity, …) still register a
     // position — just at a fraction of a marquee structural policy
     const lvl=((p.mechanic==="law"||p.mechanic==="tier")?1:effLevelOf(p))*(p.niche?0.4:1);
-    s+=((io.economic||0)+(io.social||0)+(io.govSize||0)+(io.environment||0))*lvl;
+    out["p:"+id]=((io.economic||0)+(io.social||0)+(io.govSize||0)+(io.environment||0))*lvl;
   }
   for(const id in AGENCIES){
     const a=AGENCIES[id]; if(!a||!a.ideology)continue;
     const io=a.ideology;
-    s+=((io.economic||0)+(io.social||0)+(io.govSize||0)+(io.environment||0))*((a.funding??0.5)-0.5)*2;
+    out["a:"+id]=((io.economic||0)+(io.social||0)+(io.govSize||0)+(io.environment||0))*((a.funding??0.5)-0.5)*2;
   }
   const ce=GAME.compassEvents||{};
-  s += (ce.ec||0) + (ce.so||0);   // decisions in dilemmas count toward the record too
-  return s;
+  out.ce=(ce.ec||0)+(ce.so||0);   // decisions in dilemmas count toward the record too
+  return out;
+}
+function agendaConservatism(){
+  const pt=agendaParts(); let s=0; for(const k in pt)s+=pt[k]; return s;
 }
 /* How much of the county backfill is actually reaching the counties, 0..1.
    Enacted-and-funded is what counts, so a programme dialled to nothing is
@@ -16150,7 +16162,9 @@ function showQuarterReport(quiet,next){
         return `<div class="rrow"><span class="rlabel">Assembly</span><span class="rval">${live}/${PR_SEATS}${gap} ${capTag}</span></div>`
           +coalitionBriefHTML();
       }
-      return `<div class="rrow"><span class="rlabel">Legislature</span><span class="rval">Senate ${L.senate}/${LEGIS.senate} · House ${L.house}/${LEGIS.house} ${capTag}</span></div>`; })();
+      const wo=walkoutOutlook(), wp=wo?Math.round(walkoutPressure().heat*100):0, wq=GAME.walkHeatQ!=null&&wo?wp-Math.round(GAME.walkHeatQ*100):0;
+      return `<div class="rrow"><span class="rlabel">Legislature</span><span class="rval">Senate ${L.senate}/${LEGIS.senate} · House ${L.house}/${LEGIS.house} ${capTag}</span></div>`
+        +(wo?`<div class="rrow"><span class="rlabel">Walkout pressure</span><span class="rval" style="color:${WALK_LEVEL[wo.level][1]}">${wo.on?"Walked out":wp+" of 100 · "+(wo.chance>0?Math.round(wo.chance*100)+"% a quarter":"possible at "+Math.round(WALK_HEAT_MIN*100))}${wq?` <span class="rdelta ${wq>0?"bad":"good"}" style="font-size:11.5px">${wq>0?"▲":"▼"}${Math.abs(wq)}</span>`:""}</span></div>`:""); })();
   const budgetBlock=`<div class="rsection">
     <div class="rsec-h">${ico('dollar')} Budget</div>
     <div class="rrow"><span class="rlabel">Balance</span><span class="rdelta ${balClass}">${fmtB(b.balance,1,true)}</span></div>
@@ -19265,6 +19279,7 @@ function walkoutIsolation(side){
     if(!S)continue; v+=(S.approval??50); k++; } return k?v/k:50; };
   // 18 points of gap is a thoroughly polarised state; below 4 there is no
   // story to tell the voters at home about why the session stopped
+  walkoutIsolation.last={theirs:mean(theirs), others:mean(others)};
   return clamp((mean(others)-mean(theirs)-4)/18, 0, 1);
 }
 /* WHETHER THEY DARE. A walkout against a popular governor is how a caucus
@@ -19329,6 +19344,7 @@ function walkoutRaw(side){
 }
 /* Where both caucuses stood the day you took office. */
 function walkoutBaseline(){
+  if(!GAME.walkBlocBase){ GAME.walkBlocBase={}; for(const sd in WALK_BLOCS)for(const [b] of WALK_BLOCS[sd])GAME.walkBlocBase[b]=SIMULANTS[b]?(SIMULANTS[b].approval??50):50; }
   if(!GAME.walkoutBase)GAME.walkoutBase={left:walkoutRaw("left"), right:walkoutRaw("right")};
   return GAME.walkoutBase;
 }
@@ -21450,6 +21466,42 @@ function walkoutOutlook(){
   return {w, r, needH, needS, held, on, cool, ignored, early, chance, level,
           who:w.own?"your own party":"the "+oppPartyPlural()};
 }
+/* WALKOUT PRESSURE, ITEMISED. Four parts in points that add to the
+   pressure, each with its causes. Points are shared out in proportion, so
+   the causes under a part add to that part too. */
+function walkoutBreakdown(){
+  const w=walkoutPressure(), sgn=w.side==="right"?-1:1;   // their direction of drift
+  const share=(pts,items)=>{ const tot=items.reduce((a,x)=>a+x.v,0);
+    return tot>0?items.map(x=>({...x, pts:pts*x.v/tot})).sort((a,b)=>b.pts-a.pts):[]; };
+  // the agenda, law by law, against inauguration
+  const now=agendaParts(), base=GAME.agendaBaseParts||(GAME.agendaBaseParts=now);
+  const keys=new Set(Object.keys(now).concat(Object.keys(base))), ag=[];
+  let drift=0;
+  keys.forEach(k=>{ const d=sgn*((now[k]||0)-(base[k]||0)); drift+=d; if(d<=0.02)return;
+    let nm;
+    if(k==="ce")nm="Your decisions in dilemmas";
+    else if(k.startsWith("a:")){ const a=AGENCIES[k.slice(2)]; nm=(a?a.name:k.slice(2))+" funding"; }
+    else { const id=k.slice(2), p=POLICIES[id]||CATALOG[id]; nm=(!(k in now)?"Repealed ":"")+(p?p.name:id); }
+    ag.push({nm, v:d}); });
+  // their blocs, against their approval at inauguration
+  const bb=GAME.walkBlocBase||{}, angry=a=>clamp((46-a)/40,0,1), vo=[];
+  for(const [b,wt] of WALK_BLOCS[w.side]){ const S=SIMULANTS[b]; if(!S)continue; const a=S.approval??50, a0=bb[b]!=null?bb[b]:a;
+    const v=(angry(a)-angry(a0))*wt; if(v>0)vo.push({nm:S.name+" "+Math.round(a)+"%, was "+Math.round(a0)+"%", v}); }
+  // their legislators, bill by bill: what each has done to their members
+  const by={};
+  if(!w.own&&GAME.caucus)for(const k in GAME.caucus.m){ const m=GAME.caucus.m[k]; if(m.p!=="opp"||m.ind)continue;
+    for(const x of caucusHist(m))if(x.now<0&&x.pid&&x.pid[0]!=="_")by[x.nm]=(by[x.nm]||0)-x.now; }
+  const be=Object.keys(by).map(nm=>({nm, v:by[nm]}));
+  walkoutIsolation(w.side); const iso=walkoutIsolation.last||{theirs:50,others:50};
+  const parts=[
+    {id:"agenda", label:"Your agenda, pushed their way", pts:w.provoke*44, items:share(w.provoke*44,ag),
+      note:"Drift "+Math.max(0,drift).toFixed(1)+" points; walkouts need "+(WALK_PROVOKE_FROM+WALK_PROVOKE_MIN*9).toFixed(1)+", and it is full at "+(WALK_PROVOKE_FROM+9).toFixed(1)},
+    {id:"voters", label:"Their voters' anger", pts:w.caucusHeat*38, items:share(w.caucusHeat*38,vo)},
+    ...(w.own?[]:[{id:"bench", label:"Their legislators, rallied by your bills", pts:w.bench*WALK_BENCH_W*100, items:share(w.bench*WALK_BENCH_W*100,be)}]),
+    {id:"gap", label:"Their voters left behind", pts:w.isolation*18, items:[],
+      note:"Your coalition's voters average "+Math.round(iso.others)+"%, theirs "+Math.round(iso.theirs)+"%"}];
+  return {w, pressure:w.heat*100, parts, drift};
+}
 const WALK_LEVEL={calm:["Calm","var(--good)"], watch:["Grumbling","var(--gold)"], risk:["Talk of a walkout","var(--clay)"], high:["Buses idling","var(--bad)"], out:["Walked out","var(--bad)"]};
 function walkoutWatchHTML(){
   const o=walkoutOutlook(); if(!o)return "";
@@ -21460,21 +21512,28 @@ function walkoutWatchHTML(){
     h+=`<div class="ww-t">${o.who.charAt(0).toUpperCase()+o.who.slice(1)} have left the state${q>0?`, and nothing reaches a floor for ${q} more quarter${q===1?"":"s"}`:", and are due back this quarter"}. Their price comes to you as a decision each quarter; meet it and they come home, or wait them out.</div></div>`;
     return h;
   }
+  const B=walkoutBreakdown(), pr=Math.round(B.pressure), was=GAME.walkHeatQ!=null?Math.round(GAME.walkHeatQ*100):null, dv=was==null?0:pr-was;
+  const nerve=walkoutNerve(), cap=Math.round(WALK_MAX*100);
+  h+=`<div class="ww-num"><span class="ww-big">${pr}</span><span class="ww-of">walkout pressure${dv?` <b style="color:${dv>0?"var(--bad)":"var(--good)"}">${dv>0?"▲":"▼"}${Math.abs(dv)}</b> since last quarter`:""}</span>
+    <span class="ww-line">Walkouts become possible at <b>${Math.round(WALK_HEAT_MIN*100)}</b></span></div>`;
+  // the chance, as the sum it is
+  if(o.chance>0){ const raw=(pr-WALK_HEAT_MIN*100)*WALK_RATE*nerve;
+    h+=`<div class="ww-f">(${pr} − ${Math.round(WALK_HEAT_MIN*100)}) × ${WALK_RATE} × ${nerve.toFixed(2)} for your ${overallApproval().toFixed(0)}% approval = <b>${Math.round(o.chance*100)}% a quarter</b>${raw>=cap?", the most it can be":""}</div>`; }
   const why=o.early?"Too early in your term for anyone to walk out over your record."
     :o.cool?"They walked out recently and will not try again before "+caucusQ(GAME.walkoutCooldownUntil)+"."
     :o.ignored?"They backed down this round, until "+caucusQ(GAME.walkoutIgnoredUntil)+"."
     :o.held?"Too many of their members would stay in their seats, so a walkout cannot deny the quorum."
     :w.provoke<WALK_PROVOKE_MIN?"Nothing on the books yet for them to walk out over: your agenda has not pushed far enough past what you inherited."
     :w.heat<WALK_HEAT_MIN?"Not angry enough yet to spend half a year out of the building."
-    :"A walkout is possible every quarter now. The angrier they are and the less popular you are, the likelier.";
-  h+=`<div class="ww-t">${w.own?"<b>Your own party</b> would do the walking: your agenda has moved far from your mandate. ":""}${why}</div>`;
-  const row=(l,v,t)=>`<div class="ww-r"><span>${l}</span><i class="ww-m"><i style="width:${pct(v)}"></i></i><b>${t||pct(v)}</b></div>`;
-  h+=`<div class="ww-rows">`
-    +row("Your agenda past what you inherited", w.provoke)
-    +row("Their voters' anger since you took office", w.caucusHeat)
-    +(w.own?"":row("Their legislators rallied against you", w.bench))
-    +row("Their voters left behind", w.isolation)
-    +`<div class="ww-r"><span>Your approval</span><i></i><b>${overallApproval().toFixed(0)}%, ${w.nerve>1.1?"emboldens them":w.nerve<0.9?"deters them":"neither"}</b></div>`
+    :"";   // possible: the formula above says how likely
+  if(w.own||why)h+=`<div class="ww-t">${w.own?"<b>Your own party</b> would do the walking: your agenda has moved far from your mandate. ":""}${why}</div>`;
+  // the parts, each with what put its points there
+  const fmt=v=>(v>=0.5?"+":"")+(v>=0.5?Math.round(v):"<1");
+  h+=`<div class="ww-parts">`+B.parts.map(p=>{
+    const top=p.items.filter(x=>x.pts>=0.5).slice(0,4), more=p.items.filter(x=>x.pts>=0.5).length-top.length;
+    const causes=top.map(x=>`${x.nm} <b>${fmt(x.pts)}</b>`).join(" · ")+(more>0?` · ${more} more`:"");
+    return `<div class="ww-p"><span class="ww-pl">${p.label}</span><b class="ww-pv">${p.pts>=0.5?"+"+Math.round(p.pts):"0"}</b>
+      <span class="ww-pc">${causes||(p.note?"":p.pts>=0.5?"Their blocs' growing cynicism":"Nothing yet")}${p.note?`${causes?" · ":""}<i>${p.note}</i>`:""}</span></div>`; }).join("")
     +`</div>`;
   if(!w.own){ const L=GAME.legis||{};
     h+=`<div class="ww-t">${o.r.house.length} House and ${o.r.senate.length} Senate ${oppPartyPlural()} at odds with their leadership would stay. Holding quorum takes ${o.needH} House and ${o.needS} Senate members of theirs. ${o.held?"<b>It would hold.</b>":"Not enough to hold it."}</div>`; }
@@ -21490,6 +21549,7 @@ function walkoutMemberLine(k){
 }
 /* The warning: when the risk rises a level, say so once. */
 function walkoutWarn(){
+  if(!prOn()&&GAME.caucus)GAME.walkHeatQ=walkoutPressure().heat;   // the next quarter's "since last quarter"
   const o=walkoutOutlook(), rank={calm:0,watch:1,risk:2,high:3,out:4};
   const lv=o?o.level:"calm", was=GAME.walkWarn||"calm";
   if(o&&rank[lv]>rank[was]&&(lv==="risk"||lv==="high"))
@@ -31434,6 +31494,7 @@ function bootWorld(startId){
   GAME.prevMetrics={};for(const k in METRICS)GAME.prevMetrics[k]=METRICS[k].value;
   GAME.prevIndicators={};for(const id in INDICATORS)GAME.prevIndicators[id]=INDICATORS[id].value;
   GAME.agendaBaseline=agendaConservatism();   // the inherited status quo — protests measure drift FROM here
+  GAME.agendaBaseParts=agendaParts();          // and item by item, so the walkout watch can name what moved it
   GAME.walkoutBase=null; walkoutBaseline();    // both caucuses as you found them
   applyProtestSide();                          // whose base is in revolt depends on whose base elected you
   GAME.agendaBase=null;                        // re-taken from the world as dealt
