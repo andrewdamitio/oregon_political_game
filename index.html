@@ -20198,6 +20198,8 @@ function caucusTargetParts(m,key){
     // their party's own fortunes: restless when you are popular, rallying when you are not
     const fort=-(overallApproval()-50)*0.5;
     if(Math.abs(fort)>=0.5)parts.push([fort<0?"Their party is losing ground to you":"Their party is rallying against you",fort]);
+    const cc=caucusCochair(key); if(cc)parts.push(["Co-chairs the "+ISSUES[cc.i].name+" Committee under your majority",-COCHAIR_PULL]);
+    if(caucusStanding(key))parts.push(["Your party is not contesting their seat",-STAND_PULL]);
   }
   if(m.g){ const k=m.p==="mine"?1:-1, hs=caucusHist(m); let left=(m.g||0);
     // the grudge is capped at 30 either way; the itemized record is scaled to it
@@ -20728,6 +20730,72 @@ function caucusProjectCost(target){
     return {amt:+clamp(0.02*n,0.05,0.2).toFixed(2), boost:14, n};
   }
   return {amt:0.05, boost:20, n:1};
+}
+/* ---- PULLING THEM FROM THEIR LEADERSHIP: a co-chair, or standing down ---- */
+const COCHAIR_COST=4, COCHAIR_PULL=15, COCHAIR_MAX=3, STAND_COST=2, STAND_PULL=12;
+function caucusMajority(ch){ const L=GAME.legis||{}; return ch==="senate"?(L.senate||0)>=LEGIS.majS:(L.house||0)>=LEGIS.majH; }
+/* A gavel held: by this member, while your party still has the majority to give it. */
+function caucusCochair(k){ const C=GAME.caucus, r=C&&C.cochair&&C.cochair[k], m=C&&C.m[k];
+  return (r&&m&&r.n===m.n&&m.p==="opp"&&!m.ind&&caucusMajority(m.ch))?r:null; }
+function caucusCochairs(ch){ return Object.keys((GAME.caucus&&GAME.caucus.cochair)||{}).filter(k=>k[0]===ch[0]&&caucusCochair(k)); }
+/* Their committee: the issue they break with their party on hardest, else the one they care most about. */
+function caucusCochairIssue(m){
+  const br=caucusBreaks(m).filter(i=>ISSUES[i].partisan!==false); if(br.length)return br[0];
+  const ids=Object.keys(m.v||{}).filter(i=>ISSUES[i].partisan!==false).sort((a,b)=>m.v[b].int-m.v[a].int); return ids[0]||"taxes"; }
+/* Your bench's resentment of a favour to the other side, in one chamber or all. */
+function caucusStingMine(amt,why,ch){
+  const C=GAME.caucus; for(const j in C.m){ const x=C.m[j]; if(x.p!=="mine"||x.ind||(ch&&x.ch!==ch))continue;
+    x.g=clamp((x.g||0)-amt,-30,30); caucusNote(x,why,why.split("|")[1]||why,-amt); x.L=clamp(x.L-amt*0.5,0,100); } }
+function caucusOfferCochair(k){
+  const C=GAME.caucus, m=C&&C.m[k]; if(prOn()||!m||m.p!=="opp"||m.ind||caucusCochair(k))return;
+  if(!caucusMajority(m.ch)){ GAME.log.push("✗ Only the majority hands out gavels"); render(); return; }
+  if(caucusCochairs(m.ch).length>=COCHAIR_MAX){ GAME.log.push("✗ All "+COCHAIR_MAX+" co-chair seats in the "+(m.ch==="senate"?"Senate":"House")+" are taken"); render(); return; }
+  if(!window.SANDBOX&&GAME.capital<COCHAIR_COST){ GAME.log.push("✗ Not enough capital to offer a co-chair"); render(); return; }
+  GAME.capital=clamp(GAME.capital-COCHAIR_COST,0,100);
+  const i=caucusCochairIssue(m); C.cochair=C.cochair||{}; C.cochair[k]={n:m.n, t:GAME.turn, i};
+  caucusStingMine(1,"_cochair|Gave a gavel to the other side",m.ch);
+  GAME.log.push(ico('columns')+" "+caucusTitle(k)+" ("+caucusCode(k)+") will co-chair the "+ISSUES[i].name+" Committee. Your members in the "+(m.ch==="senate"?"Senate":"House")+" wanted that gavel.");
+  caucusControlCalc(); render();
+}
+function caucusRevokeCochair(k){
+  const C=GAME.caucus, m=C&&C.m[k]; if(!m||!C.cochair||!C.cochair[k])return;
+  delete C.cochair[k];
+  m.g=clamp((m.g||0)-8,-30,30); caucusNote(m,"_cochair","You took back their gavel",-8);
+  GAME.log.push(ico('columns')+" You took the gavel back from "+caucusTitle(k)+" ("+caucusCode(k)+"). They are back with their leadership, and angrier for it.");
+  render();
+}
+/* Standing down: a pledge on the seat for its next ballot, whoever their nominee turns out to be. */
+function caucusStanding(k){ const C=GAME.caucus, r=C&&C.stand&&C.stand[k], m=C&&C.m[k]; return (r&&m&&r.n===m.n&&m.p==="opp")?r:null; }
+function caucusStandDownSeat(ch,id){ const C=GAME.caucus; return !!(C&&C.stand&&C.stand[(ch==="senate"?"s":"h")+id]); }
+function caucusStandDown(k){
+  const C=GAME.caucus, m=C&&C.m[k]; if(prOn()||!m||m.p!=="opp"||m.ind||(C.stand&&C.stand[k]))return;
+  const b=caucusBallotsAhead(k)[0]; if(!b||!b.up){ GAME.log.push("✗ That seat is not on the next ballot"); render(); return; }
+  if(!window.SANDBOX&&GAME.capital<STAND_COST){ GAME.log.push("✗ Not enough capital to stand down"); render(); return; }
+  GAME.capital=clamp(GAME.capital-STAND_COST,0,100);
+  C.stand=C.stand||{}; C.stand[k]={n:m.n, t:GAME.turn};
+  caucusStingMine(1,"_stand|You gave up a seat without a fight");
+  GAME.log.push(ico('ballot')+" Your party will not contest "+caucusCode(k)+", "+caucusPlace(m.ch,m.id)+": "+caucusTitle(k)+" has the seat if they get through their own primary.");
+  caucusControlCalc(); render();
+}
+/* The member's file: what you can do to pull them from their leadership. */
+function caucusOppToolsHTML(k){
+  const C=GAME.caucus, m=C&&C.m[k]; if(!m||m.p!=="opp"||m.ind)return "";
+  const chN=m.ch==="senate"?"Senate":"House", L=GAME.legis||{}, cc=caucusCochair(k), st=C.stand&&C.stand[k];
+  const b=caucusBallotsAhead(k)[0], up=b&&b.up, when=b?(b.kind==="midterm"?"the midterm":"the general election"):"the next ballot";
+  let h=`<div class="cm-sec">Pull them from their leadership</div><div class="cm-prim">`;
+  // the gavel
+  if(cc)h+=`<div>Co-chairs the <b>${ISSUES[cc.i].name} Committee</b> under your majority: ${COCHAIR_PULL} less loyal to their leadership while they hold it.</div><button class="fcard-btn" data-cuncochair="${k}">Take the gavel back</button>`;
+  else if(!caucusMajority(m.ch))h+=`<div class="cm-note">A committee co-chair is the majority's to give: your party would need ${m.ch==="senate"?LEGIS.majS:LEGIS.majH} ${chN} seats (you hold ${m.ch==="senate"?(L.senate||0):(L.house||0)}).</div>`;
+  else { const full=caucusCochairs(m.ch).length>=COCHAIR_MAX, i=caucusCochairIssue(m);
+    h+=`<div>Offer them a co-chair of the <b>${ISSUES[i].name} Committee</b> (◈${COCHAIR_COST}): ${COCHAIR_PULL} less loyal to their leadership while they hold it. Your ${chN} members each lose 1; ${caucusCochairs(m.ch).length} of ${COCHAIR_MAX} co-chair seats used.</div>
+      <button class="fcard-btn" data-ccochair="${k}" ${full||(!window.SANDBOX&&GAME.capital<COCHAIR_COST)?"disabled":""}>${full?"No co-chair seats left":"Offer a co-chair · ◈"+COCHAIR_COST}</button>`; }
+  // standing down
+  if(st)h+=`<div style="margin-top:8px">Your party is <b>standing down</b> here at ${when}: your odds in the seat are 0%. ${STAND_PULL} less loyal to their leadership until then.</div>`;
+  else if(!up)h+=`<div class="cm-note" style="margin-top:8px">Their seat is not on the next ballot, so there is nothing to stand down from yet.</div>`;
+  else h+=`<div style="margin-top:8px">Stand down at ${when} (◈${STAND_COST}): your party fields nobody, so your odds in this seat go to 0% and it is theirs if they win their own primary. ${STAND_PULL} less loyal to their leadership until then. Every member of yours loses 1. Careful: below ${OPP_PRIM_AT} their leadership may back a challenger against them.</div>
+      <button class="fcard-btn" data-cstand="${k}" ${!window.SANDBOX&&GAME.capital<STAND_COST?"disabled":""}>Stand down · ◈${STAND_COST}</button>`;
+  h+=`<div class="cm-note" style="margin-top:8px">Also: pass the laws they break with their party on (their views, below), fund a district project, or appoint from the groups their district is made of.</div></div>`;
+  return h;
 }
 function caucusProjectSpend(){
   return ((GAME.caucus&&GAME.caucus.proj)||[]).filter(p=>p.until>GAME.turn).reduce((a,p)=>a+p.amt,0);
@@ -21643,6 +21711,7 @@ function renderCaucus(){
     <p>A district project costs $0.05B a year for two years and adds 20 to a member's loyalty; a faction package covers every member of a faction for up to $0.2B a year and adds 14. Neither costs capital, but every other member of your party loses ${CAUCUS_STING_ONE} for a single project and ${CAUCUS_STING_FAC} for a faction package, and courting the other party costs your whole bench ${CAUCUS_STING_OPP}.</p>
     <p>The other party has fights of its own. Now and then its leadership whips its members against their districts on an issue, and members at odds with their party form factions of their own, which carry a quarter less of their party's discipline against you. It happens whatever you do.</p>
     <p>The other party's members are scored on loyalty to their own party, high in a safe seat and lower in a marginal one. Moving their issues their way, district projects in their districts and cross-aisle appointees from their districts' groups wear it down, and a member with little left carries less of their party's discipline against you. Below ${CAUCUS_LIVID} they may cross the floor to your party.</p>
+    <p>Two more tools sit in each opposition member's file. Where your party holds a chamber's majority you can offer up to ${COCHAIR_MAX} of their members a committee co-chair (◈${COCHAIR_COST}, ${COCHAIR_PULL} less loyal to their leadership while they hold it; your members in that chamber each lose 1). And before any ballot their seat is on, primaries included, you can stand down (◈${STAND_COST}): your party fields nobody there, your odds in the seat go to 0%, and they are ${STAND_PULL} less loyal to their leadership until the election; every member of yours loses 1. They still face their own primary, and a member who falls below ${OPP_PRIM_AT} may find their leadership backing someone against them. Every stand-down resets after each election.</p>
   </div></details>`;
   { const nm=Object.keys(C.m).filter(k=>tabOf(C.m[k])==="mine").length, no=Object.keys(C.m).length-nm, ni=Object.keys(C.m).filter(k=>C.m[k].ind).length;
     { const _cut=h.indexOf("</div>")+6; h=h.slice(0,_cut)+`<div class="ctabs" role="tablist"><button role="tab" aria-selected="${tab==="mine"}" data-ctab="mine" class="${tab==="mine"?"on":""}"><b>${ico('people')} Your Party</b><span>${myPartyPlural()} · ${nm} seats</span></button><button role="tab" aria-selected="${tab==="opp"}" data-ctab="opp" class="${tab==="opp"?"on":""}"><b>${ico('columns')} The Opposition</b><span>${oppPartyPlural()}${ni?" and independents":""} · ${no} seats</span></button></div>`+h.slice(_cut); } }
@@ -21666,7 +21735,7 @@ function renderCaucus(){
         <div class="as-meter"><span class="as-fill" style="left:0;width:${oc}%;background:${ocCol}"></span></div></div>
       <div class="as-cell"><div class="as-k">Their members</div><div class="as-v">${oN.h}<span>/60 House</span></div><div class="as-sub">${oN.s}/30 Senate${ind?" · "+ind+" independent"+(ind===1?"":"s"):""}</div></div>
       <div class="as-cell"><div class="as-k">At odds with their party</div><div class="as-v" style="color:${odd.h?"var(--moss)":"inherit"}">${odd.h}<span> House</span></div><div class="as-sub" style="color:${odd.s?"var(--moss)":"inherit"}">${odd.s} Senate</div><div class="as-sub">${oFac} faction${oFac===1?"":"s"} · open to your bills</div></div>
-      <div class="as-cell"><div class="as-k">District projects</div><div class="as-v">${live.length?"$"+spend.toFixed(2)+"B":`<span class="as-none">None</span>`}</div><div class="as-sub">${live.length?live.length+" courting them, a year":"Courting them costs your bench"}</div></div>
+      <div class="as-cell"><div class="as-k">District projects</div><div class="as-v">${live.length?"$"+spend.toFixed(2)+"B":`<span class="as-none">None</span>`}</div><div class="as-sub">${live.length?live.length+" courting them, a year":"Each costs every member of yours "+CAUCUS_STING_OPP+" loyalty"}</div></div>
     </div>`;
   } else
   h+=`<div class="ascore">
@@ -21761,7 +21830,7 @@ function renderCaucus(){
   h+=`<div class="croster">`+ks.map(k=>{ const m=C.m[k];
     return `<div class="crow${k===sel?" on":""}" data-cseat="${k}" tabindex="0">
       <span class="cr-code">${caucusCode(k)}</span>
-      <span class="cr-who"><b>${m.n}</b><i>${caucusPlace(m.ch,m.id)} · ${m.ind?"Ind":caucusPartyOf(m)==="D"?"Dem":"Rep"}${(()=>{ const t=caucusTraitsOf(k); return t.length?" · "+t.map(x=>x.label).join(", "):""; })()}${m.f?" · <b class=\"cr-fac\">"+caucusFactionName(m.f)+"</b>":""}${C.prim&&C.prim[k]?" · <b class=\"cr-fac\">primary backed</b>":""}</i>${caucusRetireNote(k)?`<i class="cr-up cr-ret">${caucusRetireNote(k)}</i>`:""}${k[0]==="s"?`<i class="cr-up">${caucusSenateUp(k)}</i>`:""}</span>
+      <span class="cr-who"><b>${m.n}</b><i>${caucusPlace(m.ch,m.id)} · ${m.ind?"Ind":caucusPartyOf(m)==="D"?"Dem":"Rep"}${(()=>{ const t=caucusTraitsOf(k); return t.length?" · "+t.map(x=>x.label).join(", "):""; })()}${m.f?" · <b class=\"cr-fac\">"+caucusFactionName(m.f)+"</b>":""}${C.prim&&C.prim[k]?" · <b class=\"cr-fac\">primary backed</b>":""}${caucusCochair(k)?" · <b class=\"cr-fac\">co-chair</b>":""}${C.stand&&C.stand[k]?" · <b class=\"cr-fac\">you stood down</b>":""}</i>${caucusRetireNote(k)?`<i class="cr-up cr-ret">${caucusRetireNote(k)}</i>`:""}${k[0]==="s"?`<i class="cr-up">${caucusSenateUp(k)}</i>`:""}</span>
       <span class="cr-views">${caucusBreakChips(m,2)}</span>
       <span class="cr-loy" style="color:${caucusLoyInk(m)}">${Math.round(m.L)}</span></div>`; }).join("")+`</div>`;
   main.innerHTML=h;
@@ -21771,6 +21840,9 @@ function renderCaucus(){
     window._caucusScroll=true; render(); };
   main.querySelectorAll("[data-cfund]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation(); caucusFund(b.dataset.cfund); }));
   main.querySelectorAll("[data-cch]").forEach(b=>b.addEventListener("click",()=>{ window._caucusCh=b.dataset.cch; window._caucusSel=null; render(); }));
+  main.querySelectorAll("[data-ccochair]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation(); caucusOfferCochair(b.dataset.ccochair); }));
+  main.querySelectorAll("[data-cuncochair]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation(); caucusRevokeCochair(b.dataset.cuncochair); }));
+  main.querySelectorAll("[data-cstand]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation(); caucusStandDown(b.dataset.cstand); }));
   main.querySelectorAll("[data-ctab]").forEach(b=>b.addEventListener("click",()=>{ window._caucusTab=b.dataset.ctab; window._caucusSel=null; window._caucusFac=null; render(); }));
   main.querySelectorAll("[data-csort]").forEach(b=>b.addEventListener("click",()=>{ window._caucusSort=b.dataset.csort; render(); }));
   main.querySelectorAll("[data-cseat]").forEach(p=>{ p.addEventListener("click",ev=>{ ev.stopPropagation(); pickSeat(p.dataset.cseat); });
@@ -22403,7 +22475,7 @@ function caucusMemberCard(k){
   if(!mine&&m.L<CAUCUS_LIVID&&m.switched==null)h+=`<div class="cm-flag" style="color:var(--moss)">Livid with their own party: could cross the floor to yours.</div>`;
   if(mine&&m.L<CAUCUS_LIVID)h+=`<div class="cm-flag">Livid: could cross the floor.</div>`;
   if(mine&&!m.f&&m.L<caucusAngryAt())h+=`<div class="cm-flag">Angry, but acting alone rather than with a faction.</div>`;
-  if(mine)h+=caucusPrimaryHTML(k);
+  if(mine)h+=caucusPrimaryHTML(k); else h+=caucusOppToolsHTML(k);
   h+=lpHTML("m:"+k,m);
   const tr=caucusTraitsOf(k);
   h+=`<div class="cm-sec">The district</div>`;
@@ -23331,6 +23403,7 @@ function seatForecast(chamber){
     const nat=_fcGauss(rnd)*FC_NAT;
     let c=heldOver.length;
     for(const r of contested){
+      if(caucusStandDownSeat(chamber,r.id))continue;     // you stood down there: no chance, by choice
       if(r.support+nat+_fcGauss(rnd)*FC_SEAT>50){ c++; wins[r.id]++; }
     }
     hist[Math.max(0,Math.min(total,c))]++;
@@ -24127,6 +24200,7 @@ function runLegislativeElection(approval){
   const hWon=[], spHL=[], spHR=[];
   const indKept=[], indLost=[];
   for(const r of hRank){
+    if(caucusStandDownSeat("house",r.id))continue;       // you stood down: it is theirs
     let you=r.vote.you+grace+jitter()+(heldH.has(r.id)?mtCush:0), v=r.vote;
     const iv=caucusIndVote("h",r.id);
     if(iv){ const f=1-iv.share/100; you*=f; v={opp:v.opp*f, spL:v.spL*f, spR:v.spR*f};
@@ -24150,6 +24224,7 @@ function runLegislativeElection(approval){
   const wonUp=[], spSL=[], spSR=[];
   for(const r of sRank){
     if(!upSet.has(r.id))continue;
+    if(caucusStandDownSeat("senate",r.id))continue;      // you stood down: it is theirs
     let you=r.vote.you+grace+jitter()+(heldS.has(r.id)?mtCush:0), v=r.vote;
     const iv=caucusIndVote("s",r.id);
     if(iv){ const f=1-iv.share/100; you*=f; v={opp:v.opp*f, spL:v.spL*f, spR:v.spR*f};
@@ -24161,6 +24236,10 @@ function runLegislativeElection(approval){
   }
   L.sHeld=notUpMine.concat(wonUp);
   L.senate=L.sHeld.length;
+  // every stand-down pledge was for this ballot: they all reset now
+  if(GAME.caucus&&GAME.caucus.stand){ const ks=Object.keys(GAME.caucus.stand);
+    if(ks.length)GAME.log.push(ico('ballot')+" Unopposed by your party: "+ks.map(caucusCode).join(", ")+". Those pledges are spent.");
+    GAME.caucus.stand={}; }
 
   // ---- the splinter: a collapsed coalition's own flank breaks off and takes
   //      a few seats from the mainstream opposition, in the safest districts on
