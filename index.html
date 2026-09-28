@@ -2808,7 +2808,6 @@
         <button id="reportBtn"><svg class="ico" aria-hidden="true"><use href="#ic-doc"/></svg><span>This quarter's report</span></button>
         <button id="saveBtn"><svg class="ico" aria-hidden="true"><use href="#ic-floppy"/></svg><span>Save game</span></button>
         <button id="newGameBtn"><svg class="ico" aria-hidden="true"><use href="#ic-sparkle"/></svg><span>New game</span></button>
-        <button id="sfxToggle"><svg class="ico" aria-hidden="true"><use href="#ic-volume"/></svg><span>Sound effects: <b>on</b></span></button>
         <button id="themeToggle"><svg class="ico" aria-hidden="true"><use href="#ic-moon"/></svg><span>Dark mode: <b>off</b></span></button>
         <button id="motionToggle"><svg class="ico" aria-hidden="true"><use href="#ic-sparkle"/></svg><span>Reduce motion: <b>off</b></span></button>
         <button class="hudmenu-seed" id="hudSeedStat" title="Copy a link that replays this exact opening">Seed <b id="hudSeed">—</b><span>copy link</span></button>
@@ -3151,112 +3150,10 @@ function applySave(sv){
     });
   });
 })();
-/* ---- celebratory sound effects (synthesised to WAV clips, no assets) + confetti ---- */
+/* ---- confetti (the synthesised sound effects were removed: they played on only three
+   moments and browsers blocked them until a tap, so they read as broken) ---- */
 (function(){
-  var ON=true;
-  try{if(localStorage.getItem('sc_sfx')==='0')ON=false;}catch(e){}
-  /* Each cue is a list of notes, rendered to a WAV the first time it is
-     needed. tone() records a note while a cue is being built. */
-  var REC=null, CLIPS={}, EL={};
-  function tone(freq,start,dur,type,gain){ if(REC)REC.push([freq,start,dur,type||'triangle',gain||0.2]); }
-  function renderWav(notes){
-    var SR=44100, len=0;
-    notes.forEach(function(t){ len=Math.max(len,t[1]+t[2]+0.1); });
-    var N=Math.ceil(len*SR), buf=new Float32Array(N);
-    notes.forEach(function(t){
-      var f=t[0], st=t[1]+0.015, dur=t[2], type=t[3], g=t[4];
-      var s0=Math.floor(st*SR), n=Math.floor((dur+0.05)*SR);
-      for(var k=0;k<n&&s0+k<N;k++){
-        var x=k/SR, ph=(f*x)%1;
-        var w= type==='sine'?Math.sin(2*Math.PI*ph) : type==='sawtooth'?(2*ph-1) : (1-4*Math.abs(ph-0.5));
-        // the old envelope: 20ms attack to g, exponential fall to 0.0006 at dur, then off
-        var e= x<0.02 ? g*(x/0.02) : x<dur ? g*Math.pow(0.0006/g,(x-0.02)/Math.max(0.001,dur-0.02)) : 0.0006*Math.max(0,1-(x-dur)/0.05);
-        buf[s0+k]+=w*e;
-      }
-    });
-    var bytes=44+N*2, ab=new ArrayBuffer(bytes), dv=new DataView(ab);
-    var ws=function(o,str){ for(var q=0;q<str.length;q++)dv.setUint8(o+q,str.charCodeAt(q)); };
-    ws(0,'RIFF'); dv.setUint32(4,bytes-8,true); ws(8,'WAVE'); ws(12,'fmt ');
-    dv.setUint32(16,16,true); dv.setUint16(20,1,true); dv.setUint16(22,1,true);
-    dv.setUint32(24,SR,true); dv.setUint32(28,SR*2,true); dv.setUint16(32,2,true); dv.setUint16(34,16,true);
-    ws(36,'data'); dv.setUint32(40,N*2,true);
-    for(var m=0;m<N;m++){ var v=Math.max(-1,Math.min(1,buf[m])); dv.setInt16(44+m*2,Math.round(v*32767),true); }
-    return URL.createObjectURL(new Blob([ab],{type:'audio/wav'}));
-  }
-  function clip(name){
-    if(!EL[name]){
-      if(!CLIPS[name]){ REC=[]; try{ BUILD[name](); }catch(e){} CLIPS[name]=renderWav(REC); REC=null; }
-      EL[name]=new Audio(CLIPS[name]); EL[name].preload='auto';
-    }
-    return EL[name];
-  }
-  // play now or not at all: a blocked play() is dropped, never queued
-  function playClip(name){
-    if(!ON)return;
-    try{ var a=clip(name); a._want=true; a.onended=function(){ a._want=false; };
-      a.muted=false; a.currentTime=0; var p=a.play(); if(p&&p.catch)p.catch(function(){}); }catch(e){}
-  }
-  /* Safari lets an <audio> element play later without a tap only if it was
-     started by one. So the first tap or key starts each clip silently and
-     stops it at once, and from then on the cues can play on their own. */
-  var UNLOCKED=false;
-  function unlockAudio(){
-    if(UNLOCKED)return; UNLOCKED=true;
-    ['welcome','win','lose'].forEach(function(k){
-      try{ var a=clip(k); a.muted=true; var p=a.play();
-        // a cue that was asked for while this ran keeps playing, with sound
-        var done=function(){ try{ a.muted=false; if(!a._want){ a.pause(); a.currentTime=0; } }catch(e){} };
-        if(p&&p.then)p.then(done,done); else done(); }catch(e){}
-    });
-  }
-  ['pointerdown','keydown','touchend'].forEach(function(ev){
-    try{ document.addEventListener(ev, unlockAudio, {capture:true, passive:true}); }
-    catch(e){ document.addEventListener(ev, unlockAudio, true); }
-  });
-  function paint(){
-    var b=document.getElementById('sfxToggle');
-    if(b)b.innerHTML='<svg class=\'ico\' aria-hidden=\'true\'><use href=\'#ic-'+(ON?'volume':'volume-x')+'\'/></svg><span>Sound effects: <b>'+(ON?'on':'off')+'</b></span>';
-  }
-  var BUILD={};
-  var SFX={
-    get on(){return ON;},
-    setOn:function(v){ ON=!!v; try{localStorage.setItem('sc_sfx',ON?'1':'0');}catch(e){} paint(); },
-    toggle:function(){ this.setOn(!ON); },
-    /* WINNING. Two short stabs and a held chord. Deliberately vertical,
-       because the welcome chord is a slow rising line and the ear tells
-       rhythm apart faster than it tells pitch apart. */
-    win:function(){
-      var stab=function(t){
-        tone(523.25,t,0.17,'triangle',0.18);
-        tone(659.25,t,0.17,'triangle',0.155);
-        tone(783.99,t,0.17,'triangle',0.135);
-      };
-      stab(0.00); stab(0.21);
-      tone(523.25,0.44,1.15,'triangle',0.165);
-      tone(659.25,0.44,1.15,'triangle',0.145);
-      tone(783.99,0.44,1.20,'triangle',0.130);
-      tone(1046.50,0.44,1.30,'sine',0.115);
-      tone(130.81,0.00,1.75,'sawtooth',0.050);
-    },
-    lose:function(){ tone(392,0,0.5,'sawtooth',0.13); tone(261.63,0.17,0.7,'sawtooth',0.12); tone(185,0.36,1.05,'sine',0.11); },
-    /* TAKING OFFICE. A rising fifth into the octave over a low pad. Warmer and
-       slower than the election fanfare, because this one opens a term rather
-       than celebrating the end of one. */
-    welcome:function(){
-      tone(130.81,0,1.5,'sine',0.055);
-      tone(261.63,0.00,0.70,'triangle',0.15);
-      tone(392.00,0.16,0.70,'triangle',0.14);
-      tone(523.25,0.32,1.10,'triangle',0.15);
-      tone(783.99,0.52,0.95,'sine',0.070);
-    }
-  };
-  ['win','lose','welcome'].forEach(function(k){ BUILD[k]=SFX[k]; SFX[k]=function(){ playClip(k); }; });
-  document.addEventListener('DOMContentLoaded',function(){
-    paint();
-    var b=document.getElementById('sfxToggle');
-    if(b)b.addEventListener('click',function(){ SFX.toggle(); });
-  });
-  window.SFX=SFX;
+  window.SFX={on:false, setOn:function(){}, toggle:function(){}, win:function(){}, lose:function(){}, welcome:function(){}};
   window.confettiBurst=function(host){
     if(document.documentElement.dataset.motion==='reduce')return;
     try{
