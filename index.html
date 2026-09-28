@@ -15461,9 +15461,9 @@ function renderCompass(){
     <div class="sectionsub">All <b>${VOTERS.length.toLocaleString()}</b> voters in the game, one gray dot each: economic left to right, personal liberty at the bottom and state authority at the top. Each quarter a voter drifts a little toward you if they approve of you, and away if they do not. The mix changes too: a dot darkens as its group grows and fades as it shrinks. <b class="mono" style="color:var(--clay)">YOU</b> is your record, where your own changes count for more than what you inherited. <b class="mono" style="color:var(--gold)">START</b> is where you began. Drag the slider to replay the term up to this quarter.</div>`
     +`<div class="compass-wrap">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-        <button id="ecTogCentroid" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.voters?'Hide voters &amp; electorate center':'Show voters &amp; electorate center'}</button>
-        <button id="ecTogLegacy" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.legacy?'Hide past runs':'Show past runs'}</button>
-        <button id="ecTogMembers" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${prOn()?(EC_TAB_OPTS.members?'Hide parties':'Show parties'):(EC_TAB_OPTS.members?'Hide legislators':'Show legislators')}</button>
+        <button id="ecTogCentroid" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.voters?'Hide Voters &amp; Electorate Center':'Show Voters &amp; Electorate Center'}</button>
+        <button id="ecTogLegacy" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.legacy?'Hide Past Runs':'Show Past Runs'}</button>
+        <button id="ecTogMembers" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${prOn()?(EC_TAB_OPTS.members?'Hide Parties':'Show Parties'):(EC_TAB_OPTS.members?'Hide Legislators':'Show Legislators')}</button>
         <span class="mono" style="font-size:12.5px;color:var(--muted-3)">${legN?legN+' election'+(legN===1?'':'s')+' on record':'no past elections on record yet'}${EC_TAB_OPTS.legacy&&legN?' — green win, red loss; gold-ringed is this run':''}</span>
       </div>
       <div class="ec-stage" style="max-width:420px">
@@ -20179,6 +20179,9 @@ function caucusBase(m){
   return 72+clamp(safe/14,0,1)*20;
 }
 /* What loyalty is heading toward, in parts, so the dossier can show them. */
+/* Where a district's biggest group turns the member: below this approval
+   yours pull away from you, above that theirs pull away from their party. */
+const TOPGROUP_COLD=40, TOPGROUP_WARM=60;
 function caucusTargetParts(m,key){
   if(m.ind)return [["Independent: no party whip to answer to",22]];
   const row=caucusRow(key), st=caucusSat(m), parts=[];
@@ -20212,6 +20215,12 @@ function caucusTargetParts(m,key){
     const tot=hs.reduce((a,x)=>a+x.now,0), f=(tot&&Math.sign(tot)===Math.sign(m.g)&&Math.abs(tot)>Math.abs(m.g))?m.g/tot:1;
     hs.slice(0,5).forEach(x=>{ parts.push([x.nm+", "+caucusQ(x.t),x.now*f*k]); left-=x.now*f; });
     if(Math.abs(left)>=0.5)parts.push([hs.length?"Other recent stances":"Recent stances",left*k]); }
+  // THE GROUP THEY ANSWER TO: their district's most over-represented group.
+  // Yours feel it when that group turns on you; theirs, when it warms to you.
+  { const top=row?caucusMakeup(row,1)[0]:null, S=top&&SIMULANTS[top.b];
+    if(S){ const a=S.approval??50;
+      if(m.p==="mine"&&a<TOPGROUP_COLD)parts.push(["Their district's biggest group, "+S.name+", dislikes you ("+Math.round(a)+"%)",-clamp((TOPGROUP_COLD-a)*0.5,0,8)]);
+      if(m.p!=="mine"&&a>TOPGROUP_WARM)parts.push(["Their district's biggest group, "+S.name+", likes you ("+Math.round(a)+"%)",-clamp((a-TOPGROUP_WARM)*0.5,0,8)]); } }
   const pr=caucusProjBoost(key); if(pr)parts.push([m.p==="mine"?"District projects":"Your projects in their district",m.p==="mine"?pr:-pr]);
   const ap=row?caucusApptSplit(m,row):[0,0];
   if(m.p==="mine"){
