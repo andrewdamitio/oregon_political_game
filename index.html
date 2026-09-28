@@ -504,6 +504,7 @@
   .cang-row{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--line-faint);font-size:13.5px;cursor:pointer}
   .cang-row:hover,.cang-row:focus{background:var(--paper-2);outline:none}
   .cang-l{font-family:var(--font-data);color:var(--clay);font-weight:600;white-space:nowrap}
+  .cn-who i.cang-livid{color:var(--bad);font-style:normal;font-weight:600}
   .cang-n{font-family:var(--font-data);color:var(--clay);margin-left:4px}
   .cang-more>summary{cursor:pointer;font-size:12.5px;color:var(--muted-2);padding:6px 4px}
   .cfac.opp{border-left:3px solid #8a8680}
@@ -650,13 +651,18 @@
   .crow.hl{background:var(--hover-bg);box-shadow:inset 3px 0 0 var(--gold)}
   .cr-fac{font-weight:600;color:var(--clay)}
   .cm-topt{flex:1;min-width:0}
-  .cm-loc{width:92px;height:auto;flex:none}
+  .cm-loc{width:64px;height:auto;flex:none}
   .cm-traits{display:flex;flex-direction:column;gap:3px;font-size:12.5px}
   .ctrait{color:var(--muted-2)}
   .ctrait b{color:var(--ink);font-weight:600;margin-right:6px}
   .cmem{background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;font-size:13.5px;display:flex;flex-direction:column;gap:6px}
   .cm-h{font-family:var(--font-display);font-size:17px}
-  .cm-sub{color:var(--muted-2);font-size:12.5px}
+  .cv-line>summary{cursor:pointer;font-size:12.5px;color:var(--muted-2);padding:6px 2px;list-style:none}
+  .cv-line>summary span{color:var(--ink)}
+  .cv-line>summary::before{content:"▸ ";color:var(--muted-3)}
+  .cv-line[open]>summary::before{content:"▾ "}
+  .cv-line[open]{padding-left:8px;border-left:2px solid var(--line-faint)}
+  .cm-sub{color:var(--muted-2);font-size:12.5px;margin:4px 0 8px}
   .clist{margin-top:12px;font-size:13.5px}
   .clist-row{display:flex;justify-content:space-between;gap:8px;padding:6px 4px;border-top:1px solid var(--line-faint);cursor:pointer}
   .clist-row:hover{background:var(--hover-bg)}
@@ -20500,7 +20506,7 @@ function caucusCollectNews(facs0,before){
 function caucusWhy(m){
   const hs=caucusHist(m).filter(x=>(m.p==="mine"?x.now<0:x.now>0)).slice(0,2).map(x=>x.nm);
   if(hs.length)return hs.join(", ");
-  const st=caucusSat(m); return st.worst?"Where "+ISSUES[st.worst].name.toLowerCase()+" has gone":"";
+  const st=caucusSat(m); return st.worst?"Unhappy about "+ISSUES[st.worst].name.toLowerCase():"";
 }
 /* Why an opposition member is losing faith in their own party. */
 function caucusWhyOpp(m){
@@ -20720,13 +20726,13 @@ function caucusApptListsHTML(keys,groups,side,they){
   const open=caucusChairs(groups).filter(c=>!like.includes(c.pid)).slice(0,2);
   let h=`<div class="cf-chairs"><div class="cf-ch-h">Appointees ${they} like</div>`;
   h+=like.length?like.map(pid=>row(pid,false)).join(""):`<div class="cf-ch none">None yet.</div>`;
+  if(open.length)h+=`<div class="cf-ch-h">Chairs you could fill to please them</div>`;
   h+=open.map(c=>{ const cost=c.vacant?0:apptRemoveCost(c.pid);
     // replacing somebody is not free of consequence: say who, what it costs, and who likes them
     const liked=c.vacant?0:caucusApptTies(c.h.group,c.h.foe,c.h.side).pleased.filter(k=>GAME.caucus.m[k]&&GAME.caucus.m[k].p==="mine").length;
     const last=c.vacant?"":c.h.name.split(" ").slice(-1)[0];
     return `<div class="cf-ch"><span>${APPT_POSTS[c.pid].name}<i>${c.vacant?"vacant":"now "+c.h.name+(c.h.side==="sitting"?", a holdover":"")+(liked?`, liked by ${liked} of your members`:"")}</i></span><button class="cf-chbtn" data-cchair="${c.pid}" data-cgroups="${tag}">${c.vacant?"Fill with one":"Replace "+last+(cost?" · ◈"+cost:" · free")}</button></div>`; }).join("");
-  h+=`<div class="cf-ch-h dis">Appointees ${they} dislike</div>`;
-  h+=dislike.length?dislike.map(pid=>row(pid,true)).join(""):`<div class="cf-ch none">None.</div>`;
+  if(dislike.length)h+=`<div class="cf-ch-h dis">Appointees ${they} dislike</div>`+dislike.map(pid=>row(pid,true)).join("");
   return h+`</div>`;
 }
 function caucusChairsHTML(groups,side,label){
@@ -20762,13 +20768,25 @@ function caucusOpenChair(postId,groups,side){
 /* PARTY COLOURS. Each party in its own hue, full while loyal and paler as
    loyalty slips; your own members who turn angry go orange, a colour
    neither party owns. */
-const CAUCUS_HUE={D:{full:"#2f5d9e", pale:"#b7c6e0"}, R:{full:"#b23a3a", pale:"#e6b8b2"}, angry:"#e0831c", ind:"#8a8680"};
+const CAUCUS_HUE={D:{full:"#2f5d9e", pale:"#b7c6e0"}, R:{full:"#b23a3a", pale:"#e6b8b2"}, angry:"#eda052", angryDeep:"#b8520c", ind:"#8a8680"};
 function caucusHue(mine){ const my=caucusMyLetter(); return CAUCUS_HUE[mine?my:(my==="D"?"R":"D")]; }
+/* The colour follows the same lines the game uses. Your members: orange
+   below the anger line, deepening toward livid; pale at the line, full by
+   the high 80s. Theirs: pale once at odds with their own leadership, full
+   when solidly loyal to it. */
 function caucusColor(m){
   if(m.ind)return CAUCUS_HUE.ind;
-  if(m.p==="mine"){ const H=caucusHue(true), t=m.L/100;
-    return t<0.5?cmMix(t/0.5,CAUCUS_HUE.angry,H.pale):cmMix((t-0.5)/0.5,H.pale,H.full); }
-  return cmMix(clamp((88-m.L)/55,0,1),caucusHue(false).full,caucusHue(false).pale);   // full while loyal to their party, paler as it slips
+  if(m.p==="mine"){ const H=caucusHue(true), at=caucusAngryAt();
+    if(m.L<at)return cmMix(clamp((at-m.L)/30,0,1),CAUCUS_HUE.angry,CAUCUS_HUE.angryDeep);
+    return cmMix(clamp((m.L-at)/(88-at),0,1),H.pale,H.full); }
+  const H=caucusHue(false), odds=(m.ch&&m.id!=null)?caucusOppOdds(m):CAUCUS_OPP_ANGRY;
+  return cmMix(clamp((m.L-odds)/30,0,1),H.pale,H.full);
+}
+/* A loyalty number as text: the map colours are too pale to read on paper. */
+function caucusLoyInk(m){
+  if(m.ind)return "var(--muted-2)";
+  if(m.p==="mine"){ const at=caucusAngryAt(); return m.L<at?"var(--bad)":m.L<at+12?"var(--gold)":"var(--ink)"; }
+  return m.L<caucusOppOdds(m)?"var(--moss)":"var(--muted-2)";
 }
 function caucusMeter(L,col){ return `<span class="cf-meter"><i style="width:${Math.round(clamp(L,0,100))}%;background:${col}"></i></span>`; }
 function caucusViewLabel(i,pos){ const I=ISSUES[i]; return I.partisan===false?I.view[1]:(pos<-0.2?I.view[0]:pos>0.2?I.view[1]:"Torn on "+I.name.toLowerCase()); }
@@ -21394,7 +21412,7 @@ function caucusWalkoutLine(){
   const r=caucusWalkoutRefusers();
   const needH=Math.max(0,LEGIS.quorumH-(L.house||0)), needS=Math.max(0,LEGIS.quorumS-(L.senate||0));
   const ok=r.house.length>=needH&&r.senate.length>=needS;
-  return `<div class="cprim-note" style="margin:0 0 10px">${ico('warning')} If the ${oppPartyPlural()} walk out: ${r.house.length} of their House members and ${r.senate.length} of their senators are at odds with their leadership and would stay. The quorum needs ${needH} and ${needS}. ${ok?"<b>It would hold: no walkout can work right now.</b>":"Not enough to hold it."}</div>`;
+  return `<div class="cprim-note" style="margin:0 0 10px">${ico('warning')} If the ${oppPartyPlural()} walk out: ${r.house.length} of their House members and ${r.senate.length} of their senators are at odds with their leadership and would stay. Holding quorum takes ${needH} House and ${needS} Senate members of theirs. ${ok?"<b>It would hold, so no walkout can work right now.</b>":"Not enough: a walkout would stop the floor."}</div>`;
 }
 function renderCaucus(){
   const main=document.getElementById("main");
@@ -21440,7 +21458,7 @@ function renderCaucus(){
       const row=k=>{ const m=C.m[k], f=qf[k], d=f!=null?m.L-f:0;
         const tr=Math.abs(d)>=1?` <span style="color:${d<0?"var(--bad)":"var(--good)"}">${d<0?"▼":"▲"}${Math.abs(Math.round(d))}</span>`:"";
         return `<div class="cang-row" data-cseat="${k}" tabindex="0"><span class="cn-code">${caucusCode(k)}</span>
-          <span class="cn-who"><b>${caucusTitle(k)}</b><i>${caucusPlace(m.ch,m.id)}${m.f?" · "+caucusFactionName(m.f):""} · ${caucusWhy(m)||"angry with you"}</i></span>
+          <span class="cn-who"><b>${caucusTitle(k)}</b><i>${caucusPlace(m.ch,m.id)}${m.f?" · "+caucusFactionName(m.f):""} · ${caucusWhy(m)||"angry with you"}</i>${m.L<CAUCUS_LIVID?`<i class="cang-livid">${ico('warning')} Livid: could cross the floor</i>`:""}</span>
           <span class="cang-l">${Math.round(m.L)}${tr}</span></div>`; };
       angH+=`<div class="aarea">Angry members <span class="cang-n">${ak.length}</span></div><div class="cang">`+ak.slice(0,8).map(row).join("")
         +(ak.length>8?`<details class="cang-more"><summary>Show ${ak.length-8} more</summary>${ak.slice(8).map(row).join("")}</details>`:"")+`</div>`;
@@ -21470,13 +21488,7 @@ function renderCaucus(){
   }
   h+=lpListHTML();
   h+=caucusWalkoutLine();
-  // the livid
-  const livid=Object.keys(C.m).filter(k=>C.m[k].p==="mine"&&C.m[k].L<CAUCUS_LIVID);
-  if(livid.length){
-    h+=`<div class="aneeds"><div class="an-h">${ico('warning')} Could cross the floor</div>`;
-    livid.forEach(k=>{ h+=`<div class="an-row"><span>${caucusTitle(k)}, ${caucusCode(k)} ${caucusPlace(C.m[k].ch,C.m[k].id)}, loyalty ${Math.round(C.m[k].L)}</span><button class="fcard-btn" data-cseat="${k}">Open file</button></div>`; });
-    h+=`</div>`;
-  }
+  // the livid are flagged in the angry list under the map
   // the map, the file, the roster
   const rows=ch==="senate"?OR_SENATE_DISTRICTS:OR_HOUSE_DISTRICTS;
   let sel=window._caucusSel&&C.m[window._caucusSel]&&window._caucusSel[0]===tag?window._caucusSel:null;
@@ -21484,7 +21496,7 @@ function renderCaucus(){
   const fac=window._caucusFac;
   let svg="", edge="";
   for(const [id,d] of rows){ const k=tag+id, m=C.m[k];
-    const fill=m?caucusColor(m):"#6b5b95";
+    const fill=m?caucusColor(m):CAUCUS_HUE.ind;
     const dim=fac&&!(m&&m.f===fac);
     svg+=`<path class="cseat" data-cseat="${k}" d="${d}" fill="${fill}" fill-opacity="${dim?0.25:1}" stroke="var(--paper)" stroke-width="0.35"><title>${caucusCode(k)} ${caucusPlace(ch,id)} · ${m?caucusTitle(k)+" · "+(m.p==="mine"?"loyalty ":"loyalty to their party ")+Math.round(m.L):"splinter seat"}</title></path>`;
     if(k===sel)edge+=`<path d="${d}" fill="none" stroke="var(--ink)" stroke-width="1.4" pointer-events="none"/>`;
@@ -21495,7 +21507,7 @@ function renderCaucus(){
     <div class="cch"><button data-cch="house" class="${ch==="house"?"on":""}">House</button><button data-cch="senate" class="${ch==="senate"?"on":""}">Senate</button>${fac?`<button data-cfacoff="1">Show everyone</button>`:""}</div>
     <div class="cmap-row"><div>${legMapFrame(`<svg class="leg-map-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Every member, by loyalty">${svg}${edge}</svg>`)}
       <div class="legmap-read cmap-read" id="cmapRead" data-dflt="${hv("Hover a district or a member to find the other","Tap a district to open its member")}">${hv("Hover a district or a member to find the other","Tap a district to open its member")}</div>
-      <div class="clegend"><span><i style="background:${caucusColor({p:"mine",L:100})}"></i>Yours, loyal</span><span><i style="background:${caucusColor({p:"mine",L:50})}"></i>Wavering</span><span><i style="background:${caucusColor({p:"mine",L:0})}"></i>Angry</span><span><i style="background:${caucusColor({p:"opp",L:90})}"></i>${oppPartyPlural()}, loyal to their party</span><span><i style="background:${caucusColor({p:"opp",L:33})}"></i>${oppPartyPlural()}, wavering</span><span><i style="background:${CAUCUS_HUE.ind}"></i>Independent</span></div>${angH}${facH}</div>
+      <div class="clegend"><span><i style="background:${caucusColor({p:"mine",L:95})}"></i>Yours, loyal</span><span><i style="background:${caucusColor({p:"mine",L:at+3})}"></i>Wavering</span><span><i style="background:${caucusColor({p:"mine",L:at-12})}"></i>Angry</span><span><i style="background:${caucusColor({p:"opp",L:95})}"></i>${oppPartyPlural()}, loyal to their party</span><span><i style="background:${caucusColor({p:"opp",L:CAUCUS_OPP_ANGRY-5})}"></i>${oppPartyPlural()}, at odds with it</span><span><i style="background:${CAUCUS_HUE.ind}"></i>Independent</span></div>${angH}${facH}</div>
       <div id="cmemFile">${sel?caucusMemberCard(sel):""}</div></div>`;
   // the roster
   const ks=Object.keys(C.m).filter(k=>k[0]===tag&&(side==="all"||C.m[k].p===side))
@@ -21507,10 +21519,12 @@ function renderCaucus(){
       <span class="cr-code">${caucusCode(k)}</span>
       <span class="cr-who"><b>${m.n}</b><i>${caucusPlace(m.ch,m.id)} · ${m.ind?"Ind":caucusPartyOf(m)==="D"?"Dem":"Rep"}${(()=>{ const t=caucusTraitsOf(k); return t.length?" · "+t.map(x=>x.label).join(", "):""; })()}${m.f?" · <b class=\"cr-fac\">"+caucusFactionName(m.f)+"</b>":""}${C.prim&&C.prim[k]?" · <b class=\"cr-fac\">primary backed</b>":""}</i>${caucusRetireNote(k)?`<i class="cr-up cr-ret">${caucusRetireNote(k)}</i>`:""}${k[0]==="s"?`<i class="cr-up">${caucusSenateUp(k)}</i>`:""}</span>
       <span class="cr-views">${caucusBreakChips(m,2)}</span>
-      <span class="cr-loy" style="color:${caucusColor(m)}">${Math.round(m.L)}</span></div>`; }).join("")+`</div>`;
+      <span class="cr-loy" style="color:${caucusLoyInk(m)}">${Math.round(m.L)}</span></div>`; }).join("")+`</div>`;
   main.innerHTML=h;
   wireMapZoom(main);
-  const pickSeat=k=>{ window._caucusSel=k; if(k[0]!==tag)window._caucusCh=k[0]==="h"?"house":"senate"; window._caucusScroll=true; render(); };
+  const pickSeat=k=>{ window._caucusSel=k; if(k[0]!==tag)window._caucusCh=k[0]==="h"?"house":"senate";
+    if(window._caucusFac&&C.m[k]&&C.m[k].f!==window._caucusFac)window._caucusFac=null;
+    window._caucusScroll=true; render(); };
   main.querySelectorAll("[data-cfund]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation(); caucusFund(b.dataset.cfund); }));
   main.querySelectorAll("[data-cch]").forEach(b=>b.addEventListener("click",()=>{ window._caucusCh=b.dataset.cch; window._caucusSel=null; render(); }));
   main.querySelectorAll("[data-cside]").forEach(b=>b.addEventListener("click",()=>{ window._caucusSide=b.dataset.cside; render(); }));
@@ -22131,9 +22145,8 @@ function caucusMemberCard(k){
   const T=caucusTarget(m,k), parts=caucusTargetParts(m,k);
   const mk=row?caucusMakeup(row,4):[];
   let h=`<div class="cmem">
-    <div class="cm-top"><span class="cm-code">${caucusCode(k)}</span><div class="cm-topt"><div class="cm-h">${caucusTitle(k)}</div>
-    <div class="cm-sub">${caucusPlace(m.ch,m.id)} · ${party}${mine?", your party":""} · serving since ${m.yr||"?"} · seat ${Math.round(lean)}% progressive${k[0]==="s"?" · "+caucusSenateUp(k):""}${caucusRetireNote(k)?` · <b class="cm-ret">${caucusRetireNote(k)}</b>`:""}</div></div>
-    ${caucusLocator(k)}</div>
+    <div class="cm-top"><span class="cm-code">${caucusCode(k)}</span><div class="cm-topt"><div class="cm-h">${caucusTitle(k)}</div></div>${caucusLocator(k)}</div>
+    <div class="cm-sub">${caucusPlace(m.ch,m.id)} · ${party}${mine?", your party":""} · serving since ${m.yr||"?"} · seat ${Math.round(lean)}% progressive${k[0]==="s"?" · "+caucusSenateUp(k):""}${caucusRetireNote(k)?` · <b class="cm-ret">${caucusRetireNote(k)}</b>`:""}</div>
     <div class="cf-bar">${mine?"Loyalty":"Loyalty to the "+oppPartyPlural()} ${Math.round(m.L)} ${caucusMeter(m.L,caucusColor(m))} <span class="cm-to">heading to ${Math.round(T)}</span></div>
     <div class="cm-parts">${parts.map(p=>`<span>${p[0]}<b class="${p[1]>0.5&&p!==parts[0]?"up":p[1]<-0.5?"dn":""}">${p===parts[0]?Math.round(p[1]):(p[1]>0?"+":"")+Math.round(p[1])}</b></span>`).join("")}</div>`;
   if(mine)h+=`<div class="cm-vote${caucusAnger(m)?" bad":""}"><b>How they vote:</b> ${caucusVoteLine(m)}</div>`;
@@ -22152,14 +22165,25 @@ function caucusMemberCard(k){
   if(mk.length)h+=`<div class="cm-mk">${mk.map(x=>`<span>${x.name}<b>${Math.round(x.share*100)}%</b><i>state ${Math.round((SIMULANTS[x.b].size||0)*100)}%</i></span>`).join("")}</div>`;
   h+=`<div class="cm-sec">Views</div><div class="cm-views">`;
   const order=ISSUE_IDS.filter(i=>m.v[i]).sort((a,b)=>{ const ba=caucusBreaks(m).includes(a), bb=caucusBreaks(m).includes(b); return (bb-ba)||(m.v[b].int-m.v[a].int); });
-  order.forEach(i=>{ const v=m.v[i], br=caucusBreaks(m).includes(i), mv=caucusIssueMoved(i)*(v.pos>=0?1:-1)*(ISSUES[i].partisan===false?1:1);
-    const felt=v.pos*caucusIssueMoved(i);
+  // what sets this member apart comes first, one row each: a break with the
+  // party, an issue the district cares about, a district interest. Where they
+  // simply hold the party line the rows fold under one line.
+  const brs=caucusBreaks(m), stands=i=>brs.includes(i)||m.v[i].int>=1||ISSUES[i].partisan===false;
+  order.sort((a,b)=>stands(b)-stands(a));
+  const lineIds=order.filter(i=>!stands(i));
+  let folded=false;
+  order.forEach(i=>{ const v=m.v[i], br=brs.includes(i);
     // a district interest (rural aid, tolling) is not a party question, so it is never a break
     const pb=br&&ISSUES[i].partisan!==false, di=ISSUES[i].partisan===false, nl=i==="tolls"?1:ISSUES[i].pols.filter(([pid])=>POLICIES[pid]||CATALOG[pid]).length;
+    if(!stands(i)&&!folded){ folded=true;
+      h+=`<details class="cv-line"><summary>Party line on ${lineIds.length} other issue${lineIds.length===1?"":"s"}: <span>${lineIds.map(x=>ISSUES[x].name).join(", ")}</span></summary>`; }
     h+=`<details class="cv${pb?" br":""}"><summary><span class="cv-i">${ISSUES[i].name}${v.int>=1?" ★":""}</span><span class="cv-p${pb?" cv-brk":""}">${caucusViewLabel(i,v.pos)}${pb?(v.conv?" · personal conviction":" · breaks with party"):""}${di?`<span class="cv-di"> · district interest</span>`:""}</span><span class="cv-open">${nl} law${nl===1?"":"s"}<i>▸</i></span></summary><div class="cv-laws">${caucusIssueLaws(m,i)}</div></details>`; });
+  if(folded)h+=`</details>`;
   h+=`</div><div class="cm-note">★ an issue the district cares about. In red: a view that breaks with the party. Click an issue to see the laws behind it and which way each has moved since you took office.</div>`;
   if(row)h+=caucusApptListsHTML([k],mk.map(x=>x.b),m.p,mine?"they":"they");
-  if(on.length){ const q=Math.max(...on.map(p=>p.until))-GAME.turn; h+=`<div class="cf-live">${ico('houses')} District project running · cooldown ${q} quarter${q===1?"":"s"}</div>`; }
+  // their own project, or a package paid through their faction: say which
+  on.forEach(p=>{ const q=p.until-GAME.turn, fk=p.k.startsWith("f:")?p.k.slice(2):null;
+    h+=`<div class="cf-live">${ico('houses')} ${fk?"Faction package running, through the "+caucusFactionName(fk):"District project running"} · cooldown ${q} quarter${q===1?"":"s"}</div>`; });
   if(!own)h+=`<div><button class="fcard-btn" data-cfund="${k}">${mine?"District project":"Court with a project"} · $${c.amt.toFixed(2)}B/yr</button></div>`;
   return h+`</div>`;
 }
