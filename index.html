@@ -3089,6 +3089,7 @@ function applySave(sv){
     for(const id in sv.indicators){ const x=INDICATORS[id]; if(!x)continue; x.value=sv.indicators[id].v; x.base0=sv.indicators[id].b; }
     for(const id in sv.agencies){ const a=AGENCIES[id]; if(!a)continue; const s=sv.agencies[id]; a.funding=s.f; a.logging=s.l; a.fundingBase=s.fb; }
     for(const id in sv.sims){ const s=SIMULANTS[id]; if(!s)continue; const x=sv.sims[id]; s.approval=x.a; s.calib=x.c; s.size=x.s; s.cynicism=x.cy; }
+    for(const id in NUCLEAR_BILLS)if(!CATALOG[id]&&!POLICIES[id]){ CATALOG[id]=JSON.parse(JSON.stringify(NUCLEAR_BILLS[id])); }
     for(const id in sv.policies){
       const st=sv.policies[id];
       if(st.on){
@@ -3109,6 +3110,8 @@ function applySave(sv){
     }
     for(const id in POLICIES)POLICIES[id]._id=id;
     for(const id in CATALOG)CATALOG[id]._id=id;
+    GAME.nuclearOpened=GAME.nuclearOpened||moratoriumRepealed();   // no news for an old repeal
+    syncNuclearBills();
     applyVoterDrift();
     if(sv.voters&&sv.voters.length===VOTERS.length){
       if(sv.vKeys&&sv.vKeys.length){
@@ -4831,6 +4834,7 @@ const SECTION_OF={
   // economy & jobs
   rndTaxCredit:"economy", deregulation:"economy", adminSimplification:"economy", revenueMajority:"taxes", stateLottery:"economy", casinos:"economy", csfLandSale:"economy", rightToWork:"economy", collectiveBargaining:"economy", rightToRepair:"economy", schoolChoice:"pubservices",
   nuclearRepeal:"economy", tortReform:"economy", jordanCoveLNG:"environment",
+  smrSiting:"environment", reactorManufacturing:"economy", publicNuclear:"environment",
   safeConsumption:"health", ohpBlockGrant:"health", cascadiaPrep:"environment",
   // environment & transport
   carbonProgram:"environment", renewablePortfolio:"environment", cleanFuels:"environment", forestPractices:"environment", bottleBill:"environment",
@@ -6210,7 +6214,7 @@ const CATALOG={
     blocEffect:{businessClass:6, moderate:4, conservative:3, libertarian:3, wealthy:2, liberal:-5, socialist:-4, publicUnions:-3, urban:-2},
     ideology:{economic:0.25, govSize:-0.1}},
   nuclearRepeal:{name:"Repeal Nuclear Moratorium", domain:"envInfra", icon:"atom", binary:true, mechanic:"law", reform:true,
-    desc:"Repeal Oregon's 1980 voter-approved ban on new nuclear plants, which stands until a federal waste repository exists. It opens the door to carbon-free baseload power and splits environmentalists between climate hawks and anti-nuclear traditionalists.",
+    desc:"Repeal Oregon's 1980 voter-approved ban on new nuclear plants, which stands until a federal waste repository exists. It opens the door to carbon-free baseload power and splits environmentalists between climate hawks and anti-nuclear traditionalists.\n\nRepeal also opens three nuclear bills that cannot be drafted while the ban stands: reactor siting, a manufacturing credit and a public power program.",
     enabled:true, costFull:0, capital:12, enactCapital:20, repealCost:14,
     effects:{environment:5,gdp:0.35,electricRate:-1.6}, indicatorEffects:{businessClimate:4},
     ideology:{economic:0.3,govSize:0.1}},
@@ -6362,6 +6366,52 @@ const CATALOG={
    and drives effects. `funding` is the current setting; spend is computed.
    `effects` push metrics each turn (same units as policy effects).
    `ideologyByFunding` (optional) lets higher funding read ideologically. */
+/* PRO-NUCLEAR LEGISLATION. Oregon's 1980 moratorium bars new plants until a
+   federal waste repository exists, so none of this can be drafted while it
+   stands. Repeal it (Repeal Nuclear Moratorium) and these join the catalog.
+   They are held here rather than in CATALOG so a game where the moratorium
+   stands never offers them anywhere: not the Policy tab, not a department,
+   not a petition. syncNuclearBills() moves them in and out. */
+const NUCLEAR_BILLS={
+  smrSiting:{name:"Small Modular Reactor Siting", domain:"envInfra", icon:"atom", binary:true, mechanic:"law", phaseIn:6,
+    desc:"Give small modular reactors their own path through the Energy Facility Siting Council, with a fixed review clock and sites limited to existing industrial and grid land such as Boardman. The first small reactor design the federal Nuclear Regulatory Commission approved was developed at Oregon State in Corvallis, and none of the projects planned on it are in Oregon.\n\nPower comes slowly. It takes about six quarters before the first units run, and then electricity gets cheaper and cleaner together. Anti-nuclear environmentalists oppose it. The building trades, manufacturers and climate-first voters support it.",
+    enabled:true, costFull:0.02, capital:8, enactCapital:14, repealCost:10,
+    effects:{electricRate:-1.8, environment:4, gdp:0.15, unemployment:-0.2}, indicatorEffects:{businessClimate:3},
+    blocEffect:{businessClass:4, blueCollar:4, moderate:2, conservative:2, collegeEducated:1, liberal:-3, socialist:-3},
+    ideology:{economic:0.2, environment:0.1, govSize:0.1}},
+  reactorManufacturing:{name:"Advanced Reactor Manufacturing Credit", domain:"economy", icon:"atom", binary:true, mechanic:"law", phaseIn:4,
+    desc:"A tax credit for building reactor modules, fuel assemblies and their components in Oregon. The engineering already lives in the Willamette Valley, and the credit is meant to keep the factory work here too. It costs revenue every year and pays in jobs and growth, most of it in the Valley and along the Columbia. It does nothing for electricity prices unless reactors are also sited.",
+    enabled:true, costFull:0.09, capital:6, enactCapital:11, repealCost:8,
+    effects:{gdp:0.25, unemployment:-0.35}, indicatorEffects:{businessClimate:4, inMigration:1},
+    blocEffect:{businessClass:5, blueCollar:5, collegeEducated:2, conservative:1, liberal:-2, socialist:-4},
+    ideology:{economic:0.3, govSize:0.1}},
+  publicNuclear:{name:"Public Power Reactor Program", domain:"envInfra", icon:"atom", binary:true, mechanic:"law", phaseIn:10,
+    desc:"The state backs revenue bonds for a publicly owned reactor fleet, run by a new public power authority on the Bonneville model and sold at cost to utilities and co-ops. It is the largest carbon cut and the largest rate cut on the energy menu, and the slowest: about ten quarters before it is fully running. The bonds sit on the state's books whether or not the plants come in on budget. Free-market conservatives call it socialized power, and the left splits between public ownership and fear of the reactors.",
+    enabled:true, costFull:0.35, capital:12, enactCapital:20, repealCost:14,
+    effects:{electricRate:-3.2, environment:6, gdp:0.2, unemployment:-0.3}, indicatorEffects:{businessClimate:2},
+    blocEffect:{blueCollar:4, publicUnions:3, socialist:1, moderate:1, liberal:-2, businessClass:-1, wealthy:-2, conservative:-3, libertarian:-5},
+    ideology:{economic:-0.3, environment:-0.2, govSize:-0.5}},
+};
+function moratoriumRepealed(){ return !!(POLICIES.nuclearRepeal&&POLICIES.nuclearRepeal.enacted); }
+/* Put the unpassed nuclear bills into the catalog while the moratorium is
+   repealed, and take them out while it stands. The first opening is news. */
+function syncNuclearBills(){
+  const open=moratoriumRepealed();
+  const added=[];
+  for(const id in NUCLEAR_BILLS){
+    if(POLICIES[id])continue;                        // passed: it stays law either way
+    if(open&&!CATALOG[id]){
+      CATALOG[id]=JSON.parse(JSON.stringify(NUCLEAR_BILLS[id])); CATALOG[id]._id=id;
+      added.push(NUCLEAR_BILLS[id].name);
+    } else if(!open&&CATALOG[id]&&!(GAME.pendingFloorChange&&GAME.pendingFloorChange.key==="p_"+id)){
+      delete CATALOG[id];
+    }
+  }
+  if(open&&!GAME.nuclearOpened){
+    GAME.nuclearOpened=true;
+    if(added.length)GAME.log.push(ico('atom')+" With the moratorium gone, nuclear bills can be drafted: "+added.join(", ")+". They are on the Policy tab.");
+  }
+}
 const AGENCIES={
   // The Dept. of Revenue agency was removed along with the Tax Collection
   // Rate it existed to buy. Collection started at 96 against a ceiling of
@@ -23860,6 +23910,7 @@ function _calcCapital(){
   if((GAME.lastBalance||0)>0.5)GAME.capital=clamp(GAME.capital+1,0,100);
 }
 function _runTicks(){
+  syncNuclearBills();           // the moratorium decides which bills exist
   settleSurplusPool();          // last quarter's undirected surplus lands first
   GAME.surplusOut=0;            // the deduction belonged to the quarter just ended
   settlePending(true);
@@ -27846,6 +27897,7 @@ function signed(v,dollar){const s=v>=0?'+':'';return dollar?(s+v.toFixed(1)):(s+
 
 /* ---------- NEW POLICIES (catalog) ---------- */
 function renderPolicies(){
+  syncNuclearBills();
   // County Payments has nothing to do once the counties can levy again
   const avail=Object.keys(CATALOG).filter(id=>!(id==="countyPayments"&&m5Reformed()));
   _minCostCache={turn:GAME.turn, map:{}};   // priced fresh each time the list is drawn
