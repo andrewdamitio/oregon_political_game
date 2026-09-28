@@ -684,6 +684,8 @@
   .ctrait b{color:var(--ink);font-weight:600;margin-right:6px}
   .cmem{background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;font-size:13.5px;display:flex;flex-direction:column;gap:6px}
   .cm-h{font-family:var(--font-display);font-size:17px}
+  .cm-prim .ot-h{font-weight:600;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted-2);margin:12px 0 3px;padding-top:9px;border-top:1px solid var(--line-faint)}
+  .cm-prim .ot-h:first-child{margin-top:0;padding-top:0;border-top:0}
   .attain-sum{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px}
   .attain-sum th{text-align:left;font-weight:600;font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted-2);padding:4px 6px;border-bottom:1px solid var(--line)}
   .attain-sum td{padding:6px;border-bottom:1px solid var(--line-faint);vertical-align:top}
@@ -20777,23 +20779,65 @@ function caucusStandDown(k){
   GAME.log.push(ico('ballot')+" Your party will not contest "+caucusCode(k)+", "+caucusPlace(m.ch,m.id)+": "+caucusTitle(k)+" has the seat if they get through their own primary.");
   caucusControlCalc(); render();
 }
+/* HELPING THEM IN THEIR OWN PRIMARY. Capital behind an opposition member
+   their leadership may turn on: each ◈ cuts a leadership challenger's odds. */
+function caucusOppHelp(k){ const C=GAME.caucus, r=C&&C.oppHelp&&C.oppHelp[k], m=C&&C.m[k]; return (r&&m&&r.n===m.n)?r:null; }
+function caucusOppHelpOpen(k){ const b=caucusBallotsAhead(k)[0], C=GAME.caucus; return !!(b&&b.up&&b.q>CAUCUS_PRIMARY_LEAD&&!(C.nom&&C.nom[k])); }
+/* If their primary were today: the chance their leadership backs someone,
+   and that someone's odds, as caucusOppPrimaries rolls them. */
+function caucusOppChallenge(m){
+  if(m.L>=OPP_PRIM_AT)return {chance:0, odds:0};
+  return {chance:clamp((OPP_PRIM_AT-m.L)/35+(m.f?0.15:0),0,0.75), odds:clamp(0.35+(OPP_PRIM_AT-m.L)/70+(m.f?0.08:0),0.25,0.75)};
+}
+function caucusBackOppIncumbent(k){
+  const C=GAME.caucus, m=C&&C.m[k]; if(prOn()||!m||m.p!=="opp"||m.ind)return;
+  if(!caucusOppHelpOpen(k)){ GAME.log.push("✗ Their primary is not open"); render(); return; }
+  if(!window.SANDBOX&&GAME.capital<1){ GAME.log.push("✗ Not enough capital to back them"); render(); return; }
+  GAME.capital=clamp(GAME.capital-1,0,100);
+  C.oppHelp=C.oppHelp||{}; let r=caucusOppHelp(k);
+  if(!r){ r=C.oppHelp[k]={n:m.n, spent:0};
+    m.g=clamp((m.g||0)+4,-30,30); caucusNote(m,"_ohelp","You backed them in their own primary",4); m.L=clamp(m.L-2,0,100);
+    caucusStingMine(1,"_ohelp|You spent in the other party's primary",m.ch);
+    GAME.log.push(ico('ballot')+" You are quietly backing "+caucusTitle(k)+" ("+caucusCode(k)+") in the "+oppPartyName()+" primary.");
+  } else { m.g=clamp((m.g||0)+1.5,-30,30); caucusNote(m,"_ohelp","You backed them in their own primary",1.5); }
+  r.spent++;
+  caucusControlCalc(); render();
+}
 /* The member's file: what you can do to pull them from their leadership. */
 function caucusOppToolsHTML(k){
   const C=GAME.caucus, m=C&&C.m[k]; if(!m||m.p!=="opp"||m.ind)return "";
   const chN=m.ch==="senate"?"Senate":"House", L=GAME.legis||{}, cc=caucusCochair(k), st=C.stand&&C.stand[k];
   const b=caucusBallotsAhead(k)[0], up=b&&b.up, when=b?(b.kind==="midterm"?"the midterm":"the general election"):"the next ballot";
   let h=`<div class="cm-sec">Pull them from their leadership</div><div class="cm-prim">`;
+  // a project in their district
+  { const on=caucusProjFor(k), own=on.find(p=>p.k===k), c=caucusProjectCost(k);
+    h+=`<div class="ot-h">District project</div>`;
+    on.forEach(p=>{ const q=p.until-GAME.turn, fk=p.k.startsWith("f:")?p.k.slice(2):null;
+      h+=`<div class="cf-live">${ico('houses')} ${fk?"Faction package running, through the "+caucusFactionName(fk):"Your project in their district is running"} · cooldown ${q} quarter${q===1?"":"s"}</div>`; });
+    if(!own)h+=`<div>Court them with a project in their district ($${c.amt.toFixed(2)}B a year for two years): ${c.boost} less loyal to their leadership while it runs. Every member of yours loses ${CAUCUS_STING_OPP}.</div>
+      <button class="fcard-btn" data-cfund="${k}">Court with a project · $${c.amt.toFixed(2)}B/yr</button>`; }
+  h+=`<div class="ot-h">Committee co-chair</div>`;
   // the gavel
   if(cc)h+=`<div>Co-chairs the <b>${ISSUES[cc.i].name} Committee</b> under your majority: ${COCHAIR_PULL} less loyal to their leadership while they hold it.</div><button class="fcard-btn" data-cuncochair="${k}">Take the gavel back</button>`;
   else if(!caucusMajority(m.ch))h+=`<div class="cm-note">A committee co-chair is the majority's to give: your party would need ${m.ch==="senate"?LEGIS.majS:LEGIS.majH} ${chN} seats (you hold ${m.ch==="senate"?(L.senate||0):(L.house||0)}).</div>`;
   else { const full=caucusCochairs(m.ch).length>=COCHAIR_MAX, i=caucusCochairIssue(m);
     h+=`<div>Offer them a co-chair of the <b>${ISSUES[i].name} Committee</b> (◈${COCHAIR_COST}): ${COCHAIR_PULL} less loyal to their leadership while they hold it. Your ${chN} members each lose 1; ${caucusCochairs(m.ch).length} of ${COCHAIR_MAX} co-chair seats used.</div>
       <button class="fcard-btn" data-ccochair="${k}" ${full||(!window.SANDBOX&&GAME.capital<COCHAIR_COST)?"disabled":""}>${full?"No co-chair seats left":"Offer a co-chair · ◈"+COCHAIR_COST}</button>`; }
-  // standing down
-  if(st)h+=`<div style="margin-top:8px">Your party is <b>standing down</b> here at ${when}: your odds in the seat are 0%. ${STAND_PULL} less loyal to their leadership until then.</div>`;
-  else if(!up)h+=`<div class="cm-note" style="margin-top:8px">Their seat is not on the next ballot, so there is nothing to stand down from yet.</div>`;
-  else h+=`<div style="margin-top:8px">Stand down at ${when} (◈${STAND_COST}): your party fields nobody, so your odds in this seat go to 0% and it is theirs if they win their own primary. ${STAND_PULL} less loyal to their leadership until then. Every member of yours loses 1. Careful: below ${OPP_PRIM_AT} their leadership may back a challenger against them.</div>
+  // standing down, in this one seat
+  h+=`<div class="ot-h">Stand down</div>`;
+  if(st)h+=`<div>Your party is <b>standing down in ${caucusCode(k)} only</b> at ${when}: your odds in this one seat are 0%. ${STAND_PULL} less loyal to their leadership until then.</div>`;
+  else if(!up)h+=`<div class="cm-note">Their seat is not on the next ballot, so there is nothing to stand down from yet.</div>`;
+  else h+=`<div>Stand down in ${caucusCode(k)} only, at ${when} (◈${STAND_COST}): your party fields nobody in this one seat, so your odds of winning ${caucusCode(k)} go to 0% and it is theirs if they win their own primary. Every other seat is contested as usual. ${STAND_PULL} less loyal to their leadership until then. Every member of yours loses 1. Careful: below ${OPP_PRIM_AT} their leadership may back a challenger against them.</div>
       <button class="fcard-btn" data-cstand="${k}" ${!window.SANDBOX&&GAME.capital<STAND_COST?"disabled":""}>Stand down · ◈${STAND_COST}</button>`;
+  // their primary
+  h+=`<div class="ot-h">Their primary</div>`;
+  { const hp=caucusOppHelp(k), co=caucusOppChallenge(m), nom=C.nom&&C.nom[k]&&C.nom[k].p==="opp"&&C.nom[k].old===m.n?C.nom[k]:null;
+    if(nom)h+=`<div>Lost their primary to <b>${nom.n}</b>, their leadership's pick, who takes the seat at the election.</div>`;
+    else if(!caucusOppHelpOpen(k))h+=`<div class="cm-note">${up?"Their primary for "+when+" is decided.":"Their seat is not on the next ballot, so there is no primary to help them in yet."}${hp?" You put ◈"+hp.spent+" behind them.":""}</div>`;
+    else { const cut=hp?caucusPrimaryOdds(hp.spent):0, next=caucusPrimaryOdds((hp?hp.spent:0)+1);
+      h+=`<div>Help them in their own primary (◈1 at a time): if their leadership backs someone against them, each ◈ cuts that challenger's odds. They warm to you, 4 less loyal to their leadership on the first ◈ and 1.5 on each after; your ${chN} members each lose 1 the first time.</div>
+        <div class="cm-note">${co.chance?`If the primary were today: <b>${Math.round(co.chance*100)}%</b> chance their leadership backs a challenger, who would win <b>${Math.round(co.odds*(1-cut)*100)}%</b>${hp?` (${Math.round(co.odds*100)}% without your ◈${hp.spent})`:""}.`:`Loyal enough (${Math.round(m.L)}) that their leadership would leave them alone today; below ${OPP_PRIM_AT} it may not.`}</div>
+        <button class="fcard-btn" data-cohelp="${k}" ${!window.SANDBOX&&GAME.capital<1?"disabled":""}>${hp?"More · ◈1 → cuts the challenger's odds "+Math.round(next*100)+"%":"Back them in their primary · ◈1"}</button>`; } }
   h+=`<div class="cm-note" style="margin-top:8px">Also: pass the laws they break with their party on (their views, below), fund a district project, or appoint from the groups their district is made of.</div></div>`;
   return h;
 }
@@ -21711,7 +21755,7 @@ function renderCaucus(){
     <p>A district project costs $0.05B a year for two years and adds 20 to a member's loyalty; a faction package covers every member of a faction for up to $0.2B a year and adds 14. Neither costs capital, but every other member of your party loses ${CAUCUS_STING_ONE} for a single project and ${CAUCUS_STING_FAC} for a faction package, and courting the other party costs your whole bench ${CAUCUS_STING_OPP}.</p>
     <p>The other party has fights of its own. Now and then its leadership whips its members against their districts on an issue, and members at odds with their party form factions of their own, which carry a quarter less of their party's discipline against you. It happens whatever you do.</p>
     <p>The other party's members are scored on loyalty to their own party, high in a safe seat and lower in a marginal one. Moving their issues their way, district projects in their districts and cross-aisle appointees from their districts' groups wear it down, and a member with little left carries less of their party's discipline against you. Below ${CAUCUS_LIVID} they may cross the floor to your party.</p>
-    <p>Two more tools sit in each opposition member's file. Where your party holds a chamber's majority you can offer up to ${COCHAIR_MAX} of their members a committee co-chair (◈${COCHAIR_COST}, ${COCHAIR_PULL} less loyal to their leadership while they hold it; your members in that chamber each lose 1). And before any ballot their seat is on, primaries included, you can stand down (◈${STAND_COST}): your party fields nobody there, your odds in the seat go to 0%, and they are ${STAND_PULL} less loyal to their leadership until the election; every member of yours loses 1. They still face their own primary, and a member who falls below ${OPP_PRIM_AT} may find their leadership backing someone against them. Every stand-down resets after each election.</p>
+    <p>Two more tools sit in each opposition member's file. Where your party holds a chamber's majority you can offer up to ${COCHAIR_MAX} of their members a committee co-chair (◈${COCHAIR_COST}, ${COCHAIR_PULL} less loyal to their leadership while they hold it; your members in that chamber each lose 1). And before any ballot their seat is on, primaries included, you can stand down (◈${STAND_COST}): your party fields nobody there, your odds in the seat go to 0%, and they are ${STAND_PULL} less loyal to their leadership until the election; every member of yours loses 1. They still face their own primary, and a member who falls below ${OPP_PRIM_AT} may find their leadership backing someone against them. Every stand-down resets after each election, and you can stand down once a cycle in any one seat. Until their primary is decided you can also back them in it, ◈1 at a time: if their leadership runs someone against them, each ◈ cuts that challenger's odds, and they warm to you.</p>
   </div></details>`;
   { const nm=Object.keys(C.m).filter(k=>tabOf(C.m[k])==="mine").length, no=Object.keys(C.m).length-nm, ni=Object.keys(C.m).filter(k=>C.m[k].ind).length;
     { const _cut=h.indexOf("</div>")+6; h=h.slice(0,_cut)+`<div class="ctabs" role="tablist"><button role="tab" aria-selected="${tab==="mine"}" data-ctab="mine" class="${tab==="mine"?"on":""}"><b>${ico('people')} Your Party</b><span>${myPartyPlural()} · ${nm} seats</span></button><button role="tab" aria-selected="${tab==="opp"}" data-ctab="opp" class="${tab==="opp"?"on":""}"><b>${ico('columns')} The Opposition</b><span>${oppPartyPlural()}${ni?" and independents":""} · ${no} seats</span></button></div>`+h.slice(_cut); } }
@@ -21830,7 +21874,7 @@ function renderCaucus(){
   h+=`<div class="croster">`+ks.map(k=>{ const m=C.m[k];
     return `<div class="crow${k===sel?" on":""}" data-cseat="${k}" tabindex="0">
       <span class="cr-code">${caucusCode(k)}</span>
-      <span class="cr-who"><b>${m.n}</b><i>${caucusPlace(m.ch,m.id)} · ${m.ind?"Ind":caucusPartyOf(m)==="D"?"Dem":"Rep"}${(()=>{ const t=caucusTraitsOf(k); return t.length?" · "+t.map(x=>x.label).join(", "):""; })()}${m.f?" · <b class=\"cr-fac\">"+caucusFactionName(m.f)+"</b>":""}${C.prim&&C.prim[k]?" · <b class=\"cr-fac\">primary backed</b>":""}${caucusCochair(k)?" · <b class=\"cr-fac\">co-chair</b>":""}${C.stand&&C.stand[k]?" · <b class=\"cr-fac\">you stood down</b>":""}</i>${caucusRetireNote(k)?`<i class="cr-up cr-ret">${caucusRetireNote(k)}</i>`:""}${k[0]==="s"?`<i class="cr-up">${caucusSenateUp(k)}</i>`:""}</span>
+      <span class="cr-who"><b>${m.n}</b><i>${caucusPlace(m.ch,m.id)} · ${m.ind?"Ind":caucusPartyOf(m)==="D"?"Dem":"Rep"}${(()=>{ const t=caucusTraitsOf(k); return t.length?" · "+t.map(x=>x.label).join(", "):""; })()}${m.f?" · <b class=\"cr-fac\">"+caucusFactionName(m.f)+"</b>":""}${C.prim&&C.prim[k]?" · <b class=\"cr-fac\">primary backed</b>":""}${caucusCochair(k)?" · <b class=\"cr-fac\">co-chair</b>":""}${C.stand&&C.stand[k]?" · <b class=\"cr-fac\">you stood down</b>":""}${caucusOppHelp(k)?" · <b class=\"cr-fac\">you back them</b>":""}</i>${caucusRetireNote(k)?`<i class="cr-up cr-ret">${caucusRetireNote(k)}</i>`:""}${k[0]==="s"?`<i class="cr-up">${caucusSenateUp(k)}</i>`:""}</span>
       <span class="cr-views">${caucusBreakChips(m,2)}</span>
       <span class="cr-loy" style="color:${caucusLoyInk(m)}">${Math.round(m.L)}</span></div>`; }).join("")+`</div>`;
   main.innerHTML=h;
@@ -21843,6 +21887,7 @@ function renderCaucus(){
   main.querySelectorAll("[data-ccochair]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation(); caucusOfferCochair(b.dataset.ccochair); }));
   main.querySelectorAll("[data-cuncochair]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation(); caucusRevokeCochair(b.dataset.cuncochair); }));
   main.querySelectorAll("[data-cstand]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation(); caucusStandDown(b.dataset.cstand); }));
+  main.querySelectorAll("[data-cohelp]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation(); caucusBackOppIncumbent(b.dataset.cohelp); }));
   main.querySelectorAll("[data-ctab]").forEach(b=>b.addEventListener("click",()=>{ window._caucusTab=b.dataset.ctab; window._caucusSel=null; window._caucusFac=null; render(); }));
   main.querySelectorAll("[data-csort]").forEach(b=>b.addEventListener("click",()=>{ window._caucusSort=b.dataset.csort; render(); }));
   main.querySelectorAll("[data-cseat]").forEach(p=>{ p.addEventListener("click",ev=>{ ev.stopPropagation(); pickSeat(p.dataset.cseat); });
@@ -22268,19 +22313,26 @@ function caucusOppPrimaries(){
     const r=caucusRng(k+"|"+m.n+"|oppprim|"+GAME.turn);
     const chance=clamp((OPP_PRIM_AT-m.L)/35+(m.f?0.15:0),0,0.75);
     if(r()>=chance)continue;
-    const odds=clamp(0.35+(OPP_PRIM_AT-m.L)/70+(m.f?0.08:0),0.25,0.75), won=r()<odds;
+    // your money behind them cuts the leadership's odds on the same curve as backing a challenger of your own
+    const help=caucusOppHelp(k), odds0=clamp(0.35+(OPP_PRIM_AT-m.L)/70+(m.f?0.08:0),0.25,0.75);
+    const odds=help?odds0*(1-caucusPrimaryOdds(help.spent)):odds0, won=r()<odds;
     const nm=caucusNewName(), L0=Math.round(m.L), open=m.L<40;
     const base={k, opp:true, old:m.n, n:nm, odds:Math.round(odds*100), place:caucusPlace(m.ch,m.id), title:caucusTitle(k), L0, open, fac:m.f?caucusFactionName(m.f):null};
     if(won){
       C.nom[k]={n:nm, old:m.n, p:"opp"};
-      GAME.log.push(ico('ballot')+" The "+oppPartyPlural()+" purged "+caucusTitle(k)+" ("+caucusCode(k)+"): "+nm+", the leadership's pick, won the primary.");
+      GAME.log.push(ico('ballot')+" The "+oppPartyPlural()+" purged "+caucusTitle(k)+" ("+caucusCode(k)+"): "+nm+", the leadership's pick, won the primary"+(help?", despite your ◈"+help.spent+" behind them":"")+".");
       out.push(Object.assign(base,{won:true}));
     } else {
       m.L=clamp(m.L-8,0,100); caucusNote(m,"_oprim","Beat their own leadership's challenger",-8);
-      GAME.log.push(ico('ballot')+" "+caucusTitle(k)+" ("+caucusCode(k)+") beat the challenger the "+oppPartyPlural()+" sent after them.");
+      GAME.log.push(ico('ballot')+" "+caucusTitle(k)+" ("+caucusCode(k)+") beat the challenger the "+oppPartyPlural()+" sent after them"+(help?", with your ◈"+help.spent+" behind them":"")+".");
       out.push(Object.assign(base,{won:false, L:Math.round(m.L)}));
     }
   }
+  // the help on this ballot is spent, used or not
+  for(const k of Object.keys(C.oppHelp||{})){ const b=caucusBallotsAhead(k)[0]; if(!b||!b.up||b.q!==CAUCUS_PRIMARY_LEAD)continue;
+    const h=caucusOppHelp(k);
+    if(h&&!out.some(o=>o.k===k))GAME.log.push(ico('ballot')+" Their leadership left "+caucusTitle(k)+" ("+caucusCode(k)+") alone in the primary. Your ◈"+h.spent+" went unused, but they noticed.");
+    delete C.oppHelp[k]; }
   return out;
 }
 /* The races of a primary night in one list: yours, then the other party's,
@@ -22477,6 +22529,16 @@ function caucusMemberCard(k){
   if(mine&&!m.f&&m.L<caucusAngryAt())h+=`<div class="cm-flag">Angry, but acting alone rather than with a faction.</div>`;
   if(mine)h+=caucusPrimaryHTML(k); else h+=caucusOppToolsHTML(k);
   h+=lpHTML("m:"+k,m);
+  // a district project, beside the promise: the other thing you can give them
+  if(mine){
+    h+=`<div class="cm-sec">District project</div><div class="cm-prim">`;
+    // their own project, or a package paid through their faction: say which
+    on.forEach(p=>{ const q=p.until-GAME.turn, fk=p.k.startsWith("f:")?p.k.slice(2):null;
+      h+=`<div class="cf-live">${ico('houses')} ${fk?"Faction package running, through the "+caucusFactionName(fk):"District project running"} · cooldown ${q} quarter${q===1?"":"s"}</div>`; });
+    if(!own)h+=`<div>Fund a project in their district ($${c.amt.toFixed(2)}B a year for two years): ${c.boost} more loyal while it runs. Every other member of yours loses ${CAUCUS_STING_ONE}.</div>
+      <button class="fcard-btn" data-cfund="${k}">District project · $${c.amt.toFixed(2)}B/yr</button>`;
+    h+=`</div>`;
+  }
   const tr=caucusTraitsOf(k);
   h+=`<div class="cm-sec">The district</div>`;
   if(tr.length)h+=`<div class="cm-traits">${tr.map(t=>`<span class="ctrait"><b>${t.label}</b>${t.issues.map(i=>ISSUES[i].name.toLowerCase()).join(", ")}</span>`).join("")}</div>`;
@@ -22500,10 +22562,6 @@ function caucusMemberCard(k){
   if(folded)h+=`</details>`;
   h+=`</div><div class="cm-note">★ an issue the district cares about. In red: a view that breaks with the party. Click an issue to see the laws behind it and which way each has moved since you took office.</div>`;
   if(row)h+=caucusApptListsHTML([k],mk.map(x=>x.b),m.p,mine?"they":"they");
-  // their own project, or a package paid through their faction: say which
-  on.forEach(p=>{ const q=p.until-GAME.turn, fk=p.k.startsWith("f:")?p.k.slice(2):null;
-    h+=`<div class="cf-live">${ico('houses')} ${fk?"Faction package running, through the "+caucusFactionName(fk):"District project running"} · cooldown ${q} quarter${q===1?"":"s"}</div>`; });
-  if(!own)h+=`<div><button class="fcard-btn" data-cfund="${k}">${mine?"District project":"Court with a project"} · $${c.amt.toFixed(2)}B/yr</button></div>`;
   return h+`</div>`;
 }
 /* One member's position, and what it would cost to move them.
