@@ -15436,10 +15436,12 @@ function wireCampMap(root){
 
 /* POLITICAL COMPASS — the modelled electorate as a 2,000-dot cloud, with your
    enacted agenda riding on top and optional centre-of-gravity / past-run layers. */
-const EC_TAB_OPTS={legacy:false, centroid:false, members:false};
+const EC_TAB_OPTS={legacy:false, centroid:true, voters:true, members:false};
 try{ EC_TAB_OPTS.members=localStorage.getItem("sc_compassMembers")==="1"; }catch(e){}
 try{ EC_TAB_OPTS.legacy   = localStorage.getItem("sc_compassLegacy")==="1"; }catch(e){}
-try{ EC_TAB_OPTS.centroid = localStorage.getItem("sc_compassCentroid")==="1"; }catch(e){}
+// the voters and their center go together: one switch, on unless turned off
+try{ EC_TAB_OPTS.voters = localStorage.getItem("sc_compassVoters")!=="0"; }catch(e){ EC_TAB_OPTS.voters=true; }
+EC_TAB_OPTS.centroid = EC_TAB_OPTS.voters!==false;
 function renderCompass(){
   const t=GAME.turn;
   const cur=agendaVector();
@@ -15459,7 +15461,7 @@ function renderCompass(){
     <div class="sectionsub">All <b>${VOTERS.length.toLocaleString()}</b> voters in the game, one gray dot each: economic left to right, personal liberty at the bottom and state authority at the top. Each quarter a voter drifts a little toward you if they approve of you, and away if they do not. The mix changes too: a dot darkens as its group grows and fades as it shrinks. <b class="mono" style="color:var(--clay)">YOU</b> is your record, where your own changes count for more than what you inherited. <b class="mono" style="color:var(--gold)">START</b> is where you began. Drag the slider to replay the term up to this quarter.</div>`
     +`<div class="compass-wrap">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-        <button id="ecTogCentroid" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.centroid?'Hide electorate center':'Show electorate center'}</button>
+        <button id="ecTogCentroid" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.voters?'Hide voters &amp; electorate center':'Show voters &amp; electorate center'}</button>
         <button id="ecTogLegacy" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.legacy?'Hide past runs':'Show past runs'}</button>
         <button id="ecTogMembers" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${prOn()?(EC_TAB_OPTS.members?'Hide parties':'Show parties'):(EC_TAB_OPTS.members?'Hide legislators':'Show legislators')}</button>
         <span class="mono" style="font-size:12.5px;color:var(--muted-3)">${legN?legN+' election'+(legN===1?'':'s')+' on record':'no past elections on record yet'}${EC_TAB_OPTS.legacy&&legN?' — green win, red loss; gold-ringed is this run':''}</span>
@@ -15476,7 +15478,7 @@ function renderCompass(){
       <div class="compass-legend">
         <span><i style="background:var(--gold)"></i>Starting mandate</span>
         <span><i style="background:var(--clay)"></i>Your enacted agenda</span>
-        ${EC_TAB_OPTS.centroid?'<span><i style="background:var(--ink)"></i>Electorate center of gravity</span>':''}
+        ${EC_TAB_OPTS.voters?'<span><i style="background:var(--ink);opacity:.35"></i>Voters, one dot each (darker where your coalition has grown)</span><span><i style="background:var(--ink)"></i>Electorate center of gravity</span>':''}
         ${EC_TAB_OPTS.members&&prOn()?`<span><i style="background:var(--moss);border:2px solid var(--ink)"></i>Parties in the Assembly, sized by seats; ringed: your government</span><span><i style="background:var(--moss);border-radius:50%"></i>Each member around their party, fainter as loyalty slips, outlined when angry</span>`:''}
         ${EC_TAB_OPTS.members&&!prOn()?`<span><i style="background:${caucusColor({p:"mine",L:100})}"></i>${myPartyPlural()}, by loyalty to you (larger: senators)</span><span><i style="background:var(--paper);border:1.5px solid ${caucusColor({p:"opp",L:90})}"></i>${oppPartyPlural()}, by loyalty to their party</span><span><i style="background:var(--moss);transform:rotate(45deg);border:1px solid var(--ink)"></i>Each party's center</span>`:''}
       </div>
@@ -15500,8 +15502,9 @@ function renderCompass(){
   const redraw=()=>{ const sl=document.getElementById("ecSlider"); if(sl&&sl._ecDraw)sl._ecDraw(); };
   const tc=document.getElementById("ecTogCentroid");
   if(tc)tc.onclick=()=>{
-    EC_TAB_OPTS.centroid=!EC_TAB_OPTS.centroid;
-    try{ localStorage.setItem("sc_compassCentroid", EC_TAB_OPTS.centroid?"1":"0"); }catch(e){}
+    const on=!EC_TAB_OPTS.voters;
+    EC_TAB_OPTS.voters=on; EC_TAB_OPTS.centroid=on;
+    try{ localStorage.setItem("sc_compassVoters", on?"1":"0"); }catch(e){}
     render();
   };
   const tm=document.getElementById("ecTogMembers");
@@ -17473,6 +17476,7 @@ function electorateCompassSVG(t, opts){
   const o=opts||{};
   const showCentroid = o.centroid!==false;      // default on
   const showLegacy   = !!o.legacy;              // default off
+  const showVoters   = o.voters!==false;        // default on
   const S=300, C=S/2, PAD=24, R=C-PAD;
   const px=v=>+(C+clamp(v,-1,1)*R).toFixed(1);
   const py=v=>+(C-clamp(v,-1,1)*R).toFixed(1);
@@ -17487,7 +17491,7 @@ function electorateCompassSVG(t, opts){
     h+=`<line x1="${C+off}" y1="${C-R}" x2="${C+off}" y2="${C+R}" stroke="${bold?'var(--ink)':'var(--line)'}" stroke-width="${bold?1.1:0.5}" opacity="${bold?0.5:0.7}"/>`;
     h+=`<line x1="${C-R}" y1="${C+off}" x2="${C+R}" y2="${C+off}" stroke="${bold?'var(--ink)':'var(--line)'}" stroke-width="${bold?1.1:0.5}" opacity="${bold?0.5:0.7}"/>`;
   }
-  h+=ecCloudLayer(px,py,wts);
+  if(showVoters)h+=ecCloudLayer(px,py,wts);
   const fsz=7.5;
   h+=`<text x="${C}" y="${C-R-8}" text-anchor="middle" font-size="${fsz}" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.1">STATE AUTHORITY</text>`;
   h+=`<text x="${C}" y="${C+R+14}" text-anchor="middle" font-size="${fsz}" font-family="var(--font-display)" fill="var(--muted-1)" letter-spacing="1.1">PERSONAL LIBERTY</text>`;
