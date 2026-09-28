@@ -21120,12 +21120,15 @@ function renderPRLegislators(main,h){
   { const gs=[...govSet].reduce((a,p)=>a+(counts[p]||0),0);
     { const _cut=h.indexOf("</div>")+6; h=h.slice(0,_cut)+`<div class="ctabs" role="tablist"><button role="tab" aria-selected="${ptab==="gov"}" data-ptab="gov" class="${ptab==="gov"?"on":""}"><b>${ico('people')} Your Government</b><span>${[...govSet].map(prPartyWord).join(" and ")} · ${gs} seats</span></button><button role="tab" aria-selected="${ptab==="opp"}" data-ptab="opp" class="${ptab==="opp"?"on":""}"><b>${ico('columns')} The Opposition</b><span>Everyone outside it · ${PR_SEATS-gs} seats</span></button></div>`+h.slice(_cut); } }
   if(ptab==="opp"){
-    const wo=walkoutOutlook(), oppSeats=Object.keys(counts).filter(p=>ptabOf(p)==="opp").reduce((a,p)=>a+(counts[p]||0),0);
+    // the mirror of yours: their discipline, their seats, their angry, independents
+    const theirs=seated.filter(m=>m.party!=="ind"&&ptabOf(m.party)==="opp");
+    const oAvg=theirs.length?Math.round(theirs.reduce((a,m)=>a+m.L,0)/theirs.length):0, oAngry=theirs.filter(m=>m.L<prAngryAt(m)).length;
+    const oWings=Object.keys(P.facs||{}).filter(fk=>ptabOf(fk.split(":")[0])==="opp").length;
     h+=`<div class="ascore">
-      <div class="as-cell"><div class="as-k">Opposition seats</div><div class="as-v">${oppSeats}<span>/${PR_SEATS}</span></div><div class="as-sub">${tabParties.length} part${tabParties.length===1?"y":"ies"}</div></div>
+      <div class="as-cell"><div class="as-k">Their discipline</div><div class="as-v">${oAvg}</div><div class="as-sub">${tabParties.filter(p=>p!=="ind").length} parties</div></div>
+      <div class="as-cell"><div class="as-k">Their seats</div><div class="as-v">${theirs.length}<span>/${PR_SEATS}</span></div></div>
+      <div class="as-cell"><div class="as-k">At odds with their leadership</div><div class="as-v" style="color:${oAngry?"var(--moss)":"inherit"}">${oAngry}<span> · ${oWings} wing${oWings===1?"":"s"} in revolt</span></div></div>
       <div class="as-cell"><div class="as-k">Independents</div><div class="as-v">${seated.filter(m=>m.party==="ind").length}</div></div>
-      <div class="as-cell"><div class="as-k">Wings in revolt</div><div class="as-v">${Object.keys(P.facs||{}).filter(fk=>ptabOf(fk.split(":")[0])==="opp").length}</div></div>
-      <div class="as-cell"><div class="as-k">Walkout pressure</div><div class="as-v" style="color:${wo?WALK_LEVEL[wo.level][1]:"var(--muted-2)"}">${POLICIES.quorumReform?"Ended":!wo?"Not possible":wo.on?"Walked out":Math.round(walkoutPressure().heat*100)}</div></div>
     </div>`;
   } else
   h+=`<div class="ascore">
@@ -21646,21 +21649,24 @@ function renderCaucus(){
   // the scoreboard
   const mineN={h:0,s:0}, angryN={h:0,s:0}; let angry=0; const at=caucusAngryAt();
   for(const k in C.m){ const m=C.m[k]; if(m.p==="mine"){ mineN[k[0]]++; if(m.L<at){ angry++; angryN[k[0]]++; } } }
-  const live=C.proj.filter(p=>p.until>GAME.turn), spend=caucusProjectSpend();
+  // a project is for your own members, or courting theirs
+  const projMine=p=>{ const k=p.k||""; if(k.startsWith("f:"))return !caucusFactionParts(k.slice(2)).opp; const m=C.m[k]; return !m||m.p==="mine"; };
+  const liveAll=C.proj.filter(p=>p.until>GAME.turn), live=liveAll.filter(p=>tab==="opp"?!projMine(p):projMine(p)), spend=live.reduce((a,p)=>a+p.amt,0);
   const facs=Object.keys(C.facs).sort((a,b)=>caucusFactionParts(a).opp-caucusFactionParts(b).opp), myFacN=facs.filter(f=>!caucusFactionParts(f).opp).length;
   const oppAngry=Object.keys(C.m).filter(k=>C.m[k].p==="opp"&&C.m[k].L<caucusOppOdds(C.m[k])).length;
   const ctlCol=ctl>=60?"var(--moss)":ctl>=45?"var(--gold)":"var(--clay)";
   if(tab==="opp"){
-    const oN={h:0,s:0}, odd={h:0,s:0}; let ind=0;
-    for(const k in C.m){ const m=C.m[k]; if(m.ind){ ind++; continue; } if(m.p!=="opp")continue; oN[k[0]]++; if(m.L<caucusOppOdds(m))odd[k[0]]++; }
-    const oFac=facs.filter(f=>caucusFactionParts(f).opp).length, wo=walkoutOutlook();
-    const wv=POLICIES.quorumReform?"Ended":!wo?"Not possible":wo.on?"Walked out":Math.round(walkoutPressure().heat*100)+"";
-    const wc=wo&&!wo.on&&wo.chance>0?Math.round(wo.chance*100)+"% a quarter":wo&&wo.on?"the floor is shut":POLICIES.quorumReform?"Simple-Majority Quorum is law":!wo?"you hold two-thirds":"no chance yet";
+    const oN={h:0,s:0}, odd={h:0,s:0}; let ind=0, sum=0, cnt=0;
+    for(const k in C.m){ const m=C.m[k]; if(m.ind){ ind++; continue; } if(m.p!=="opp")continue; oN[k[0]]++; sum+=m.L; cnt++; if(m.L<caucusOppOdds(m))odd[k[0]]++; }
+    // their party control: the same measure as yours, their members' average loyalty to their own leadership
+    const oc=cnt?Math.round(sum/cnt):0, ocCol=oc>=60?"var(--moss)":oc>=45?"var(--gold)":"var(--clay)";
+    const oFac=facs.filter(f=>caucusFactionParts(f).opp).length;
     h+=`<div class="ascore">
+      <div class="as-cell wide"><div class="as-k">Their party control</div><div class="as-v" style="color:${ocCol}">${oc}<span> ${caucusControlLabel(oc).toLowerCase()}</span></div>
+        <div class="as-meter"><span class="as-fill" style="left:0;width:${oc}%;background:${ocCol}"></span></div></div>
       <div class="as-cell"><div class="as-k">Their members</div><div class="as-v">${oN.h}<span>/60 House</span></div><div class="as-sub">${oN.s}/30 Senate${ind?" · "+ind+" independent"+(ind===1?"":"s"):""}</div></div>
-      <div class="as-cell"><div class="as-k">At odds with their party</div><div class="as-v" style="color:${oppAngry?"var(--moss)":"inherit"}">${odd.h}<span> House</span></div><div class="as-sub">${odd.s} Senate · open to your bills</div></div>
-      <div class="as-cell"><div class="as-k">Their factions</div><div class="as-v">${oFac||`<span class="as-none">None</span>`}</div><div class="as-sub">each carries less of their party's whip</div></div>
-      <div class="as-cell"><div class="as-k">Walkout pressure</div><div class="as-v" style="color:${wo?WALK_LEVEL[wo.level][1]:"var(--muted-2)"}">${wv}</div><div class="as-sub">${wc}</div></div>
+      <div class="as-cell"><div class="as-k">At odds with their party</div><div class="as-v" style="color:${odd.h?"var(--moss)":"inherit"}">${odd.h}<span> House</span></div><div class="as-sub" style="color:${odd.s?"var(--moss)":"inherit"}">${odd.s} Senate</div><div class="as-sub">${oFac} faction${oFac===1?"":"s"} · open to your bills</div></div>
+      <div class="as-cell"><div class="as-k">District projects</div><div class="as-v">${live.length?"$"+spend.toFixed(2)+"B":`<span class="as-none">None</span>`}</div><div class="as-sub">${live.length?live.length+" courting them, a year":"Courting them costs your bench"}</div></div>
     </div>`;
   } else
   h+=`<div class="ascore">
