@@ -15947,9 +15947,12 @@ function emergingCrises(){
     const gap = w.badHigh ? (w.startAt-cur) : (cur-w.startAt);
     if(gap<=0)continue;                                   // already at trigger level
     const band = Math.max(Math.abs(w.startAt-(w.clearAt??w.startAt)), isBal?1:6);
-    if(gap>band)continue;                                 // not close enough
-    const worsening = w.badHigh ? delta>-0.15 : delta<0.15;
-    if(!worsening)continue;
+    // ONLY WHAT IS REALLY COMING. Within a fifth of the band it is at the
+    // edge and listed whatever it is doing; within half it is listed only if
+    // it moved toward the trigger this quarter.
+    const toward = w.badHigh ? delta : -delta;
+    const edge = gap<=band*0.2, closing = gap<=band*0.5 && toward>(isBal?0.05:0.1);
+    if(!edge&&!closing)continue;
     out.push({sid,name:s.name,nm,cur,threshold:w.startAt,gap,isBal});
   }
   return out.sort((a,b)=>a.gap-b.gap).slice(0,4);
@@ -16114,13 +16117,8 @@ function showQuarterReport(quiet,next){
   const debtLine=(GAME.structuralDebt||0)>0
     ?`<div class="rrow"><span class="rlabel" style="color:var(--clay)">${ico('warning')} Structural Debt</span><span class="rdelta" style="color:var(--clay)">-$${GAME.structuralDebt.toFixed(1)}B</span></div>`
     :'';
-  const budgetBlock=`<div class="rsection">
-    <div class="rsec-h">${ico('dollar')} Budget</div>
-    <div class="rrow"><span class="rlabel">Balance</span><span class="rdelta ${balClass}">${fmtB(b.balance,1,true)}</span></div>
-    <div class="rrow"><span class="rlabel">Reserves (Rainy Day)</span><span class="rval">${fmtB(GAME.rainyDay,1)}</span></div>
-    ${debtLine}
-    <div class="rrow"><span class="rlabel">Capital income</span><span class="rval">◈ ${GAME.capitalPerTurn}/qtr${floorFrozen()?` <span style="color:var(--clay)">(${(GAME.floorFreeze||0)>0?"walkout — no floor for "+GAME.floorFreeze+"q":"Capitol occupied — no floor"})</span>`:''}</span></div>
-    ${(()=>{ const st=legisStanding(), L=GAME.legis||{senate:0,house:0};
+  // the seats belong with the party, not the budget
+  const legisRows=(()=>{ const st=legisStanding(), L=GAME.legis||{senate:0,house:0};
       const capTag=`<span style="color:${st.cap>0?'var(--good)':st.cap<0?'var(--clay)':'var(--muted-2)'}">(${st.cap>=0?'+':''}${st.cap.toFixed(1)} ◈)</span>`;
       // Under PR there is one chamber and the seat count is not the story —
       // what you can move is your government, and only the part of it that
@@ -16131,7 +16129,14 @@ function showQuarterReport(quiet,next){
         return `<div class="rrow"><span class="rlabel">Assembly</span><span class="rval">${live}/${PR_SEATS}${gap} ${capTag}</span></div>`
           +coalitionBriefHTML();
       }
-      return `<div class="rrow"><span class="rlabel">Legislature</span><span class="rval">Senate ${L.senate}/${LEGIS.senate} · House ${L.house}/${LEGIS.house} ${capTag}</span></div>`; })()}</div>`;
+      return `<div class="rrow"><span class="rlabel">Legislature</span><span class="rval">Senate ${L.senate}/${LEGIS.senate} · House ${L.house}/${LEGIS.house} ${capTag}</span></div>`; })();
+  const budgetBlock=`<div class="rsection">
+    <div class="rsec-h">${ico('dollar')} Budget</div>
+    <div class="rrow"><span class="rlabel">Balance</span><span class="rdelta ${balClass}">${fmtB(b.balance,1,true)}</span></div>
+    <div class="rrow"><span class="rlabel">Reserves (Rainy Day)</span><span class="rval">${fmtB(GAME.rainyDay,1)}</span></div>
+    ${debtLine}
+    <div class="rrow"><span class="rlabel">Capital income</span><span class="rval">◈ ${GAME.capitalPerTurn}/qtr${floorFrozen()?` <span style="color:var(--clay)">(${(GAME.floorFreeze||0)>0?"walkout — no floor for "+GAME.floorFreeze+"q":"Capitol occupied — no floor"})</span>`:''}</span></div>
+  </div>`;
   // EMPTY CHAIRS, ON THE PAGE YOU ACTUALLY READ. A vacancy is a standing
   // drag, and one that is easy to forget about when it lives somewhere else.
   const _vac=Object.keys(APPT_POSTS).filter(id=>apptVacant(id));
@@ -16141,24 +16146,25 @@ function showQuarterReport(quiet,next){
         +`<span class="rval" style="color:var(--gold)">vacant ${open}q \u00b7 Deputy ${apptDeputy(id)||"—"} <b class="rvac-go">Fill ▸</b></span></div>`;
     }).join("")
     +`<div class="rforecast">A deputy keeps each of these running and brings nothing to it. An empty chair costs you ${Math.abs(apptVacantCapital()).toFixed(2)} capital a quarter and softens everything that department delivers, for as long as it stays empty. Select one to fill it; the report comes back when you leave the Appointments page.</div></div>`:"";
-  const partyBlock=(prOn()?prReportHTML():caucusReportHTML())+((GAME.lprom||[]).length?`<div class="rsection">${lpListHTML("Promises to legislators").replace(/<button[^>]*data-lpgo[^>]*>[^<]*<\/button>/g,"")}</div>`:"");
+  const partyBlock=(()=>{ const ph=prOn()?prReportHTML():caucusReportHTML();
+      if(!ph)return `<div class="rsection"><div class="rsec-h">${ico('people')} The legislature</div>${legisRows}</div>`;
+      const at=ph.indexOf("</div>", ph.indexOf("rsec-h"))+6;           // straight after the section's heading
+      return ph.slice(0,at)+legisRows+ph.slice(at); })()+((GAME.lprom||[]).length?`<div class="rsection">${lpListHTML("Promises to legislators").replace(/<button[^>]*data-lpgo[^>]*>[^<]*<\/button>/g,"")}</div>`:"");
   const events=(GAME.log||[]).slice(-6).filter(l=>/began|RESOLVED|Midterms|kicker|Kicker|Reserves|Promise|Scandal|boom|Windfall|Federal|Deficit|debt|Austerity/i.test(l));
   const eventBlock=events.length?`<div class="rsection"><div class="rsec-h">${ico('doc')} This Quarter</div>${events.map(e=>`<div class="revent">${e}</div>`).join("")}</div>`:"";
   // WHAT IS COMING, not where the economy is now (the Economic Climate bar
   // already says that): the national undertow, whether Oregon is running hot,
   // and the next time voters have a say
-  const fcLines=[];
+  const fcRow=(l,v,c)=>`<div class="rrow"><span class="rlabel">${l}</span><span class="rval"${c?` style="color:${c}"`:""}>${v}</span></div>`;
+  let fcRows="";
   { const nc=GAME.natCycle||0;
-    fcLines.push(nc>0.15?"The <b>national economy</b> is expanding: a tailwind for Oregon's growth and revenue."
-      :nc<-0.15?"The <b>national economy</b> is contracting: expect it to drag on Oregon's growth and revenue."
-      :"The <b>national economy</b> is flat: neither pushing Oregon up nor pulling it down.");
+    fcRows+=fcRow("National economy", nc>0.15?"Expanding, a tailwind for growth and revenue":nc<-0.15?"Contracting, a drag on growth and revenue":"Flat", nc>0.15?"var(--good)":nc<-0.15?"var(--clay)":"");
     const oh=GAME.overheat||0;
-    if(GAME.activeSituations&&GAME.activeSituations.overheated)fcLines.push("Oregon is <b>overheated</b>: housing and inequality keep worsening until growth cools.");
-    else if(oh>=0.4)fcLines.push("Oregon is <b>running hot</b> ("+Math.round(oh*100)+"%): past 72% the boom starts to get expensive.");
-    const nb=nextBallotInfo();
-    fcLines.push("<b>"+nb.label.charAt(0).toUpperCase()+nb.label.slice(1)+"</b> "+(nb.quartersAway<=0?"is this quarter.":"is in "+nb.quartersAway+" quarter"+(nb.quartersAway===1?"":"s")+"."));
+    if(GAME.activeSituations&&GAME.activeSituations.overheated)fcRows+=fcRow("Overheating","Overheated: housing and inequality worsen until growth cools","var(--clay)");
+    else if(oh>=0.4)fcRows+=fcRow("Overheating","Running hot ("+Math.round(oh*100)+"%), costly past 72%","var(--gold)");
+    const nb=nextBallotInfo(), bl=nb.kind==="midterm"?"The midterm":"Your re-election";
+    fcRows+=fcRow("Next ballot", bl+(nb.quartersAway<=0?", this quarter":", in "+nb.quartersAway+" quarter"+(nb.quartersAway===1?"":"s")));
   }
-  const forecastBlock=`<div class="rsection"><div class="rsec-h">${ico('globe')} Forecast</div>${fcLines.map(t=>`<div class="rforecast">${t}</div>`).join("")}</div>`;
   const cyc=GAME.econCycle;   // Oregon's cycle, for the Term & Climate block's Economic climate row
   const nm=NATIONAL_MOOD.value;
   const nmTxt=nm>4?"Favorable":nm>1?"Mild tailwind":nm<-4?"Hostile":nm<-1?"Mild headwind":"Neutral";
@@ -16170,6 +16176,7 @@ function showQuarterReport(quiet,next){
     <div class="nmbar" style="margin:3px 0 9px"><span class="nmend">−</span><div class="nmtrack"><i style="left:${(nm+10)/20*100}%"></i></div><span class="nmend">+</span></div>
     <div class="rrow"><span class="rlabel">Economic climate</span><span class="rval" style="color:${cyc>0.1?'var(--good)':cyc<-0.1?'var(--clay)':'inherit'}">${ecTxt}</span></div>
     <div class="nmbar" style="margin:3px 0 9px"><span class="nmend">▼</span><div class="nmtrack"><i style="left:${(cyc+1)/2*100}%"></i></div><span class="nmend">▲</span></div>
+    ${fcRows}
     ${(()=>{const t=agendaRightwardShift();
       const w=t>9?"Hard right of your mandate":t>4?"Right of your mandate":t>1.5?"Drifting right":t<-9?"Hard left of your mandate":t<-4?"Left of your mandate":t<-1.5?"Drifting left":"On your mandate";
       const col=t>4?'var(--clay)':t<-4?'var(--slate-blue)':'inherit';
@@ -16181,7 +16188,7 @@ function showQuarterReport(quiet,next){
       const col=m>=60?'var(--clay)':'inherit';
       const dTag=Math.abs(d)<1?"":` <span class="rdelta ${d>0?'bad':'good'}" style="font-size:11.5px">${d>0?'▲':'▼'}${Math.abs(d).toFixed(0)}</span>`;
       return `<div class="rrow"><span class="rlabel">Opposition momentum</span><span class="rval" style="color:${col}">${w} (${m.toFixed(0)})${dTag}</span></div>
-        ${GAME.opposition.barb?`<div class="rforecast" style="font-size:12px;margin-top:3px">${GAME.opposition.barb}</div>`:''}`;})()}</div>`;
+        ${GAME.opposition.barb&&Math.abs(d)>=5?`<div class="rforecast" style="font-size:12px;margin-top:3px">${GAME.opposition.barb}</div>`:''}`;})()}</div>`;
   const emerg=emergingCrises();
   const emergBlock=emerg.length?`<div class="rsection"><div class="rsec-h">${ico('warning')} On the Horizon</div>`
     +emerg.map(e=>{
@@ -16189,10 +16196,10 @@ function showQuarterReport(quiet,next){
       const tv=e.isBal?(fmtB(e.threshold,1)+""):Math.round(e.threshold);
       return `<div class="rrow"><span class="rlabel" style="color:var(--clay)">${e.name}</span><span class="rval" style="font-size:12.5px">${e.nm} <b>${cv}</b> → triggers at <b>${tv}</b></span></div>`;
     }).join("")
-    +`<div class="rforecast" style="font-size:12px;margin-top:4px">Not active yet — but close, and moving the wrong way.</div></div>`:"";
+    +`<div class="rforecast" style="font-size:12px;margin-top:4px">Not active yet, but at the edge or closing in.</div></div>`:"";
   const body=`<div class="rgrid">${rows}</div>
     ${climateBlock}
-    <div class="rcols">${budgetBlock}${forecastBlock}</div>
+    ${budgetBlock}
     ${partyBlock}
     ${apptBlock}
     ${eventBlock}
@@ -16753,16 +16760,17 @@ function _resolveSurplus(fraction, capCost){
     const pit=rv.personalIncome||0, cit=rv.corpActivity||0;
     const corpFrac = (pit+cit)>0 ? clamp(cit/(pit+cit),0,0.35) : 0;
     const corpQ = refundQ*corpFrac, persQ = refundQ-corpQ;
-    if(corpQ>0.0005){
-      GAME.corpKickerToK12=+(corpQ*4).toFixed(3);      // annualized, for the ledger
-      GAME.log.push(ico('cap')+" Corporate kicker — $"+corpQ.toFixed(2)+"B dedicated to K-12 under Measure 85, not refunded");
-    }
+    if(corpQ>0.0005)GAME.corpKickerToK12=+(corpQ*4).toFixed(3);      // annualized, for the ledger
     if(persQ>0.001){
       GAME.pendingKicker=+persQ.toFixed(3);   // what went back, for the budget page
       // and the households that get it spend most of it, over the next year
       GAME.kickerStimulus=+((GAME.kickerStimulus||0)+persQ*4).toFixed(4);
-      GAME.log.push(ico('cash-fly')+" Personal kicker — $"+persQ.toFixed(2)+"B of the surplus refunded to taxpayers"+(teachOnce("fiscalBoard")?FISCAL_POINTER:""));
     }
+    // one line for both halves
+    const parts=[];
+    if(persQ>0.001)parts.push("$"+persQ.toFixed(2)+"B refunded to taxpayers");
+    if(corpQ>0.0005)parts.push("$"+corpQ.toFixed(2)+"B to K-12 under Measure 85");
+    if(parts.length)GAME.log.push(ico('cash-fly')+" Kicker: "+parts.join(", ")+(teachOnce("fiscalBoard")?FISCAL_POINTER:""));
   }
 }
 /* end-of-quarter popup: a surplus cleared the kicker line and you have the
