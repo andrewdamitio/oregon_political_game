@@ -22656,15 +22656,19 @@ function showVoteResult(o){
   const shortBy=[];
   if(!o.res.house.ok)shortBy.push((o.res.house.need-o.res.house.yes)+" in the House");
   if(!o.res.senate.ok)shortBy.push((o.res.senate.need-o.res.senate.yes)+" in the Senate");
-  card.innerHTML=`<div class="sectionhdr">${ico(o.ok?(o.referred?'ballot':'columns'):'ban')} ${o.ok?(o.referred?"Referred to the voters":"Passed"):"Failed on the floor"} — ${o.name}</div>
+  card.innerHTML=`<div class="sectionhdr">${ico(o.ok?(o.referred?'ballot':'columns'):'ban')} ${o.ok?(o.referred?"Referred to the voters, not yet law":"Passed"):"Failed on the floor"} — ${o.name}</div>
     <div class="sectionsub">${o.ok&&o.referred
-      ? "The roll carries, so it goes on "+(o.ballot||"the next ballot")+(o.late?". It was too late for the one before.":".")+" It changes the constitution only if the voters approve it there."
+      ? "The legislature has done its part: it goes on "+(o.ballot||"the next ballot")+(o.late?", since it was too late for the one before":"")+". <b>It changes nothing until the voters approve it there.</b> "+(o.dir==="repeal"?"If they vote it down, the amendment stays in force.":"If they vote it down it returns to New Policies, and you can refer it again.")
       : o.ok
       ? "The clerk reads the roll and it carries."+((o.narrowed!=null&&o.narrowed<1)?" It goes on the books at "+Math.round(o.narrowed*100)+"% of what you asked for.":"")
       : "You were short "+shortBy.join(" and ")+". The whip count was a projection; on the day it did not hold."}</div>
     <div class="rsection" style="margin-top:10px">
       ${row("House", o.res.house, o.w.house.total)}
       ${row("Senate", o.res.senate, o.w.senate.total)}
+      ${o.ok&&o.referred?(()=>{ const pm=pendingMeasure(o.id); if(!pm)return "";
+        const y=Math.round(measureBreakdown(pm).yes*100);
+        return `<div class="rrow"><span class="rlabel">Polling today</span><span class="rval" style="color:${y>=50?'var(--good)':'var(--clay)'}"><b>${y}%</b> yes · needs more than 50%</span></div>
+          <div class="rrow"><span class="rlabel">Campaign for it</span><span class="rval">from Campaign HQ, with campaign energy</span></div>`; })():""}
       ${o.ok?"":(o.pending
         ? `<div class="rrow"><span class="rlabel">The change</span><span class="rval">reverted — no capital spent</span></div>`
         : `<div class="rrow"><span class="rlabel">Capital spent anyway</span><span class="rval" style="color:var(--clay)">◈ ${o.w.cost}</span></div>
@@ -24856,7 +24860,10 @@ function resolveBallot(kind){
     r.decided=GAME.turn;   // Campaign HQ shows it for the quarter after the vote only
     results.push(r);
     GAME.ballot.history.push(r);
-    GAME.log.push((passed?ico('ballot')+" Measure passed: ":ico('ban')+" Measure failed — ")
+    // one you referred: say plainly that a rejected referral never took effect
+    if(!citizen&&!passed&&m.dir==="enact")
+      GAME.log.push(ico('ban')+" Voters rejected "+measureTitle(m)+" ("+Math.round(share*100)+"% yes). It never took effect; it is back in New Policies to refer again.");
+    else GAME.log.push((passed?ico('ballot')+" Measure passed: ":ico('ban')+" Measure failed — ")
       +(citizen?"citizen initiative — ":"")+measureTitle(m)+" ("+Math.round(share*100)+"% yes)");
     // an amendment YOU referred is a mandate event either way. A citizen
     // initiative only touches your standing if you actually took a side on it
@@ -28366,7 +28373,7 @@ function passBill(id, dir, narrowed, cushion){
   const _isReform=!!((dir==="repeal"?POLICIES[id]:CATALOG[id])||{}).reform;
   if(_isReform){
     const _rr=referMeasure(id,dir,true);
-    showVoteResult({ok:true, name:nm, res, w, narrowed, referred:true, ballot:_rr&&_rr.label, late:!!(_rr&&_rr.late)});
+    showVoteResult({ok:true, name:nm, id, dir, res, w, narrowed, referred:true, ballot:_rr&&_rr.label, late:!!(_rr&&_rr.late)});
     render();
     return true;
   }
