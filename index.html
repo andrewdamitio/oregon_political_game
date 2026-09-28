@@ -13722,7 +13722,6 @@ function gfLotterySubtotal(){
   for(const id of ROAD_REVENUE)roads+=rev[id]||0;
   let revenue=0; for(const id in rev)revenue+=rev[id];
   revenue-=federal+roads;
-  if(GAME.pendingKicker>0)revenue-=GAME.pendingKicker;
   // the matching outgoings: the pass-through half of OHP, and the road money
   let spend=0; for(const id in spd)spend+=spd[id];
   spend-=federal+roads;
@@ -13732,10 +13731,9 @@ function budgetBalance(){
   const rev=revenueBySource(), spd=spendingByArea();
   let revenue=Object.values(rev).reduce((a,b)=>a+b,0)+emergencyRevenue();
   const spend=Object.values(spd).reduce((a,b)=>a+b,0);
-  // pending kicker refunds walk out the door this cycle
-  if(GAME.pendingKicker>0)revenue-=GAME.pendingKicker;
-  // so does a surplus the legislature has just voted into a fund. A one-time
-  // transfer comes off the year once, the same way the kicker line above does.
+  // (a kicker refund is paid out of the held surplus itself, not out of the
+  // next quarter's revenue, so it has no line here)
+  // a surplus the legislature has just voted into a fund comes off the year once
   if((GAME.surplusOut||0)>0)revenue-=GAME.surplusOut;
   return {revenue,spend,balance:revenue-spend};
 }
@@ -14400,7 +14398,6 @@ function fiscalCrisisThreshold(){
    redirects it, and reserves/deficits are reconciled. */
 function settleFiscal(){
   const {revenue,spend,balance:annualBal}=budgetBalance();
-  GAME.pendingKicker=0;        // consumed this cycle
   GAME.corpKickerToK12=0;      // and so is the corporate half that went to schools
   // the spending of an earlier refund tails off rather than stopping dead
   GAME.kickerStimulus=+(((GAME.kickerStimulus||0)*KICKER_GDP_DECAY)).toFixed(4);
@@ -16547,6 +16544,7 @@ function showMidterm(m){
 /* A pool the legislature did not spend settles on the old rules a quarter
    later: refunded if the kicker is owed it, split into the reserves if not. */
 function settleSurplusPool(){
+  GAME.pendingKicker=0;                          // last quarter's refund is history
   const p=GAME.surplusPool;
   if(!p)return;
   if(GAME.turn<=(p.opened||0))return;           // it gets its quarter first
@@ -16708,10 +16706,10 @@ function _resolveSurplus(fraction, capCost){
       GAME.log.push(ico('cap')+" Corporate kicker — $"+corpQ.toFixed(2)+"B dedicated to K-12 under Measure 85, not refunded");
     }
     if(persQ>0.001){
-      GAME.pendingKicker=persQ*4;   // annualized — the budget ledger runs in $B/yr
+      GAME.pendingKicker=+persQ.toFixed(3);   // what went back, for the budget page
       // and the households that get it spend most of it, over the next year
       GAME.kickerStimulus=+((GAME.kickerStimulus||0)+persQ*4).toFixed(4);
-      GAME.log.push(ico('cash-fly')+" Personal kicker triggered — $"+persQ.toFixed(2)+"B refunds to taxpayers next quarter"+(teachOnce("fiscalBoard")?FISCAL_POINTER:""));
+      GAME.log.push(ico('cash-fly')+" Personal kicker — $"+persQ.toFixed(2)+"B of the surplus refunded to taxpayers"+(teachOnce("fiscalBoard")?FISCAL_POINTER:""));
     }
   }
 }
@@ -29200,7 +29198,9 @@ function surplusDirectHTML(id){
   let h=hdr;
   h+=`<div class="fnote" style="margin-bottom:8px"><b>${fmtB(pool,2)}</b> is unspent. ${vote
     ? `Under Oregon's kicker, revenue past the 2% line is refunded to taxpayers in full. This surplus cleared the line, so unless the legislature votes otherwise every dollar of it goes back and none of it reaches a fund. A vote is what puts a share of it in one instead.`
-    : `The kicker is repealed, so revenue past the 2% line stays the state's money. Moving it into a fund is an administrative act and needs no vote.`}`;
+    : POLICIES.kickerReform
+      ? `The kicker is repealed, so revenue past the 2% line stays the state's money. Moving it into a fund is an administrative act and needs no vote.`
+      : `This surplus is under the kicker's 2% line, so it stays the state's money. Moving it into a fund is an administrative act and needs no vote. Left alone it settles into the reserves.`}`;
   if(debt>0.01)h+=` Left alone it would pay down the ${fmtB(debt,2)} shortfall first.`;
   h+=`</div>`;
   // A BLOCK, NOT A BARE BUTTON. main>* carries the page's side padding and
@@ -29848,11 +29848,11 @@ function renderBudget(){
         <div class="fnote">Every surplus over the 2% line flows straight to reserves &amp; schools — no refund, no decision.</div></div>`;
     } else {
       h+=`<div class="fcard"><div class="fname">${ico('cash-fly')} Kicker</div><div class="fval" style="color:#8a8270">Active</div>
-        <div class="fnote">A surplus above the 2% line refunds in full to taxpayers. When one clears the line and you hold <b>◈6</b> to spend, you'll be asked at quarter's end whether to move part of it into the emergency reserves first.</div></div>`;
+        <div class="fnote">A quarter that closes with a surplus of at least 2% of spending owes it all back to taxpayers. It is held for one quarter first, and in that quarter a legislative vote can move a share into a fund (from any fund page). What is left is refunded when the quarter ends.</div></div>`;
     }
     if(GAME.pendingKicker>0)
-      h+=`<div class="fcard" style="border-left-color:var(--gold)"><div class="fname">${ico('cash-fly')} Kicker Refund Due</div><div class="fval" style="color:var(--gold)">−$${GAME.pendingKicker.toFixed(2)}B</div>
-        <div class="fnote">Revenue beat forecast by 2%+ — the ENTIRE surplus refunds to taxpayers next quarter. ${POLICIES.kickerReform?'':'Enact Kicker Reform to bank it instead.'}</div></div>`;
+      h+=`<div class="fcard" style="border-left-color:var(--gold)"><div class="fname">${ico('cash-fly')} Kicker Refunded</div><div class="fval" style="color:var(--gold)">$${GAME.pendingKicker.toFixed(2)}B</div>
+        <div class="fnote">Last quarter's surplus cleared the 2% line, so what the legislature did not move went back to taxpayers${(GAME.corpKickerToK12||0)>0.001?", except the corporate share, $"+(GAME.corpKickerToK12/4).toFixed(2)+"B, which goes to K-12 under Measure 85":""}. Households spend most of it over the next year, a small lift to growth. ${POLICIES.kickerReform?'':'Kicker Reform would bank it instead.'}</div></div>`;
     // --- money that arrives from somewhere else, and the endowment ---
     {
       const o=ohpFiscal();
