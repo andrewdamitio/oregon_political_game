@@ -506,7 +506,7 @@
   .cang-l{font-family:var(--font-data);color:var(--clay);font-weight:600;white-space:nowrap}
   .cang-n{font-family:var(--font-data);color:var(--clay);margin-left:4px}
   .cang-more>summary{cursor:pointer;font-size:12.5px;color:var(--muted-2);padding:6px 4px}
-  .cfac.opp{border-left:3px solid #5b3a78}
+  .cfac.opp{border-left:3px solid #8a8680}
   .cf-mems{display:flex;flex-wrap:wrap}
   .cchip{display:inline-block;font-size:11.5px;padding:1px 7px;border:1px solid var(--line);border-radius:10px;background:var(--paper);color:var(--ink);margin:1px 3px 1px 0;white-space:nowrap}
   .cchip.conv{border-style:dashed}
@@ -15426,7 +15426,7 @@ function renderCompass(){
         <span><i style="background:var(--clay)"></i>Your enacted agenda</span>
         ${EC_TAB_OPTS.centroid?'<span><i style="background:var(--ink)"></i>Electorate center of gravity</span>':''}
         ${EC_TAB_OPTS.members&&prOn()?`<span><i style="background:var(--moss);border:2px solid var(--ink)"></i>Parties in the Assembly, sized by seats; ringed: your government</span><span><i style="background:var(--moss);border-radius:50%"></i>Each member around their party, fainter as loyalty slips, outlined when angry</span>`:''}
-        ${EC_TAB_OPTS.members&&!prOn()?`<span><i style="background:#3d6a3f"></i>${myPartyPlural()}, by loyalty to you (larger: senators)</span><span><i style="background:var(--paper);border:1.5px solid #5b3a78"></i>${oppPartyPlural()}, by loyalty to their party</span><span><i style="background:var(--moss);transform:rotate(45deg);border:1px solid var(--ink)"></i>Each party's center</span>`:''}
+        ${EC_TAB_OPTS.members&&!prOn()?`<span><i style="background:${caucusColor({p:"mine",L:100})}"></i>${myPartyPlural()}, by loyalty to you (larger: senators)</span><span><i style="background:var(--paper);border:1.5px solid ${caucusColor({p:"opp",L:90})}"></i>${oppPartyPlural()}, by loyalty to their party</span><span><i style="background:var(--moss);transform:rotate(45deg);border:1px solid var(--ink)"></i>Each party's center</span>`:''}
       </div>
       <div class="compass-read">
         <div class="cr"><div class="cr-h">Economic axis</div>
@@ -20749,11 +20749,16 @@ function caucusOpenChair(postId,groups,side){
 }
 
 /* ---------- the tab ---------- */
+/* PARTY COLOURS. Each party in its own hue, full while loyal and paler as
+   loyalty slips; your own members who turn angry go orange, a colour
+   neither party owns. */
+const CAUCUS_HUE={D:{full:"#2f5d9e", pale:"#b7c6e0"}, R:{full:"#b23a3a", pale:"#e6b8b2"}, angry:"#e0831c", ind:"#8a8680"};
+function caucusHue(mine){ const my=caucusMyLetter(); return CAUCUS_HUE[mine?my:(my==="D"?"R":"D")]; }
 function caucusColor(m){
-  if(m.ind)return "#8a8680";
-  if(m.p==="mine"){ const t=m.L/100;
-    return t<0.5?cmMix(t/0.5,"#a8452f","#c9a24a"):cmMix((t-0.5)/0.5,"#c9a24a","#3d6a3f"); }
-  return cmMix(clamp((88-m.L)/55,0,1),"#5b3a78","#d4ade6");   // plum while loyal to their party, lilac as it slips
+  if(m.ind)return CAUCUS_HUE.ind;
+  if(m.p==="mine"){ const H=caucusHue(true), t=m.L/100;
+    return t<0.5?cmMix(t/0.5,CAUCUS_HUE.angry,H.pale):cmMix((t-0.5)/0.5,H.pale,H.full); }
+  return cmMix(clamp((88-m.L)/55,0,1),caucusHue(false).full,caucusHue(false).pale);   // full while loyal to their party, paler as it slips
 }
 function caucusMeter(L,col){ return `<span class="cf-meter"><i style="width:${Math.round(clamp(L,0,100))}%;background:${col}"></i></span>`; }
 function caucusViewLabel(i,pos){ const I=ISSUES[i]; return I.partisan===false?I.view[1]:(pos<-0.2?I.view[0]:pos>0.2?I.view[1]:"Torn on "+I.name.toLowerCase()); }
@@ -21192,6 +21197,8 @@ function lpHTML(target,m,onlyIssue){
   if(a){ const left=a.due-GAME.turn, moved=(caucusLevel(a.pid)-a.from)*a.want, direct=a.who===target;
     return `<div class="cm-sec">Your promise</div><div class="cm-prim"><div>You promised ${direct?"":"someone else who wants the same "}to <b>${a.word}</b> by ${caucusQ(a.due)}: ${left} quarter${left===1?"":"s"} left${moved>0.02?", and it is moving their way":""}. Keep it and they will remember it; let the deadline pass and they will remember that more.</div></div>`; }
   if(!m)return "";
+  // a promise is something you make to your own bench, not to the other side's
+  if(prOn()?m.party!==prMyParty():m.p!=="mine")return "";
   const opts=lpOptions(m,onlyIssue); if(!opts.length)return "";
   const tr=lpTrust(), fac=target.startsWith("f:")||target.startsWith("pf:"), lift=Math.round((fac?LP_LIFT_FAC:LP_LIFT)*tr);
   return `<div class="cm-sec">Promise legislation</div><div class="cm-prim"><div>Promise to move a law ${fac?"they":"they"} want within ${LP_Q} quarters: +${lift} loyalty now${fac?" each":""}, +${LP_KEPT} if you keep it, ${LP_BROKEN} if you do not.${tr<1?` Your broken promises have cut the lift to ${Math.round(tr*100)}%.`:""}</div>
@@ -21478,7 +21485,7 @@ function renderCaucus(){
     <div class="cch"><button data-cch="house" class="${ch==="house"?"on":""}">House</button><button data-cch="senate" class="${ch==="senate"?"on":""}">Senate</button>${fac?`<button data-cfacoff="1">Show everyone</button>`:""}</div>
     <div class="cmap-row"><div>${legMapFrame(`<svg class="leg-map-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Every member, by loyalty">${svg}${edge}</svg>`)}
       <div class="legmap-read cmap-read" id="cmapRead" data-dflt="${hv("Hover a district or a member to find the other","Tap a district to open its member")}">${hv("Hover a district or a member to find the other","Tap a district to open its member")}</div>
-      <div class="clegend"><span><i style="background:#3d6a3f"></i>Yours, loyal</span><span><i style="background:#c9a24a"></i>Wavering</span><span><i style="background:#a8452f"></i>Angry</span><span><i style="background:#5b3a78"></i>${oppPartyPlural()}, loyal to their party</span><span><i style="background:#d4ade6"></i>${oppPartyPlural()}, wavering</span><span><i style="background:#8a8680"></i>Independent</span></div>${angH}${facH}</div>
+      <div class="clegend"><span><i style="background:${caucusColor({p:"mine",L:100})}"></i>Yours, loyal</span><span><i style="background:${caucusColor({p:"mine",L:50})}"></i>Wavering</span><span><i style="background:${caucusColor({p:"mine",L:0})}"></i>Angry</span><span><i style="background:${caucusColor({p:"opp",L:90})}"></i>${oppPartyPlural()}, loyal to their party</span><span><i style="background:${caucusColor({p:"opp",L:33})}"></i>${oppPartyPlural()}, wavering</span><span><i style="background:${CAUCUS_HUE.ind}"></i>Independent</span></div>${angH}${facH}</div>
       <div id="cmemFile">${sel?caucusMemberCard(sel):""}</div></div>`;
   // the roster
   const ks=Object.keys(C.m).filter(k=>k[0]===tag&&(side==="all"||C.m[k].p===side))
