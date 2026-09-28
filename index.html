@@ -504,6 +504,17 @@
   .cang-row{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--line-faint);font-size:13.5px;cursor:pointer}
   .cang-row:hover,.cang-row:focus{background:var(--paper-2);outline:none}
   .cang-l{font-family:var(--font-data);color:var(--clay);font-weight:600;white-space:nowrap}
+  .wwatch{border:1px solid var(--line);background:var(--paper-2);border-radius:var(--radius);padding:10px 14px;margin:0 0 12px}
+  .ww-h{font-family:var(--font-display);font-size:15px;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+  .ww-odds{font-family:var(--font-data);font-size:12.5px;color:var(--bad)}
+  .ww-t{font-size:13px;color:var(--muted-1);margin-top:6px;line-height:1.45}
+  .ww-fix{font-size:12px;color:var(--muted-3)}
+  .ww-rows{margin-top:8px;display:grid;gap:4px}
+  .ww-r{display:grid;grid-template-columns:minmax(0,1fr) 90px 110px;gap:10px;align-items:center;font-size:12.5px}
+  .ww-r b{font-family:var(--font-data);font-weight:600;text-align:right}
+  .ww-m{display:block;height:6px;background:var(--line-faint);border-radius:3px;overflow:hidden}
+  .ww-m i{display:block;height:100%;background:var(--clay)}
+  @media (max-width:560px){ .ww-r{grid-template-columns:minmax(0,1fr) 60px 90px} }
   .cn-who i.cang-livid{color:var(--bad);font-style:normal;font-weight:600}
   .cang-n{font-family:var(--font-data);color:var(--clay);margin-left:4px}
   .cang-more>summary{cursor:pointer;font-size:12.5px;color:var(--muted-2);padding:6px 4px}
@@ -11164,6 +11175,8 @@ function _sitAge(sid){ return (GAME.situationAge&&GAME.situationAge[sid])||0; }
                   Math.round((ours?(w.provoke||0):0)*100)+"%", ours && (w.provoke||0)>=WALK_PROVOKE_MIN),
                fc("Their voters are the ones losing — how far their blocs have fallen behind everybody else's",
                   Math.round((ours?(w.isolation||0):0)*100)+"%", ours && (w.isolation||0)>0.2),
+               ...(prOn()?[]:[fc("Their legislators have closed ranks against you since you took office",
+                  Math.round((ours?(w.bench||0):0)*100)+"%", ours && (w.bench||0)>0.25)]),
                fc("You are not popular enough to make this suicide — a caucus will not shut the building on a governor the state likes",
                   overallApproval().toFixed(0)+"% approval", (w.nerve||0)>0.55),
                fc("Walkout pressure past "+Math.round(WALK_HEAT_MIN*100)+"% — "+w.label+", and a caucus angry enough to spend half a year on it",
@@ -16158,7 +16171,7 @@ function showQuarterReport(quiet,next){
       if(!ph)return `<div class="rsection"><div class="rsec-h">${ico('people')} The legislature</div>${legisRows}</div>`;
       const at=ph.indexOf("</div>", ph.indexOf("rsec-h"))+6;           // straight after the section's heading
       return ph.slice(0,at)+legisRows+ph.slice(at); })()+((GAME.lprom||[]).length?`<div class="rsection">${lpListHTML("Promises to legislators").replace(/<button[^>]*data-lpgo[^>]*>[^<]*<\/button>/g,"")}</div>`:"");
-  const events=(GAME.log||[]).slice(-6).filter(l=>/began|RESOLVED|Midterms|kicker|Kicker|Reserves|Promise|Scandal|boom|Windfall|Federal|Deficit|debt|Austerity/i.test(l));
+  const events=(GAME.log||[]).slice(-6).filter(l=>/began|RESOLVED|Midterms|kicker|Kicker|Reserves|Promise|Scandal|boom|Windfall|Federal|Deficit|debt|Austerity|Walkout warning/i.test(l));
   const eventBlock=events.length?`<div class="rsection"><div class="rsec-h">${ico('doc')} This Quarter</div>${events.map(e=>`<div class="revent">${e}</div>`).join("")}</div>`:"";
   // WHAT IS COMING, not where the economy is now (the Economic Climate bar
   // already says that): the national undertow, whether Oregon is running hot,
@@ -19319,6 +19332,19 @@ function walkoutBaseline(){
   if(!GAME.walkoutBase)GAME.walkoutBase={left:walkoutRaw("left"), right:walkoutRaw("right")};
   return GAME.walkoutBase;
 }
+/* THEIR BENCH, RALLIED. How far the other party's legislators have closed
+   ranks since you took office: their average loyalty to their own
+   leadership, over what their seats alone would give them, against where it
+   stood at the start. Every bill that cuts against their views raises it. */
+function walkoutBench(){
+  if(prOn()||!GAME.caucus)return 0;
+  let sum=0, n=0;
+  for(const k in GAME.caucus.m){ const m=GAME.caucus.m[k]; if(m.p!=="opp"||m.ind)continue; sum+=m.L-caucusBase(m); n++; }
+  const d=n?sum/n:0;
+  if(GAME.walkBench0==null)GAME.walkBench0=d;
+  return clamp((d-GAME.walkBench0)/12,0,1);
+}
+const WALK_BENCH_W=0.15;
 function walkoutPressure(){
   const side=walkoutSide(), shift=agendaRightwardShift();
   const raw=walkoutRaw(side), base=walkoutBaseline()[side]||{caucus:0,iso:0};
@@ -19329,7 +19355,9 @@ function walkoutPressure(){
   // scores about 0.35 here.
   const provoke=clamp(((side==="right"?-shift:shift)-WALK_PROVOKE_FROM)/9, 0, 1);
   const alone=Math.max(0,raw.iso-base.iso);
-  return {side, heat: caucus*0.38 + provoke*0.44 + alone*0.18,
+  // their legislators count only when it is the other party doing the walking
+  const mineSide=GAME.startId==="conservative"?"right":"left", bench=side===mineSide?0:walkoutBench();
+  return {side, heat: caucus*0.38 + provoke*0.44 + alone*0.18 + bench*WALK_BENCH_W, bench, own:side===mineSide,
           label: side==="right"?"rural alienation":"progressive alienation",
           level: side==="right"?INDICATORS.ruralAlienation.value:50+shift*2.2,
           caucusHeat:caucus, provoke, isolation:alone, nerve:walkoutNerve()};
@@ -19342,7 +19370,7 @@ function walkoutTrigger(side){
   if(POLICIES.quorumReform) return false;                        // amendment ended denial-of-quorum
   if(quorumProof()) return false;                                // nobody left to walk out with
   // too many of them would refuse to leave: the quorum would hold anyway
-  if(!prOn()&&caucusWalkoutBroken()){ if(GAME._walkHeldT!==GAME.turn){ GAME._walkHeldT=GAME.turn; GAME.log.push(ico('columns')+" The "+oppPartyPlural()+" talked about a walkout, but too many of their own members would stay in their seats to deny the quorum."); } return false; }
+  if(!prOn()&&side!==(GAME.startId==="conservative"?"right":"left")&&caucusWalkoutBroken()){ if(GAME._walkHeldT!==GAME.turn){ GAME._walkHeldT=GAME.turn; GAME.log.push(ico('columns')+" The "+oppPartyPlural()+" talked about a walkout, but too many of their own members would stay in their seats to deny the quorum."); } return false; }
   if(walkoutOn()) return false;                                  // one caucus is already gone
   if(GAME.turn < (GAME.walkoutIgnoredUntil||0)) return false;    // you already chose to ignore this round
   if(GAME.turn < (GAME.walkoutCooldownUntil||0)) return false;   // not twice in one session
@@ -21406,6 +21434,68 @@ function caucusWalkoutBroken(){
   const L=GAME.legis||{}, r=caucusWalkoutRefusers();
   return (L.house||0)+r.house.length>=LEGIS.quorumH && (L.senate||0)+r.senate.length>=LEGIS.quorumS;
 }
+/* WALKOUT WATCH. Where a walkout stands, read off walkoutTrigger's own
+   gates so it never says one thing while the roll does another. Null when a
+   walkout cannot happen at all. */
+function walkoutOutlook(){
+  if(prOn()||!GAME.caucus)return null;
+  if(POLICIES.quorumReform||quorumProof())return null;
+  const w=walkoutPressure(), L=GAME.legis||{}, r=caucusWalkoutRefusers();
+  const needH=Math.max(0,LEGIS.quorumH-(L.house||0)), needS=Math.max(0,LEGIS.quorumS-(L.senate||0));
+  const held=!w.own&&r.house.length>=needH&&r.senate.length>=needS;
+  const on=walkoutOn(), cool=GAME.turn<(GAME.walkoutCooldownUntil||0), ignored=GAME.turn<(GAME.walkoutIgnoredUntil||0), early=GAME.turn<4;
+  const gated=cool||ignored||early||held||w.provoke<WALK_PROVOKE_MIN||w.heat<WALK_HEAT_MIN;
+  const chance=on||gated?0:clamp((w.heat-WALK_HEAT_MIN)*WALK_RATE*walkoutNerve(),0,WALK_MAX);
+  const level=on?"out":chance>=0.2?"high":chance>0?"risk":(w.heat>=WALK_HEAT_MIN*0.6&&!held)?"watch":"calm";
+  return {w, r, needH, needS, held, on, cool, ignored, early, chance, level,
+          who:w.own?"your own party":"the "+oppPartyPlural()};
+}
+const WALK_LEVEL={calm:["Calm","var(--good)"], watch:["Grumbling","var(--gold)"], risk:["Talk of a walkout","var(--clay)"], high:["Buses idling","var(--bad)"], out:["Walked out","var(--bad)"]};
+function walkoutWatchHTML(){
+  const o=walkoutOutlook(); if(!o)return "";
+  const w=o.w, [word,col]=WALK_LEVEL[o.level], pct=v=>Math.round(clamp(v,0,1)*100)+"%";
+  let h=`<div class="wwatch"><div class="ww-h">${ico('columns')} Walkout watch <b style="color:${col}">${word}</b>${o.chance>0?` <span class="ww-odds">${Math.round(o.chance*100)}% chance they walk this quarter</span>`:""}</div>`;
+  if(o.on){
+    const q=Math.max(0,GAME.floorFreeze||0);
+    h+=`<div class="ww-t">${o.who.charAt(0).toUpperCase()+o.who.slice(1)} have left the state${q>0?`, and nothing reaches a floor for ${q} more quarter${q===1?"":"s"}`:", and are due back this quarter"}. Their price comes to you as a decision each quarter; meet it and they come home, or wait them out.</div></div>`;
+    return h;
+  }
+  const why=o.early?"Too early in your term for anyone to walk out over your record."
+    :o.cool?"They walked out recently and will not try again before "+caucusQ(GAME.walkoutCooldownUntil)+"."
+    :o.ignored?"They backed down this round, until "+caucusQ(GAME.walkoutIgnoredUntil)+"."
+    :o.held?"Too many of their members would stay in their seats, so a walkout cannot deny the quorum."
+    :w.provoke<WALK_PROVOKE_MIN?"Nothing on the books yet for them to walk out over: your agenda has not pushed far enough past what you inherited."
+    :w.heat<WALK_HEAT_MIN?"Not angry enough yet to spend half a year out of the building."
+    :"A walkout is possible every quarter now. The angrier they are and the less popular you are, the likelier.";
+  h+=`<div class="ww-t">${w.own?"<b>Your own party</b> would do the walking: your agenda has moved far from your mandate. ":""}${why}</div>`;
+  const row=(l,v,t)=>`<div class="ww-r"><span>${l}</span><i class="ww-m"><i style="width:${pct(v)}"></i></i><b>${t||pct(v)}</b></div>`;
+  h+=`<div class="ww-rows">`
+    +row("Your agenda past what you inherited", w.provoke)
+    +row("Their voters' anger since you took office", w.caucusHeat)
+    +(w.own?"":row("Their legislators rallied against you", w.bench))
+    +row("Their voters left behind", w.isolation)
+    +`<div class="ww-r"><span>Your approval</span><i></i><b>${overallApproval().toFixed(0)}%, ${w.nerve>1.1?"emboldens them":w.nerve<0.9?"deters them":"neither"}</b></div>`
+    +`</div>`;
+  if(!w.own){ const L=GAME.legis||{};
+    h+=`<div class="ww-t">${o.r.house.length} House and ${o.r.senate.length} Senate ${oppPartyPlural()} at odds with their leadership would stay. Holding quorum takes ${o.needH} House and ${o.needS} Senate members of theirs. ${o.held?"<b>It would hold.</b>":"Not enough to hold it."}</div>`; }
+  h+=`<div class="ww-t ww-fix">Walkouts end for good with the Simple-Majority Quorum amendment, or with two-thirds of both chambers.</div></div>`;
+  return h;
+}
+/* In an opposition member's file: would they go? */
+function walkoutMemberLine(k){
+  const o=walkoutOutlook(), m=GAME.caucus&&GAME.caucus.m[k]; if(!o||!m||m.p!=="opp"||m.ind||o.w.own)return "";
+  const stays=(o.r[m.ch]||[]).includes(k);
+  if(o.on)return `<div class="cm-flag" style="color:var(--muted-1)">${stays?"Stayed in their seat when their party walked out.":"Walked out with their party."}</div>`;
+  return `<div class="cm-flag" style="color:${stays?"var(--moss)":"var(--muted-1)"}">In a walkout: ${stays?"would stay in their seat, at odds with their leadership.":"would leave with their party."}</div>`;
+}
+/* The warning: when the risk rises a level, say so once. */
+function walkoutWarn(){
+  const o=walkoutOutlook(), rank={calm:0,watch:1,risk:2,high:3,out:4};
+  const lv=o?o.level:"calm", was=GAME.walkWarn||"calm";
+  if(o&&rank[lv]>rank[was]&&(lv==="risk"||lv==="high"))
+    GAME.log.push(ico('columns')+" Walkout warning: "+o.who+" "+(lv==="high"?"are close to walking out":"are talking about a walkout")+", "+Math.round(o.chance*100)+"% a quarter. See Legislators.");
+  GAME.walkWarn=lv;
+}
 function caucusWalkoutLine(){
   if(prOn()||!GAME.caucus)return "";
   const L=GAME.legis||{}; if((L.house||0)>=LEGIS.quorumH&&(L.senate||0)>=LEGIS.quorumS)return "";
@@ -21487,7 +21577,7 @@ function renderCaucus(){
     facH+=`</div>`;
   }
   h+=lpListHTML();
-  h+=caucusWalkoutLine();
+  h+=walkoutWatchHTML();
   // the livid are flagged in the angry list under the map
   // the map, the file, the roster
   const rows=ch==="senate"?OR_SENATE_DISTRICTS:OR_HOUSE_DISTRICTS;
@@ -22153,6 +22243,7 @@ function caucusMemberCard(k){
   h+=caucusVotesHTML(m,mine);
   if(m.f)h+=`<div class="cm-flag">In the <b>${caucusFactionName(m.f)}</b>: angry enough to vote against you as a bloc.</div>`;
   if(m.switched!=null)h+=`<div class="cm-flag">${m.joined?"Crossed the floor to your party.":"Crossed the floor from your party."}</div>`;
+  h+=walkoutMemberLine(k);
   if(!mine&&m.L<CAUCUS_LIVID&&m.switched==null)h+=`<div class="cm-flag" style="color:var(--moss)">Livid with their own party: could cross the floor to yours.</div>`;
   if(mine&&m.L<CAUCUS_LIVID)h+=`<div class="cm-flag">Livid: could cross the floor.</div>`;
   if(mine&&!m.f&&m.L<caucusAngryAt())h+=`<div class="cm-flag">Angry, but acting alone rather than with a faction.</div>`;
@@ -24103,6 +24194,8 @@ function doEndTurn(){
       if(created.length)GAME.pendingBallotNotice={measures:created, nb, kind:"qualified"};
     }
   }
+  // last, so the quarter's own news cannot push it out of the report
+  walkoutWarn();
   if(GAME.log.length>8)GAME.log=GAME.log.slice(-8);
   render();
   // THE QUARTERLY BRIEFING: everything the quarter produced, on one screen.
