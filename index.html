@@ -4847,7 +4847,7 @@ const SECTION_OF={
   education:"pubservices", digitization:"pubservices", eduOutcomes:"pubservices",
   violentCrime:"laworder", propertyCrime:"laworder", incarcerationRate:"laworder", drugUse:"laworder", psychBeds:"laworder",
   homelessness:"welfare", housingAffordability:"welfare",
-  health:"health", behavioralHealth:"health", obesity:"health", alcoholUse:"health",
+  health:"health", obesity:"health", alcoholUse:"health",   // behavioralHealth the statistic: SECTION_OF_STAT
   environment:"environment", gasPrice:"environment", transitShare:"environment", loggingRate:"environment", tourism:"environment", evAdoption:"environment",
   downtown:"welfare", taxGrievance:"taxes", ruralAlienation:"environment", pensionBurden:"taxes", localAutonomy:"pubservices", mandate:"taxes", adminOverhead:"pubservices",
   govOps:"pubservices",
@@ -4877,11 +4877,11 @@ const SECTION_OF={
   wildlifeManagement:"environment", predatorControl:"environment", parkAccess:"environment",
   // health & liberties
   abortion:"health", medicaidWork:"health", psilocybin:"health", deathWithDignity:"health", vaccineMandate:"health",
-  oha:"health", universalMealsHealth:"health", sexEd:"pubservices", lgbtRights:"health",
+  oha:"health", sexEd:"pubservices", lgbtRights:"health",
   // new economy/education/health policies
   evIncentives:"environment", charterSchools:"pubservices", readingCurriculum:"pubservices", academicTracking:"pubservices",
   alcoholTax:"health", liquorControl:"economy", craftBevPromotion:"economy", smallBizSupport:"economy", agMinWageExempt:"economy",
-  deflectionProgram:"welfare", housingPackage:"welfare", dataCenterEnergy:"economy", transmissionSiting:"environment", infraBank:"economy",
+  deflectionProgram:"welfare", dataCenterEnergy:"economy", transmissionSiting:"environment", infraBank:"economy",
   drugPossession:"laworder", sanctuaryRepeal:"laworder", parentalRights:"pubservices", policeShield:"laworder", spendingCap:"taxes",
   occupationalLicensing:"economy", civilServiceReform:"pubservices", certificateOfNeedRepeal:"health", prevailingWageRepeal:"economy",
   localPreemption:"economy", truthInSentencing:"laworder", electionAdmin:"pubservices", assetForfeiture:"laworder",
@@ -4890,7 +4890,10 @@ const SECTION_OF={
   propRep:"pubservices", cabinetGovernment:"pubservices", termLimitRepeal:"pubservices",
   ohpCoverage:"health",
 };
-function sectionFor(id){
+/* A statistic that shares its id with a programme: the statistic's section. */
+const SECTION_OF_STAT={behavioralHealth:"health"};
+function sectionFor(id,kind){
+  if(kind==="stat"&&SECTION_OF_STAT[id])return SECTION_OF_STAT[id];
   if(SECTION_OF[id])return SECTION_OF[id];
   // fallback by domain
   const o=POLICIES[id]||CATALOG[id]||AGENCIES[id];
@@ -5393,11 +5396,6 @@ const POLICIES={
   cannabis:{name:"Marijuana Legality (Measure 91)", domain:"economy", icon:"cannabis", enacted:true, mechanic:"tier", noRepeal:true,
     desc:"How legal marijuana is. Oregon legalized recreational marijuana in 2014 with Measure 91. Choose the access tier: full prohibition, home cultivation only, medical dispensaries, or full recreational retail. Higher tiers generate tax revenue and shrink the illicit market but raise public-health and youth-access concerns.",
     tiers:["Prohibited","Home Growing Only","Medical Dispensaries","Recreational Dispensaries"],
-    // the ladder has a direction and it was not written down: prohibition is
-    // the authoritarian end, retail the liberal one, and a tier move cannot
-    // be aimed without this
-    tierIdeology:[{social:0.70,govSize:0.30},{social:0.25,govSize:0.10},
-                  {social:-0.10},{social:-0.45,economic:0.10}],
     tierIndex:3, capital:6,
     costByTier:[0, 0, 0, 0],
     tierEffects:[
@@ -12094,6 +12092,8 @@ function psychCommitmentTerms(){
 const _CRIME_FLOOR_GIVEBACK={};
 function metricTarget(k, noRecovery){
   const m=METRICS[k];
+  if(!m)return 0;
+  if(m.selfManaged)return m.value;   // a stock with its own rule (GDP): no equilibrium to aim at
   let t=m.eq;
   for(const id in POLICIES)t+=policyEffect(POLICIES[id],k);
   for(const id in GAME.fading)t+=policyEffect(GAME.fading[id].pol,k);
@@ -26805,7 +26805,7 @@ function renderBoard(){
     const good=s.ind?indLevelGood(key,m.value):(m.invert?(m.value<m.baseline+3):(m.value>m.baseline-3));
     nodes[nid]={icon:m.icon||"chart-up", label:m.name, kind:"stat",
       stroke:good?'var(--moss)':'var(--warn)',
-      val:s.ind?Math.round(m.value):fmtMetric(m), sec:sectionFor(key)};
+      val:s.ind?Math.round(m.value):fmtMetric(m), sec:sectionFor(key,"stat")};
   }
   // active crises/situations as nodes too (so the board shows the full system,
   // making the separate Issue Web redundant)
@@ -26814,7 +26814,7 @@ function renderBoard(){
     // route a situation to the section of the first metric it touches
     let sec="welfare";
     const firstMetric=st.metricEffect&&Object.keys(st.metricEffect)[0];
-    if(firstMetric)sec=sectionFor(firstMetric)||"welfare";
+    if(firstMetric)sec=sectionFor(firstMetric,"stat")||"welfare";
     nodes["s_"+sid]={icon:st.kind==="good"?"sparkle":"warning", label:st.name, kind:"situation",
       stroke:st.kind==="good"?'var(--good)':'var(--bad)', val:"", sec};
   }
