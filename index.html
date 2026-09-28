@@ -674,6 +674,13 @@
   .ctrait b{color:var(--ink);font-weight:600;margin-right:6px}
   .cmem{background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;font-size:13.5px;display:flex;flex-direction:column;gap:6px}
   .cm-h{font-family:var(--font-display);font-size:17px}
+  .attain-sum{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px}
+  .attain-sum th{text-align:left;font-weight:600;font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted-2);padding:4px 6px;border-bottom:1px solid var(--line)}
+  .attain-sum td{padding:6px;border-bottom:1px solid var(--line-faint);vertical-align:top}
+  .attain-sum td i{color:var(--muted-2);font-style:normal;font-size:12px}
+  .attain-sum td:last-child,.attain-sum th:last-child{text-align:right;font-family:var(--font-data)}
+  .attain-sum tr[data-detail]:hover td{background:var(--paper-2)}
+  .attain-sum .attain-tot td{border-bottom:0;font-weight:600}
   .cv-line>summary{cursor:pointer;font-size:12.5px;color:var(--muted-2);padding:6px 2px;list-style:none}
   .cv-line>summary span{color:var(--ink)}
   .cv-line>summary::before{content:"▸ ";color:var(--muted-3)}
@@ -3346,7 +3353,7 @@ const METRICS={
     realNote:"How far students in Oregon's public schools get — ~64% HS+some college index. Vouchers, a hollowing-out roll and lax attendance enforcement all pull on it. What the economy actually runs on is Statewide Attainment, which counts the private and home-schooled sector too."},
   attainAll:{name:"Statewide Attainment", icon:"cap", value:64, baseline:64, eq:55, min:0,max:100,
     inertia:0.15, fmt:"pct",
-    realNote:"Every Oregon young person, wherever they are schooled: the public system weighted by its enrollment share, plus the private and home-schooled sector at its own higher level. This is the number the workforce and the economy read."},
+    realNote:"How well every Oregon child is educated, wherever they go to school. It is an average: public-school children at the Education score, and private and home-schooled children a little higher, each weighted by how many children are in them. This is the number the workforce and the economy read."},
   violentCrime:{name:"Violent Crime", icon:"siren", value:38, baseline:38, eq:37, min:0,max:100,
     inertia:0.18, invert:true, realNote:"Assaults, robberies — drives fear and headlines"},
   propertyCrime:{name:"Property Crime", icon:"lock-open", value:64, baseline:64, eq:68, min:0,max:100,
@@ -12288,7 +12295,7 @@ function metricContributors(k){
     const share=clamp(METRICS.publicEnrollment.value/100,0,1);
     const pub=METRICS.education.value, priv=pub+PRIVATE_ATTAIN_PREMIUM;
     out.push({name:ico('cap')+" Public schools — "+Math.round(share*100)+"% of children, reaching "+pub.toFixed(0), v:share*(pub-m.eq), link:"m_education"});
-    out.push({name:ico('house')+" Private &amp; home school — "+Math.round((1-share)*100)+"% of children, reaching "+priv.toFixed(0), v:(1-share)*(priv-m.eq), link:"m_publicEnrollment"});
+    out.push({name:ico('house')+" Private &amp; home school — "+Math.round((1-share)*100)+"% of children (everyone not in Public Enrollment), reaching "+priv.toFixed(0), v:(1-share)*(priv-m.eq), link:"m_publicEnrollment"});
   }
   if(k==="gamblingRate"&&GAME.sportsBook){
     const bk=GAME.sportsBook;
@@ -27365,7 +27372,7 @@ function renderDetail(){
   if(key.startsWith("m_")){
     const k=key.slice(2), m=METRICS[k];
     h+=`<div class="sectionhdr">${m.name}</div><div class="sectionsub">${m.realNote||''}</div>`;
-    h+=`<div class="detailrow"><span class="pill dom">State statistic</span><span class="pill">Measured condition — moved by policy, agencies, crises, and other statistics</span></div>`;
+    h+=`<div class="detailrow"><span class="pill dom">State statistic</span><span class="pill">${k==="attainAll"?"An average of two other statistics: Education and Public Enrollment":"Measured condition — moved by policy, agencies, crises, and other statistics"}</span></div>`;
     h+=`<div class="detailval">${fmtMetric(m)} ${trendArrow(k)}</div>`;
     if(k==="gdp"){
       const gi=Math.round(effective("gdp"));
@@ -27379,11 +27386,24 @@ function renderDetail(){
         <span class="pill" data-detail="m_gdp" style="cursor:pointer">← driven by the GDP Growth Rate</span></div>
         <div class="sectionsub" style="margin-top:2px">Oregon's total economic output (gross state product). It is a <b>stock</b>, not a rate: each quarter it grows by a quarter of the annual growth rate, so good years build a permanently larger economy and a recession leaves a lasting dent. It widens the <b>tax base</b> (income, corporate and sales revenue scale with it), raises <b>Disposable Income</b>, and sets the <b>Structural Deficit Crisis</b> line, now <b>−$${thr.toFixed(2)}B</b> (about 0.26% of GDP).</div>`;
     }
+    if(k==="attainAll"){
+      // THE SUM ITSELF. Two groups of children, each at its own level,
+      // weighted by how many are in it; nothing else feeds this number.
+      const share=clamp(METRICS.publicEnrollment.value/100,0,1), pub=METRICS.education.value, priv=pub+PRIVATE_ATTAIN_PREMIUM, cal=m.calib||0;
+      const r=(a,b,c,d,link)=>`<tr${link?` data-detail="${link}" style="cursor:pointer"`:""}><td>${a}</td><td>${b}</td><td>${c}</td><td><b>${d}</b></td></tr>`;
+      h+=`<div class="ebgroup-label">How it is worked out</div>
+        <table class="attain-sum"><thead><tr><th>Children in</th><th>Reach</th><th>Share of children</th><th>Adds</th></tr></thead><tbody>
+        ${r(ico('cap')+" Public schools <i>→ Education</i>", pub.toFixed(0)+" <i>(the Education score)</i>", Math.round(share*100)+"%", (share*pub).toFixed(1), "m_education")}
+        ${r(ico('house')+" Private &amp; home school <i>→ Public Enrollment</i>", priv.toFixed(0)+" <i>(Education + "+PRIVATE_ATTAIN_PREMIUM+")</i>", Math.round((1-share)*100)+"% <i>(everyone not in Public Enrollment's "+Math.round(share*100)+"%)</i>", ((1-share)*priv).toFixed(1), "m_publicEnrollment")}
+        ${Math.abs(cal)>=0.5?r("<i>Calibration to Oregon's real starting figure</i>","","",(cal>=0?"+":"")+cal.toFixed(1)):""}
+        <tr class="attain-tot"><td colspan="3">Statewide Attainment is heading to</td><td><b>${(share*pub+(1-share)*priv+cal).toFixed(1)}</b></td></tr></tbody></table>
+        <div class="sectionsub" style="margin-top:6px">Two things move it. <b>Raise Education</b>, and both rows rise with it. <b>Move children out of public schools</b> (lower Public Enrollment), and each one moved counts ${PRIVATE_ATTAIN_PREMIUM} points higher. That premium is mostly selection: the families able to leave were always going to do better. So attainment can rise while the public schools get worse. Click a row for what drives it.</div>`;
+    }
     h+=`<div class="chartbox"><div class="charttitle">Value over time</div>
       ${sparkline(GAME.history["m_"+k],{axis:true, marks:policyMarksFor(k), color:m.invert?'var(--clay)':'var(--moss)',fmt:v=>m.fmt==="pctRaw"?v.toFixed(1)+"%":Math.round(v)})}
       <div class="chartnote">Dashed lines mark when policies affecting this statistic were enacted.</div></div>`;
     // ---- contributors: everything shaping this metric's target ----
-    const cons=(k==="gspLevel")?[]:metricContributors(k);
+    const cons=(k==="gspLevel"||k==="attainAll")?[]:metricContributors(k);   // both have their own account above
     if(cons.length){
       const better=v=>m.invert?v<0:v>0;
       const real=cons.filter(c=>!c.base);
@@ -30432,6 +30452,12 @@ function buildWebEdges(){
   }
   // the GDP Growth Rate compounds into the GDP (total-output) stock each quarter
   if(METRICS.gspLevel)E.push({a:"m_gdp",b:"m_gspLevel",good:METRICS.gdp.value>=0,w:1.3});
+  // Statewide Attainment is the Education score averaged with the private
+  // sector's, weighted by Public Enrollment: those are its only two feeds
+  if(METRICS.attainAll){
+    E.push({a:"m_education",b:"m_attainAll",good:METRICS.education.value>=METRICS.education.baseline,w:1.4});
+    E.push({a:"m_publicEnrollment",b:"m_attainAll",good:true,w:Math.max(0.4,(1-METRICS.publicEnrollment.value/100)*PRIVATE_ATTAIN_PREMIUM/2)});
+  }
   for(const sid in GAME.activeSituations){
     const st=SITUATIONS[sid]; if(!st)continue;
     // what the crisis pushes on (outgoing)
