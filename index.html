@@ -19738,6 +19738,13 @@ const CAUCUS_HD_PLACE=["South Coast","Roseburg","Grants Pass","Rogue River","Ash
   "Damascus","Hood River","Sisters","Bend","La Pine","Klamath Falls","Hermiston","Pendleton","Madras","Ontario"];
 // the House seats in Clackamas County, where tolling I-205 was fought
 const CAUCUS_CLACKAMAS_HD=new Set([18,26,37,38,39,40,41,48,51,52]);
+// the House seats where irrigation is the economy: the Willamette Valley's farm
+// belt, Hood River's orchards, the Central Oregon irrigation districts, the
+// Klamath Basin, and the Columbia Basin and Treasure Valley in the east
+const CAUCUS_AG_HD=new Set([11,17,18,22,23,24,52,53,55,56,57,58,59,60]);
+function caucusAg(ch,id){
+  return ch==="house"?CAUCUS_AG_HD.has(id):(CAUCUS_AG_HD.has(2*id-1)||CAUCUS_AG_HD.has(2*id));
+}
 function caucusPlace(ch,id){
   if(ch==="house")return CAUCUS_HD_PLACE[id-1]||("District "+id);
   const a=CAUCUS_HD_PLACE[2*id-2], b=CAUCUS_HD_PLACE[2*id-1];
@@ -19793,6 +19800,9 @@ const ISSUES={
   nonprofits:{name:"Nonprofits", partisan:false, pols:[["homelessServices",1],["behavioralHealth",1],["affordableHousing",1],["outcomeContracting",-1]],
     view:["","Close to the service nonprofits"], fac:["Nonprofit Caucus","Nonprofit Caucus"], want:["","The contracts left alone"]},
   // the public-sector unions: members they elected want public workers left alone
+  // irrigators and the resource industries: members from farm and timber country want water law left where it is
+  water:{name:"Water", partisan:false, pols:[["waterRights",-1]],
+    view:["","Close to irrigators and resource industries"], fac:["Water Users Caucus","Water Users Caucus"], want:["","Water rights left alone"]},
   pubunions:{name:"Public workers", partisan:false, pols:[["collectiveBargaining",1],["persReform",-1],["rightToWork",-1],["civilServiceReform",-1],["adminSimplification",-1],["spendingCap",-1],["schoolChoice",-1],["charterSchools",-1],["prevailingWageRepeal",-1]],
     view:["","Close to the public-sector unions"], fac:["Public Employees Caucus","Public Employees Caucus"], want:["","Public workers left alone"]},
 };
@@ -19885,6 +19895,7 @@ function caucusDistrictTraits(ch,id,comp,lean){
         rent=comp[CB_REN]>=0.4;
   if(rur)t.push({id:"rural", label:"Rural", issues:["guns","climate","transit","rural"]});
   if(tim)t.push({id:"timber", label:"Timber country", issues:["forests","climate","rural"]});
+  if(caucusAg(ch,id)&&lean<75)t.push({id:"ag", label:"Farm country", issues:["water"]});
   if(sub)t.push({id:"suburb", label:mod?"Swing suburb":"Suburban", issues:mod?["housing","crime"]:["housing"]});
   if(sub&&mod&&rich)t.push({id:"wealthy", label:"Well-off", issues:["taxes"]});
   if(clack)t.push({id:"clack", label:"I-205 commuters", issues:["tolls"]});
@@ -19927,11 +19938,13 @@ function caucusDistrictPull(ch,id,comp,lean){
   set("tolls", has("clack")?1:0);
   set("nonprofits", has("npc")?1:0);
   set("pubunions", has("pu")?1:0);
+  // farm country holds it hardest; timber country holds it too, less intensely
+  set("water", has("ag")?1:(tim?0.6:0));
   return o;
 }
 function caucusTraitsOf(k){ const row=caucusRow(k), m=GAME.caucus&&GAME.caucus.m[k]; return (row&&m)?caucusDistrictTraits(m.ch,m.id,row[1],row[3]!=null?row[3]:50):[]; }
 // views are rebuilt when the way they are derived changes
-const CAUCUS_VIEWS_V=5;
+const CAUCUS_VIEWS_V=6;
 /* A member's views: the party line, pulled toward the district where the
    district cares, pulled hard where the seat leans the other way, and one
    personal conviction for about a quarter of them. */
