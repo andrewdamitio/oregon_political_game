@@ -9051,7 +9051,7 @@ const DILEMMAS={
     icon:"columns",
     text:()=>{
       const left=(GAME.walkoutSide==="left");
-      const q=floorFrozen();
+      const q=Math.max(0,GAME.floorFreeze||0);   // the walkout's own clock
       // THE ALTERNATIVE HAS TO BE ON THE PAGE. The whole decision is whether
       // a price is worth less to you than a shut floor, and the player could
       // not weigh that while only one side of it was written down.
@@ -9474,7 +9474,7 @@ function proposalCosts(c){
   if(had!=null)GAME.apptDiscount[c.ppolicy]=had;
   const ok=!!(w&&w.possible&&(window.SANDBOX||GAME.capital>=w.cost)&&!floorFrozen());
   return {disc:w?w.cost:0, full:full?full.cost:0, odds:w?Math.round((w.odds||0)*100):0, ok,
-    why:floorFrozen()?"There is no quorum while the walkout lasts.":(!w||!w.possible)?"The votes are not there at any price.":"You cannot afford the whip: ◈ "+w.cost+"."};
+    why:floorFrozen()?floorShutWhy().charAt(0).toUpperCase()+floorShutWhy().slice(1)+".":(!w||!w.possible)?"The votes are not there at any price.":"You cannot afford the whip: ◈ "+w.cost+"."};
 }
 function maybeFireProposal(){
   if(GAME.pendingProposal)return;
@@ -9520,7 +9520,7 @@ function resolveProposal(accept,after){
     if(!w||!w.possible||(!window.SANDBOX&&GAME.capital<w.cost)||floorFrozen()){
       delete GAME.apptDiscount[c.ppolicy];
       GAME.log.push(ico('doc')+" "+c.pname+"'s "+pol.name+" could not be brought to a vote: "
-        +(floorFrozen()?"there is no quorum":(!w||!w.possible)?"the votes are not there at any price":"you cannot afford the whip"));
+        +(floorFrozen()?floorShutWhy():(!w||!w.possible)?"the votes are not there at any price":"you cannot afford the whip"));
       render(); done(); return;
     }
     GAME.log.push(ico('doc')+" "+c.pname+" brought you "+pol.name+"; it goes to the floor now at ◈ "+w.cost);
@@ -10707,7 +10707,7 @@ const SITUATIONS={
     groupMood:{parents:-6, suburban:-3, collegeEducated:-3, moderate:-2}},
   laborUprising:{name:"The Capitol Is Occupied", kind:"bad", category:"condition",
     desc:"You took on organized labor directly, and organized labor came to the building. Teachers, nurses, corrections officers and state workers fill the Capitol rotunda and do not leave; sick-outs close schools for days, the marble floors fill with sleeping bags, and SEIU 503 and the Oregon Education Association run the public spaces as a standing rally. Wisconsin saw the same in 2011 over Act 10.\n\nOccupations are exhausting, and a governor who waits one out usually outlasts it. The unions have said what would end it sooner: put back what started it.",
-    rules:"Costs capital and disrupts public services every quarter it runs.",
+    rules:"Costs capital and disrupts public services every quarter it runs, and shuts the floor: nothing new passes until the Capitol is cleared, except repealing right-to-work or restoring public-sector bargaining.",
     trigger:()=>{
       if(GAME.turn<=2)return false;
       const fired=GAME.laborFired=GAME.laborFired||{};
@@ -16173,7 +16173,7 @@ function showQuarterReport(quiet,next){
     <div class="rrow"><span class="rlabel">Balance</span><span class="rdelta ${balClass}">${fmtB(b.balance,1,true)}</span></div>
     <div class="rrow"><span class="rlabel">Reserves (Rainy Day)</span><span class="rval">${fmtB(GAME.rainyDay,1)}</span></div>
     ${debtLine}
-    <div class="rrow"><span class="rlabel">Capital income</span><span class="rval">◈ ${GAME.capitalPerTurn}/qtr${floorFrozen()?` <span style="color:var(--clay)">(walkout — no floor for ${floorFrozen()}q)</span>`:''}</span></div>
+    <div class="rrow"><span class="rlabel">Capital income</span><span class="rval">◈ ${GAME.capitalPerTurn}/qtr${floorFrozen()?` <span style="color:var(--clay)">(${(GAME.floorFreeze||0)>0?"walkout — no floor for "+GAME.floorFreeze+"q":"Capitol occupied — no floor"})</span>`:''}</span></div>
     ${(()=>{ const st=legisStanding(), L=GAME.legis||{senate:0,house:0};
       const capTag=`<span style="color:${st.cap>0?'var(--good)':st.cap<0?'var(--clay)':'var(--muted-2)'}">(${st.cap>=0?'+':''}${st.cap.toFixed(1)} ◈)</span>`;
       // Under PR there is one chamber and the seat count is not the story —
@@ -19417,7 +19417,26 @@ function endWalkout(){
   if(id)endSituation(id);
 }
 /* Is the chamber shut? Returns quarters remaining, 0 if the floor is open. */
-function floorFrozen(){ return Math.max(0, GAME.floorFreeze||0); }
+/* THE FLOOR IS SHUT by a walkout (no quorum) or by an occupation of the
+   Capitol (nobody can sit while the building is full). Quarters left: the
+   walkout's clock, or at least this one while the occupation lasts. */
+function capitolOccupied(){ return !!(GAME.activeSituations&&GAME.activeSituations.laborUprising); }
+function floorFrozen(){ return Math.max(0, GAME.floorFreeze||0, capitolOccupied()?1:0); }
+/* Shut for THIS change? A walkout shuts everything; an occupation shuts
+   everything except giving the occupiers what they came for. */
+function floorShutFor(key,dir){
+  if((GAME.floorFreeze||0)>0)return true;
+  if(!capitolOccupied())return false;
+  if(key==="p_rightToWork"&&dir==="repeal")return false;
+  if(key==="p_collectiveBargaining")return false;   // restoring bargaining is a dial move up
+  return true;
+}
+/* Why, in words: for the log and the shut screen. */
+function floorShutWhy(){
+  if((GAME.floorFreeze||0)>0)return "there is no quorum while the walkout lasts ("+GAME.floorFreeze+"q left)";
+  if(capitolOccupied())return "the Capitol is occupied, and nothing passes until the building is cleared";
+  return "";
+}
 /* Can the walkout be denied you? Under districts, by holding two-thirds of
    both chambers: a minority that small has nobody left to walk out with.
    Under proportional representation the question is the same one but asked of
@@ -22488,6 +22507,12 @@ function showFloorShut(name){
   if(!card||!modal)return;
   const q=floorFrozen();
   const left=(GAME.walkoutSide==="left");
+  if(!(GAME.floorFreeze>0)&&capitolOccupied()){
+    const age=(GAME.situationAge&&GAME.situationAge.laborUprising)||0, left4=Math.max(1,4-age);
+    card.innerHTML=`<div class="sectionhdr">${ico('ban')} The Capitol is occupied — ${name}</div>
+      <div class="sectionsub">Teachers, nurses, corrections officers and state workers fill the rotunda, and neither chamber can sit while they do. Nothing new passes until the building is cleared: the occupation ends when you give them what they came for (repeal right-to-work, or restore public-sector bargaining, which can still reach the floor), or when it runs out of people, at most <b>${left4} more quarter${left4===1?"":"s"}</b>.</div>
+      <button class="enactbtn" id="floorShutOk">Continue ▸</button>`;
+  } else
   card.innerHTML=`<div class="sectionhdr">${ico('ban')} No quorum — ${name}</div>
     <div class="sectionsub">The ${left?"Democratic":"Republican"} caucus is out of state and Article IV §12 puts the quorum at two-thirds, so the chamber cannot convene at all. Nothing reaches a floor for <b>${q} more quarter${q===1?"":"s"}</b> — not this, not anything, at any price. Meet their demand in the walkout dilemma to end it early, or wait them out.</div>
     <button class="enactbtn" id="floorShutOk">Continue ▸</button>`;
@@ -22832,7 +22857,7 @@ function drawSurplusFloor(){
 function showFloor(id, dir){
   const pol=(dir==="repeal")?POLICIES[id]:CATALOG[id];
   if(!pol)return;
-  if(floorFrozen()){ showFloorShut(pol.name); return; }
+  if(floorShutFor("p_"+id,dir)){ showFloorShut(pol.name); return; }
   GAME.pendingFloor={id, dir, narrowed:1, cushion:0};
   drawFloor();
 }
@@ -28120,7 +28145,7 @@ function enactPolicy(id){
    favours owed to the members who were whipped, and applies the narrowing the
    concessions bought. */
 function passBill(id, dir, narrowed, cushion){
-  if(floorFrozen())return false;                  // there is no quorum to call
+  if(floorShutFor("p_"+id,dir))return false;      // there is no floor to call
   const w=whipCount(id,dir,narrowed,cushion);
   if(!w)return false;
   if(!window.SANDBOX && (!w.possible||GAME.capital<w.cost))return false;
@@ -28789,10 +28814,10 @@ function maybeOpenFloor(){
   if(GAME.pendingFloorChange)return;              // already in the room
   const nf=pendingNeedsFloor();
   if(!nf)return;
-  if(floorFrozen()){                              // the chamber is empty: put it back
+  if(floorShutFor(nf.key)){                       // the chamber is empty: put it back
     restoreFrom(nf.key, nf.origSnap);
     GAME.pending={key:nf.key, snap:snapshotFor(nf.key)};
-    GAME.log.push(ico('ban')+" No quorum — "+nameFor(nf.key)+" cannot be changed while the walkout runs ("+floorFrozen()+"q left)");
+    GAME.log.push(ico('ban')+" The floor is shut — "+nameFor(nf.key)+" cannot be changed: "+floorShutWhy());
     render();
     return;
   }
@@ -28979,9 +29004,9 @@ function settlePending(auto){
     const now=snapshotFor(pend.key);
     if(now!==null&&now!==pend.snap){
       const w=pendingWhip(pend.key,pend.snap,now,0);
-      if(w&&floorFrozen()){                       // the chamber is empty: put it back
+      if(w&&floorShutFor(pend.key)){               // the chamber is empty: put it back
         restoreFrom(pend.key,pend.snap);
-        GAME.log.push(ico('ban')+" No quorum — "+nameFor(pend.key)+" reverted; the walkout has "+floorFrozen()+"q to run");
+        GAME.log.push(ico('ban')+" The floor is shut — "+nameFor(pend.key)+" reverted: "+floorShutWhy());
         syncCannabisTab();
         return;
       }
