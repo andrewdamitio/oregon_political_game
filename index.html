@@ -4246,13 +4246,15 @@ const PRIVATE_ATTAIN_PREMIUM=14;
    quarter-to-quarter market term. Equity returns are a bet on the broad
    economy far more than on the froth, so the cycle carries the weight. */
 const FUND_CYCLE_W=1.1;
-/* AND WHERE THE MIDDLE OF THE CYCLE ACTUALLY SITS. Measured across eight
-   twelve-year runs, econCycle averages -0.042 rather than zero, so a
-   portfolio betting on the raw index carries a permanent headwind: for the
-   aggressive posture that is 0.74%/yr of drag, more than the whole premium
-   it is paid. Betting on the cycle should mean betting on it being better
-   or worse than usual, so the bet is centred on usual. */
-const ECON_TREND=-0.042;
+/* AND WHERE THE MIDDLE OF THE CYCLE ACTUALLY SITS. The funds are invested
+   in national markets, so they ride the NATIONAL cycle and the stock market
+   that follows it. Over a million simulated quarters the national cycle
+   averages +0.033, not zero (the recovery after a recession pushes harder
+   than the recession pulls), and the market it drives settles at +0.0275.
+   A portfolio betting on the raw figures would carry a permanent tailwind,
+   about 1%/yr for the aggressive posture, so each bet is centred on usual:
+   it pays when the economy is better than usual, not for existing. */
+const NAT_TREND=0.033, MARKET_TREND=NAT_TREND*0.15/0.18;
 /* alpha is the excess return a posture earns on a timer, regardless of the
    economy; beta is how hard the cycle lands on it. An equity portfolio is
    almost all beta: the premium is payment for bearing the swing, and it
@@ -4271,7 +4273,7 @@ function persRisk(){ return PERS_RISK[GAME.persRisk] || PERS_RISK.balanced; }
    used to each recompute it and the panels had dropped the cycle term. */
 function persExcessQ(){
   const r=persRisk();
-  return r.alpha/4 + GAME.marketLevel*r.beta + (GAME.econCycle-ECON_TREND)*r.beta*FUND_CYCLE_W;
+  return r.alpha/4 + (GAME.marketLevel-MARKET_TREND)*r.beta + ((GAME.natCycle||0)-NAT_TREND)*r.beta*FUND_CYCLE_W;
 }
 /* The Common School Fund is run by the same Oregon Investment Council, and
    it is mostly financial assets — the trust land is a small, shrinking slice.
@@ -4294,7 +4296,7 @@ function csfRisk(){ return CSF_RISK[GAME.csfRisk] || CSF_RISK.balanced; }
 function csfReturnQ(sold){
   const c=csfRisk();
   const soldBonus = sold ? 0.010 : 0;
-  return (c.ret+soldBonus)/4 + GAME.marketLevel*c.beta + (GAME.econCycle-ECON_TREND)*c.beta*FUND_CYCLE_W;
+  return (c.ret+soldBonus)/4 + (GAME.marketLevel-MARKET_TREND)*c.beta + ((GAME.natCycle||0)-NAT_TREND)*c.beta*FUND_CYCLE_W;
 }
 /* Article XV §4(4)(d): this share of net lottery proceeds is constitutionally
    dedicated to the Education Stability Fund. REVENUE.lottery models the
@@ -10339,7 +10341,11 @@ const SITUATIONS={
     // Smoke is a real health cost, but it is a per-quarter push divided by
     // health's 0.15 inertia: -6 was -40 on the target, the largest single
     // driver of the health collapse. Now -3, the same as a heat dome.
-    metricEffect:{environment:-11,health:-3,gdp:-0.55,loggingRate:-6}, moodAxes:{environment:-0.2}, moodMag:0.5, minTurns:2,
+    // The growth hit was -0.55, which the 0.25 inertia makes -2.2 points of
+    // growth while it burns: over half a national recession. The 2020 fires
+    // were a catastrophe where they burned and a rounding error in statewide
+    // output. Now -0.6 points, near a drought's.
+    metricEffect:{environment:-11,health:-3,gdp:-0.15,loggingRate:-6}, moodAxes:{environment:-0.2}, moodMag:0.5, minTurns:2,
     onTrigger:{capital:-2, metrics:{environment:-12},
       grudges:[{target:"m_environment", value:-3, decay:0.9, label:"Burn scars — forests & watersheds regrowing"}],
       countyMood:{spec:COUNTY_GROUPS.fireCountry, value:-5, decay:0.9, label:"Fire-country counties — evacuations & smoke"}}, mandateShock:-1.5,
@@ -12506,8 +12512,7 @@ function startSituation(sid){
     const o=GAME.overheat;
     // about half what it once was: a hot boom should carry a risk, not be a
     // thing a governor learns to avoid
-    GAME.econCycle=clamp(GAME.econCycle-o*0.18,-1,1);
-    GAME.marketLevel=clamp(GAME.marketLevel-o*0.28,-1.2,1.2);   // the froth pops
+    GAME.econCycle=clamp(GAME.econCycle-o*0.18,-1,1);   // (Oregon's boom going bust; the national market is not Oregon's)
     if(METRICS.gdp)METRICS.gdp.value=clamp(METRICS.gdp.value-o*0.8,METRICS.gdp.min,METRICS.gdp.max);
     GAME.mandateShock=(GAME.mandateShock||0)-Math.round(o*1.2);
     GAME.log.push(ico('chart-down')+" The downturn is amplified by the preceding boom — the correction runs deeper than usual");
@@ -13609,9 +13614,9 @@ function tickEconomy(){
   GAME.econCycle = clamp(GAME.econCycle*0.88 + (Math.random()-0.5)*0.18 - pull + natPull, -1, 1);
   // Oregon may run above the nation only as far as its own fundamentals justify
   GAME.econCycle = clamp(GAME.econCycle, GAME.natCycle-0.55, GAME.natCycle+divergence);
-  // an overheated market runs frothier (wider swings), setting up a bigger drop
-  const froth=1+(GAME.overheat||0)*0.45;
-  GAME.marketLevel = clamp(GAME.marketLevel*0.82 + GAME.econCycle*0.15 + (Math.random()-0.5)*0.34*froth, -1.2, 1.2);
+  // THE STOCK MARKET IS NATIONAL: it follows the national cycle, with its
+  // own noise, and an Oregon boom does not make Wall Street frothier
+  GAME.marketLevel = clamp(GAME.marketLevel*0.82 + (GAME.natCycle||0)*0.15 + (Math.random()-0.5)*0.34, -1.2, 1.2);
   // GDP metric tracks the cycle so the rest of the sim feels it
   if(METRICS.gdp){
     METRICS.gdp.eq = 1.3 + GAME.econCycle*0.55;
