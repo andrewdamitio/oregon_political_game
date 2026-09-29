@@ -5438,7 +5438,10 @@ const POLICIES={
     desc:"Oregon taxes estates over $1 million — the lowest exemption threshold in the nation (with Massachusetts), 10–16% graduated, no spousal portability. $422.8M in FY2025 (~2.8% of GF). Measure 84 (2012) tried full repeal and lost 54–46. Critics point to wealthy-retiree out-migration; defenders note only ~5% of estates pay anything.",
     value:0.625, revenueFull:0.67, capital:8, repealCost:12,
     real:{min:0,max:16,unit:"% top rate",decimals:0,label:"top rate"},
-    effects:{gdp:-0.1,inequality:-2,taxBurden:3}, ideology:{economic:-0.5,govSize:-0.4}},
+    effects:{gdp:-0.1,inequality:-2,taxBurden:3}, ideology:{economic:-0.5,govSize:-0.4},
+    // how each group would vote on it at the ballot: the estates it reaches belong
+    // to the wealthy, and pass through houses and retirement savings
+    ballotLean:{wealthy:-8, homeowners:-2, retirees:-2, businessClass:-2, socialist:5, liberal:3, poor:2}},
   measure11:{name:"Measure 11 Mandatory Minimums", domain:"social", icon:"scales", enacted:true, mechanic:"tier", phaseIn:8,
     desc:"1994's 'One Strike You're Out' (passed 65.6%): mandatory 70–300 month sentences for ~16 violent/sex offenses, no parole, juveniles 15+ tried as adults. Drove ~41% of Oregon's prison-population growth; Black youth are indicted at ~8.6× their population share. Amending it requires a two-thirds legislative vote — reform attempts have repeatedly died.",
     tiers:["Repealed","Narrowed","Mandatory Minimums","Expanded Minimums"],
@@ -25035,8 +25038,11 @@ function measureSpending(m){
   const base=measureBreakdown(Object.assign({},m,{_money:true, _raw:true, stance:null, energy:0, blocPull:{}, countyPull:{}, swing:0}));
   let tot=0; const by=[];
   for(const g in MEASURE_MONEY){ const B=base.blocs&&base.blocs[g]; if(!B||!SIMULANTS[g])continue;
-    // keen: how much more the group favours it than the electorate does; 15 points more is all in
-    const keen=clamp((B.yes-base.yes)/0.15,0,1); if(keen<=0)continue;
+    // keen: how much more the group favours it than the electorate does (15
+    // points more is all in), or how strongly it backs it outright (80% is all
+    // in), whichever is more: a group already near the top of a popular
+    // measure cannot sit 15 points above it, and still spends
+    const keen=clamp(Math.max((B.yes-base.yes)/0.15,(B.yes-0.5)/0.3),0,1); if(keen<=0)continue;
     const v=MEASURE_MONEY[g]*keen*MEASURE_MONEY_PER; tot+=v; by.push([g,v]); }
   const sh=Math.min(MEASURE_MONEY_MAX,tot), f=tot>0?sh/tot:0;
   by.sort((a,b)=>b[1]-a[1]);
