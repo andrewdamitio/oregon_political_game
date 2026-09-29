@@ -4435,7 +4435,7 @@ const EXEC_ORDERS={
     legalBase:0.01},
   eoDroughtEmergency:{area:"environment", name:"County Drought Emergency", icon:"water", capital:2, phaseIn:1, emergency:4,
     reach:"The drought statutes let the governor declare one on a county's request and let the Water Resources Department bend its own rules for the duration.",
-    desc:"Declare a drought emergency in the dry counties. Water users can swap, lease and temporarily transfer rights, and emergency wells get permits fast. Farms and towns get through the year; more water comes out of the ground and the rivers than would have.",
+    desc:"Declare a drought emergency in the dry counties. Water users can swap, lease and temporarily transfer rights, and emergency wells get permits fast. Farms and towns get through the year; more water comes out of the ground and the rivers than would have.\n\nIt does not end a drought, but while one is under way it halves the drought's damage to the economy and the harvest and takes about two-thirds of the anger out of rural, timber and irrigated-east voters. The environment takes a quarter more damage.",
     effects:{environment:-0.3},
     indicatorEffects:{ruralAlienation:-2},
     savings:-0.02,
@@ -10528,7 +10528,7 @@ const SITUATIONS={
     moodMag:2, moodAxes:{environment:-0.1},
     groupMood:{rural:-8, timber:-4, businessClass:-4, conservative:-3, moderate:-2, liberal:-2, urban:-1}},
   droughtWater:{name:"Drought & Water Crisis", kind:"bad", category:"event", cooldown:5,
-    desc:"A severe drought pits farms, fish, and cities against each other over water.",
+    desc:"A severe drought pits farms, fish, and cities against each other over water. It passes when the weather turns. A County Drought Emergency order blunts it while it lasts: half the economic damage and most of the rural anger, at some cost to rivers and aquifers.",
     metricEffect:{environment:-2,gdp:-0.2,loggingRate:-5}, moodAxes:{environment:-0.2}, moodMag:1, minTurns:3,
     onTrigger:{countyMood:{spec:COUNTY_GROUPS.irrigatedEast, value:-5, decay:0.9, label:"Irrigated east — water shutoffs"}},
     groupMood:{rural:-7,timber:-6,liberal:-2}},
@@ -11878,6 +11878,9 @@ function rollSecureRuralSchools(){
   const keep=0.85, restore=0.60;
   const now=was ? (Math.random()<keep) : (Math.random()<restore);
   GAME.srsActive=now;
+  // for the quarterly report: every year it is not renewed, and the year it comes back
+  const st=countyBackfillState();
+  if(!now||!was)GAME.srsNews={turn:GAME.turn, now, was, before:clamp(st+(was?SRS_SHARE:0),0,1), after:clamp(st+(now?SRS_SHARE:0),0,1)};
   if(now===was){ GAME.srsYears=(GAME.srsYears||0)+1; return; }
   GAME.srsYears=0;
   // no popup — it shows on the Fiscal Machinery board, and the Timber
@@ -12142,7 +12145,7 @@ function metricTarget(k, noRecovery){
   for(const sid in GAME.activeSituations){
     const s=SITUATIONS[sid];
     if(s&&s.metricEffect&&s.metricEffect[k]!==undefined)
-      t+=effExpr(s.metricEffect[k],sitSeverity(sid),"s:"+sid+":"+k)/m.inertia*sitMitigation(sid);
+      t+=effExpr(s.metricEffect[k],sitSeverity(sid),"s:"+sid+":"+k)/m.inertia*sitMitigation(sid,k);
   }
   // indicator feedback — relative to each indicator's CALIBRATED starting level,
   // so only movement away from the inherited status quo propagates. (Measuring
@@ -12348,7 +12351,7 @@ function metricContributors(k){
   for(const sid in GAME.activeSituations){
     const s=SITUATIONS[sid];
     if(s&&s.metricEffect&&s.metricEffect[k]!==undefined){
-      const e=effExpr(s.metricEffect[k],sitSeverity(sid),"s:"+sid+":"+k)/m.inertia*sitMitigation(sid);
+      const e=effExpr(s.metricEffect[k],sitSeverity(sid),"s:"+sid+":"+k)/m.inertia*sitMitigation(sid,k);
       if(Math.abs(e)>0.05)out.push({name:(s.kind==="good"?ico('sparkle')+" ":ico('warning')+" ")+s.name, v:e, link:"s_"+sid});
     }
   }
@@ -12466,7 +12469,14 @@ function durationOk(sid){
    policy that blunts it: a fully funded Preparedness Act takes a fifth off,
    less as it is funded less, and nothing if it was never passed. */
 const CASCADIA_PREP_MITIGATION=0.2;
-function sitMitigation(sid){
+/* A drought under a County Drought Emergency: swaps, leases and emergency
+   wells keep farms and towns going, at the rivers' and aquifers' expense. */
+const DROUGHT_EO_MIT=0.5, DROUGHT_EO_MOOD=0.35, DROUGHT_EO_ENV=1.25;
+function droughtEoOn(sid){ return sid==="droughtWater"&&typeof eoLive==="function"&&eoLive("eoDroughtEmergency"); }
+/* How much of a crisis's anger among voters lands. */
+function sitMoodMult(sid){ return droughtEoOn(sid)?DROUGHT_EO_MOOD:1; }
+function sitMitigation(sid,k){
+  if(droughtEoOn(sid))return k==="environment"?DROUGHT_EO_ENV:DROUGHT_EO_MIT;
   // fire crews: a funded Department of Forestry softens a fire season, a gutted one lets it run
   if(sid==="wildfireSeason"){ const f=(AGENCIES.forestry&&AGENCIES.forestry.funding)??0.5; return clamp(1-(f-0.5)*0.4,0.8,1.2); }
   if(sid!=="cascadiaQuake")return 1;
@@ -13306,7 +13316,7 @@ function approvalTarget(sid, raw){
       const mMag=s.moodMag||0;   // a situation may carry no approval swing at all (e.g. a standing baseline condition)
       sitMood+=((s.kind==="good"?mMag:-mMag)+align*3)*sev;
       // per-group extra reaction (a wildfire hits rural/timber harder, etc.)
-      if(s.groupMood&&s.groupMood[sid]!==undefined)sitMood+=s.groupMood[sid]*sev;
+      if(s.groupMood&&s.groupMood[sid]!==undefined)sitMood+=s.groupMood[sid]*sev*sitMoodMult(s2);
     }
     // who is sitting in which chair, for exactly as long as they sit there
     sitMood+=apptMood(sid);
@@ -16223,7 +16233,14 @@ function showQuarterReport(quiet,next){
       const at=ph.indexOf("</div>", ph.indexOf("rsec-h"))+6;           // straight after the section's heading
       return ph.slice(0,at)+legisRows+ph.slice(at); })()+((GAME.lprom||[]).length?`<div class="rsection">${lpListHTML("Promises to legislators").replace(/<button[^>]*data-lpgo[^>]*>[^<]*<\/button>/g,"")}</div>`:"");
   const events=(GAME.log||[]).slice(-6).filter(l=>/began|RESOLVED|Midterms|kicker|Kicker|Reserves|Promise|Scandal|boom|Windfall|Federal|Deficit|debt|Austerity|Walkout warning/i.test(l));
-  const eventBlock=events.length?`<div class="rsection"><div class="rsec-h">${ico('doc')} This Quarter</div>${events.map(e=>`<div class="revent">${e}</div>`).join("")}</div>`:"";
+  // the federal timber-county payments: their own line, whatever else the log holds
+  const srsLine=(()=>{ const N=GAME.srsNews; if(!N||N.shown)return ""; N.shown=true;
+    const pct=v=>Math.round(v*100)+"%";
+    if(N.now&&!N.was)return ico('bank')+" <b>Congress renewed Secure Rural Schools.</b> Federal payments to Oregon's timber counties resume: county backfill rises from "+pct(N.before)+" to "+pct(N.after)+".";
+    if(N.was)return ico('warning')+" <b>Congress did not renew Secure Rural Schools.</b> The federal payments to Oregon's timber counties stop, and county backfill falls from "+pct(N.before)+" to "+pct(N.after)+". Your County Payments program can make up the gap.";
+    return ico('warning')+" <b>Congress again did not renew Secure Rural Schools.</b> The timber counties go another year without the federal payments (county backfill "+pct(N.after)+"). Your County Payments program can make up the gap."; })();
+  const evs=events.filter(l=>!/Secure Rural Schools/.test(l)).concat(srsLine?[srsLine]:[]);
+  const eventBlock=evs.length?`<div class="rsection"><div class="rsec-h">${ico('doc')} This Quarter</div>${evs.map(e=>`<div class="revent">${e}</div>`).join("")}</div>`:"";
   // WHAT IS COMING, not where the economy is now (the Economic Climate bar
   // already says that): the national undertow, whether Oregon is running hot,
   // and the next time voters have a say
@@ -28284,7 +28301,7 @@ function renderDetail(){
         const mm=s.moodMag||0;
         let m=(s.kind==="good"?mm:-mm);
         if(s.moodAxes)m+=dot(s.moodAxes,sim.ideology)*3;
-        if(s.groupMood&&s.groupMood[vid]!==undefined)m+=s.groupMood[vid];
+        if(s.groupMood&&s.groupMood[vid]!==undefined)m+=s.groupMood[vid]*sitMoodMult(sid);
         rows.push({vid,name:sim.name,m});
       }
       rows.sort((a,b)=>b.m-a.m);
@@ -29742,7 +29759,7 @@ const FUNDS={
         note:"Part of each member's own retirement contribution, paid into the pension fund instead of their individual account."});
       return rows;
     },
-    note:"The employer rate is derived from this number, so paying the hole down cuts what every service pays, and letting it grow raises the bill on all of them at once."},
+    note:"Every school district, university and state agency pays a share of its payroll into PERS, and that share rises and falls with this hole. Shrink the hole and all of their pension bills go down, leaving more for services. Let it grow and they all go up at once."},
 
   debt:{ name:"Structural Debt", icon:"warning", series:"fund_debt", invert:true,
     val:()=>GAME.structuralDebt||0,
