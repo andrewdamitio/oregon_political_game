@@ -20187,6 +20187,15 @@ const TOPGROUP_COLD=40, TOPGROUP_WARM=60;
    party's base. Nonprofit ties have no voter group of their own. */
 const ALIGN_TRAIT=[["pu","publicUnions"],["ag","rural"],["timber","timber"],["union","blueCollar"],["biz","businessClass"],["renters","renters"],
   ["core","urban"],["rural","rural"],["red","conservative"],["deep","liberal"],["wealthy","wealthy"],["suburb","suburban"],["clack","motorists"]];
+/* The two groups a member answers to, with the most each can move them:
+   aligned 8, the district's biggest 5, one entry if they are the same. */
+function caucusAnswerGroups(m,key,row){
+  const out=[], al=caucusAlignedGroup(m,key); if(SIMULANTS[al])out.push({b:al, w:8, aligned:true});
+  row=row||caucusRow(key);
+  const top=row?caucusMakeup(row,1)[0]:null;
+  if(top&&top.b!==al&&SIMULANTS[top.b])out.push({b:top.b, w:5, aligned:false});
+  return out;
+}
 function caucusAlignedGroup(m,key){
   const tr=caucusTraitsOf(key).map(t=>t.id);
   for(const [id,b] of ALIGN_TRAIT)if(tr.includes(id)&&SIMULANTS[b])return b;
@@ -20225,12 +20234,12 @@ function caucusTargetParts(m,key){
     const tot=hs.reduce((a,x)=>a+x.now,0), f=(tot&&Math.sign(tot)===Math.sign(m.g)&&Math.abs(tot)>Math.abs(m.g))?m.g/tot:1;
     hs.slice(0,5).forEach(x=>{ parts.push([x.nm+", "+caucusQ(x.t),x.now*f*k]); left-=x.now*f; });
     if(Math.abs(left)>=0.5)parts.push([hs.length?"Other recent stances":"Recent stances",left*k]); }
-  // THE GROUP THEY ANSWER TO: the interest group they are aligned with.
-  // Yours feel it when that group turns on you; theirs, when it warms to you.
-  { const S=SIMULANTS[caucusAlignedGroup(m,key)];
-    if(S){ const a=S.approval??50;
-      if(m.p==="mine"&&a<TOPGROUP_COLD)parts.push(["Their interest group, "+S.name+", dislikes you ("+Math.round(a)+"%)",-clamp((TOPGROUP_COLD-a)*0.5,0,8)]);
-      if(m.p!=="mine"&&a>TOPGROUP_WARM)parts.push(["Their interest group, "+S.name+", likes you ("+Math.round(a)+"%)",-clamp((a-TOPGROUP_WARM)*0.5,0,8)]); } }
+  // THE GROUPS THEY ANSWER TO: the interest group they are aligned with
+  // (up to 8) and the one their district most over-represents (up to 5).
+  // Yours feel it when a group turns on you; theirs, when it warms to you.
+  for(const g of caucusAnswerGroups(m,key,row)){ const S=SIMULANTS[g.b], a=S.approval??50, lab=g.aligned?"Their interest group":"Their district's biggest group";
+    if(m.p==="mine"&&a<TOPGROUP_COLD)parts.push([lab+", "+S.name+", dislikes you ("+Math.round(a)+"%)",-clamp((TOPGROUP_COLD-a)*0.5*g.w/8,0,g.w)]);
+    if(m.p!=="mine"&&a>TOPGROUP_WARM)parts.push([lab+", "+S.name+", likes you ("+Math.round(a)+"%)",-clamp((a-TOPGROUP_WARM)*0.5*g.w/8,0,g.w)]); }
   const pr=caucusProjBoost(key); if(pr)parts.push([m.p==="mine"?"District projects":"Your projects in their district",m.p==="mine"?pr:-pr]);
   const ap=row?caucusApptSplit(m,row):[0,0];
   if(m.p==="mine"){
@@ -22568,7 +22577,9 @@ function caucusMemberCard(k){
   }
   const tr=caucusTraitsOf(k);
   h+=`<div class="cm-sec">The district</div>`;
-  if(!m.ind){ const ag=SIMULANTS[caucusAlignedGroup(m,k)]; if(ag)h+=`<div class="cm-note" style="margin-bottom:6px">Aligned with <b>${ag.name}</b> (${Math.round(ag.approval??50)}% approve of you). ${mine?"If they turn on you (under "+TOPGROUP_COLD+"%), so does this member.":"If they warm to you (over "+TOPGROUP_WARM+"%), this member drifts from their party."}</div>`; }
+  if(!m.ind){ const gs=caucusAnswerGroups(m,k,row), nm=g=>`<b>${SIMULANTS[g.b].name}</b> (${Math.round(SIMULANTS[g.b].approval??50)}% approve of you)`;
+    const al=gs.find(g=>g.aligned), di=gs.find(g=>!g.aligned);
+    h+=`<div class="cm-note" style="margin-bottom:6px">Answers to ${al?"the group they are aligned with, "+nm(al):""}${al&&di?", and to their district's biggest group, ":""}${di?nm(di):""}${al&&!di?", which is also their district's biggest":""}. ${mine?"If one turns on you (under "+TOPGROUP_COLD+"%), so does this member, the aligned group most.":"If one warms to you (over "+TOPGROUP_WARM+"%), this member drifts from their party, the aligned group most."}</div>`; }
   if(tr.length)h+=`<div class="cm-traits">${tr.map(t=>`<span class="ctrait"><b>${t.label}</b>${t.issues.map(i=>ISSUES[i].name.toLowerCase()).join(", ")}</span>`).join("")}</div>`;
   else h+=`<div class="cm-note">No issue stands out here, so the member holds the party line where they hold anything.</div>`;
   if(mk.length)h+=`<div class="cm-mk">${mk.map(x=>`<span>${x.name}<b>${Math.round(x.share*100)}%</b><i>state ${Math.round((SIMULANTS[x.b].size||0)*100)}%</i></span>`).join("")}</div>`;
