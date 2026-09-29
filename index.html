@@ -4374,8 +4374,9 @@ const EXEC_ORDERS={
     blocEffect:{blueCollar:4, businessClass:3, rural:2, moderate:1, libertarian:-2},
     legalBase:0.06},
   eoHoldback:{area:"budget", name:"Across-the-Board Allotment Holdback", icon:"chart-down", capital:6, phaseIn:0, emergency:4,
-    reach:"Allotment control is an executive power. Withholding money the legislature appropriated is where its limits are contested.",
-    desc:"Order every agency to hold back a share of its quarterly allotment. It closes a gap in the budget immediately, without a session, without a vote and without anybody's agreement, and it does it by quietly not delivering services the legislature funded. The single most useful thing on this list when the floor is shut, and the one your own coalition will remember.\n\nIt is an emergency measure: it lasts four quarters, and the money comes back into the budget, and the hole with it, when it lapses. Renewing it costs more each time. It is also on the table whenever the legislature forces an emergency budget.",
+    reach:"A governor controls when agencies get their money, but holding back money the legislature appropriated is legally risky.",
+    desc:"Every agency holds back part of the money the legislature gave it, saving about $450 million a year. It needs no vote, so it works even when the floor is shut. The price is services: health care, schools and homelessness programs get worse while it runs, and the public-sector unions and your own left flank will remember it.\n\nIt lasts four quarters, then the savings stop. Renewing it costs more capital each time. It can be challenged in court, and if a court strikes it down, everything it held back is paid out at once: from the Rainy Day Fund first, and the rest as structural debt.",
+    releaseOnStrike:true,
     effects:{health:-2, eduOutcomes:-1.5, homelessness:1.5, behavioralHealth:-1.5},
     indicatorEffects:{adminOverhead:3},
     savings:0.45,
@@ -4627,6 +4628,7 @@ function tickExecOrders(){
     // the fiction would recognise.
     // an emergency lapses when its declaration runs out
     if(E.emergency&&o.expires!=null&&GAME.turn>=o.expires&&o.state!=="enjoined"){
+      // (a lapsed holdback keeps what it saved: nobody struck it down)
       delete GAME.execOrders[id];
       GAME.log.push(ico('doc')+" Emergency lapsed — "+E.name+". Declare it again from Executive Orders if it is still needed");
       continue;
@@ -4652,6 +4654,16 @@ function tickExecOrders(){
       } else {
         o.resigns=(o.resigns||0)+1;
         GAME.mandateShock=(GAME.mandateShock||0)-4;
+        // STRUCK DOWN, SO IT NEVER HAPPENED. What it withheld goes to the
+        // agencies now: reserves first, then the shortfall, as the deficits it
+        // was hiding would have been covered.
+        if(E.releaseOnStrike&&(o.withheld||0)>0.001){
+          const w=o.withheld, fromRd=Math.min(w,Math.max(0,GAME.rainyDay||0)), toDebt=w-fromRd;
+          GAME.rainyDay=+((GAME.rainyDay||0)-fromRd).toFixed(3);
+          GAME.structuralDebt=+((GAME.structuralDebt||0)+toDebt).toFixed(3);
+          o.released={total:+w.toFixed(3), rd:+fromRd.toFixed(3), debt:+toDebt.toFixed(3)}; o.withheld=0;
+          GAME.log.push(ico('bank')+" The court ordered the $"+w.toFixed(2)+"B held back under "+E.name+" paid out to the agencies"+(fromRd>0.001?": $"+fromRd.toFixed(2)+"B from the Rainy Day Fund":"")+(toDebt>0.001?(fromRd>0.001?" and ":": ")+"$"+toDebt.toFixed(2)+"B added to the structural debt":"")+".");
+        }
         if(GAME.opposition)GAME.opposition.momentum=clamp(GAME.opposition.momentum+6,0,100);
         // The order stops applying the moment it is struck, so the anger it was
         // generating in its opponents simply stops with it — they won. What
@@ -14502,6 +14514,9 @@ function fiscalCrisisThreshold(){
    redirects it, and reserves/deficits are reconciled. */
 function settleFiscal(){
   const {revenue,spend,balance:annualBal}=budgetBalance();
+  // money an order is withholding is recorded on it, in case a court makes the state pay it out
+  for(const id of eoLiveList()){ const E=EXEC_ORDERS[id], o=eoState(id);
+    if(E&&E.releaseOnStrike&&(E.savings||0)>0)o.withheld=+((o.withheld||0)+E.savings*eoRamp(id)/4).toFixed(4); }
   GAME.corpKickerToK12=0;      // and so is the corporate half that went to schools
   // the spending of an earlier refund tails off rather than stopping dead
   GAME.kickerStimulus=+(((GAME.kickerStimulus||0)*KICKER_GDP_DECAY)).toFixed(4);
@@ -16561,6 +16576,11 @@ function showExecOrderEvent(ev, next){
       <div class="lg-verdict hung" style="margin:12px 0">Its effects stop this quarter and the capital you spent is gone. The people it was angering have what they wanted and stop being angry about it — but the people you promised it to watched you lose, and that is what sticks.</div>
       <div class="rrow"><span class="rlabel">Political mandate</span><span class="rval" style="color:var(--clay)">−4</span></div>
       <div class="rrow"><span class="rlabel">Opposition momentum</span><span class="rval" style="color:var(--clay)">+6</span></div>
+      ${(()=>{ const r=(eoState(ev.id)||{}).released; if(!r)return "";
+        return `<div class="rrow"><span class="rlabel">Withheld money paid out</span><span class="rval" style="color:var(--clay)">$${r.total.toFixed(2)}B</span></div>`
+          +(r.rd>0.001?`<div class="rrow"><span class="rlabel">From the Rainy Day Fund</span><span class="rval">$${r.rd.toFixed(2)}B</span></div>`:"")
+          +(r.debt>0.001?`<div class="rrow"><span class="rlabel">Added to the structural debt</span><span class="rval" style="color:var(--clay)">$${r.debt.toFixed(2)}B</span></div>`:"")
+          +`<div class="fnote" style="margin-top:6px">The court treats the holdback as if it never happened: every dollar it held back goes to the agencies now.</div>`; })()}
       <div class="fnote" style="margin-top:10px">You can sign a revised, narrower order — at half again the capital, and worse odds. Governors do it all the time.</div>`;
   }
   card.innerHTML=h+`<button id="eoEventOk" class="enactbtn">Continue ▸</button>`;
