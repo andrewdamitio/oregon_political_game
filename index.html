@@ -1477,13 +1477,6 @@
   .eblink:hover{text-decoration:underline}
   .bloc-link{cursor:pointer;transition:transform var(--motion),border-color var(--motion)}
   .bloc-link:hover{border-color:var(--slate-blue)}
-  /* allocation channels */
-  .allocbox{background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px}
-  .allocrow{display:flex;align-items:center;gap:10px;padding:5px 0}
-  .alloc-icon{font-size:19px;width:22px;text-align:center}
-  .alloc-name{font-size:13.5px;width:130px}
-  .allocrow input[type=range]{flex:1}
-  .alloc-pct{width:42px;text-align:right}
   /* land use presets */
   .presetrow{display:flex;justify-content:space-between;gap:4px}
   .presetlbl{font-size:11px;color:var(--muted-3);flex:1;text-align:center;line-height:1.2}
@@ -1569,7 +1562,7 @@
 
   /* thick navy keylines on the boxed elements — the poster look */
   .mcard,.policy,.bloc,.crisis-card,.focuscard,.secblock,.fcard,.sos-panel,
-  .fiscal-panel,.mchip,.tile,.chartbox,.ebgroup,.allocbox,.campbloc,.promcard,
+  .fiscal-panel,.mchip,.tile,.chartbox,.ebgroup,.campbloc,.promcard,
   .cbloc2,.energybar,.catcard,.keystat,.boardgraph,.webwrap,.modal .card,
   .camp-popup-card{border:var(--rule) solid var(--ink)}
   /* re-assert the status-coloured left edges the blanket border above flattened */
@@ -2077,7 +2070,6 @@
   .ks-ico .ico{width:22px;height:22px}
   .sos-icon .ico,.sec-icon .ico,.quad-icon .ico,.cat-icon .ico{width:20px;height:20px}
   .tile-icon .ico{width:22px;height:22px}
-  .alloc-icon .ico{width:16px;height:16px}
   .crisis-name .ico,.sname .ico,.cat-name .ico{width:1em;height:1em;vertical-align:-.15em;margin-right:.2em}
   .mcard .mname .ico,.mchip-name .ico,.sos-name .ico{width:12px;height:12px;vertical-align:-2px}
   .dilemma-icon .ico{width:34px;height:34px}
@@ -7045,7 +7037,6 @@ function policyMetricKeys(p){
   const out={};
   if(p.effects)for(const k in p.effects)out[k]=1;
   if(p.tierEffects)for(const t of p.tierEffects)for(const k in t)out[k]=1;
-  if(p.channels)for(const c of p.channels)for(const k in (c.effects||{}))out[k]=1;
   return Object.keys(out);
 }
 /* WHO DELIVERS A BILL, named where the bill is decided.
@@ -11542,7 +11533,7 @@ function policyRealLabel(p){
     const cut=(p===POLICIES.incomeTax||p===POLICIES.corpTax)&&(GAME._taxCutFrac||0)>0.001;
     return v.toFixed(p.real.decimals)+p.real.unit+(cut?", cut "+Math.round(GAME._taxCutFrac*100)+"% across the board":"");
   }
-  if(p.mechanic==="slider"||p.mechanic==="allocation"){
+  if(p.mechanic==="slider"){
     if(p.costFull)return "$"+(p.costFull*p.value).toFixed(2)+"B/yr";
     return Math.round(p.value*100)+"%";
   }
@@ -11558,7 +11549,6 @@ function policyLevel(p){
   // every effect it has, which is exactly what a carve-out does
   if(p.mechanic==="law")return (p.narrowed==null?1:p.narrowed);
   if(p.mechanic==="slider")return p.value;
-  if(p.mechanic==="allocation")return p.value;
   if(p.mechanic==="intensity")return p.enabled?p.intensity:0;
   if(p.mechanic==="toggle")return p.enabled?1:0;
   if(p.mechanic==="tier")return p.tierIndex/(p.tiers.length-1);
@@ -11626,14 +11616,13 @@ function policyNetCost(p){
     return -(p.enabled?p.revenue:0);
   }
   if(p.mechanic==="slider")return (p.costFull||0)*p.value;
-  if(p.mechanic==="allocation")return (p.costFull||0)*p.value;
   if(p.mechanic==="intensity")return p.enabled?(p.costFull||0)*p.intensity:0;
   if(p.mechanic==="law")return (p.costFull||0);
   if(p.mechanic==="toggle")return p.enabled?(p.costFull||0):0;
   if(p.mechanic==="tier")return p.costByTier?p.costByTier[p.tierIndex]:0;
   return 0;
 }
-/* combined per-metric effect of a policy (handles allocation channels).
+/* combined per-metric effect of a policy.
    Scaled by government digitization efficacy — low state capacity means
    policies deliver weaker outcomes than their nominal effect. */
 /* phase-in: policies don't hit at full strength overnight. p.eff is the
@@ -11764,11 +11753,7 @@ function tickEffSm(){
 function policyEffect(p,k){
   let raw;
   const eff=effLevelOf(p);
-  if(p.mechanic==="allocation"){
-    let e=0;
-    for(const ch of p.channels)if(ch.effects[k]!==undefined)e+=ch.share*ch.effects[k];
-    raw=e*eff;
-  } else if(p.mechanic==="tier"&&p.tierEffects){
+  if(p.mechanic==="tier"&&p.tierEffects){
     // eff is a 0..1 position along the tier axis; lerp adjacent tiers
     const n=p.tiers.length-1, lv=clamp(eff,0,1)*n, lo=Math.floor(lv), hi=Math.min(n,lo+1), f=lv-lo;
     const a=(p.tierEffects[lo]&&p.tierEffects[lo][k])||0, b=(p.tierEffects[hi]&&p.tierEffects[hi][k])||0;
@@ -16386,7 +16371,7 @@ const OPP_BILLS={
 function oppBillIsApprop(id){
   const p=CATALOG[id]; if(!p)return false;
   if(p.binary===true)return false;
-  const dialed=["slider","intensity","allocation"].indexOf(p.mechanic)>=0;
+  const dialed=["slider","intensity"].indexOf(p.mechanic)>=0;
   return dialed && (p.costFull||0)>0.04;
 }
 
@@ -16449,7 +16434,7 @@ function _oppEnact(id, level){
   _applyEnact(id, 1);                     // the legislature passed it whole
   if(level!=null && level<1){             // ...and then you struck the money out
     const p=POLICIES[id]; if(!p)return;
-    if(p.mechanic==="slider"||p.mechanic==="allocation")p.value=level;
+    if(p.mechanic==="slider")p.value=level;
     else if(p.mechanic==="intensity")p.intensity=level;
   }
 }
@@ -20020,7 +20005,7 @@ function caucusRng(str){
 function caucusLevel(pid){
   const p=POLICIES[pid]; if(!p||p.enacted===false||p.enabled===false)return 0;
   if(p.mechanic==="tier"&&p.tiers)return (p.tierIndex||0)/Math.max(1,p.tiers.length-1);
-  if(p.mechanic==="slider"||p.mechanic==="allocation")return p.value!=null?p.value:0.5;
+  if(p.mechanic==="slider")return p.value!=null?p.value:0.5;
   if(p.mechanic==="intensity")return p.intensity!=null?p.intensity:1;
   return p.narrowed!=null?p.narrowed:1;
 }
@@ -20029,7 +20014,7 @@ function caucusSnapLevel(pid,snap){
   let d; try{ d=JSON.parse(snap); }catch(e){ return caucusLevel(pid); }
   if(d.e===false)return 0;
   if(p.mechanic==="tier"&&p.tiers)return (d.t||0)/Math.max(1,p.tiers.length-1);
-  if(p.mechanic==="slider"||p.mechanic==="allocation")return d.v!=null?d.v:0.5;
+  if(p.mechanic==="slider")return d.v!=null?d.v:0.5;
   if(p.mechanic==="intensity")return d.i!=null?d.i:1;
   return 1;
 }
@@ -21468,7 +21453,7 @@ function lpOptions(m,onlyIssue){
     for(const [pid,dir] of (ISSUES[i].pols||[])){ if(seen.has(pid))continue;
       const p=POLICIES[pid]||CATALOG[pid]; if(!p||p.reform)continue;
       const want=Math.sign(v.pos*dir), lv=caucusLevel(pid), on=!!POLICIES[pid];
-      const dial=p.mechanic==="tier"||p.mechanic==="slider"||p.mechanic==="intensity"||p.mechanic==="allocation";
+      const dial=p.mechanic==="tier"||p.mechanic==="slider"||p.mechanic==="intensity";
       if(want>0&&lv>=0.95)continue; if(want<0&&lv<=0.05)continue; if(want<0&&!on)continue;
       if(want<0&&!dial&&p.noRepeal)continue;
       if(lpPromisedLaw(pid,want)||lpPromisedLaw(pid,-want))continue;   // already promised, one way or the other
@@ -21480,7 +21465,7 @@ function lpMake(target,pid,want){
   const {keys,pr}=lpKeys(target); if(!keys.length||lpPromisedLaw(pid,+want)||lpPromisedLaw(pid,-want))return;
   const p=POLICIES[pid]||CATALOG[pid]; if(!p)return;
   const fac=target.startsWith("f:")||target.startsWith("pf:"), lift=(fac?LP_LIFT_FAC:LP_LIFT)*lpTrust(), due=GAME.turn+LP_Q;
-  const dial=p.mechanic==="tier"||p.mechanic==="slider"||p.mechanic==="intensity"||p.mechanic==="allocation";
+  const dial=p.mechanic==="tier"||p.mechanic==="slider"||p.mechanic==="intensity";
   const word=(want>0?(POLICIES[pid]&&dial?"strengthen ":"pass "):(dial?"weaken ":"repeal "))+p.name;
   // the member (or faction) you promised, in full; everyone else who wants
   // the same law, by how much they care about it
@@ -22048,7 +22033,7 @@ function caucusIssueLaws(m,i){
   for(const [pid,dir] of ISSUES[i].pols){
     const p=POLICIES[pid]||CATALOG[pid]; if(!p)continue;
     const on=!!POLICIES[pid], want=v.pos*dir, mild=Math.abs(v.pos)<0.2;
-    const tier=p.mechanic==="tier"&&p.tiers, dial=p.mechanic==="slider"||p.mechanic==="intensity"||p.mechanic==="allocation";
+    const tier=p.mechanic==="tier"&&p.tiers, dial=p.mechanic==="slider"||p.mechanic==="intensity";
     // where it stands now
     const now=!on?"Not law":tier?p.tiers[p.tierIndex||0]:dial?policyRealLabel(p):"In force";
     // and an arrow to where they want it
@@ -23419,7 +23404,7 @@ function drawFloor(){
   const variants=(pol.reform&&F.dir!=="repeal"&&MEASURE_VARIANTS[F.id])?MEASURE_VARIANTS[F.id]:null;
   const curVar=variants?measureVariantDraft(F.id):null;
   const variantOpts=variants?Object.keys(variants).map(k=>`<button class="conc conc-form ${k===curVar?'on':''}" data-variant="${k}"><span class="conc-l">${variants[k].label}</span><span class="conc-note">${variants[k].note}</span></button>`).join(""):"";
-  const dialed=["slider","intensity","tier","allocation"].indexOf(pol.mechanic)>=0;
+  const dialed=["slider","intensity","tier"].indexOf(pol.mechanic)>=0;
   const dialLab=nv=>{
     if(pol.mechanic==="tier"&&pol.tiers)
       return pol.tiers[Math.max(pol.tierMin||0,Math.round(nv*(pol.tiers.length-1)))];
@@ -23465,7 +23450,7 @@ function drawFloor(){
       const nv=F.narrowed;
       const now=lawAt(base,F.id,c=>{ c.enacted=true;
         if(c.mechanic==="tier"&&c.tiers)c.tierIndex=Math.max(c.tierMin||0,Math.round(nv*(c.tiers.length-1)));
-        else if(c.mechanic==="slider"||c.mechanic==="allocation")c.value=Math.max(c.value||0,nv);
+        else if(c.mechanic==="slider")c.value=Math.max(c.value||0,nv);
         else if(c.mechanic==="intensity"){ c.enabled=true; c.intensity=Math.max(c.intensity||0,nv); }
         else c.narrowed=nv;
         // an amendment that comes in forms: the groups react to the form chosen
@@ -25503,7 +25488,7 @@ function generateCitizenMeasures(){
 }
 /* THE CITIZEN REFERENDUM. What the laws were at the last ballot cycle, so
    the next can see what you changed: enacted, repealed, or a dial moved. */
-function lawLevelOf(p){ return p.mechanic==="tier"?(p.tierIndex||0):p.mechanic==="intensity"?(p.intensity||0):(p.mechanic==="slider"||p.mechanic==="allocation")?(p.value||0):null; }
+function lawLevelOf(p){ return p.mechanic==="tier"?(p.tierIndex||0):p.mechanic==="intensity"?(p.intensity||0):(p.mechanic==="slider")?(p.value||0):null; }
 function lawSnapshot(){ const o={}; for(const id in POLICIES){ const p=POLICIES[id]; if(!p||p.reform)continue; o[id]={lv:lawLevelOf(p)}; } return o; }
 /* PUBLIC SUPPORT: the share of the modelled electorate that favours a law
    or a change, each voter placed on the compass and in their groups, asked
@@ -26587,9 +26572,6 @@ function blocReaction(kind,obj,sim){
     for(const k in (obj.effects||{})){
       if(metricSensKey(k)&&Math.abs(s[metricSensKey(k)]||0)>=1.4)engaged=true;
     }
-    // allocation channels' metrics too
-    if(obj.mechanic==="allocation")for(const ch of obj.channels)for(const k in ch.effects)
-      if(metricSensKey(k)&&Math.abs(s[metricSensKey(k)]||0)>=1.4)engaged=true;
   } else if(kind==="agency"){
     if(obj.ideology)m+=dot(obj.ideology,sim.ideology)*((obj.funding??0.5)-0.5)*6;
     if(obj.fundBloc&&obj.fundBloc[sim.id]!==undefined){ m+=obj.fundBloc[sim.id]*((obj.funding??0.5)-0.5)*2; engaged=true; }
@@ -28038,17 +28020,6 @@ function renderDetail(){
           <div class="threshline" style="margin-top:5px">Metric effects show current phased-in strength — <b>tick marks</b> show full-target level. Budget, bloc reactions, and indicators already reflect the set target.</div></div>`;
       }
     }
-    // allocation channel breakdown
-    if(p.mechanic==="allocation"){
-      h+=`<div class="sectionsub">Total budget split across channels (shares must sum to 100%):</div><div class="allocbox">`;
-      p.channels.forEach((ch,ci)=>{
-        h+=`<div class="allocrow"><span class="alloc-icon">${ico(ch.icon)}</span>
-          <span class="alloc-name">${ch.name}</span>
-          <input type="range" min="0" max="1" step="0.05" value="${ch.share}" data-alloc="${id}" data-ch="${ci}"${floorShutFor("p_"+id)?' disabled':''}>
-          <span class="mono alloc-pct">${Math.round(ch.share*100)}%</span></div>`;
-      });
-      h+=`</div>`;
-    }
     h+=effectsBreakdownHTML("policy",p);
     h+=apptDeliveryPanelHTML(p);
   } else if(key.startsWith("a_")){
@@ -28595,7 +28566,7 @@ function renderDetail(){
 
 /* shared control markup for a policy (used in detail page + catalog preview) */
 function policyControlHTML(id,p){
-  if(p.mechanic==="slider"||p.mechanic==="allocation"){
+  if(p.mechanic==="slider"){
     const lbl0=p.real?(p.real.label||"rate"):"spending", lbl=lbl0.charAt(0).toUpperCase()+lbl0.slice(1);
     const sFloor=p.sliderFloor||0;
     return `<span class="mono" style="font-size:12.5px;color:var(--muted-2)">${lbl}</span><input type="range" min="${sFloor}" max="1" step="0.05" value="${Math.max(p.value,sFloor)}" data-pol="${id}" data-kind="slider"><span class="mono">${policyRealLabel(p)}</span>`;
@@ -28773,7 +28744,7 @@ function _applyEnact(id, level, via){
   // than at zero. Callers that let the player pick the level (the floor
   // dial) pass nothing and keep the catalog default.
   if(level>0){
-    if(p.mechanic==="slider"||p.mechanic==="allocation")
+    if(p.mechanic==="slider")
       p.value=Math.max(p.value||0, level);
     else if(p.mechanic==="intensity"){ p.enabled=true; p.intensity=Math.max(p.intensity||0, level); }
     else if(p.mechanic==="tier"&&Array.isArray(p.tiers)&&p.tiers.length>1){
@@ -28881,7 +28852,7 @@ function passBill(id, dir, narrowed, cushion){
       // passing it whole, on 25 of the 26 dialled bills that reach the floor —
       // and you could not correct it that quarter, because the floor does not
       // take the same law up twice.
-      else if(q.mechanic==="slider"||q.mechanic==="allocation")
+      else if(q.mechanic==="slider")
         q.value=Math.max(q.sliderFloor||0, nw);
       else if(nw<1)q.narrowed=nw;
     }
@@ -28975,7 +28946,7 @@ function syncCannabisTab(){
    is charged ONCE. If you can't afford it, the change reverts.
    ============================================================ */
 function snapshotFor(key){
-  if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];return p?JSON.stringify({v:p.value,t:p.tierIndex,e:p.enabled,i:p.intensity,ch:p.channels?p.channels.map(c=>c.share):null}):null;}
+  if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];return p?JSON.stringify({v:p.value,t:p.tierIndex,e:p.enabled,i:p.intensity}):null;}
   if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];return a?JSON.stringify({v:a.funding}):null;}
   if(key.startsWith("h_")){const a=AGENCIES[key.slice(2)];return a&&a.logging!==undefined?JSON.stringify({v:a.logging}):null;}
   if(key==="landuse")return JSON.stringify({t:LANDUSE.index});
@@ -28983,7 +28954,7 @@ function snapshotFor(key){
 }
 function restoreFrom(key,snap){
   const d=JSON.parse(snap);
-  if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];if(!p)return;p.value=d.v;p.tierIndex=Math.max(d.t||0,p.tierMin||0);p.enabled=d.e;p.intensity=d.i;if(d.ch&&p.channels)p.channels.forEach((c,i)=>c.share=d.ch[i]);}
+  if(key.startsWith("p_")){const p=POLICIES[key.slice(2)];if(!p)return;p.value=d.v;p.tierIndex=Math.max(d.t||0,p.tierMin||0);p.enabled=d.e;p.intensity=d.i;}
   else if(key.startsWith("a_")){const a=AGENCIES[key.slice(2)];if(a)a.funding=(d.v!=null?d.v:d.f);}
   else if(key.startsWith("h_")){const a=AGENCIES[key.slice(2)];if(a)a.logging=d.v;}
   else if(key==="landuse")LANDUSE.index=(d.t!=null?d.t:d.i)|0;
@@ -29236,7 +29207,7 @@ function pendingBillSpec(key, origSnap, curSnap){
   // votes on a billion dollars — so the gate looks at the DOLLAR size of the
   // change, not only its fraction of the slider.
   let dollarDelta=0;
-  if(pol.mechanic==="slider"||pol.mechanic==="allocation"||pol.mechanic==="intensity")
+  if(pol.mechanic==="slider"||pol.mechanic==="intensity")
     dollarDelta=(pol.costFull||0)*mag;
   else if(isTier && pol.costByTier)
     dollarDelta=Math.abs((pol.costByTier[cv.t]||0)-(pol.costByTier[ov.t]||0));
@@ -29534,7 +29505,7 @@ function drawPendingFloor(){
   const card=document.getElementById("floorCard"), modal=document.getElementById("floorModal");
   const pol=pendingPol(F.key);
   if(!card||!modal||!pol){ GAME.pendingFloorChange=null; return; }
-  const dial=["slider","allocation","intensity","tier"].indexOf(pol.mechanic)>=0;
+  const dial=["slider","intensity","tier"].indexOf(pol.mechanic)>=0;
   // the dial sits OUTSIDE the repainted region so that dragging it survives the
   // redraws it is causing
   card.innerHTML=`<div class="sectionhdr">${ico('columns')} <span id="pfTitle"></span></div>
@@ -29737,15 +29708,6 @@ function wirePolicyControls(){
   main.querySelectorAll('[data-landuse]').forEach(el=>el.addEventListener('click',e=>{
     const i=parseInt(e.currentTarget.dataset.landuse); if(i===LANDUSE.index)return;
     LANDUSE.index=i; render(); maybeOpenFloor();}));
-  // allocation channels — rebalance others to keep shares summing to 1
-  main.querySelectorAll('[data-alloc]').forEach(el=>el.addEventListener('change',e=>{
-    const p=POLICIES[e.target.dataset.alloc], ci=+e.target.dataset.ch, nv=parseFloat(e.target.value);
-    const others=p.channels.filter((_,i)=>i!==ci), oldOther=others.reduce((s,c)=>s+c.share,0);
-    const rem=1-nv;
-    if(oldOther>0)others.forEach(c=>c.share=c.share/oldOther*rem);
-    else others.forEach(c=>c.share=rem/others.length);
-    p.channels[ci].share=nv;
-    render();maybeOpenFloor();}));
 }
 /* The five voters the focus group follows: fixed for the run, spread
    across the electorate. */
