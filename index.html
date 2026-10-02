@@ -870,6 +870,12 @@
   .quake-body p:last-child{margin-bottom:0}
   .quake-body b{color:var(--ink)}
   .quake-go{margin-top:8px;min-width:230px}
+  /* THE WALKOUT. The Capitol is pen line art on a clear ground, in the page's ink like the seal. */
+  .walkout-art{width:min(600px,92vw);height:auto;display:block;margin:2px auto 6px}
+  :root[data-theme="dark"] .walkout-art{filter:invert(1)}
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .walkout-art{filter:invert(1)} }
+  .walkout-list{margin:0 0 9px;padding-left:20px}
+  .walkout-list li{margin:0 0 4px}
   @media(max-width:560px){ .quake-map{width:min(330px,92vw)} .quake-body{font-size:14px} }
   .egrand .eg-bar{width:min(560px,92vw);height:30px;display:flex;border:var(--rule) solid var(--ink);background:var(--paper-2);overflow:hidden}
   .egrand .eg-bar i{height:100%;transition:width 1.2s steps(20,end)}
@@ -12524,6 +12530,8 @@ function startSituation(sid){
     if(held>0)GAME.log.push(ico('shield')+" Seismic retrofits and tsunami routes held back about "+held+"% of the damage");
     GAME.pendingQuake={year:GAME.startYear+Math.floor(GAME.turn/4)};
   }
+  // A WALKOUT gets the whole screen too, at the end of the quarter it starts.
+  if(sid==="gopWalkout"||sid==="demWalkout")GAME.pendingWalkout={side:sid==="gopWalkout"?"right":"left", turn:GAME.turn};
   // no-choice events surface a notification splash so the player sees the hit
   if(s.noChoice){
     const fx=[];
@@ -23827,6 +23835,63 @@ function showQuakeScreen(next){
   document.addEventListener('keydown',onKey,true);
   setTimeout(()=>{ try{ btn&&btn.focus({preventScroll:true}); }catch(e){} },30);
 }
+/* THE WALKOUT, FULL SCREEN. The same stage the election and the quake use. */
+function showWalkoutScreen(next){
+  const W=GAME.pendingWalkout||{}; GAME.pendingWalkout=null;
+  const card=document.getElementById('midtermCard'), modal=document.getElementById('midtermModal');
+  if(!card||!modal){ if(next)next(); return; }
+  const side=W.side||GAME.walkoutSide||"right", who=walkoutWho(side), many=who.indexOf(" and ")>=0;
+  const mineSide=GAME.startId==="conservative"?"right":"left", own=side===mineSide&&!prOn();
+  const where=side==="right"?"Idaho":"Washington";
+  const q=Math.max(1,GAME.floorFreeze||3), L=GAME.legis||{};
+  let B=null; try{ B=walkoutBreakdown(); }catch(e){}
+  const ag=B?(B.parts.find(p=>p.id==="agenda")||{items:[]}).items.filter(x=>x.pts>=0.5).slice(0,3).map(x=>x.nm):[];
+  const list=a=>a.length>1?a.slice(0,-1).join(", ")+" and "+a[a.length-1]:a[0]||"";
+  const r=prOn()?{house:[],senate:[]}:caucusWalkoutRefusers(), stayed=r.house.length+r.senate.length;
+  const S=SITUATIONS[side==="right"?"gopWalkout":"demWalkout"]||{}, gm=S.groupMood||{};
+  const blamed=Object.keys(gm).filter(b=>gm[b]<0&&SIMULANTS[b]).map(b=>SIMULANTS[b].name);
+  const quorum=prOn()
+    ? "Your government holds "+coalitionSeats()+" of the Assembly's "+PR_SEATS+" seats, short of the "+Math.ceil(PR_SEATS*2/3)+" a quorum takes"
+    : "You hold "+(L.house||0)+" of 60 House seats and "+(L.senate||0)+" of 30 Senate seats, short of the "+LEGIS.quorumH+" and "+LEGIS.quorumS+" a quorum takes";
+  card.innerHTML='<div class="egrand quake-grand walkout-grand">'
+    +'<div class="eg-kicker">'+turnLabel(GAME.turn)+' \u00b7 THE OREGON LEGISLATURE \u00b7 NO QUORUM</div>'
+    +'<div class="eg-result lose quake-title">WALKOUT</div>'
+    +'<div class="wm-rule"></div>'
+    +'<div class="quake-sub">'+(own?"Your own party's":who)+' legislators have left the state to deny the quorum. Nothing of yours can pass while they are gone.</div>'
+    +'<img class="walkout-art" src="oregon-capitol-line.webp" alt="The Oregon State Capitol, drawn in pen" width="1100" height="620">'
+    +'<div class="quake-body">'
+      +'<p>Oregon\'s constitution lets a chamber do business only with two-thirds of its members present. '+quorum+', so the minority can stop the legislature by leaving it. Tonight '+(many?"their caucuses are":"their caucus is")+' across the line in '+where+', out of reach of the state police.</p>'
+      +'<p><b>What it does.</b></p><ul class="walkout-list">'
+        +'<li>The floor is shut for <b>'+q+' more quarter'+(q===1?"":"s")+'</b>: no bills, no change to a law that needs a vote, no confirmations.</li>'
+        +'<li>Political capital cannot buy it back. There is nobody in the building to whip.</li>'
+        +(blamed.length?'<li>'+list(blamed)+' blame you for the stalemate while it lasts.</li>':'')
+        +(stayed?'<li>'+stayed+' of their members, at odds with their leadership, stayed in their seats. It was not enough to hold the quorum.</li>':'')
+      +'</ul>'
+      +(ag.length?'<p><b>Why they went.</b> A caucus walks out over a record, not a poll. The agenda has moved '+(B?Math.max(0,B.drift).toFixed(1):"several")+' points away from them since you took office, most of all through '+list(ag)+'.</p>':'')
+      +'<p><b>The ways out.</b></p><ul class="walkout-list">'
+        +'<li><b>Meet their price.</b> It comes to you as a decision each quarter, and they are home the same week.</li>'
+        +'<li><b>Wait.</b> A walkout lasts three quarters; they come back on their own in '+q+'.</li>'
+        +'<li><b>End the tactic.</b> The Simple-Majority Quorum amendment, or two-thirds of '+(prOn()?"the Assembly":"both chambers")+', and there is no quorum left to deny.</li>'
+      +'</ul>'
+    +'</div>'
+    +'<button class="enactbtn eg-go" id="walkoutContinue">Continue \u25b8</button>'
+    +'</div>';
+  modal.classList.add('grand');
+  modal.classList.remove('hidden');
+  const _top=()=>{ card.scrollTop=0; const g=card.querySelector('.egrand'); if(g)g.scrollTop=0; };
+  _top(); requestAnimationFrame(_top);
+  const done=()=>{
+    modal.classList.add('hidden'); modal.classList.remove('grand');
+    document.removeEventListener('keydown',onKey,true);
+    if(next)next();
+  };
+  const onKey=(e)=>{ if(modal.classList.contains('hidden'))return;
+    if(e.key==='Enter'||e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); done(); } };
+  const btn=document.getElementById('walkoutContinue');
+  if(btn)btn.onclick=done;
+  document.addEventListener('keydown',onKey,true);
+  setTimeout(()=>{ try{ btn&&btn.focus({preventScroll:true}); }catch(e){} },30);
+}
 /* Campaign HQ's third surface: the legislature as polling. */
 /* The next election as it stands, seat by seat: who would win each district
    today, with the candidates on hover. Senate seats not up next time are
@@ -24515,9 +24580,13 @@ function doEndTurn(){
     if(GAME.parlCheckPending){ parliamentCheck(()=>{ render(); startQuarterSequence(); }); return; }
     startQuarterSequence();
   };
-  const afterQuake=()=>{
+  const afterWalkout=()=>{
     if(GAME.pendingMidterm){ const mt=GAME.pendingMidterm; GAME.pendingMidterm=null; showMidterm(mt); }
     brief();
+  };
+  const afterQuake=()=>{
+    if(GAME.pendingWalkout&&walkoutOn())showWalkoutScreen(afterWalkout);
+    else { GAME.pendingWalkout=null; afterWalkout(); }
   };
   if(GAME.pendingQuake) showQuakeScreen(afterQuake);
   else afterQuake();
