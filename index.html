@@ -935,6 +935,20 @@
   .crisis-card{border:1px solid var(--line);border-left:4px solid var(--bad);border-radius:var(--radius);padding:10px 12px;background:var(--paper-2);cursor:pointer;transition:transform var(--motion),box-shadow var(--motion)}
   .crisis-card:hover{box-shadow:0 3px 10px rgba(28,37,38,.12)}
   .crisis-card.good{border-left-color:var(--good)}
+  /* a walkout is not a crisis in the state: it is the building, empty. Its own colour. */
+  .crisis-card.walkout{border-left-color:var(--slate-blue);background:linear-gradient(180deg,rgba(74,104,140,.16),var(--paper-2))}
+  .crisis-card.walkout .crisis-tag{color:var(--slate-blue)}
+  .sit.walkout{border-left-color:var(--slate-blue)}
+  .wdesk{border:1px solid var(--line);border-left:4px solid var(--slate-blue);background:linear-gradient(180deg,rgba(74,104,140,.12),var(--paper-2));border-radius:var(--radius);padding:11px 14px;margin:0 0 12px}
+  .wdesk-h{font-family:var(--font-display);font-size:16px;display:flex;align-items:center;gap:7px}
+  .wdesk-t{font-size:13.5px;color:var(--muted-1);margin:4px 0 2px;line-height:1.45}
+  .wopts{margin-top:8px}
+  .wopts .dilemma-opt{font:inherit;width:100%}
+  .wopts .do-sub{line-height:1.45}
+  .walkout-ask{width:min(640px,94vw);text-align:left;margin-top:10px;border-top:1px solid var(--line);padding-top:12px}
+  .walkout-ask-h{font-family:var(--font-display);font-size:18px;text-align:center;margin-bottom:4px}
+  .walkout-ask-n{font-size:12.5px;color:var(--muted-3);text-align:center;margin-top:8px}
+  button[disabled] .ico{opacity:.8}
   .crisis-card.chronic{border-left-color:var(--clay);background:linear-gradient(180deg,rgba(180,86,58,.08),var(--paper-2))}
   .crisis-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
   .crisis-tag{font-family:var(--font-data);font-size:10px;letter-spacing:1px;color:var(--clay);font-weight:700}
@@ -2337,6 +2351,9 @@
      Calm cards, still unmistakably problems: a red bar, the warning icon,
      and a red category label. Bright spots: a green bar and label. */
   .crisis-card,.crisis-card.bad,.crisis-card.chronic{background:var(--paper-2)!important;border:1px solid var(--line)!important;border-left:4px solid var(--bad)!important}
+  /* the walkout keeps its own colour through the reset above */
+  .crisis-card.walkout{background:linear-gradient(180deg,rgba(26,95,107,.14),var(--paper-2))!important;border-left:4px solid var(--slate-blue)!important}
+  .crisis-card.walkout .crisis-tag{color:var(--slate-blue)!important}
   .crisis-card.good{background:var(--paper-2)!important;border:1px solid var(--line)!important;border-left:4px solid var(--good)!important}
   .crisis-card:hover,.crisis-card.bad:hover,.crisis-card.good:hover{background:var(--hover-bg)!important}
   .crisis-card.crisis-major{border-left-width:6px!important}
@@ -9069,7 +9086,7 @@ const DILEMMAS={
         : "The "+walkoutWho("right")+" caucus is in Idaho and your floor staff cannot move a single bill. They are not coming back for a list of grievances — they are coming back for a price, and they have circulated it.")
         + clock;
     },
-    influence:()=>walkoutOn()?0.95:0,
+    influence:()=>-1,   // never a popup: decided on the walkout's screen, then on the Governing Board
     options:[
       /* ---------- the right caucus walked (a progressive governor) ---------- */
       {label:"Roll back the Forest Practices Act",
@@ -9486,6 +9503,9 @@ function maybeFireProposal(){
   if(GAME.pendingProposal)return;
   if(GAME.turn-(GAME.lastProposalTurn??-9)<PROPOSAL_GAP)return;
   const p=apptProposalPick(); if(!p)return;
+  // a new bill needs a floor; with the floor shut only a change made inside
+  // the department can be brought to you
+  if(p.kind!=="adjust"&&floorFrozen())return;
   // How forthcoming the person in the chair is. A reformer arrives with
   // something most quarters they are allowed to; a safe pick hardly ever.
   const chance=clamp(0.08+(p.trait.brings||0.3)*0.16,0.08,0.38);
@@ -9566,7 +9586,7 @@ function proposalCardHTML(c,attr){
     <div class="ebgroup prop-facts">${facts}</div>`;
   h+=apptDeliveryPanelHTML(pol);
   h+=`<div class="dilemma-opts prop-opts">
-    <button class="dilemma-opt" ${attr}="1" ${!adjusting&&!cost.ok?"disabled":""}><span class="do-label">${adjusting?"Tell them to go ahead":"Take it to the floor now"}</span>
+    <button class="dilemma-opt" ${attr}="1" ${!adjusting&&!cost.ok?"disabled":""}><span class="do-label">${adjusting?"Tell them to go ahead":floorLockWord()||"Take it to the floor now"}</span>
       <span class="do-sub">${adjusting
         ? "The change is made this quarter, which is what makes it cheap, and it is yours from the moment it is announced."
         : cost.ok?"Whipped at their discount and voted on now, with a vote to spare when you can afford one. If it passes it is law today.":cost.why}</span></button>
@@ -11209,24 +11229,24 @@ function _sitAge(sid){ return (GAME.situationAge&&GAME.situationAge[sid])||0; }
       : ("House "+(L.house||0)+"/"+LEGIS.quorumH+(LEGIS.quorumS?(", Senate "+(L.senate||0)+"/"+LEGIS.quorumS):""));
     const ours = w.side===side;
     return {
-      begin:[[ fc("A program they organized against — you have driven the agenda past what you inherited",
+      begin:[[ fc("Your agenda has moved well past what you inherited, against them: something to walk out over",
                   Math.round((ours?(w.provoke||0):0)*100)+"%", ours && (w.provoke||0)>=WALK_PROVOKE_MIN),
-               fc("Their voters are the ones losing — how far their blocs have fallen behind everybody else's",
+               fc("Their voters approve of you far less than everyone else's do",
                   Math.round((ours?(w.isolation||0):0)*100)+"%", ours && (w.isolation||0)>0.2),
                ...(prOn()?[]:[fc("Their legislators have closed ranks against you since you took office",
                   Math.round((ours?(w.bench||0):0)*100)+"%", ours && (w.bench||0)>0.25)]),
-               fc("You are not popular enough to make this suicide — a caucus will not shut the building on a governor the state likes",
+               fc("Your approval is low enough for them to risk it. A caucus will not walk out on a popular governor",
                   overallApproval().toFixed(0)+"% approval", (w.nerve||0)>0.55),
-               fc("Walkout pressure past "+Math.round(WALK_HEAT_MIN*100)+"% — "+w.label+", and a caucus angry enough to spend half a year on it",
+               fc("Walkout pressure is past "+Math.round(WALK_HEAT_MIN*100)+", the level at which they will give up half a year for it",
                   Math.round((ours?w.heat:0)*100)+"%", ours && w.heat>=WALK_HEAT_MIN),
                fc("You do not hold a two-thirds quorum on your own", quorumTxt, !quorumProof()),
                ...(prOn()?[fc("The opposition on their side holds more than a third of the Assembly",
                   prWalkSeats(side)+"/"+PR_SEATS+", "+prWalkNeeded()+" needed", prWalkSeats(side)>=prWalkNeeded())]:[]),
                fc("Simple-Majority Quorum is not in the constitution", POLICIES.quorumReform?"passed":"not passed", !POLICIES.quorumReform) ]],
-      end:[[ fc("Pass Simple-Majority Quorum — the permanent answer", POLICIES.quorumReform?"passed":"not passed", !!POLICIES.quorumReform) ],
-           [ fc("Hold two-thirds — then there is no quorum to deny", quorumTxt, quorumProof()) ],
-           [ fc("Meet their price in the dilemma — they come home the same week", "on the desk", false) ],
-           [ fc("Wait: it ends after three quarters", "quarter "+(_sitAge(sid)+1), _sitAge(sid)>=2) ]]};
+      end:[[ fc("Pass Simple-Majority Quorum, which ends walkouts for good", POLICIES.quorumReform?"passed":"not passed", !!POLICIES.quorumReform) ],
+           [ fc("Hold two-thirds of the seats, so there is no quorum to deny", quorumTxt, quorumProof()) ],
+           [ fc("Meet their price, on the Governing Board. They come home the same week", "on the board", false) ],
+           [ fc("Wait: it ends after three quarters, or at the next election", "quarter "+(_sitAge(sid)+1), _sitAge(sid)>=2) ]]};
   };
   /* ---- crises you cause ---- */
   S.timberWars.feeds=()=>({
@@ -12534,7 +12554,7 @@ function startSituation(sid){
     GAME.pendingQuake={year:GAME.startYear+Math.floor(GAME.turn/4)};
   }
   // A WALKOUT gets the whole screen too, at the end of the quarter it starts.
-  if(sid==="gopWalkout"||sid==="demWalkout")GAME.pendingWalkout={side:sid==="gopWalkout"?"right":"left", turn:GAME.turn};
+  if(sid==="gopWalkout"||sid==="demWalkout"){ GAME.pendingWalkout={side:sid==="gopWalkout"?"right":"left", turn:GAME.turn}; GAME.walkoutHeld=null; }
   // no-choice events surface a notification splash so the player sees the hit
   if(s.noChoice){
     const fx=[];
@@ -19505,6 +19525,45 @@ function floorShutFor(key,dir){
   return true;
 }
 /* Why, in words: for the log and the shut screen. */
+/* What a button that leads to the floor says while the floor is shut, or ""
+   when it is open. With no key it asks about the floor as a whole. */
+function floorLockWord(key,dir){
+  if(key?!floorShutFor(key,dir):!floorFrozen())return "";
+  return ico('lock')+((GAME.floorFreeze||0)>0?" Locked: walkout":" Locked: Capitol occupied");
+}
+/* THE WALKOUT DECISION. Their price, as the concessions on offer right now. */
+function walkoutOptions(){
+  const d=DILEMMAS.walkoutConcessions; if(!d||!walkoutOn())return [];
+  return d.options.map((o,i)=>({i,o})).filter(x=>{ try{ return !x.o.avail||x.o.avail(); }catch(e){ return false; } });
+}
+function walkoutOptionsHTML(){
+  const txt=o=>{ try{ return typeof o.text==="function"?o.text():o.text; }catch(e){ return ""; } };
+  const lab=o=>typeof o.label==="function"?o.label():o.label;
+  return `<div class="dilemma-opts wopts">`+walkoutOptions().map(x=>
+    `<button class="dilemma-opt" data-wopt="${x.i}"><span class="do-label">${lab(x.o)}</span><span class="do-sub">${txt(x.o)}</span></button>`).join("")+`</div>`;
+}
+/* Take one. The result card is the dilemma's own; another dilemma waiting
+   its turn is put back afterwards. */
+function walkoutDecide(idx){
+  const d=DILEMMAS.walkoutConcessions, o=d&&d.options[idx]; if(!o||!walkoutOn())return;
+  try{ if(o.avail&&!o.avail())return; }catch(e){ return; }
+  const other=(GAME.pendingDilemma&&GAME.pendingDilemma!=="walkoutConcessions")?GAME.pendingDilemma:null;
+  GAME.pendingDilemma="walkoutConcessions";
+  resolveDilemma(idx);
+  if(walkoutOn())GAME.walkoutHeld=GAME.turn;      // you refused: the offer is closed
+  if(other)GAME.pendingDilemma=other;
+  render();
+}
+/* On the Governing Board, from the second quarter of a walkout. */
+function walkoutDeskHTML(){
+  if(!walkoutOn())return "";
+  const who=walkoutWho(GAME.walkoutSide||"right"), q=walkoutQuartersLeft();
+  const left=q>0?"the floor reopens in <b>"+q+" quarter"+(q===1?"":"s")+"</b>":"they are due back this quarter";
+  if(GAME.walkoutHeld!=null)
+    return `<div class="wdesk"><div class="wdesk-h">${ico('columns')} Walkout: you refused to pay</div><div class="wdesk-t">The ${who} caucus is still out, and ${left}. Nothing that needs a vote can move until then.</div></div>`;
+  return `<div class="wdesk"><div class="wdesk-h">${ico('columns')} Walkout: their price</div>
+    <div class="wdesk-t">The ${who} caucus is still out. Meet a price and they are back this quarter; refuse, or leave it, and ${left}.</div>${walkoutOptionsHTML()}</div>`;
+}
 function floorShutWhy(){
   if((GAME.floorFreeze||0)>0)return "there is no quorum while the walkout lasts ("+GAME.floorFreeze+"q left)";
   if(capitolOccupied())return "the Capitol is occupied, and nothing passes until the building is cleared";
@@ -23901,12 +23960,14 @@ function showWalkoutScreen(next){
       +'</ul>'
       +(ag.length?'<p><b>Why they went.</b> A caucus walks out over a record, not a poll. The agenda has moved '+(B?Math.max(0,B.drift).toFixed(1):"several")+' points away from them since you took office, most of all through '+list(ag)+'.</p>':'')
       +'<p><b>The ways out.</b></p><ul class="walkout-list">'
-        +'<li><b>Meet their price.</b> It comes to you as a decision each quarter, and they are home the same week.</li>'
+        +'<li><b>Meet their price.</b> The offers are below, and they are home the same week.</li>'
         +'<li><b>Wait.</b> '+(cutShort?'An election ends a walkout, and the next one is '+q+' quarter'+(q===1?'':'s')+' away.':'A walkout lasts three quarters; they come back on their own in '+q+'.')+'</li>'
-        +'<li><b>End the tactic.</b> The Simple-Majority Quorum amendment, or two-thirds of '+(prOn()?"the Assembly":"both chambers")+', and there is no quorum left to deny.</li>'
+        +'<li><b>End the tactic, for next time.</b> The Simple-Majority Quorum amendment, or two-thirds of '+(prOn()?"the Assembly":"both chambers")+', leaves no quorum to deny. The amendment has to be referred by the legislature, so not while they are gone.</li>'
       +'</ul>'
     +'</div>'
-    +'<button class="enactbtn eg-go" id="walkoutContinue">Continue \u25b8</button>'
+    +'<div class="walkout-ask"><div class="walkout-ask-h">Your answer</div>'+walkoutOptionsHTML()
+      +'<div class="walkout-ask-n">Or decide later: the same offers stay on the Governing Board until you choose or the walkout ends.</div></div>'
+    +'<button class="enactbtn eg-go" id="walkoutContinue">Decide later \u25b8</button>'
     +'</div>';
   modal.classList.add('grand');
   modal.classList.remove('hidden');
@@ -23921,6 +23982,10 @@ function showWalkoutScreen(next){
     if(e.key==='Enter'||e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); done(); } };
   const btn=document.getElementById('walkoutContinue');
   if(btn)btn.onclick=done;
+  // an answer given here closes the screen first, then lands like any decision
+  card.querySelectorAll('[data-wopt]').forEach(b=>b.addEventListener('click',()=>{ const i=+b.dataset.wopt;
+    modal.classList.add('hidden'); modal.classList.remove('grand'); document.removeEventListener('keydown',onKey,true);
+    walkoutDecide(i); if(next)next(); }));
   document.addEventListener('keydown',onKey,true);
   setTimeout(()=>{ try{ btn&&btn.focus({preventScroll:true}); }catch(e){} },30);
 }
@@ -27127,6 +27192,7 @@ function renderBoard(){
       <div class="bc-cell" id="bNmBlock" style="cursor:pointer"><div class="bc-h">National Political Mood</div><div class="nmbar"><span class="nmend">−</span><div class="nmtrack"><i id="bNmFill"></i></div><span class="nmend">+</span></div><div id="bNmLabel" class="mono bc-v" style="text-align:center"></div></div>
       <div class="bc-cell"><div class="bc-h">Economic Climate</div><div class="nmbar"><span class="nmend">▼</span><div class="nmtrack"><i id="bEcoFill"></i></div><span class="nmend">▲</span></div><div id="bEcoLabel" class="mono bc-v" style="text-align:center"></div></div>
     </div>`;
+  h+=walkoutDeskHTML();
   // ---- anything you have put before the voters rides above the crises ----
   if(GAME.ballot&&GAME.ballot.pending&&GAME.ballot.pending.length){
     const nb=nextBallotInfo();
@@ -27157,7 +27223,7 @@ function renderBoard(){
       // event (weather, a quake, a recession) passes on its own
       const tag = s.kind==="good" ? (s.category==="event" ? "WINDFALL" : "BRIGHT SPOT")
         : (s.category==="event" ? "EVENT" : "CRISIS");
-      h+=`<div class="crisis-card ${s.kind} ${s.category}${isNew?' crisis-new':''}${sid==="cascadiaQuake"?' crisis-major':''}" data-detail="s_${sid}" style="animation-delay:${ci*45}ms">
+      h+=`<div class="crisis-card ${s.kind} ${s.category}${isNew?' crisis-new':''}${sid==="cascadiaQuake"?' crisis-major':''}${(sid==="gopWalkout"||sid==="demWalkout")?' walkout':''}" data-detail="s_${sid}" style="animation-delay:${ci*45}ms">
         <div class="crisis-top"><span class="crisis-tag">${tag}</span><span class="crisis-age">${age}q</span></div>
         <div class="crisis-name">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div>
         <div class="crisis-desc">${descHTML(sitStory(s))}</div>
@@ -27414,6 +27480,8 @@ function renderBoard(){
   }));
   {const bs=document.getElementById("boardSeed"); if(bs)bs.addEventListener("click",()=>copySeedLink(bs));}
   // the ballot strip jumps straight to the measure half of Campaign HQ
+  // the walkout's offers, when one is on
+  main.querySelectorAll('[data-wopt]').forEach(b=>b.addEventListener('click',()=>walkoutDecide(+b.dataset.wopt)));
   main.querySelectorAll('[data-gotoballot]').forEach(el=>el.addEventListener('click',()=>{
     GAME.campTab="ballot"; currentView="camphq"; detailKey=null; render();
   }));
@@ -27862,8 +27930,9 @@ function renderDetail(){
         if(floorBlocked(id,"enact"))
           h+=`<div class="whip-prev dead">${ico('ban')} Defeated on the floor. It cannot be brought back for ${GAME.floorFail["enact"+id]-GAME.turn} more quarter${(GAME.floorFail["enact"+id]-GAME.turn)===1?'':'s'} — the chamber has voted and will not be asked again this soon.</div>`;
         else h+=whipPreviewHTML(id,"enact");
-        h+=`<div class="repealrow"><button class="enactbtn" data-enact="${id}" ${(!floorBlocked(id,"enact")&&afford&&!pendingMeasure(id))?'':'disabled'}>${
+        h+=`<div class="repealrow"><button class="enactbtn" data-enact="${id}" ${(!floorBlocked(id,"enact")&&afford&&!pendingMeasure(id)&&!floorLockWord("p_"+id,"enact"))?'':'disabled'}>${
           pendingMeasure(id)?`Already before the voters`
+          :floorLockWord("p_"+id,"enact")?floorLockWord("p_"+id,"enact")
           :cFloor?(afford?`Take it to the floor `+ico('columns')
                         :(cMin===null?`The votes are not there`:`Need ◈ ${cMin} at its narrowest`))
           :(afford?`Refer to the voters (◈ ${ec})`:`Need ◈ ${ec} to refer it`)}</button></div>`;
@@ -27928,7 +27997,7 @@ function renderDetail(){
       if(floorBlocked(id,"repeal"))
         h+=`<div class="whip-prev dead">${ico('ban')} That repeal was defeated on the floor — it cannot return for ${GAME.floorFail["repeal"+id]-GAME.turn} more quarter${(GAME.floorFail["repeal"+id]-GAME.turn)===1?'':'s'}.</div>`;
       else h+=whipPreviewHTML(id,"repeal");
-      h+=`<div class="repealrow">${undoBtnHTML}<button class="repealbtn" data-repeal="${id}" ${((GAME.capital>=rc||goesToFloor(p,"repeal"))&&!pendingMeasure(id))?'':'disabled'}>${pendingMeasure(id)?`Repeal is before the voters`:p.reform?(GAME.capital>=rc?`Refer repeal to the voters (◈ ${rc})`:`Need ◈ ${rc} to refer a repeal`):goesToFloor(p,"repeal")?`✘ Take repeal to the floor`:(GAME.capital>=rc?`✘ Repeal this law (◈ ${rc})`:`✘ Repeal this law — need ◈ ${rc}`)}</button></div>`;
+      h+=`<div class="repealrow">${undoBtnHTML}<button class="repealbtn" data-repeal="${id}" ${((GAME.capital>=rc||goesToFloor(p,"repeal"))&&!pendingMeasure(id)&&!((p.reform||goesToFloor(p,"repeal"))&&floorLockWord("p_"+id,"repeal")))?'':'disabled'}>${pendingMeasure(id)?`Repeal is before the voters`:((p.reform||goesToFloor(p,"repeal"))&&floorLockWord("p_"+id,"repeal"))?floorLockWord("p_"+id,"repeal"):p.reform?(GAME.capital>=rc?`Refer repeal to the voters (◈ ${rc})`:`Need ◈ ${rc} to refer a repeal`):goesToFloor(p,"repeal")?`✘ Take repeal to the floor`:(GAME.capital>=rc?`✘ Repeal this law (◈ ${rc})`:`✘ Repeal this law — need ◈ ${rc}`)}</button></div>`;
     } else {
       // toggle/intensity mechanics already have a real off switch built into
       // the card above — flipping it costs capital through the same pending-
@@ -28577,9 +28646,10 @@ function renderPolicies(){
           : `<span class="pill cap">◈ ${ecost} to refer${oppTax>0?` <span style="opacity:.7">(+${oppTax} opposition)</span>`:''}</span>`}</div>
       <button class="ebtoggle" data-eb="${id}">▸ Projected effects if enacted</button>
       <div class="cat-eb hidden" id="eb_${id}">${effectsBreakdownHTML("policy",p)}</div>
-      <button class="enactbtn" data-enact="${id}" ${(!beaten&&afford&&!pendingMeasure(id))?'':'disabled'}>${
+      <button class="enactbtn" data-enact="${id}" ${(!beaten&&afford&&!pendingMeasure(id)&&!floorLockWord("p_"+id,"enact"))?'':'disabled'}>${
         beaten?'Defeated — back in '+back+'q'
         :pendingMeasure(id)?'On the ballot'
+        :floorLockWord("p_"+id,"enact")?floorLockWord("p_"+id,"enact")
         :floorPol?(afford?'To the floor':(floorMin===null?'The votes are not there':'Need ◈ '+floorMin+' at its narrowest'))
         :(afford?'Refer to the voters':'Need ◈ '+ecost+' capital')}</button>
     </div>`;
@@ -30214,7 +30284,7 @@ function apptCompareHTML(id){
   h+=`<tr><th>Pleases</th>`+cols.map(x=>`<td>${SIMULANTS[x.c.group]?SIMULANTS[x.c.group].name:"—"}</td>`).join("")+`</tr>`;
   if(!prOn())h+=`<tr><th title="Legislators: a nominee pleases your members whose districts are made of the group they come from, and angers the ones whose districts are made of the group they are against">Legislators</th>`+cols.map(x=>`<td class="acmp-ties">${caucusTiesHTML(caucusApptTies(x.c.group,x.c.foe,x.c.side),x.c.side)}</td>`).join("")+`</tr>`;
   h+=`<tr><th>Angers</th>`+cols.map(x=>`<td>${x.c.foe&&SIMULANTS[x.c.foe]?SIMULANTS[x.c.foe].name:"—"}</td>`).join("")+`</tr>`;
-  h+=`<tr><th></th>`+cols.map(x=>`<td><button class="fcard-btn" data-apptnom="${id}:${x.i}">Nominate</button></td>`).join("")+`</tr>`;
+  h+=`<tr><th></th>`+cols.map(x=>`<td><button class="fcard-btn" data-apptnom="${id}:${x.i}" ${floorLockWord()?"disabled":""}>${floorLockWord()||"Nominate"}</button></td>`).join("")+`</tr>`;
   const ovNow=Math.round(INDICATORS.adminOverhead.value);
   h+=`</tbody></table></div><div class="acmp-key"><b>Best in each row</b> is highlighted.${hv(" Hover a trait for the full description.","")}</div>`;
   // what the overhead row is actually spending
@@ -30648,7 +30718,7 @@ function renderSidebar(){
     keys=Object.keys(GAME.activeSituations).filter(k=>SITUATIONS[k]);
   sl.innerHTML=keys.length?keys.map(sid=>{const s=SITUATIONS[sid];
     const age=GAME.situationAge[sid]||0;
-    return `<div class="sit ${s.kind} sit-link" data-detail="s_${sid}"><div class="sname">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div><div class="sdesc">${sitCardLine(sid)}</div><div class="sage">${s.category==='event'?'event':'condition'} · ${age+1}q active</div></div>`;}).join(''):'<div class="empty">No active situations.</div>';
+    return `<div class="sit ${s.kind} sit-link${(sid==="gopWalkout"||sid==="demWalkout")?' walkout':''}" data-detail="s_${sid}"><div class="sname">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div><div class="sdesc">${sitCardLine(sid)}</div><div class="sage">${s.category==='event'?'event':'condition'} · ${age+1}q active</div></div>`;}).join(''):'<div class="empty">No active situations.</div>';
   document.getElementById("logList").innerHTML=GAME.log.length?GAME.log.slice().reverse().map(l=>`<div class="log">${l}</div>`).join(''):'<div class="empty">—</div>';
   sl.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
   const nb=document.getElementById("nmBlock"), nl=document.getElementById("nmLabel");
