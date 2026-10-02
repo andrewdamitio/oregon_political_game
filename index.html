@@ -10581,7 +10581,7 @@ const SITUATIONS={
     groupMood:{suburban:-5,blueCollar:-3,parents:-5}},
   gopWalkout:{name:"Legislative Walkout", kind:"bad", category:"condition",
     get card(){ return walkoutCardLine("right"); },
-    get desc(){ return walkoutWho("right")+" legislators have left the state to deny the quorum, and nothing of yours can pass while they are gone. Article IV section 12 sets the quorum at two-thirds, so the minority can end a session by leaving. It killed cap-and-trade twice. Whoever is out of power does the walking: a progressive governor faces Republicans in Idaho, a Republican governor faces Democrats in Washington.\n\nNo bill of yours reaches a floor for three full quarters, and no capital changes that because nobody is there. Meet their price and end it that quarter, or wait them out.\n\nYour agenda triggers it, not your polling. There has to be something on the books to walk out over, and the further you push past the settlement you inherited, the closer they get to the buses. New laws count, and so do changes to the ones already in force and what you fund or cut in the budget. How isolated their voters feel sharpens it, and how popular you are decides whether they dare.\n\nA Simple-Majority Quorum amendment ends the tactic, as does holding two-thirds of both chambers, or a coalition with two-thirds of the Assembly under proportional representation."+walkoutPrNote(); },
+    get desc(){ return walkoutWho("right")+" legislators have left the state to deny the quorum, and nothing of yours can pass while they are gone. Article IV section 12 sets the quorum at two-thirds, so the minority can end a session by leaving. It killed cap-and-trade twice. Whoever is out of power does the walking: a progressive governor faces Republicans in Idaho, a Republican governor faces Democrats in Washington.\n\nNo bill of yours reaches a floor for three full quarters, and no capital changes that because nobody is there. Meet their price and end it that quarter, or wait them out. An election ends it early, since a new legislature is seated, and nobody walks out in the quarter before one.\n\nYour agenda triggers it, not your polling. There has to be something on the books to walk out over, and the further you push past the settlement you inherited, the closer they get to the buses. New laws count, and so do changes to the ones already in force and what you fund or cut in the budget. How isolated their voters feel sharpens it, and how popular you are decides whether they dare.\n\nA Simple-Majority Quorum amendment ends the tactic, as does holding two-thirds of both chambers, or a coalition with two-thirds of the Assembly under proportional representation."+walkoutPrNote(); },
     trigger:()=>walkoutTrigger("right"),
     // exactly three quarters, then they come home — the escape hatches end it early
     clear:()=>POLICIES.quorumReform || quorumProof() || (GAME.situationAge.gopWalkout||0) >= 3,
@@ -10595,7 +10595,7 @@ const SITUATIONS={
     groupMood:{moderate:-3, businessClass:-3}},
   demWalkout:{name:"Legislative Walkout", kind:"bad", category:"condition",
     get card(){ return walkoutCardLine("left"); },
-    get desc(){ return walkoutWho("left")+" legislators have left the state to deny the quorum, and nothing of yours can pass while they are gone. Article IV section 12 sets the quorum at two-thirds, and it belongs to whoever is out of power. Republicans used it to kill cap-and-trade twice. Against a Republican governor the Democrats use it, and the buses go north to Vancouver and Olympia. Democrats have done this before when they had nothing else: Wisconsin in 2011 over Act 10, Texas in 2021 over a voting bill, and Oregon's Senate Democrats over redistricting in 2001.\n\nThey walk out over a bill, not a poll: a corporate tax cut, narrowed bargaining rights, abortion limits, right-to-work, gutted paid leave. Changes to laws already in force count too, and so does the budget. The building stops for three full quarters, and no political capital changes that because nobody is there to spend it on. Meet their price and end it early, or wait them out while your own coalition watches.\n\nA Simple-Majority Quorum amendment ends the tactic for good, as does holding two-thirds of both chambers, or, under proportional representation, a coalition with two-thirds of the Assembly."+walkoutPrNote(); },
+    get desc(){ return walkoutWho("left")+" legislators have left the state to deny the quorum, and nothing of yours can pass while they are gone. Article IV section 12 sets the quorum at two-thirds, and it belongs to whoever is out of power. Republicans used it to kill cap-and-trade twice. Against a Republican governor the Democrats use it, and the buses go north to Vancouver and Olympia. Democrats have done this before when they had nothing else: Wisconsin in 2011 over Act 10, Texas in 2021 over a voting bill, and Oregon's Senate Democrats over redistricting in 2001.\n\nThey walk out over a bill, not a poll: a corporate tax cut, narrowed bargaining rights, abortion limits, right-to-work, gutted paid leave. Changes to laws already in force count too, and so does the budget. The building stops for three full quarters, and no political capital changes that because nobody is there to spend it on. Meet their price and end it early, or wait them out while your own coalition watches. An election ends it early, since a new legislature is seated, and nobody walks out in the quarter before one.\n\nA Simple-Majority Quorum amendment ends the tactic for good, as does holding two-thirds of both chambers, or, under proportional representation, a coalition with two-thirds of the Assembly."+walkoutPrNote(); },
     trigger:()=>walkoutTrigger("left"),
     clear:()=>POLICIES.quorumReform || quorumProof() || (GAME.situationAge.demWalkout||0) >= 3,
     onStart:()=>{
@@ -19419,12 +19419,34 @@ function walkoutPressure(){
    side doing the asking. Both walkouts route through this, so the two cannot
    drift apart the way they did when the left-hand one was a flag set on the
    right-hand one. */
+/* The quarter before a legislative election, and the election quarter
+   itself: members are home campaigning, and a walkout would be a gift to
+   whoever runs against them. */
+function walkoutElectionEve(){
+  const nb=(typeof nextBallotInfo==="function")?nextBallotInfo():null;
+  return !!(nb&&nb.quartersAway<=1);
+}
+/* How many quarters a running walkout has left: its own clock, or the
+   election if that comes first. */
+function walkoutQuartersLeft(){
+  const q=Math.max(0,GAME.floorFreeze||0), nb=(typeof nextBallotInfo==="function")?nextBallotInfo():null;
+  return nb&&nb.quartersAway>=1?Math.min(q,nb.quartersAway):q;
+}
+/* AN ELECTION ENDS A WALKOUT. Called as the legislature is elected. */
+function walkoutEndAtElection(){
+  const id=walkoutOn(); if(!id)return;
+  const who=walkoutWho(GAME.walkoutSide||"right");
+  GAME.floorFreeze=0;
+  endSituation(id);
+  GAME.log.push(ico('columns')+" The walkout is over: a new legislature is seated, and the "+who+" members take their seats in it.");
+}
 function walkoutTrigger(side){
   if(POLICIES.quorumReform) return false;                        // amendment ended denial-of-quorum
   if(quorumProof()) return false;                                // nobody left to walk out with
   // too many of them would refuse to leave: the quorum would hold anyway
   if(!prOn()&&side!==(GAME.startId==="conservative"?"right":"left")&&caucusWalkoutBroken()){ if(GAME._walkHeldT!==GAME.turn){ GAME._walkHeldT=GAME.turn; GAME.log.push(ico('columns')+" The "+oppPartyPlural()+" talked about a walkout, but too many of their own members would stay in their seats to deny the quorum."); } return false; }
   if(walkoutOn()) return false;                                  // one caucus is already gone
+  if(walkoutElectionEve()) return false;                         // nobody walks out on the eve of a ballot
   if(GAME.turn < (GAME.walkoutIgnoredUntil||0)) return false;    // you already chose to ignore this round
   if(GAME.turn < (GAME.walkoutCooldownUntil||0)) return false;   // not twice in one session
   if(GAME.turn < 4) return false;                                // not before you have a record to walk out over
@@ -21630,10 +21652,11 @@ function walkoutOutlook(){
   // under PR it holds when the parties on their side have a third of the Assembly or less
   const held=pr?(prWalkSeats(w.side)<prWalkNeeded()):(!w.own&&r.house.length>=needH&&r.senate.length>=needS);
   const on=walkoutOn(), cool=GAME.turn<(GAME.walkoutCooldownUntil||0), ignored=GAME.turn<(GAME.walkoutIgnoredUntil||0), early=GAME.turn<4;
-  const gated=cool||ignored||early||held||w.provoke<WALK_PROVOKE_MIN||w.heat<WALK_HEAT_MIN;
+  const eve=walkoutElectionEve();
+  const gated=eve||cool||ignored||early||held||w.provoke<WALK_PROVOKE_MIN||w.heat<WALK_HEAT_MIN;
   const chance=on||gated?0:clamp((w.heat-WALK_HEAT_MIN)*WALK_RATE*walkoutNerve(),0,WALK_MAX);
   const level=on?"out":chance>=0.2?"high":chance>0?"risk":(w.heat>=WALK_HEAT_MIN*0.6&&!held)?"watch":"calm";
-  return {w, r, needH, needS, held, on, cool, ignored, early, chance, level, pr,
+  return {w, r, needH, needS, held, on, cool, ignored, early, eve, chance, level, pr,
           who:pr?"the "+walkoutWho(w.side)+" "+(walkoutWho(w.side).indexOf(" and ")>=0?"parties":"party"):w.own?"your own party":"the "+oppPartyPlural()};
 }
 /* WALKOUT PRESSURE, ITEMISED. Four parts in points that add to the
@@ -21689,7 +21712,7 @@ function walkoutWatchHTML(){
   const w=o.w, [word,col]=WALK_LEVEL[o.level], pct=v=>Math.round(clamp(v,0,1)*100)+"%";
   let h=`<div class="wwatch"><div class="ww-h">${ico('columns')} Walkout watch <b style="color:${col}">${word}</b>${o.chance>0?` <span class="ww-odds">${Math.round(o.chance*100)}% chance they walk this quarter</span>`:""}</div>`;
   if(o.on){
-    const q=Math.max(0,GAME.floorFreeze||0);
+    const q=walkoutQuartersLeft(), cut=q<Math.max(0,GAME.floorFreeze||0);
     h+=`<div class="ww-t">${o.who.charAt(0).toUpperCase()+o.who.slice(1)} have left the state${q>0?`, and nothing reaches a floor for ${q} more quarter${q===1?"":"s"}`:", and are due back this quarter"}. Their price comes to you as a decision each quarter; meet it and they come home, or wait them out.</div></div>`;
     return h;
   }
@@ -21700,7 +21723,8 @@ function walkoutWatchHTML(){
   // the chance, as the sum it is
   if(o.chance>0){ const raw=(pr-WALK_HEAT_MIN*100)*WALK_RATE*nerve;
     h+=`<div class="ww-f">(${pr} − ${Math.round(WALK_HEAT_MIN*100)}) × ${WALK_RATE} × ${nerve.toFixed(2)} for your ${overallApproval().toFixed(0)}% approval = <b>${Math.round(o.chance*100)}% a quarter</b>${raw>=cap?", the most it can be":""}</div>`; }
-  const why=o.early?"Too early in your term for anyone to walk out over your record."
+  const why=o.eve?"An election is a quarter away or less: nobody walks out on the eve of a ballot."
+    :o.early?"Too early in your term for anyone to walk out over your record."
     :o.cool?"They walked out recently and will not try again before "+caucusQ(GAME.walkoutCooldownUntil)+"."
     :o.ignored?"They backed down this round, until "+caucusQ(GAME.walkoutIgnoredUntil)+"."
     :o.held?(o.pr?"The parties on their side hold a third of the Assembly or less, so they cannot empty it.":"Too many of their members would stay in their seats, so a walkout cannot deny the quorum.")
@@ -23843,7 +23867,8 @@ function showWalkoutScreen(next){
   const side=W.side||GAME.walkoutSide||"right", who=walkoutWho(side), many=who.indexOf(" and ")>=0;
   const mineSide=GAME.startId==="conservative"?"right":"left", own=side===mineSide&&!prOn();
   const where=side==="right"?"Idaho":"Washington";
-  const q=Math.max(1,GAME.floorFreeze||3), L=GAME.legis||{};
+  const cutShort=walkoutQuartersLeft()<Math.max(0,GAME.floorFreeze||3);
+  const q=Math.max(1,walkoutQuartersLeft()||GAME.floorFreeze||3), L=GAME.legis||{};
   let B=null; try{ B=walkoutBreakdown(); }catch(e){}
   const ag=B?(B.parts.find(p=>p.id==="agenda")||{items:[]}).items.filter(x=>x.pts>=0.5).slice(0,3).map(x=>x.nm):[];
   const list=a=>a.length>1?a.slice(0,-1).join(", ")+" and "+a[a.length-1]:a[0]||"";
@@ -23870,7 +23895,7 @@ function showWalkoutScreen(next){
       +(ag.length?'<p><b>Why they went.</b> A caucus walks out over a record, not a poll. The agenda has moved '+(B?Math.max(0,B.drift).toFixed(1):"several")+' points away from them since you took office, most of all through '+list(ag)+'.</p>':'')
       +'<p><b>The ways out.</b></p><ul class="walkout-list">'
         +'<li><b>Meet their price.</b> It comes to you as a decision each quarter, and they are home the same week.</li>'
-        +'<li><b>Wait.</b> A walkout lasts three quarters; they come back on their own in '+q+'.</li>'
+        +'<li><b>Wait.</b> '+(cutShort?'An election ends a walkout, and the next one is '+q+' quarter'+(q===1?'':'s')+' away.':'A walkout lasts three quarters; they come back on their own in '+q+'.')+'</li>'
         +'<li><b>End the tactic.</b> The Simple-Majority Quorum amendment, or two-thirds of '+(prOn()?"the Assembly":"both chambers")+', and there is no quorum left to deny.</li>'
       +'</ul>'
     +'</div>'
@@ -24281,6 +24306,7 @@ function splinterName(side){ return side==="left" ? "Working Families" : "Consti
 function centreName(){ return "Oregon Forward"; }
 function centreRuns(){ return prOn(); }
 function runLegislativeElection(approval){
+  walkoutEndAtElection();   // whoever walked out, the chamber they left no longer exists
   // An amendment ratified last cycle comes into force at THIS election —
   // the first one held under the new rules. Read where you stood BEFORE
   // flipping the switch, because legisStanding answers for whatever kind of
