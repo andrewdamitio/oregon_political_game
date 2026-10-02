@@ -944,6 +944,10 @@
   .wdesk[data-wlink]{cursor:pointer;transition:border-color .15s}
   .wdesk[data-wlink]:hover{border-color:var(--slate-blue)}
   .wdesk[data-wlink]:hover .wdesk-more{text-decoration-thickness:2px}
+  .wb-list{margin:4px 0 0;padding-left:18px}
+  .wb-list li{margin:3px 0}
+  .wb-what{margin-top:8px;font-size:13.5px;line-height:1.45}
+  .wb-what summary{cursor:pointer;color:var(--slate-blue);font-size:13px}
   .wdesk-h{font-family:var(--font-display);font-size:16px;display:flex;align-items:center;gap:7px}
   .wdesk-t{font-size:13.5px;color:var(--muted-1);margin:4px 0 2px;line-height:1.45}
   .wopts{margin-top:8px}
@@ -9077,8 +9081,8 @@ const DILEMMAS={
         +`<b>${q||3} more quarter${(q||3)===1?"":"s"}</b> whatever you do, and until then nothing can be voted on — `
         +`not their bills, not yours. Meet the whole price and the caucus is back and the floor is open <b>this quarter</b>.`;
       return (left
-        ? "The "+walkoutWho("left")+" caucus is across the river in Vancouver, and no bill can move. Their price is "+walkoutPriceWord()+" concessions from the list below, each one undoing part of your rightward turn."
-        : "The "+walkoutWho("right")+" caucus is in Idaho, and no bill can move. Their price is "+walkoutPriceWord()+" concessions from the list below.")
+        ? "The "+walkoutWho("left")+" caucus is across the river in Vancouver, and no bill can move. Their price is "+walkoutPriceWord()+" concessions at once."
+        : "The "+walkoutWho("right")+" caucus is in Idaho, and no bill can move. Their price is "+walkoutPriceWord()+" concessions at once.")
         + clock;
     },
     influence:()=>-1,   // never a popup: decided on the walkout's screen, then on the Governing Board
@@ -11294,7 +11298,7 @@ function _sitAge(sid){ return (GAME.situationAge&&GAME.situationAge[sid])||0; }
                fc("Simple-Majority Quorum has not passed", POLICIES.quorumReform?"passed":"not passed", !POLICIES.quorumReform) ]],
       end:[[ fc("Pass Simple-Majority Quorum, which ends walkouts for good", POLICIES.quorumReform?"passed":"not passed", !!POLICIES.quorumReform) ],
            [ fc("Hold two-thirds of the seats, so there is no quorum to deny", quorumTxt, quorumProof()) ],
-           [ fc("Meet their price: "+walkoutPriceWord()+" concessions, on the Governing Board", (GAME.walkoutConceded||0)+" of "+WALK_PRICE+" given", false) ],
+           [ fc("Accept one of their packages of "+walkoutPriceWord()+" concessions, on the Governing Board", walkoutBundles().length+" on offer", false) ],
            [ fc("Wait: it ends after three quarters, or at the next election", "quarter "+(_sitAge(sid)+1), _sitAge(sid)>=2) ]]};
   };
   /* ---- crises you cause ---- */
@@ -19574,8 +19578,8 @@ function floorLockWord(key,dir){
   if(key?!floorShutFor(key,dir):!floorFrozen())return "";
   return ico('lock')+((GAME.floorFreeze||0)>0?" Locked: walkout":" Locked: Capitol occupied");
 }
-/* THE WALKOUT DECISION. Their price is WALK_PRICE concessions; each one you
-   give counts toward it, and the last one brings them home. */
+/* THE WALKOUT DECISION. Their price is WALK_PRICE concessions at once, taken
+   as one of their packages; the last of the package brings them home. */
 const WALK_PRICE=3;
 function walkoutPriceWord(){ return ["no","one","two","three","four"][WALK_PRICE]||String(WALK_PRICE); }
 function walkoutStillOwed(){ return Math.max(0,WALK_PRICE-(GAME.walkoutConceded||0)); }
@@ -19584,41 +19588,87 @@ function walkoutConcede(what){
   if(walkoutStillOwed()<=0){
     endWalkout();
     GAME.log.push(what+". That meets their price: the caucus comes home and the floor reopens");
-  } else GAME.log.push(what+". They want "+walkoutStillOwed()+" more before they come back");
+  } else GAME.log.push(what);
 }
-/* The concessions still open, plus the refusal. When fewer remain than they
-   still want, the price cannot be met and only the refusal is left. */
-function walkoutOptions(){
+/* The concessions still open, as option indexes. */
+function walkoutOpenConcessions(){
   const d=DILEMMAS.walkoutConcessions; if(!d||!walkoutOn())return [];
-  const open=d.options.map((o,i)=>({i,o})).filter(x=>{ try{ return !x.o.avail||x.o.avail(); }catch(e){ return false; } });
-  const conc=open.filter(x=>x.o.concede);
-  return conc.length>=walkoutStillOwed()?open:open.filter(x=>!x.o.concede);
+  return d.options.map((o,i)=>({i,o})).filter(x=>{ try{ return x.o.concede&&(!x.o.avail||x.o.avail()); }catch(e){ return false; } }).map(x=>x.i);
+}
+/* THEIR PACKAGES. The caucus puts its price as whole packages of WALK_PRICE
+   concessions: take one and they come home. Up to three, chosen so that
+   between them they cover as much of the list as they can. */
+function walkoutBundles(){
+  const open=walkoutOpenConcessions(), k=WALK_PRICE;
+  if(open.length<k)return [];
+  const combos=[];
+  const pick=(start,cur)=>{ if(cur.length===k){ combos.push(cur.slice()); return; }
+    for(let i=start;i<open.length;i++){ cur.push(open[i]); pick(i+1,cur); cur.pop(); } };
+  pick(0,[]);
+  // each next package brings in what the others left out, and leans least on
+  // the concessions already offered
+  const out=[], uses={};
+  while(out.length<3&&out.length<combos.length){
+    let best=null, bestScore=-1e9;
+    for(const c of combos){ if(out.indexOf(c)>=0)continue;
+      const sc=c.filter(x=>!uses[x]).length*10-c.reduce((t,x)=>t+(uses[x]||0),0);
+      if(sc>bestScore){ best=c; bestScore=sc; } }
+    if(!best)break;
+    out.push(best); best.forEach(x=>uses[x]=(uses[x]||0)+1);
+  }
+  return out;
+}
+/* The refusal, which is always on the table. */
+function walkoutRefuseIdx(){
+  const d=DILEMMAS.walkoutConcessions; return d?d.options.findIndex(o=>!o.concede):-1;
 }
 /* Can the price still be met with what is open? */
-function walkoutPriceOpen(){ return walkoutOptions().filter(x=>x.o.concede).length>0; }
+function walkoutPriceOpen(){ return walkoutBundles().length>0; }
 /* One line on where the price stands. */
 function walkoutPriceLine(){
-  const d=DILEMMAS.walkoutConcessions, owed=walkoutStillOwed(), got=GAME.walkoutConceded||0;
-  const n=d?d.options.filter(o=>{ try{ return o.concede&&(!o.avail||o.avail()); }catch(e){ return false; } }).length:0;
-  if(n<owed)return "Their price is "+walkoutPriceWord()+" concessions"+(got?" and you have given "+got:"")+", but only "+n+" of the ones they asked for "+(n===1?"is":"are")+" still open. The price cannot be met, so the walkout runs its course.";
-  return got?"You have given "+got+" of the "+walkoutPriceWord()+" concessions they want. "+(owed===1?"One more brings":(["","One","Two","Three"][owed]||owed)+" more bring")+" them home this quarter."
-            :"Their price is "+walkoutPriceWord()+" concessions from this list. Give them all and they come home this quarter.";
+  const n=walkoutOpenConcessions().length, b=walkoutBundles().length;
+  if(!b)return "Their price is "+walkoutPriceWord()+" concessions at once, but only "+n+" of the ones they would accept "+(n===1?"is":"are")+" open to you. The price cannot be met, so the walkout runs its course.";
+  return "Their price is "+walkoutPriceWord()+" concessions at once. They have put "+(b===1?"one package":(["","one","two","three"][b])+" packages")+" on the table. Accept one and they come home this quarter.";
 }
 function walkoutOptionsHTML(){
+  const d=DILEMMAS.walkoutConcessions; if(!d)return "";
   const txt=o=>{ try{ return typeof o.text==="function"?o.text():o.text; }catch(e){ return ""; } };
   const lab=o=>typeof o.label==="function"?o.label():o.label;
-  return `<div class="dilemma-opts wopts">`+walkoutOptions().map(x=>
-    `<button class="dilemma-opt" data-wopt="${x.i}"><span class="do-label">${lab(x.o)}</span><span class="do-sub">${txt(x.o)}</span></button>`).join("")+`</div>`;
+  const bundles=walkoutBundles(), r=walkoutRefuseIdx();
+  return `<div class="dilemma-opts wopts">`
+    +bundles.map((c,n)=>`<button class="dilemma-opt wbundle" data-wopt="${c.join(",")}"><span class="do-label">Package ${n+1}</span>`
+      +`<span class="do-sub"><ul class="wb-list">`+c.map(i=>`<li>${lab(d.options[i])}</li>`).join("")+`</ul></span></button>`).join("")
+    +(r>=0?`<button class="dilemma-opt" data-wopt="${r}"><span class="do-label">${lab(d.options[r])}</span><span class="do-sub">${txt(d.options[r])}</span></button>`:"")
+    +`</div>`
+    // what each concession in the packages does, said once
+    +(bundles.length?`<details class="wb-what"><summary>What each concession does</summary><ul class="wb-list">`
+      +[...new Set([].concat(...bundles))].map(i=>`<li><b>${lab(d.options[i])}.</b> ${txt(d.options[i])}</li>`).join("")+`</ul></details>`:"");
 }
-/* Take one. The result card is the dilemma's own; another dilemma waiting
-   its turn is put back afterwards. */
-function walkoutDecide(idx){
-  const d=DILEMMAS.walkoutConcessions, o=d&&d.options[idx]; if(!o||!walkoutOn())return;
-  try{ if(o.avail&&!o.avail())return; }catch(e){ return; }
+/* Take a package, or refuse. A package is its concessions applied in turn,
+   shown as one result card; another dilemma waiting its turn is put back. */
+function walkoutDecide(spec){
+  const d=DILEMMAS.walkoutConcessions; if(!d||!walkoutOn())return;
+  const idxs=String(spec).split(",").map(Number).filter(i=>d.options[i]);
+  if(!idxs.length)return;
+  const refuse=idxs.length===1&&!d.options[idxs[0]].concede;
+  if(!refuse){
+    if(idxs.length!==WALK_PRICE)return;
+    const open=walkoutOpenConcessions(); if(idxs.some(i=>open.indexOf(i)<0))return;
+  }
   const other=(GAME.pendingDilemma&&GAME.pendingDilemma!=="walkoutConcessions")?GAME.pendingDilemma:null;
-  GAME.pendingDilemma="walkoutConcessions";
-  resolveDilemma(idx);
-  if(!o.concede&&walkoutOn())GAME.walkoutHeld=GAME.turn;      // you refused: the offer is closed
+  const fx=[], names=[];
+  for(const i of idxs){
+    GAME.pendingDilemma="walkoutConcessions";
+    resolveDilemma(i);
+    const r=GAME.lastDilemmaResult; if(r){ names.push(r.choice); (r.fx||[]).forEach(f=>fx.push(f)); }
+  }
+  if(!refuse){
+    // one row per bloc or gauge, summed across the package
+    const byWho={}, merged=[];
+    for(const f of fx){ const k=f.kind+"|"+f.who; if(byWho[k]){ byWho[k].val=+(byWho[k].val+f.val).toFixed(1); } else { byWho[k]=Object.assign({},f); merged.push(byWho[k]); } }
+    GAME.lastDilemmaResult={title:d.title, icon:d.icon, choice:"Their package: "+names.join("; "), fx:merged};
+  }
+  if(refuse&&walkoutOn())GAME.walkoutHeld=GAME.turn;      // you refused: the offer is closed
   if(other)GAME.pendingDilemma=other;
   render();
 }
@@ -24035,13 +24085,13 @@ function showWalkoutScreen(next){
       +'</ul>'
       +(ag.length?'<p><b>Why they went.</b> A caucus walks out over a record, not a poll. The agenda has moved '+(B?Math.max(0,B.drift).toFixed(1):"several")+' points away from them since you took office, most of all through '+list(ag)+'.</p>':'')
       +'<p><b>The ways out.</b></p><ul class="walkout-list">'
-        +'<li><b>Meet their price.</b> They want '+walkoutPriceWord()+' concessions from the list below. Give them all and they are home the same week.</li>'
+        +'<li><b>Meet their price.</b> They want '+walkoutPriceWord()+' concessions at once, offered as the packages below. Accept one and they are home the same week.</li>'
         +'<li><b>Wait.</b> '+(cutShort?'An election ends a walkout, and the next one is '+q+' quarter'+(q===1?'':'s')+' away.':'A walkout lasts three quarters; they come back on their own in '+q+'.')+'</li>'
         +'<li><b>End the tactic, for next time.</b> The Simple-Majority Quorum amendment, or two-thirds of '+(prOn()?"the Assembly":"both chambers")+', leaves no quorum to deny. The amendment has to be referred by the legislature, so not while they are gone.</li>'
       +'</ul>'
     +'</div>'
     +'<div class="walkout-ask"><div class="walkout-ask-h">Your answer</div><div class="walkout-ask-n">'+walkoutPriceLine()+'</div>'+walkoutOptionsHTML()
-      +'<div class="walkout-ask-n">Or decide later: the same list stays on the Governing Board until you choose or the walkout ends.</div></div>'
+      +'<div class="walkout-ask-n">Or decide later: the same packages stay on the Governing Board until you choose or the walkout ends.</div></div>'
     +'<button class="enactbtn eg-go" id="walkoutContinue">Decide later \u25b8</button>'
     +'</div>';
   modal.classList.add('grand');
@@ -24058,7 +24108,7 @@ function showWalkoutScreen(next){
   const btn=document.getElementById('walkoutContinue');
   if(btn)btn.onclick=done;
   // an answer given here closes the screen first, then lands like any decision
-  card.querySelectorAll('[data-wopt]').forEach(b=>b.addEventListener('click',()=>{ const i=+b.dataset.wopt;
+  card.querySelectorAll('[data-wopt]').forEach(b=>b.addEventListener('click',()=>{ const i=b.dataset.wopt;
     modal.classList.add('hidden'); modal.classList.remove('grand'); document.removeEventListener('keydown',onKey,true);
     walkoutDecide(i); if(next)next(); }));
   document.addEventListener('keydown',onKey,true);
@@ -27553,8 +27603,8 @@ function renderBoard(){
   {const bs=document.getElementById("boardSeed"); if(bs)bs.addEventListener("click",()=>copySeedLink(bs));}
   // the ballot strip jumps straight to the measure half of Campaign HQ
   // the walkout's offers, when one is on
-  main.querySelectorAll('[data-wopt]').forEach(b=>b.addEventListener('click',()=>walkoutDecide(+b.dataset.wopt)));
-  main.querySelectorAll('[data-wlink]').forEach(b=>b.addEventListener('click',e=>{ if(e.target.closest('[data-wopt]'))return; openDetail(b.dataset.wlink); }));
+  main.querySelectorAll('[data-wopt]').forEach(b=>b.addEventListener('click',()=>walkoutDecide(b.dataset.wopt)));
+  main.querySelectorAll('[data-wlink]').forEach(b=>b.addEventListener('click',e=>{ if(e.target.closest('[data-wopt],details'))return; openDetail(b.dataset.wlink); }));
   main.querySelectorAll('[data-gotoballot]').forEach(el=>el.addEventListener('click',()=>{
     GAME.campTab="ballot"; currentView="camphq"; detailKey=null; render();
   }));
