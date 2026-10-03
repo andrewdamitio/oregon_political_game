@@ -3325,8 +3325,8 @@ const REVENUE={
     note:"Zero under tribal-only compacts — sovereign ground pays the state almost nothing. Real money only arrives if private operators are licensed."},
   sportsBookRev:{name:"Sports Betting", base:0,
     note:"Set by how you let sports wagering run: a Lottery monopoly keeps the whole margin, licensed commercial books hand back a tax on a much bigger handle, tribal-only keeps it small."},
-  carbonRevenue:{name:"Climate Program Proceeds", base:0.6, linkedPolicy:"carbonProgram", refLevel:1,
-    note:"Allowance proceeds, reinvested"},
+  carbonRevenue:{name:"Climate Program Proceeds", base:0.6, linkedPolicy:"carbonProgram", refLevel:0.5,
+    note:"Allowance proceeds, reinvested. Scales with the program's setting: none without a program, twice as much under Cap-and-Invest."},
   otherGF:{name:"Other GF (fees, interest, balance forward)", base:0.45, linkedPolicy:null,
     note:"Interest earnings, agency fees, one-time receipts, and the balance carried forward from the last biennium, which is what balanced the budget you inherited. Estate tax is its own line. No sales tax."},
   liquorRev:{name:"Liquor Revenue (OLCC)", base:0.30,
@@ -3678,7 +3678,7 @@ const INDICATORS={
       v-=(METRICS.loggingRate.value-40)*0.30;             // harvest activity placates resource counties
       v+=(METRICS.gasPrice.value-3.6)*3;
       if(POLICIES.carbonTax)v+=8;
-      if(POLICIES.carbonProgram)v+=5;
+      if(POLICIES.carbonProgram)v+=5*policyLevel(POLICIES.carbonProgram)/0.5;
       if(POLICIES.propTaxReform)v+=4;
       v+=(LANDUSE.index-2)*3.4;                           // Oregon's land-use planning is a standing property-rights grievance at the inherited "Strong UGB"; tightening inflames it, loosening placates
       v+=INDICATORS.ruralAlienation._oneParty();
@@ -3695,7 +3695,7 @@ const INDICATORS={
       {name:ico(METRICS.loggingRate.icon)+" Logging (placates)",v:-(METRICS.loggingRate.value-40)*0.30,link:"m_loggingRate"},
       {name:ico(METRICS.gasPrice.icon)+" Gas Price",v:(METRICS.gasPrice.value-3.6)*3,link:"m_gasPrice"},
       ...(POLICIES.carbonTax?[{name:ico('factory')+" Carbon Tax",v:8,link:"p_carbonTax"}]:[]),
-      ...(POLICIES.carbonProgram?[{name:ico('globe')+" Climate Program",v:5,link:"p_carbonProgram"}]:[]),
+      ...(POLICIES.carbonProgram&&POLICIES.carbonProgram.tierIndex>0?[{name:ico('globe')+" Climate Program",v:5*policyLevel(POLICIES.carbonProgram)/0.5,link:"p_carbonProgram"}]:[]),
       ...(LANDUSE.index!==2?[{name:ico(LANDUSE.icon)+" Land-use limits (property rights)",v:(LANDUSE.index-2)*3.4,link:"landuse"}]:[]),
       ...(INDICATORS.ruralAlienation._oneParty()>0.05?[{name:ico('compass')+" One-party ratchet (agenda left of mandate)",v:INDICATORS.ruralAlienation._oneParty()}]:[]),
       {name:ico(INDICATORS.localAutonomy.icon)+" Lost Local Control",v:(60-INDICATORS.localAutonomy.value)*0.12,link:"i_localAutonomy"},
@@ -5152,10 +5152,30 @@ const POLICIES={
       {social:0.3, govSize:0.2},
       {social:0.6, govSize:0.4}
     ]},
-  carbonProgram:{name:"Climate Protection Program", domain:"envInfra", icon:"globe", enacted:true, binary:true, mechanic:"law", phaseIn:5,
-    desc:"Oregon's cap-and-reduce program for large emitters — a declining pollution ceiling with allowance trading. Revenue is reinvested in clean energy, low-income utility assistance, and transit. The program survived a 2024 repeal attempt; weakening it draws national climate backlash and destabilizes forward revenue projections.",
-    enabled:true, revenue:0.6, capital:10, effects:{environment:{b:2,c:7,i:5},gdp:-0.25,electricRate:0.7},
-    ideology:{economic:-0.5,social:-0.3,environment:-0.9,govSize:-0.5}},
+  /* Tiered by the cap-and-trade schemes states actually run, from the
+     Northeast's power-sector cap to Washington's economy-wide auction. The
+     inherited setting is Oregon's own program, and its effects are what the
+     old on/off law had. */
+  carbonProgram:{name:"Climate Protection Program", domain:"envInfra", icon:"globe", enacted:true, mechanic:"tier", noRepeal:true, phaseIn:5,
+    desc:"Oregon's cap on greenhouse gas emissions, set by how far it reaches and how hard it bites. Each setting is a scheme a state actually runs. Power Sector Cap is the Northeast's RGGI: power plants only, with allowances near $15 a ton. Cap-and-Reduce is Oregon's own program since 2022: a declining cap on fuel suppliers and large emitters. Cap-and-Trade is California's: economy-wide, with allowances auctioned near $30 a ton and offsets allowed. Cap-and-Invest is Washington's Climate Commitment Act: economy-wide, auctioned near $50 a ton or more, with the proceeds spent on climate programs.\n\nEach step up cuts more emissions and raises more money, and adds to power bills, fuel prices and rural anger. Cap-and-Invest brings the log-truck convoys to Salem.",
+    tiers:["No Program","Power Sector Cap","Cap-and-Reduce","Cap-and-Trade","Cap-and-Invest"],
+    tierIndex:2, revenue:0.6, capital:10,
+    effects:{},
+    tierEffects:[
+      {},
+      {environment:3,gdp:-0.06,electricRate:0.5},
+      {environment:9,gdp:-0.25,electricRate:0.7},
+      {environment:13,gdp:-0.38,electricRate:0.9,gasPrice:0.12},
+      {environment:17,gdp:-0.5,electricRate:1.1,gasPrice:0.25}],
+    tierBlocEffects:[
+      {motorists:2, rural:2, timber:2, businessClass:2, liberal:-3, socialist:-2, students:-2},
+      {rural:1, businessClass:1, liberal:-1},
+      {},
+      {rural:-2, timber:-1, businessClass:-2, motorists:-1, liberal:1, students:1},
+      {rural:-3, timber:-2, businessClass:-3, motorists:-2, blueCollar:-1, liberal:2, socialist:2, students:2}],
+    // voters feel a tier policy at ideology x level, so the inherited setting (level 0.5)
+    // carries twice the old law ideology and lands on them exactly as it did
+    tierIdeology:[{environment:0.6},{economic:-0.3,social:-0.1,environment:-0.6,govSize:-0.3},{economic:-1,social:-0.6,environment:-1.8,govSize:-1},{economic:-1.1,social:-0.6,environment:-2,govSize:-1.1},{economic:-1.2,social:-0.6,environment:-2.2,govSize:-1.2}]},
   renewablePortfolio:{name:"Renewable Portfolio Standard", domain:"envInfra", icon:"sun", enacted:true, mechanic:"tier", noRepeal:true, phaseIn:8,
     desc:"Oregon's HB 2021 (Clean Electricity and Coal Transition Act) requires large utilities to reach 100% clean electricity by 2040, with coal fully off the grid by 2030. Oregon's mix is already ~70% renewable, but meeting the mandate requires costly grid upgrades, new transmission lines, and backup generation — pushing electricity rates up for households and businesses. Relaxing the standard saves money but surrenders Oregon's climate leadership.",
     tiers:["No Standard","25% Renewable","50% Clean","80% Clean","100% Clean"],
@@ -7419,6 +7439,50 @@ const AGENCY_EVENTS={
        }}
     ]},
 
+  /* ---- The Commission reviews the fuel standard ---- */
+  deqFuels:{ rulemaking:true,   // a rule change: the rule freeze stops it
+    post:"deq", icon:"fuel", title:"Environmental Quality Reviews Clean Fuels",
+    // any commissioner gets here; which way they lean decides what they recommend
+    when:h=>true,
+    blocked:()=>!POLICIES.cleanFuels||POLICIES.cleanFuels.tierIndex<1||POLICIES.cleanFuels.tierIndex>2,
+    text:h=>{
+      const cf=POLICIES.cleanFuels, up=apptLean(h)<=0;
+      return "The Clean Fuels Program is up for its scheduled review. It is at "+cf.tiers[cf.tierIndex]+", and the Commission can move it a step either way by rule, without the legislature.\n\n"
+        +(h.name||"Your appointee")+(up
+          ? " recommends tightening it to "+cf.tiers[cf.tierIndex+1]+", as the Commission did in 2022 when it raised the target to a 37% cut by 2035. Fuel would cost a few cents more a gallon."
+          : " recommends easing it to "+cf.tiers[cf.tierIndex-1]+", citing pump prices and the cost to truckers and farms.")
+        +" Going against the recommendation means leaning on the Commission, which costs political capital.";
+    },
+    options:[
+      {label:"Tighten the standard a step",
+       text:()=>{ const h=apptHolder("deq"); return (h&&apptLean(h)<=0?"The Commission's recommendation.":"Costs ◈ 3: you lean on the Commission against its recommendation.")
+         +" Clean Fuels moves up one step. Transport emissions fall and fuel costs a few cents more. Liberals and urban voters approve; motorists, rural voters and truckers do not."; },
+       apply:()=>{
+         const h=apptHolder("deq"), cf=POLICIES.cleanFuels;
+         if(h&&apptLean(h)>0)GAME.capital=clamp(GAME.capital-3,0,100);
+         if(cf&&cf.tierIndex<cf.tiers.length-1){cf.tierIndex++;cf.eff=undefined;}
+         createGrudge("v_liberal",3,0.90,"Clean Fuels tightened");
+         createGrudge("v_motorists",-3,0.92,"Fuel costs more");
+         GAME.log.push(ico('fuel')+" Environmental Quality tightens the Clean Fuels Program a step");
+         shiftCompass(-0.15,0);
+       }},
+      {label:"Ease the standard a step",
+       text:()=>{ const h=apptHolder("deq"); return (h&&apptLean(h)>0?"The Commission's recommendation.":"Costs ◈ 3: you lean on the Commission against its recommendation.")
+         +" Clean Fuels moves down one step. Fuel costs a few cents less and transport emissions rise. Motorists, rural voters and business approve; environmental groups and liberals do not."; },
+       apply:()=>{
+         const h=apptHolder("deq"), cf=POLICIES.cleanFuels;
+         if(!h||apptLean(h)<=0)GAME.capital=clamp(GAME.capital-3,0,100);
+         if(cf&&cf.tierIndex>0){cf.tierIndex--;cf.eff=undefined;}
+         createGrudge("v_motorists",3,0.90,"Clean Fuels eased");
+         createGrudge("v_liberal",-3,0.92,"Clean Fuels eased");
+         GAME.log.push(ico('fuel')+" Environmental Quality eases the Clean Fuels Program a step");
+         shiftCompass(0.15,0);
+       }},
+      {label:"Leave it where it is",
+       text:"The review closes with no change. Nobody is pleased and nobody is angry.",
+       apply:()=>{ GAME.log.push(ico('fuel')+" The Clean Fuels review closes with no change"); }}
+    ]},
+
   /* ---- Corrections wants its beds back ---- */
   correctionsBeds:{
     post:"corrections", icon:"lock", title:"Corrections Wants to Reopen a Facility",
@@ -9177,6 +9241,19 @@ const DILEMMAS={
          createGrudge("v_conservative",-6,0.90,"Paid the ransom");
          walkoutConcede(ico("teddy")+" Paid Leave Oregon funded to statute");
        }},
+      {concede:true, label:"Scale back the Climate Protection Program",
+       avail:()=>GAME.walkoutSide!=="left" && POLICIES.carbonProgram && POLICIES.carbonProgram.tierIndex>1,
+       text:"The cap drops one setting. This is what the 2019 and 2020 walkouts were about, and the caucus will call it the win they were denied. Climate groups and your base see the walkout working.",
+       apply:()=>{
+         const cp=POLICIES.carbonProgram;
+         if(cp&&cp.tierIndex>1){cp.tierIndex--;cp.eff=undefined;}
+         createGrudge("i_ruralAlienation",-12,0.86,"Climate program scaled back");
+         createGrudge("v_rural",7,0.88,"Caucus demands met");
+         createGrudge("v_businessClass",6,0.88,"Climate program scaled back");
+         createGrudge("v_liberal",-9,0.90,"Climate law traded away");
+         createGrudge("v_students",-6,0.90,"Climate program scaled back");
+         walkoutConcede(ico("globe")+" Climate Protection Program scaled back one setting");
+       }},
       {concede:true, label:"Ease the Clean Fuels Program",
        avail:()=>GAME.walkoutSide!=="left" && POLICIES.cleanFuels && POLICIES.cleanFuels.tierIndex>0,
        text:"The low-carbon fuel standard drops one step, and a few cents come off a gallon. Truckers and rural drivers welcome it. Environmental groups count it as a climate law traded for a quorum.",
@@ -10819,8 +10896,8 @@ const SITUATIONS={
      quarter, like the union occupation, and putting back what started it
      ends it at once. */
   convoyBlockade:{name:"Convoys Shut Down Salem", kind:"bad", category:"condition",
-    desc:"Log trucks, big rigs and farm equipment from timber country ring the Capitol and fill the streets around it, as Timber Unity did against cap-and-trade in 2019 and 2020. Legislators cannot get in, and neither chamber can sit while the convoys hold the building.\n\nIt lasts one quarter: the convoys go home at the end of it. Until then, the only way to end it is to put back what started it, by lowering the carbon tax or letting the harvest back up.",
-    rules:"Costs capital and slows freight every quarter it runs, and shuts the floor: nothing new passes until the convoys leave, except lowering or repealing the carbon tax, loosening the Forest Practices Act, or raising the Department of Forestry's harvest.",
+    desc:"Log trucks, big rigs and farm equipment from timber country ring the Capitol and fill the streets around it, as Timber Unity did against cap-and-trade in 2019 and 2020. Legislators cannot get in, and neither chamber can sit while the convoys hold the building.\n\nIt lasts one quarter: the convoys go home at the end of it. Until then, the only way to end it is to put back what started it, by stepping back from Cap-and-Invest, lowering the carbon tax, or letting the harvest back up.",
+    rules:"Costs capital and slows freight every quarter it runs, and shuts the floor: nothing new passes until the convoys leave, except easing the Climate Protection Program, lowering or repealing the carbon tax, loosening the Forest Practices Act, or raising the Department of Forestry's harvest.",
     trigger:()=>{
       if(GAME.turn<=2)return false;
       const fired=GAME.convoyFired=GAME.convoyFired||{};
@@ -11375,7 +11452,7 @@ function _sitAge(sid){ return (GAME.situationAge&&GAME.situationAge[sid])||0; }
   S.convoyBlockade.feeds=()=>{
     const c=convoyCauses(), ct=POLICIES.carbonTax;
     return {
-      begin:[[ fc("A carbon tax of $45 a ton or more, signed by you", ct?policyRealLabel(ct):"not law", c.carbon, ct?plink("carbonTax"):"m_environment") ],
+      begin:[[ fc("Cap-and-Invest, or a carbon tax of $45 a ton or more, signed by you", (POLICIES.carbonProgram?plevelTxt("carbonProgram"):"no program")+(ct?", tax "+policyRealLabel(ct):""), c.carbon, plink("carbonProgram")||"m_environment") ],
              [ fc("A harvest under "+CONVOY_HARVEST+", with Strong Setbacks or a harvest cut at Forestry behind it", _sn(mv("loggingRate")), c.harvest, "m_loggingRate") ]],
       end:[[ fc("Wait: the convoys go home at the end of the quarter", "quarter "+(_sitAge("convoyBlockade")+1), _sitAge("convoyBlockade")>=1) ],
            [ fc("Put back what started it", (c.carbon||c.harvest)?"still in force":"reversed", !c.carbon&&!c.harvest) ]]};
@@ -19596,14 +19673,15 @@ function endWalkout(){
    Capitol (nobody can sit while the building is full). Quarters left: the
    walkout's clock, or at least this one while the occupation lasts. */
 function capitolOccupied(){ const S=GAME.activeSituations||{}; return !!(S.laborUprising||S.convoyBlockade); }
-/* The convoys' grievances. A carbon tax at $45 a ton or more that you signed
+/* The convoys' grievances. Cap-and-Invest, or a carbon tax at $45 a ton or more, that you signed
    (one the voters passed over your objection does not count), or a harvest
    under 15 with your hand on it: the Forest Practices Act at Strong Setbacks
    or stricter, or the Department of Forestry's harvest cut below 30%. */
 const CONVOY_CARBON=0.75, CONVOY_HARVEST=15;
 function convoyCauses(){
-  const ct=POLICIES.carbonTax;
-  const carbon=!!(ct&&(ct.value||0)>=CONVOY_CARBON&&!enactedViaBallot("carbonTax"));
+  const ct=POLICIES.carbonTax, cp=POLICIES.carbonProgram;
+  const carbon=!!(ct&&(ct.value||0)>=CONVOY_CARBON&&!enactedViaBallot("carbonTax"))
+    || !!(cp&&cp.tierIndex>=4&&!enactedViaBallot("carbonProgram"));
   const fp=POLICIES.forestPractices, fo=AGENCIES.forestry;
   const yours=(fp&&fp.tierIndex>=3)||(fo&&(fo.logging??0.5)<0.3);
   const harvest=!!(METRICS.loggingRate&&METRICS.loggingRate.value<CONVOY_HARVEST&&yours);
@@ -19618,7 +19696,7 @@ function floorShutFor(key,dir){
   const S=GAME.activeSituations||{};
   const unions=key==="p_collectiveBargaining"            // restoring bargaining is a dial move up
     ||(key==="p_rightToWork"&&dir==="repeal");
-  const convoys=key==="p_carbonTax"||key==="p_forestPractices"||key==="a_forestry";
+  const convoys=key==="p_carbonTax"||key==="p_carbonProgram"||key==="p_forestPractices"||key==="a_forestry";
   return !((!S.laborUprising||unions)&&(!S.convoyBlockade||convoys));
 }
 /* Why, in words: for the log and the shut screen. */
@@ -23207,7 +23285,7 @@ function showFloorShut(name){
   const left=(GAME.walkoutSide==="left");
   if(!(GAME.floorFreeze>0)&&GAME.activeSituations.convoyBlockade&&!GAME.activeSituations.laborUprising){
     card.innerHTML=`<div class="sectionhdr">${ico('ban')} The convoys hold the Capitol — ${name}</div>
-      <div class="sectionsub">Log trucks and big rigs ring the building, and neither chamber can sit. Nothing new passes until they leave: the blockade ends when you give them what they came for (lower or repeal the carbon tax, loosen the Forest Practices Act, or raise the harvest, which can still go ahead), or at the end of this quarter.</div>
+      <div class="sectionsub">Log trucks and big rigs ring the building, and neither chamber can sit. Nothing new passes until they leave: the blockade ends when you give them what they came for (step back from Cap-and-Invest, lower or repeal the carbon tax, loosen the Forest Practices Act, or raise the harvest, which can still go ahead), or at the end of this quarter.</div>
       <button class="enactbtn" id="floorShutOk">Continue ▸</button>`;
   } else if(!(GAME.floorFreeze>0)&&capitolOccupied()){
     card.innerHTML=`<div class="sectionhdr">${ico('ban')} The Capitol is occupied — ${name}</div>
