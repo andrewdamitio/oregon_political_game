@@ -21734,10 +21734,6 @@ function prCompassMembers(px,py){
   return h;
 }
 /* PROMISES TO LEGISLATORS: pass a law they want within four quarters. */
-/* After a promise is kept or broken, the same member (or faction) waits
-   LP_COOL quarters before you can promise them anything new. */
-const LP_COOL=4;
-function lpWait(target){ const u=GAME.lpCool&&GAME.lpCool[target]; return u?Math.max(0,u-GAME.turn):0; }
 const LP_Q=4, LP_LIFT=8, LP_LIFT_FAC=6, LP_KEPT=5, LP_BROKEN=-18;
 function lpTrust(){ return GAME.lpTrust==null?1:GAME.lpTrust; }
 function lpMember(key,pr){ return pr?(GAME.pr&&GAME.pr.m[key]):(GAME.caucus&&GAME.caucus.m[key]); }
@@ -21783,7 +21779,7 @@ function lpOptions(m,onlyIssue){
 }
 function lpMake(target,pid,want){
   const {keys,pr}=lpKeys(target); if(!keys.length||lpPromisedLaw(pid,+want)||lpPromisedLaw(pid,-want))return;
-  if(lpActive(target)||lpWait(target)>0)return;
+  if(lpActive(target))return;
   const p=POLICIES[pid]||CATALOG[pid]; if(!p)return;
   const fac=target.startsWith("f:")||target.startsWith("pf:"), lift=(fac?LP_LIFT_FAC:LP_LIFT)*lpTrust(), due=GAME.turn+LP_Q;
   const dial=p.mechanic==="tier"||p.mechanic==="slider"||p.mechanic==="intensity";
@@ -21822,7 +21818,6 @@ function lpCheck(){
       m.g=clamp((m.g||0)+amt,-cap,cap); caucusNote(m,"_lpd"+lp.pid,(kept?"Kept your promise to ":partial?"Got partway on your promise to ":"Broke your promise to ")+lp.word,amt);
       m.L=clamp(m.L+amt*(opp?-0.3:0.5),0,100); }
     GAME.lpTrust=clamp(lpTrust()+(kept?0.05:-0.2*(1-part)),0.3,1);
-    (GAME.lpCool=GAME.lpCool||{})[lp.who]=GAME.turn+LP_COOL;
     const who=lp.fac?(lp.who.startsWith("pf:")?prFacName(lp.who.slice(3)):caucusFactionName(lp.who.slice(2))):(lp.pr?prTitle(lpMember(lp.keys[0],true)||{n:"?"}):caucusTitle(lp.keys[0]));
     const n2=lp.keys.length;
     const when=" in "+caucusQ(lp.made);
@@ -21842,8 +21837,6 @@ function lpHTML(target,m,onlyIssue){
   if(!m)return "";
   // a promise is something you make to your own bench, not to the other side's
   if(prOn()?m.party!==prMyParty():m.p!=="mine")return "";
-  if(lpWait(target)>0){ const q=lpWait(target);
-    return `<div class="cm-sec">Promise legislation</div><div class="cm-prim"><div class="cf-live">${ico('handshake')} Your last promise to them is settled. You can promise them something new in ${q} quarter${q===1?"":"s"}.</div></div>`; }
   const opts=lpOptions(m,onlyIssue); if(!opts.length)return "";
   const tr=lpTrust(), fac=target.startsWith("f:")||target.startsWith("pf:"), lift=Math.round((fac?LP_LIFT_FAC:LP_LIFT)*tr);
   return `<div class="cm-sec">Promise legislation</div><div class="cm-prim"><div>Promise to move a law ${fac?"they":"they"} want within ${LP_Q} quarters: +${lift} loyalty now${fac?" each":""}, +${LP_KEPT} if you keep it, ${LP_BROKEN} if you do not.${tr<1?` Your broken promises have cut the lift to ${Math.round(tr*100)}%.`:""}</div>
@@ -21934,7 +21927,6 @@ function floorHoldoutsHTML(w,billKey,pid){
         :pw>0?`<span class="hold-wait">${ico('houses')} next project in ${pw}q</span>`
         :`<button class="cf-chbtn hk-proj" data-hold="proj" data-hch="${x.chamber}" data-hid="${x.id}">${ico('houses')} District project · $0.05B/yr</button>`); }
     if(lpActive(r.target))acts.push(`<span class="hold-wait">${ico('handshake')} promise outstanding</span>`);
-    else if(lpWait(r.target)>0)acts.push(`<span class="hold-wait">${ico('handshake')} next promise in ${lpWait(r.target)}q</span>`);
     else { const o=lpOptions(m).find(o=>o.pid!==pid); if(o)acts.push(`<button class="cf-chbtn hk-prom" data-hold="prom" data-hch="${x.chamber}" data-hid="${x.id}" data-hp="${o.pid}|${o.want}" title="Their vote on this bill, for your word that you will ${o.label.toLowerCase()} within ${LP_Q} quarters. Miss the deadline and everyone who wants it turns on you.">${ico('handshake')} Promise to ${o.label.charAt(0).toLowerCase()+o.label.slice(1)} within ${LP_Q} quarters</button>`); }
     return `<div class="hold-row"><span class="hold-who"><b>${who}</b><span class="hold-lean">${lean} · ${pr?"":"loyalty "}${pr?"":Math.round(m.L)}${pr?"loyalty "+Math.round(m.L):""}</span></span><span class="hold-acts">${acts.join("")}</span></div>`; }).join("");
   if(dealt.length)h+=`<div class="hold-done">Certain yes on this vote: ${dealt.map(d=>`${d.r.pr?prTitle(d.r.m):caucusTitle(d.r.key)} (${d.kind})`).join(", ")}</div>`;
