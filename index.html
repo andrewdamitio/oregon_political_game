@@ -26486,6 +26486,8 @@ function trendArrow(k){
 function sparkline(series, opts={}){
   if(!series||series.length<2)return '<div class="sparkempty">No history yet — advance a few quarters.</div>';
   const w=opts.w||560, ht=opts.h||172, pad=24, botPad=opts.axis?32:24;
+  // a fill from a baseline (the zero line) rather than from the bottom edge
+  const fillBase=opts.fillBase;
   const vals=series.map(s=>s.value);
   let lo=Math.min(...vals), hi=Math.max(...vals);
   if(opts.min!==undefined)lo=Math.min(lo,opts.min);
@@ -26500,7 +26502,8 @@ function sparkline(series, opts={}){
   const pts=series.map((s,i)=>`${x(i).toFixed(1)},${y(s.value).toFixed(1)}`).join(" ");
   const col=opts.color||"var(--moss)";
   const gradId='sg'+Math.random().toString(36).slice(2,8);
-  const area=`${x(0).toFixed(1)},${(ht-botPad).toFixed(1)} `+pts+` ${x(series.length-1).toFixed(1)},${(ht-botPad).toFixed(1)}`;
+  const baseY=(fillBase!==undefined&&fillBase>=lo&&fillBase<=hi)?y(fillBase):ht-botPad;
+  const area=`${x(0).toFixed(1)},${baseY.toFixed(1)} `+pts+` ${x(series.length-1).toFixed(1)},${baseY.toFixed(1)}`;
   const last=series[series.length-1].value, first=series[0].value;
   let marks="";
   // vertical policy-pass marker lines
@@ -26523,9 +26526,17 @@ function sparkline(series, opts={}){
         <text x="${w-pad-2}" y="${(+hy-4).toFixed(1)}" text-anchor="end" class="sparkmark" fill="${c}">${L.label}</text>`;
     }
   }
-  // x-axis quarter labels (start, middle, end)
+  // x-axis quarter labels (start, middle, end), or with axis:"years" a tick
+  // at the first quarter of every year the chart covers
   let axis="";
-  if(opts.axis){
+  const yrs=[];
+  if(opts.axis==="years")for(let t=t0;t<=tN;t++){ const lb=turnLabel(t); if(/^Q1 /.test(lb))yrs.push([t,lb.slice(3)]); }
+  if(yrs.length){
+    const step=yrs.length>8?2:1;
+    yrs.forEach(([t,yr],i)=>{ if(i%step)return; const tx=xByTurn(t).toFixed(1);
+      axis+=`<line x1="${tx}" y1="${ht-botPad}" x2="${tx}" y2="${ht-botPad+4}" stroke="var(--muted-3)" stroke-width="1"/>`
+        +`<text x="${tx}" y="${ht-8}" text-anchor="middle" class="sparkaxis">${yr}</text>`; });
+  } else if(opts.axis){
     const ticks=[t0, Math.round((t0+tN)/2), tN];
     for(const t of [...new Set(ticks)]){
       const tx=xByTurn(t).toFixed(1);
@@ -28776,7 +28787,9 @@ function renderDetail(){
       <div class="sectionsub">How your kind of politics is doing nationally, from −10 to +10. Positive is a tailwind, negative a headwind. Nothing you do in Oregon moves it: it drifts by itself and is pulled back toward zero by about 15% a quarter, so a strong swing either way rarely lasts more than a year or two.</div>`;
     h+=`<div class="detailval" style="color:${nm>1?'var(--good)':nm<-1?'var(--clay)':'#8a8270'}">${nm>=0?'+':''}${nm.toFixed(1)}</div>`;
     h+=`<div class="chartbox"><div class="charttitle">National mood over time</div>
-      ${sparkline(GAME.history["nationalMood"],{color:'var(--slate-blue)',min:-10,max:10,fmt:v=>(v>=0?'+':'')+v.toFixed(1)})}</div>`;
+      ${sparkline(GAME.history["nationalMood"],{color:'var(--slate-blue)',min:-10,max:10,axis:"years",fillBase:0,
+        hlines:[{value:0,label:"Even: tailwind above, headwind below",color:"var(--muted-2)"}],
+        fmt:v=>(v>=0?'+':'')+v.toFixed(1)})}</div>`;
     // what it does, at today's value, in the order it reaches the election
     { const sg=v=>(v>=0?"+":"−")+Math.abs(v).toFixed(1);
       const bloc=nm*0.55, mom=-nm*0.35, turn=clamp(nm,-4,4)*0.4, mand=nm*0.5;
