@@ -1007,6 +1007,11 @@
   .sb-btn .ico,.sb-done .ico{width:13px;height:13px;vertical-align:-2px;margin-right:4px}
   .sb-done{font-size:12.5px;color:var(--moss);font-weight:600}
   .sb-why{font-size:12px;color:var(--muted-2)}
+  .emr{border-top:1px solid var(--line);margin:4px 0 10px}
+  .emr-row{display:grid;grid-template-columns:minmax(0,1fr) 52px auto;gap:10px;align-items:center;padding:7px 2px;border-bottom:1px solid var(--line-faint);font-size:13.5px}
+  .emr-n i{font-style:normal;color:var(--muted-2);font-size:12.5px;margin-left:4px}
+  .emr-p{font-family:var(--font-data);font-weight:700;text-align:right}
+  .emr-b{display:flex;gap:8px;align-items:center;justify-content:flex-end}
   .sparkzone{font-size:11px;fill:var(--muted-3);font-style:italic;letter-spacing:.02em}
   .nm-list{margin:2px 0 8px;padding-left:18px;font-size:14px;line-height:1.5}
   .nm-list li{margin:5px 0}
@@ -1258,6 +1263,8 @@
   .vdec{display:grid;grid-template-columns:minmax(120px,1.1fr) auto minmax(60px,1fr) auto;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line-faint);cursor:pointer;font-size:13.5px}
   .vdec:hover .vdec-n{color:var(--slate-blue)}
   .vdec-n{font-weight:600}
+  .vdec.vdec-head{cursor:default;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted-3);padding-top:0}
+  .vdec.vdec-head span:last-child{white-space:normal}
   .vdec-bar{height:7px;background:var(--line-faint);border-radius:4px;overflow:hidden}
   .vdec-bar i{display:block;height:100%;background:var(--slate-blue)}
   .vdec-f{font-size:12.5px;color:var(--muted-2);white-space:nowrap}
@@ -1288,6 +1295,7 @@
     .vrow-sz,.vrow-t{display:none}
     .vdec{grid-template-columns:minmax(0,1fr) auto}
     .vdec-bar,.vdec-f{grid-column:1/-1}
+    .vdec.vdec-head{display:none}
   }
   .vcat-label{font-size:12.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-1);margin:18px 0 8px;border-bottom:1px solid var(--line-faint);padding-bottom:4px;font-weight:700}
   .campgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
@@ -19543,7 +19551,18 @@ function seatBoostable(chamber,id){
   const nextCls=GAME.senateClass?0:1;
   return (id%2)===(nextCls?0:1);
 }
+/* BOOSTS ARE A GENERAL-ELECTION TOOL. They open once the legislative primary
+   has picked the nominees, CAUCUS_PRIMARY_LEAD quarters before the ballot,
+   and stay open until it. Returns 0 when open, or the quarters until they open. */
+function seatBoostWait(){
+  if(prOn())return 99;
+  const nb=nextBallotInfo(), C=GAME.caucus;
+  if(nb.quartersAway<CAUCUS_PRIMARY_LEAD)return 0;
+  if(nb.quartersAway===CAUCUS_PRIMARY_LEAD&&C&&C.primDay===GAME.turn)return 0;
+  return Math.max(1,nb.quartersAway-CAUCUS_PRIMARY_LEAD);
+}
 function seatBoost(chamber,id){
+  if(seatBoostWait()>0)return false;
   if(!seatBoostable(chamber,id)||caucusStandDownSeat(chamber,id))return false;
   if(seatBoostN(chamber,id)>=SEAT_BOOST_MAX)return false;
   if(!window.SANDBOX&&GAME.capital<SEAT_BOOST_COST)return false;
@@ -24444,6 +24463,7 @@ function legForecastHTML(){
     <div class="sectionsub" style="margin-top:0">A forecast of the next legislative election, from how the groups in each district feel about you today. The map is re-run ${FC_DRAWS.toLocaleString()} times with statewide and seat-by-seat polling error; the bar is the median outcome and the shaded span the middle 80%. Work in <b>Your re-election</b> moves these seats.</div>
     <div class="fc-standing"><b>${st.label}.</b> ${st.note}</div>
     <div class="fc-grid">${forecastCardHTML(hf)}${forecastCardHTML(sf)}</div>
+    ${endangeredMembersHTML(hf,sf)}
     ${legForecastMapsHTML()}
     ${coalitionHTML("house", new Set(chamberSupport("house").filter(r=>r.support>50).map(r=>r.id)))}`;
 }
@@ -24454,6 +24474,7 @@ function seatBoostCtlHTML(ch,id,pr){
   const done=n?`<span class="sb-done">${ico('ballot')} Boosted ${n}\u00d7 (+${(n*SEAT_BOOST_PTS).toFixed(1)} points)</span>`:"";
   if(!seatBoostable(ch,id))return done?`<div class="sb-row">${done}</div>`:"";
   if(caucusStandDownSeat(ch,id))return `<div class="sb-row"><span class="sb-why">You stood down in ${tag} ${id}: there is no campaign to boost.</span></div>`;
+  { const w=seatBoostWait(); if(w>0)return `<div class="sb-row">${done}<span class="sb-why">${ico('ballot')} Campaign boosts open after the primary picks your nominees, in ${w} quarter${w===1?"":"s"}.</span></div>`; }
   // what one more push is worth here, from the same spread the forecast uses
   const sd=Math.sqrt(FC_NAT*FC_NAT+FC_SEAT*FC_SEAT), z=x=>0.5*(1+Math.tanh(0.7978845608*(x+0.044715*x*x*x)));
   const zNow=sd>0?Math.max(-6,Math.min(6,(pr<=0.0005?-6:pr>=0.9995?6:Math.log(pr/(1-pr))/1.702))):0;
@@ -24462,9 +24483,37 @@ function seatBoostCtlHTML(ch,id,pr){
   return `<div class="sb-row">${done}<button type="button" class="sb-btn" data-seatboost="1" ${full||poor?"disabled":""}>${ico('ballot')} Boost the campaign · \u25c8${SEAT_BOOST_COST}</button>
     <span class="sb-why">${full?"At the limit of ${SEAT_BOOST_MAX} pushes for this seat.":poor?"Not enough political capital.":"+"+SEAT_BOOST_PTS+" points here, about +"+Math.max(1,Math.round(gain*100))+" points of win chance"}</span></div>`;
 }
+/* YOUR MEMBERS MOST AT RISK. Every member of your party whose seat is on the
+   next ballot, lowest odds first, each with a boost, once the primary has
+   settled the nominees. */
+function endangeredMembersHTML(hf,sf){
+  const C=GAME.caucus; if(prOn()||!C||!C.m)return "";
+  const rows=[];
+  for(const k in C.m){ const m=C.m[k]; if(m.p!=="mine")continue;
+    const ch=k[0]==="s"?"senate":"house", id=+k.slice(1), fc=ch==="senate"?sf:hf;
+    if(!seatBoostable(ch,id)||caucusStandDownSeat(ch,id))continue;
+    const pr=fc.prob[id]; if(pr==null||pr>=0.95)continue;
+    rows.push({k,m,ch,id,pr}); }
+  rows.sort((a,b)=>a.pr-b.pr);
+  const top=rows.slice(0,8), w=seatBoostWait();
+  let h=`<div class="camp-sec" style="margin-top:14px">${ico('ballot')} Your members most at risk</div>
+    <div class="sectionsub" style="margin-top:0">Members of your party on the next ballot, lowest chance of holding their seat first. ${w>0
+      ?`Campaign boosts open after the primary picks your nominees, in ${w} quarter${w===1?"":"s"}.`
+      :`Each boost is \u25c8${SEAT_BOOST_COST} for +${SEAT_BOOST_PTS} points in that seat, up to ${SEAT_BOOST_MAX} a seat, spent at the election.`}</div>`;
+  if(!top.length)return h+`<div class="threshline">None of your members on this ballot is below 95%.</div>`;
+  h+=`<div class="emr">`+top.map(r=>{ const n=seatBoostN(r.ch,r.id), tag=r.ch==="senate"?"SD":"HD";
+    const poor=!window.SANDBOX&&GAME.capital<SEAT_BOOST_COST, full=n>=SEAT_BOOST_MAX;
+    const ret=(typeof caucusRetireNote==="function"&&caucusRetireNote(r.k))?" · retiring, open seat":"";
+    return `<div class="emr-row"><span class="emr-n"><b>${caucusTitle(r.k)}</b> <i>${tag} ${r.id} ${caucusPlace(r.m.ch,r.m.id)}${ret}</i></span>
+      <span class="emr-p" style="color:${r.pr>=0.5?'var(--good)':'var(--bad)'}">${Math.round(r.pr*100)}%</span>
+      <span class="emr-b">${n?`<span class="sb-done">+${(n*SEAT_BOOST_PTS).toFixed(1)} pts</span>`:""}${w>0?"":`<button type="button" class="sb-btn" data-sbk="${r.ch}|${r.id}" ${poor||full?"disabled":""}>${ico('ballot')} Boost · \u25c8${SEAT_BOOST_COST}</button>`}</span></div>`; }).join("")+`</div>`;
+  return h;
+}
 /* hover readout on the forecast maps, and the zoom on them */
 function wireForecast(root){
   wireMapZoom(root);
+  root.querySelectorAll('[data-sbk]').forEach(b=>b.addEventListener('click',ev=>{ ev.stopPropagation();
+    const [ch,id]=b.dataset.sbk.split("|"); if(seatBoost(ch,+id))renderInPlace(); }));
   root.querySelectorAll('[data-fcread]').forEach(rd=>{
     const card=rd.closest('.fc-card'); if(!card)return;
     const ch=rd.dataset.fcread, fc=(window._FC||{})[ch]; if(!fc)return;
@@ -24482,7 +24531,7 @@ function wireForecast(root){
           +(dr.length?` · decided by its ${dr.map(o=>`<b>${o.name}</b> (+${Math.round(o.over*100)} pts vs the state, ${Math.round(SIMULANTS[o.b].approval)}% of them back you)`).join(", ")}`:``)
           +seatBoostCtlHTML(ch,id,pr);
         const bb=rd.querySelector('[data-seatboost]');
-        if(bb)bb.addEventListener('click',ev=>{ ev.stopPropagation(); if(seatBoost(ch,id))render(); });
+        if(bb)bb.addEventListener('click',ev=>{ ev.stopPropagation(); if(seatBoost(ch,id))renderInPlace(); });
       };
       if(window._fcSel&&window._fcSel.ch===ch&&window._fcSel.id===id)setTimeout(show,0);
       el.addEventListener('mouseenter',show);
@@ -30238,7 +30287,8 @@ function wirePolicyControls(){
 }
 /* The five voters the focus group follows: fixed for the run, spread
    across the electorate. */
-function focusPanelIdx(){ const N=VOTERS.length||1; return [0,1,2,3,4].map(i=>(i*397+113)%N); }
+const FOCUS_N=15;
+function focusPanelIdx(){ const N=VOTERS.length||1; return Array.from({length:FOCUS_N},(_,i)=>(i*397+113)%N); }
 function focusName(i){ return APPT_FIRST[(i*7+3)%APPT_FIRST.length]+" "+APPT_LAST[(i*11+5)%APPT_LAST.length]; }
 function focusCounty(v){
   if(!v.cw)return "Oregon";
@@ -30310,11 +30360,12 @@ function renderVoters(){
       return {id, g, w:g.size*g.turnout*close}; }).sort((a,b)=>b.w-a.w).slice(0,8);
     const top=Math.max(0.0001,...rows.map(r=>r.w));
     h+=`<div class="ebgroup-label">Where your election is decided</div><div class="ebgroup">
-      <div class="threshline" style="margin-bottom:8px">The groups with the most votes still in play: their share of voters, times how many of them vote, times how close they are to 50%. A big group that already loves or hates you has fewer votes to win than a smaller one on the fence.</div>`;
+      <div class="threshline" style="margin-bottom:8px">The groups with the most votes still in play: their share of voters, times how many of them vote, times how close they are to 50%. A big group that already loves or hates you has fewer votes to win than a smaller one on the fence.</div>
+      <div class="vdec vdec-head"><span>Group</span><span></span><span>Votes still in play</span><span>Share of voters · turnout · approve of you</span></div>`;
     for(const r of rows){ const a=r.g.approval, side=a>=55?["Base","base"]:a<=45?["Opposed","opp"]:["Swing","swing"];
       h+=`<div class="vdec" data-detail="v_${r.id}"><span class="vdec-n">${r.g.name}</span><span class="vtag ${side[1]}">${side[0]}</span>
         <span class="vdec-bar"><i style="width:${Math.round(r.w/top*100)}%"></i></span>
-        <span class="vdec-f">${Math.round(r.g.size*100)}% of voters · ${Math.round(r.g.turnout*100)}% vote · <b style="color:${apCol(a)}">${Math.round(a)}%</b></span></div>`; }
+        <span class="vdec-f">${Math.round(r.g.size*100)}% of voters · ${Math.round(r.g.turnout*100)}% vote · <b style="color:${apCol(a)}">${Math.round(a)}% approve</b></span></div>`; }
     h+=`</div>`; }
 
   // ---- 4. every group, compact, with a choice of order
@@ -30343,7 +30394,7 @@ function renderVoters(){
   // ---- 5. the focus group, last and compact
   { const picks=focusPanelIdx().map(i=>({v:VOTERS[i], i}));
     h+=`<div class="ebgroup-label" style="margin-top:22px">Focus group</div>
-      <div class="threshline" style="margin-bottom:8px">Five of the 2,000 voters, the same five all term, so you can watch real people move.</div><div class="focusgrid fg5">`;
+      <div class="threshline" style="margin-bottom:8px">Fifteen of the 2,000 voters, the same fifteen all term, so you can watch real people move.</div><div class="focusgrid fg5">`;
     for(const {v,i:vi} of picks){
       const byCat={};
       for(const id in v.m){ if(!SIMULANTS[id]||v.m[id]<=0.2)continue; const c=catOf(id); if(!byCat[c]||v.m[id]>v.m[byCat[c]])byCat[c]=id; }
@@ -30367,7 +30418,7 @@ function renderVoters(){
   main.innerHTML=h;
   wireBackBtn();
   main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
-  main.querySelectorAll('[data-vsort]').forEach(b=>b.addEventListener('click',()=>{ window._vSort=b.dataset.vsort; render(); }));
+  main.querySelectorAll('[data-vsort]').forEach(b=>b.addEventListener('click',()=>{ window._vSort=b.dataset.vsort; renderInPlace(); }));
   const camp=main.querySelector('[data-vcamp]'); if(camp)camp.addEventListener('click',()=>{ const b=document.querySelector('nav.rail button[data-view="camphq"]'); if(b)b.click(); });
 }
 /* ============================================================
