@@ -30420,6 +30420,27 @@ function intentionBand(){
     const sd=Math.sqrt(nat*nat+Math.pow(9*m,2)/12), w=1.2816*sd;
     return {turn:q.turn, lo:q.value-w, hi:q.value+w}; });
 }
+/* WHAT A GAIN IN EACH GROUP IS WORTH. Raise every member's approval by
+   LEVER_PTS, scaled by how fully they belong to the group, and rerun the
+   vote the Voting for you gauge is built on: turnout and the chance of
+   backing you both recomputed, the same realism blend. Returns the change in
+   points of your statewide vote for each group. Size, turnout, how movable
+   the members are and how fired up they get are all inside the one number. */
+const LEVER_PTS=5;
+function groupLeverage(){
+  const N=VOTERS.length; if(!N)return {};
+  const pOf=a=>clamp(0.5+(a-50)/95,0.08,0.92);
+  const t0=new Array(N), p0=new Array(N); let Y=0,T=0;
+  for(let i=0;i<N;i++){ const v=VOTERS[i]; t0[i]=turnoutProb(v); p0[i]=pOf(v.approval); Y+=t0[i]*p0[i]; T+=t0[i]; }
+  const base=T>0?Y/T:0.5, out={};
+  for(const id in SIMULANTS){ if(SIMULANTS[id].static)continue;
+    let dY=0,dT=0;
+    for(let i=0;i<N;i++){ const v=VOTERS[i], w=(v.m&&v.m[id])||0; if(w<0.01)continue;
+      const a=clamp(v.approval+LEVER_PTS*w,0,100), t=turnoutProb(Object.assign({},v,{approval:a}));
+      dY+=t*pOf(a)-t0[i]*p0[i]; dT+=t-t0[i]; }
+    out[id]=((T+dT)>0?((Y+dY)/(T+dT)-base):0)*0.65*100; }
+  return out;
+}
 /* THE ENTHUSIASM GAP. Who turns out: the voters who would vote for you, the
    ones who would vote against, and the ones on the fence, with how likely
    each is to vote. And what turnout is worth: the share voting for you
@@ -30527,29 +30548,23 @@ function renderVoters(){
       <div class="veg-sum">Your supporters are <b style="color:${gap>=0?'var(--good)':'var(--bad)'}">${Math.abs(gap).toFixed(0)} points ${gap>=0?"more":"less"} likely</b> to vote than your opponents. Turnout is ${Math.abs(w)<0.1?"worth almost nothing either way":(w>0?"<b style=\"color:var(--good)\">adding ":"<b style=\"color:var(--bad)\">costing you ")+Math.abs(w).toFixed(1)+" points</b> of the vote"} compared with everyone voting.</div>
       <div class="threshline" style="margin-top:6px">To close it, give your supporters something to be excited about, or work their turnout from <span class="sf-l" data-vcamp2="1">Campaign HQ</span>. Election rules matter too: <span class="sf-l" data-detail="p_electionAdmin">Election Administration</span> and <span class="sf-l" data-detail="p_motorVoter">Motor Voter</span> decide how easily the lukewarm vote at all.</div></div>`; }
 
-  // ---- 3. where the election is decided: real voters, counted. For each
-  // group, the simulated voters in it who are on the fence about you
-  // (approval 40 to 60) and likely to turn out, weighted by how fully they
-  // belong to the group. These are the votes a campaign can still move.
-  { const tp=VOTERS.map(v=>turnoutProb(v));
-    const rows=groups.map(id=>{ let fence=0, votes=0, pro=0;
-      VOTERS.forEach((v,i)=>{ const w=(v.m&&v.m[id])||0; if(!w)return; const t=w*tp[i]; votes+=t;
-        if(v.approval>60)pro+=t; else if(v.approval>=40)fence+=t; });
-      return {id, g:SIMULANTS[id], fence, votes, pro, con:Math.max(0,votes-fence-pro)}; }).sort((a,b)=>b.fence-a.fence).slice(0,8);
+  // ---- 3. where the election is decided: what winning each group over is worth
+  { const lev=groupLeverage();
+    const rows=groups.map(id=>({id, g:SIMULANTS[id], v:lev[id]||0})).sort((a,b)=>b.v-a.v).slice(0,8);
+    const top=Math.max(0.01,...rows.map(r=>r.v));
     h+=`<div class="ebgroup-label">Where your election is decided</div><div class="ebgroup">
-      <div class="threshline" style="margin-bottom:8px">Voters still to be won: in each group, the people who are on the fence about you (approval between 40% and 60%) and likely to vote. Counted from the ${VOTERS.length.toLocaleString()} simulated voters. Groups overlap, so one person can count in several rows.</div>
-      <div class="vfence-key"><span><i class="vf-pro"></i>With you: approval over 60%</span><span><i class="vf-fence"></i>On the fence: approval 40\u201360%</span><span><i class="vf-con"></i>Against you: approval under 40%</span></div>
-      <div class="vdec vdec-head"><span>Group</span><span></span><span>The group's likely voters</span><span>Group approval</span></div>`;
+      <div class="threshline" style="margin-bottom:8px">What winning a group over is worth: if every member's approval of you rose ${LEVER_PTS} points, how much your share of the statewide vote would rise. It counts how big the group is, how many of it vote, how movable its members are, and how their turnout changes as they warm to you. Groups overlap, so the gains do not add up.</div>
+      <div class="vdec vdec-head"><span>Group</span><span></span><span>+${LEVER_PTS} approval with them is worth</span><span>Group approval</span></div>`;
     for(const r of rows){ const a=r.g.approval, side=a>=55?["Base","base"]:a<=45?["Opposed","opp"]:["Swing","swing"];
       h+=`<div class="vdec" data-detail="v_${r.id}"><span class="vdec-n">${r.g.name}</span><span class="vtag ${side[1]}">${side[0]}</span>
-        <span class="vdec-c"><span class="vdec-bar vfence" title="${Math.round(r.pro)} with you, ${Math.round(r.fence)} on the fence, ${Math.round(r.con)} against you"><i class="vf-pro" style="width:${(r.pro/Math.max(1,r.votes)*100).toFixed(1)}%"></i><i class="vf-fence" style="width:${(r.fence/Math.max(1,r.votes)*100).toFixed(1)}%"></i><i class="vf-con" style="width:${(r.con/Math.max(1,r.votes)*100).toFixed(1)}%"></i></span><span class="vdec-num"><b>${Math.round(r.fence)}</b> on the fence of ${Math.round(r.votes)}</span></span>
+        <span class="vdec-c"><span class="vdec-bar"><i style="width:${Math.max(2,Math.round(r.v/top*100))}%"></i></span><span class="vdec-num"><b>+${r.v.toFixed(1)}</b> points of your vote</span></span>
         <span class="vdec-f"><b style="color:${apCol(a)}">${Math.round(a)}% approve</b></span></div>`; }
     h+=`</div>`; }
 
   // ---- 4. every group, compact, with a choice of order
   { const mode=["type","change","size"].includes(window._vSort)?window._vSort:"type";
     h+=`<div class="vall-h"><div class="ebgroup-label" style="margin:0">All groups</div><div class="vsort" role="tablist">
-      ${[["type","By type"],["change","By change"],["size","By size"]].map(([k,l])=>`<button role="tab" aria-selected="${mode===k}" data-vsort="${k}" class="${mode===k?"on":""}">${l}</button>`).join("")}</div></div>`;
+      ${[["type","By type"],["change","Biggest moves"],["size","By size"]].map(([k,l])=>`<button role="tab" aria-selected="${mode===k}" data-vsort="${k}" class="${mode===k?"on":""}">${l}</button>`).join("")}</div></div>`;
     const line=id=>{ const g=SIMULANTS[id];
       const sens=Object.entries(g.sensitivities||{}).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,2);
       const tags=sens.map(([k,v])=>`<span class="stag ${v>0?'pos':'neg'}">${sensLabels[k]||k}</span>`).join("");
@@ -30564,7 +30579,7 @@ function renderVoters(){
         const c=ids.filter(id=>catOf(id)===cat).sort((a,b)=>SIMULANTS[b].size-SIMULANTS[a].size); if(!c.length)continue;
         h+=`<div class="vcat-label"><i class="vcat-dot" style="background:${CAT_COLOR[cat]}"></i>${CAT_NAME[cat]}</div>`+c.map(line).join(""); }
     } else {
-      const c=groups.slice().sort(mode==="change"?(a,b)=>histDelta("v_"+a)-histDelta("v_"+b):(a,b)=>SIMULANTS[b].size-SIMULANTS[a].size);
+      const c=groups.slice().sort(mode==="change"?(a,b)=>Math.abs(histDelta("v_"+b))-Math.abs(histDelta("v_"+a)):(a,b)=>SIMULANTS[b].size-SIMULANTS[a].size);
       h+=c.map(line).join("");
     }
     h+=`</div>`; }
