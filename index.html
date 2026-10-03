@@ -30300,8 +30300,30 @@ function wirePolicyControls(){
 }
 /* The five voters the focus group follows: fixed for the run, spread
    across the electorate. */
-const FOCUS_N=15;
-function focusPanelIdx(){ const N=VOTERS.length||1; return Array.from({length:FOCUS_N},(_,i)=>(i*397+113)%N); }
+/* THE FOCUS GROUP. Ten voters, picked so the panel always has partisans in
+   it: two each of liberals, conservatives and moderates, a socialist, a
+   libertarian, and two who hold no ideology. GAME.focusSeed picks which
+   ten; New focus group moves it on. The same seed always gives the same
+   people, so they can be followed quarter to quarter. */
+const FOCUS_N=10;
+const FOCUS_MIX=[["liberal",2],["conservative",2],["moderate",2],["socialist",1],["libertarian",1],[null,2]];
+const FOCUS_IDEO=["socialist","liberal","moderate","conservative","libertarian"];
+function focusIdeo(v){ let best=null, bw=0.5; for(const id of FOCUS_IDEO){ const w=(v.m&&v.m[id])||0; if(w>bw){ bw=w; best=id; } } return best; }
+let _focusCache=null;
+function focusPanelIdx(){
+  const N=VOTERS.length; if(!N)return [];
+  const seed=GAME.focusSeed||0;
+  if(_focusCache&&_focusCache.seed===seed&&_focusCache.v0===VOTERS[0])return _focusCache.idx;
+  const pools={}; VOTERS.forEach((v,i)=>{ const k=focusIdeo(v)||"none"; (pools[k]=pools[k]||[]).push(i); });
+  let x=(seed*2654435761+97)>>>0; const rnd=()=>{ x^=x<<13; x>>>=0; x^=x>>>17; x^=x<<5; x>>>=0; return x/4294967296; };
+  const out=[];
+  for(const [id,n] of FOCUS_MIX){ const p=(pools[id||"none"]||[]).slice();
+    for(let j=0;j<n&&p.length;j++){ const at=Math.floor(rnd()*p.length); out.push(p.splice(at,1)[0]); } }
+  // a pool too small to fill its places: make up the ten from anyone
+  for(let i=0;out.length<FOCUS_N&&i<N*2;i++){ const c=Math.floor(rnd()*N); if(!out.includes(c))out.push(c); }
+  _focusCache={seed, v0:VOTERS[0], idx:out};
+  return out;
+}
 function focusName(i){ return APPT_FIRST[(i*7+3)%APPT_FIRST.length]+" "+APPT_LAST[(i*11+5)%APPT_LAST.length]; }
 function focusCounty(v){
   if(!v.cw)return "Oregon";
@@ -30310,11 +30332,23 @@ function focusCounty(v){
 }
 /* What a voter cares about most: their groups' concerns, weighted by how
    strongly they belong. */
-function focusCares(v, labels){
+/* What a voter cares about most: their groups' concerns, weighted by how
+   strongly they belong, MEASURED AGAINST THE AVERAGE OREGONIAN. Income tops
+   nearly everyone's raw list, so the raw list says nothing about a person;
+   what they care about more than the average voter does. */
+function focusConcerns(v){
   const w={};
   for(const id in (v.m||{})){ const S=SIMULANTS[id], m=v.m[id]; if(!S||m<=0.2||!S.sensitivities)continue;
     for(const k in S.sensitivities){ const x=S.sensitivities[k]; if(x>0)w[k]=(w[k]||0)+x*m; } }
-  return Object.keys(w).sort((a,b)=>w[b]-w[a]).slice(0,2).map(k=>(labels[k]||k).toLowerCase()).join(" and ");
+  return w;
+}
+let _focusAvg=null;
+function focusCares(v, labels){
+  if(!_focusAvg||_focusAvg.v0!==VOTERS[0]){ const a={}; for(const u of VOTERS){ const w=focusConcerns(u); for(const k in w)a[k]=(a[k]||0)+w[k]; }
+    for(const k in a)a[k]/=Math.max(1,VOTERS.length); _focusAvg={v0:VOTERS[0], a}; }
+  const w=focusConcerns(v), avg=_focusAvg.a;
+  return Object.keys(w).map(k=>[k,w[k]-(avg[k]||0)]).filter(x=>x[1]>0.05).sort((a,b)=>b[1]-a[1])
+    .slice(0,2).map(x=>(labels[x[0]]||x[0]).toLowerCase()).join(" and ");
 }
 /* The main reason a group moved since last quarter: the driver whose push
    changed most in the direction they went. */
@@ -30411,8 +30445,8 @@ function renderVoters(){
 
   // ---- 5. the focus group, last and compact
   { const picks=focusPanelIdx().map(i=>({v:VOTERS[i], i}));
-    h+=`<div class="ebgroup-label" style="margin-top:22px">Focus group</div>
-      <div class="threshline" style="margin-bottom:8px">Fifteen of the 2,000 voters, the same fifteen all term, so you can watch real people move.</div><div class="focusgrid fg5">`;
+    h+=`<div class="vall-h"><div class="ebgroup-label" style="margin:0">Focus group</div><button type="button" class="sb-btn" data-fgnew="1">\u21bb New focus group</button></div>
+      <div class="threshline" style="margin-bottom:8px">Ten of the 2,000 voters, chosen across the parties, the same ten until you call a new group, so you can watch real people move.</div><div class="focusgrid fg5">`;
     for(const {v,i:vi} of picks){
       const byCat={};
       for(const id in v.m){ if(!SIMULANTS[id]||v.m[id]<=0.2)continue; const c=catOf(id); if(!byCat[c]||v.m[id]>v.m[byCat[c]])byCat[c]=id; }
@@ -30426,10 +30460,11 @@ function renderVoters(){
         <div class="focussub">${focusCounty(v)} · ${v.adjIncome<0.42?"lower":v.adjIncome>0.62?"higher":"middle"} income · ${v.urban>0.58?"urban":v.urban<0.48?"rural":"suburban"} · ${v.age>0.6?"older":v.age<0.4?"younger":"middle-aged"}</div>
         <div class="focushead"><span style="color:${apCol(v.approval)};font-weight:700">${Math.round(v.approval)}%</span> ${hasHist?arrow(histDelta("fg_"+vi),0):""}</div>
         <div class="fg-line">${vote} (${Math.round(t*100)}% likely to vote)</div>
-        ${cares?`<div class="fg-line">Cares most about <b>${cares}</b></div>`:""}
-        <details class="fg-who"><summary>Who they are</summary>`;
+        ${(()=>{ const ide=focusIdeo(v); return `<div class="fg-line">${ide?"A <b>"+SIMULANTS[ide].name.replace(/s$/,"").toLowerCase()+"</b>":"No party leaning"}</div>`; })()}
+        ${cares?`<div class="fg-line">Cares more than most about <b>${cares}</b></div>`:""}
+        <div class="fg-k" style="margin-top:8px">Who they are</div>`;
       for(const id of mine){ const c=catOf(id); h+=`<div class="focusrow" data-detail="v_${id}" title="${CAT_NAME[c]}"><span class="fr-name">${SIMULANTS[id].name}</span><span class="fr-bar"><i style="width:${Math.round(v.m[id]*100)}%;background:${CAT_COLOR[c]}"></i></span></div>`; }
-      h+=`</details></div>`;
+      h+=`</div>`;
     }
     h+=`</div>`; }
 
@@ -30437,6 +30472,10 @@ function renderVoters(){
   wireBackBtn();
   main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
   main.querySelectorAll('[data-vsort]').forEach(b=>b.addEventListener('click',()=>{ window._vSort=b.dataset.vsort; renderInPlace(); }));
+  main.querySelectorAll('[data-fgnew]').forEach(b=>b.addEventListener('click',()=>{ GAME.focusSeed=(GAME.focusSeed||0)+1;
+    GAME.history=GAME.history||{};
+    for(const i of focusPanelIdx())if(VOTERS[i]&&!(GAME.history["fg_"+i]||[]).length)GAME.history["fg_"+i]=[{turn:GAME.turn,value:VOTERS[i].approval}];   // a starting point for each new member
+    renderInPlace(); }));
   const camp=main.querySelector('[data-vcamp]'); if(camp)camp.addEventListener('click',()=>{ const b=document.querySelector('nav.rail button[data-view="camphq"]'); if(b)b.click(); });
 }
 /* ============================================================
