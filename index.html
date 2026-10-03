@@ -10813,6 +10813,34 @@ const SITUATIONS={
     indicatorEffect:{downtown:-2},
     moodAxes:{economic:0.2}, moodMag:2,
     groupMood:{publicUnions:-8, socialist:-5, blueCollar:-3, liberal:-3, moderate:-3, businessClass:2, conservative:2}},
+  /* THE RIGHT'S OCCUPATION. Timber Unity's log trucks circled the Capitol
+     against cap-and-trade in 2019 and 2020; this is that, over a carbon price
+     at the top of its range or a harvest driven to almost nothing. One
+     quarter, like the union occupation, and putting back what started it
+     ends it at once. */
+  convoyBlockade:{name:"Convoys Shut Down Salem", kind:"bad", category:"condition",
+    desc:"Log trucks, big rigs and farm equipment from timber country ring the Capitol and fill the streets around it, as Timber Unity did against cap-and-trade in 2019 and 2020. Legislators cannot get in, and neither chamber can sit while the convoys hold the building.\n\nIt lasts one quarter: the convoys go home at the end of it. Until then, the only way to end it is to put back what started it, by lowering the carbon tax or letting the harvest back up.",
+    rules:"Costs capital and slows freight every quarter it runs, and shuts the floor: nothing new passes until the convoys leave, except lowering or repealing the carbon tax, loosening the Forest Practices Act, or raising the Department of Forestry's harvest.",
+    trigger:()=>{
+      if(GAME.turn<=2)return false;
+      const fired=GAME.convoyFired=GAME.convoyFired||{};
+      const c=convoyCauses();
+      // one blockade per provocation; putting it back re-arms it
+      if(!c.carbon)delete fired.carbon;
+      if(!c.harvest)delete fired.harvest;
+      return (c.carbon&&!fired.carbon) || (c.harvest&&!fired.harvest);
+    },
+    onStart:()=>{
+      const fired=GAME.convoyFired=GAME.convoyFired||{}, c=convoyCauses();
+      if(c.carbon)fired.carbon=true;
+      if(c.harvest)fired.harvest=true;
+    },
+    clear:()=>(GAME.situationAge.convoyBlockade||0)>=1 || (()=>{ const c=convoyCauses(); return !c.carbon&&!c.harvest; })(),
+    minTurns:1, onTrigger:{capital:-3}, capitalDrain:-2, onClear:{capital:1},
+    metricEffect:{gdp:-0.1},
+    indicatorEffect:{ruralAlienation:6, businessClimate:-2},
+    moodAxes:{environment:0.2}, moodMag:2,
+    groupMood:{timber:-8, rural:-6, conservative:-4, blueCollar:-3, motorists:-3, moderate:-3, liberal:2, urban:2}},
   oilShock:{name:"Oil Price Shock", kind:"bad", category:"event",
     desc:"Global crude prices spike — every gas station marquee in Oregon becomes a referendum on your administration.",
     metricEffect:{gasPrice:0.25,gdp:-0.15}, moodMag:1, minTurns:2,
@@ -11343,6 +11371,14 @@ function _sitAge(sid){ return (GAME.situationAge&&GAME.situationAge[sid])||0; }
              [ fc("Public-sector collective bargaining banned", ban?"banned":"not banned", ban, plink("collectiveBargaining")) ]],
       end:[[ fc("Wait: the building is cleared at the end of the quarter", "quarter "+(_sitAge("laborUprising")+1), _sitAge("laborUprising")>=1) ],
            [ fc("Put back what started it", (rtw||ban)?"still in force":"reversed", !rtw&&!ban) ]]};
+  };
+  S.convoyBlockade.feeds=()=>{
+    const c=convoyCauses(), ct=POLICIES.carbonTax;
+    return {
+      begin:[[ fc("A carbon tax of $45 a ton or more, signed by you", ct?policyRealLabel(ct):"not law", c.carbon, ct?plink("carbonTax"):"m_environment") ],
+             [ fc("A harvest under "+CONVOY_HARVEST+", with Strong Setbacks or a harvest cut at Forestry behind it", _sn(mv("loggingRate")), c.harvest, "m_loggingRate") ]],
+      end:[[ fc("Wait: the convoys go home at the end of the quarter", "quarter "+(_sitAge("convoyBlockade")+1), _sitAge("convoyBlockade")>=1) ],
+           [ fc("Put back what started it", (c.carbon||c.harvest)?"still in force":"reversed", !c.carbon&&!c.harvest) ]]};
   };
   S.gopWalkout.feeds=walkoutFeeds("gopWalkout","right");
   S.demWalkout.feeds=walkoutFeeds("demWalkout","left");
@@ -19559,16 +19595,31 @@ function endWalkout(){
 /* THE FLOOR IS SHUT by a walkout (no quorum) or by an occupation of the
    Capitol (nobody can sit while the building is full). Quarters left: the
    walkout's clock, or at least this one while the occupation lasts. */
-function capitolOccupied(){ return !!(GAME.activeSituations&&GAME.activeSituations.laborUprising); }
+function capitolOccupied(){ const S=GAME.activeSituations||{}; return !!(S.laborUprising||S.convoyBlockade); }
+/* The convoys' grievances. A carbon tax at $45 a ton or more that you signed
+   (one the voters passed over your objection does not count), or a harvest
+   under 15 with your hand on it: the Forest Practices Act at Strong Setbacks
+   or stricter, or the Department of Forestry's harvest cut below 30%. */
+const CONVOY_CARBON=0.75, CONVOY_HARVEST=15;
+function convoyCauses(){
+  const ct=POLICIES.carbonTax;
+  const carbon=!!(ct&&(ct.value||0)>=CONVOY_CARBON&&!enactedViaBallot("carbonTax"));
+  const fp=POLICIES.forestPractices, fo=AGENCIES.forestry;
+  const yours=(fp&&fp.tierIndex>=3)||(fo&&(fo.logging??0.5)<0.3);
+  const harvest=!!(METRICS.loggingRate&&METRICS.loggingRate.value<CONVOY_HARVEST&&yours);
+  return {carbon, harvest};
+}
 function floorFrozen(){ return Math.max(0, GAME.floorFreeze||0, capitolOccupied()?1:0); }
 /* Shut for THIS change? A walkout shuts everything; an occupation shuts
    everything except giving the occupiers what they came for. */
 function floorShutFor(key,dir){
   if((GAME.floorFreeze||0)>0)return true;
   if(!capitolOccupied())return false;
-  if(key==="p_rightToWork"&&dir==="repeal")return false;
-  if(key==="p_collectiveBargaining")return false;   // restoring bargaining is a dial move up
-  return true;
+  const S=GAME.activeSituations||{};
+  const unions=key==="p_collectiveBargaining"            // restoring bargaining is a dial move up
+    ||(key==="p_rightToWork"&&dir==="repeal");
+  const convoys=key==="p_carbonTax"||key==="p_forestPractices"||key==="a_forestry";
+  return !((!S.laborUprising||unions)&&(!S.convoyBlockade||convoys));
 }
 /* Why, in words: for the log and the shut screen. */
 /* What a button that leads to the floor says while the floor is shut, or ""
@@ -23154,7 +23205,11 @@ function showFloorShut(name){
   if(!card||!modal)return;
   const q=floorFrozen();
   const left=(GAME.walkoutSide==="left");
-  if(!(GAME.floorFreeze>0)&&capitolOccupied()){
+  if(!(GAME.floorFreeze>0)&&GAME.activeSituations.convoyBlockade&&!GAME.activeSituations.laborUprising){
+    card.innerHTML=`<div class="sectionhdr">${ico('ban')} The convoys hold the Capitol — ${name}</div>
+      <div class="sectionsub">Log trucks and big rigs ring the building, and neither chamber can sit. Nothing new passes until they leave: the blockade ends when you give them what they came for (lower or repeal the carbon tax, loosen the Forest Practices Act, or raise the harvest, which can still go ahead), or at the end of this quarter.</div>
+      <button class="enactbtn" id="floorShutOk">Continue ▸</button>`;
+  } else if(!(GAME.floorFreeze>0)&&capitolOccupied()){
     card.innerHTML=`<div class="sectionhdr">${ico('ban')} The Capitol is occupied — ${name}</div>
       <div class="sectionsub">Teachers, nurses, corrections officers and state workers fill the rotunda, and neither chamber can sit while they do. Nothing new passes until the building is cleared: the occupation ends when you give them what they came for (repeal right-to-work, or restore public-sector bargaining, which can still reach the floor), or at the end of this quarter, when the building is cleared.</div>
       <button class="enactbtn" id="floorShutOk">Continue ▸</button>`;
