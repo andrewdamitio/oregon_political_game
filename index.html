@@ -1287,6 +1287,8 @@
   .vdec-c{display:flex;align-items:center;gap:10px;min-width:0}
   .vdec-c .vdec-bar{flex:1}
   .vdec-num{font-size:12.5px;color:var(--muted-2);white-space:nowrap}
+  .vdec-num.vdec-big{font-size:13.5px}
+  .vdec-num.vdec-big b{font-size:16px}
   .vdec-num b{font-family:var(--font-data);color:var(--ink);font-size:13.5px}
   .vdec-bar{height:7px;background:var(--line-faint);border-radius:4px;overflow:hidden}
   .vdec-bar.vfence{display:flex;height:10px}
@@ -1305,7 +1307,7 @@
   .vsort button{font:inherit;font-size:12.5px;padding:4px 10px;border:0;background:var(--paper);color:var(--ink);cursor:pointer}
   .vsort button+button{border-left:1px solid var(--line)}
   .vsort button.on{background:var(--ink);color:var(--paper)}
-  .vrow{display:grid;grid-template-columns:minmax(120px,1.2fr) minmax(90px,.8fr) minmax(110px,1fr) 52px minmax(0,1.2fr);gap:10px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--line-faint);cursor:pointer;font-size:13.5px}
+  .vrow{display:grid;grid-template-columns:minmax(120px,1.2fr) minmax(90px,.8fr) minmax(110px,1fr) minmax(52px,auto) minmax(0,1.2fr);gap:10px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--line-faint);cursor:pointer;font-size:13.5px}
   .vrow:hover{background:var(--paper-2)}
   .vrow.vrow-head{cursor:default;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted-3);padding-top:2px}
   .vrow.vrow-head:hover{background:none}
@@ -30551,35 +30553,39 @@ function renderVoters(){
   // ---- 3. where the election is decided: what winning each group over is worth
   { const lev=groupLeverage();
     const rows=groups.map(id=>({id, g:SIMULANTS[id], v:lev[id]||0})).sort((a,b)=>b.v-a.v).slice(0,8);
-    const top=Math.max(0.01,...rows.map(r=>r.v));
     h+=`<div class="ebgroup-label">Where your election is decided</div><div class="ebgroup">
       <div class="threshline" style="margin-bottom:8px">What winning a group over is worth: if every member's approval of you rose ${LEVER_PTS} points, how much your share of the statewide vote would rise. It counts how big the group is, how many of it vote, how movable its members are, and how their turnout changes as they warm to you. Groups overlap, so the gains do not add up.</div>
       <div class="vdec vdec-head"><span>Group</span><span></span><span>+${LEVER_PTS} approval with them is worth</span><span>Group approval</span></div>`;
     for(const r of rows){ const a=r.g.approval, side=a>=55?["Base","base"]:a<=45?["Opposed","opp"]:["Swing","swing"];
       h+=`<div class="vdec" data-detail="v_${r.id}"><span class="vdec-n">${r.g.name}</span><span class="vtag ${side[1]}">${side[0]}</span>
-        <span class="vdec-c"><span class="vdec-bar"><i style="width:${Math.max(2,Math.round(r.v/top*100))}%"></i></span><span class="vdec-num"><b>+${r.v.toFixed(1)}</b> points of your vote</span></span>
+        <span class="vdec-c"><span class="vdec-num vdec-big"><b>+${r.v.toFixed(1)}</b> points of your vote</span></span>
         <span class="vdec-f"><b style="color:${apCol(a)}">${Math.round(a)}% approve</b></span></div>`; }
     h+=`</div>`; }
 
   // ---- 4. every group, compact, with a choice of order
   { const mode=["type","change","size"].includes(window._vSort)?window._vSort:"type";
     h+=`<div class="vall-h"><div class="ebgroup-label" style="margin:0">All groups</div><div class="vsort" role="tablist">
-      ${[["type","By type"],["change","Biggest moves"],["size","By size"]].map(([k,l])=>`<button role="tab" aria-selected="${mode===k}" data-vsort="${k}" class="${mode===k?"on":""}">${l}</button>`).join("")}</div></div>`;
+      ${[["type","By type"],["change","Most changed since you took office"],["size","By size"]].map(([k,l])=>`<button role="tab" aria-selected="${mode===k}" data-vsort="${k}" class="${mode===k?"on":""}">${l}</button>`).join("")}</div></div>`;
+    // how far a group has moved since the first quarter on record: the
+    // whole of your time in office, not one quarter's wobble
+    const sinceStart=id=>{ const hh=GAME.history["v_"+id]||[]; return hh.length>=2?hh[hh.length-1].value-hh[0].value:0; };
+    const dirWord=d=>Math.abs(d)<0.5?`<span class="vchg flat">no real change</span>`
+      :`<span class="vchg ${d>0?"up":"dn"}">${d>0?"\u25b2":"\u25bc"} ${Math.abs(d).toFixed(1)} pts ${d>0?"toward you":"away from you"}</span>`;
     const line=id=>{ const g=SIMULANTS[id];
       const sens=Object.entries(g.sensitivities||{}).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,2);
       const tags=sens.map(([k,v])=>`<span class="stag ${v>0?'pos':'neg'}">${sensLabels[k]||k}</span>`).join("");
       return `<div class="vrow" data-detail="v_${id}"><span class="vrow-n">${g.name}</span>
         <span class="vrow-sz">${g.static?"All voters":Math.round(g.size*100)+"% of voters · "+Math.round(g.turnout*100)+"% vote"}</span>
         <span class="vrow-ap"><span class="abar"><i style="width:${g.approval}%;background:${apCol(g.approval)}"></i></span><b>${Math.round(g.approval)}%</b></span>
-        <span class="vrow-d">${hasHist?arrow(histDelta("v_"+id)):""}</span>
+        <span class="vrow-d">${hasHist?(mode==="change"?dirWord(sinceStart(id)):arrow(histDelta("v_"+id))):""}</span>
         <span class="vrow-t">${tags}</span></div>`; };
-    h+=`<div class="vrows"><div class="vrow vrow-head"><span>Group</span><span>Share of voters · turnout</span><span>Approval of you</span><span>Change</span><span>Cares most about</span></div>`;
+    h+=`<div class="vrows"><div class="vrow vrow-head"><span>Group</span><span>Share of voters · turnout</span><span>Approval of you</span><span>${mode==="change"?"Since you took office":"Since last quarter"}</span><span>Cares most about</span></div>`;
     if(mode==="type"){
       for(const cat of ["universal","ideology","income","housing","region","lifestage","sector"]){
         const c=ids.filter(id=>catOf(id)===cat).sort((a,b)=>SIMULANTS[b].size-SIMULANTS[a].size); if(!c.length)continue;
         h+=`<div class="vcat-label"><i class="vcat-dot" style="background:${CAT_COLOR[cat]}"></i>${CAT_NAME[cat]}</div>`+c.map(line).join(""); }
     } else {
-      const c=groups.slice().sort(mode==="change"?(a,b)=>Math.abs(histDelta("v_"+b))-Math.abs(histDelta("v_"+a)):(a,b)=>SIMULANTS[b].size-SIMULANTS[a].size);
+      const c=groups.slice().sort(mode==="change"?(a,b)=>Math.abs(sinceStart(b))-Math.abs(sinceStart(a)):(a,b)=>SIMULANTS[b].size-SIMULANTS[a].size);
       h+=c.map(line).join("");
     }
     h+=`</div>`; }
