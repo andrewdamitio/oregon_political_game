@@ -1269,6 +1269,7 @@
   .vchart-key{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--muted-2);margin-top:6px}
   .vchart-key i{display:inline-block;width:14px;height:3px;margin-right:6px;vertical-align:3px}
   .vchart-key i.dash{height:0;border-top:2px dashed;background:none}
+  .vchart-key i.band{height:10px;width:14px;vertical-align:-1px;background:var(--gold);opacity:.3}
   .vmov-h{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
   .vmov-h.up{color:var(--good)} .vmov-h.dn{color:var(--bad)}
   .vmov-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 10px;align-items:baseline;padding:7px 10px;border:1px solid var(--line);border-radius:var(--radius);background:var(--paper-2);margin-bottom:6px;cursor:pointer}
@@ -26715,7 +26716,8 @@ function sparkline(series, opts={}){
   const padL=opts.yLabels?40:pad;
   // a fill from a baseline (the zero line) rather than from the bottom edge
   const fillBase=opts.fillBase;
-  const vals=series.map(s=>s.value).concat(opts.series2&&opts.series2.series?opts.series2.series.map(s=>s.value):[]);
+  const vals=series.map(s=>s.value).concat(opts.series2&&opts.series2.series?opts.series2.series.map(s=>s.value):[])
+    .concat(opts.series2&&opts.series2.band?opts.series2.band.flatMap(b=>[b.lo,b.hi]):[]);
   let lo=Math.min(...vals), hi=Math.max(...vals);
   if(opts.min!==undefined)lo=Math.min(lo,opts.min);
   if(opts.max!==undefined)hi=Math.max(hi,opts.max);
@@ -26782,6 +26784,10 @@ function sparkline(series, opts={}){
     <polygon points="${area}" fill="url(#${gradId})"/>
     ${hl}
     ${marks}
+    ${(()=>{ const B=opts.series2&&opts.series2.band; if(!B||B.length<2)return "";
+      const pts=B.filter(b=>b.turn>=t0&&b.turn<=tN);
+      const up=pts.map(b=>`${xByTurn(b.turn).toFixed(1)},${y(b.hi).toFixed(1)}`), dn=pts.slice().reverse().map(b=>`${xByTurn(b.turn).toFixed(1)},${y(b.lo).toFixed(1)}`);
+      return `<polygon points="${up.concat(dn).join(" ")}" fill="${opts.series2.color||'var(--gold)'}" fill-opacity="0.18" stroke="none"/>`; })()}
     ${(()=>{ const s2=opts.series2; if(!s2||!s2.series||s2.series.length<2)return "";
       const p2=s2.series.filter(q=>q.turn==null||(q.turn>=t0&&q.turn<=tN)).map((q,i)=>`${(q.turn!=null?xByTurn(q.turn):x(i)).toFixed(1)},${y(q.value).toFixed(1)}`).join(" ");
       return `<polyline points="${p2}" fill="none" stroke="${s2.color||'var(--gold)'}" stroke-width="2" stroke-dasharray="5 3"/>`; })()}
@@ -30398,6 +30404,20 @@ function statewideDrivers(){
   if(W<=0)return [];
   return Object.keys(tot).map(k=>({label:k, link:link[k]||null, v:tot[k]/W})).filter(d=>Math.abs(d.v)>=0.05).sort((a,b)=>a.v-b.v);
 }
+/* THE ELECTION-NIGHT RANGE around the voting intention, for each quarter in
+   its history: the 80% band from the two random swings the night draws. The
+   statewide miss moves every voter's approval by about 2 points (electionNightZ
+   x 2.0 in runElection), which is about 1.4 points of the final share after the
+   realism blend; the opposition's swing is uniform, up to 4.5 points either way
+   at full momentum, so its spread grows with their momentum that quarter. */
+function intentionBand(){
+  const iv=GAME.history.intention||[], om=GAME.history.oppMomentum||[], mAt={};
+  om.forEach(q=>mAt[q.turn]=q.value);
+  const nat=2.0/95*100*0.66;
+  return iv.map(q=>{ const m=clamp((mAt[q.turn]!=null?mAt[q.turn]:25)/100,0,1);
+    const sd=Math.sqrt(nat*nat+Math.pow(9*m,2)/12), w=1.2816*sd;
+    return {turn:q.turn, lo:q.value-w, hi:q.value+w}; });
+}
 /* THE ENTHUSIASM GAP. Who turns out: the voters who would vote for you, the
    ones who would vote against, and the ones on the fence, with how likely
    each is to vote. And what turnout is worth: the share voting for you
@@ -30460,11 +30480,11 @@ function renderVoters(){
     const marks=[]; for(const q of ap){ const into=((q.turn%L)+L)%L; if(into===mt)marks.push({turn:q.turn,label:"Midterm"}); else if(into===L-1)marks.push({turn:q.turn,label:"Election"}); }
     h+=`<div class="chartbox"><div class="charttitle">Your standing over time</div>
       ${sparkline(ap,{color:'var(--slate-blue)',axis:"years",noEnds:true,min:30,max:70,
-        series2:{series:GAME.history.intention||[],color:'var(--gold)'},
+        series2:{series:GAME.history.intention||[],color:'var(--gold)',band:intentionBand()},
         hlines:[{value:50,color:"var(--muted-2)"}], marks,
         yLabels:[0,10,20,30,40,50,60,70,80,90,100].map(v=>({v,l:v+"%"})),
         fmt:v=>Math.round(v)+'%'})}
-      <div class="vchart-key"><span><i style="background:var(--slate-blue)"></i>Approval</span><span><i class="dash" style="border-color:var(--gold)"></i>Voting for you, if the vote were that day</span><span><i class="dash" style="border-color:var(--muted-2)"></i>50%</span></div></div>`; }
+      <div class="vchart-key"><span><i style="background:var(--slate-blue)"></i>Approval</span><span><i class="dash" style="border-color:var(--gold)"></i>Voting for you, if the vote were that day</span><span><i class="band"></i>Likely range on the night (8 in 10)</span><span><i class="dash" style="border-color:var(--muted-2)"></i>50%</span></div></div>`; }
 
   // ---- what is costing you votes, and what is helping
   { const d=statewideDrivers(), bad=d.filter(x=>x.v<0).slice(0,5), good=d.filter(x=>x.v>0).reverse().slice(0,5);
