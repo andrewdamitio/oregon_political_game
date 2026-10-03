@@ -1265,6 +1265,10 @@
   .vdec-n{font-weight:600}
   .vdec.vdec-head{cursor:default;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted-3);padding-top:0}
   .vdec.vdec-head span:last-child{white-space:normal}
+  .vdec-c{display:flex;align-items:center;gap:10px;min-width:0}
+  .vdec-c .vdec-bar{flex:1}
+  .vdec-num{font-size:12.5px;color:var(--muted-2);white-space:nowrap}
+  .vdec-num b{font-family:var(--font-data);color:var(--ink);font-size:13.5px}
   .vdec-bar{height:7px;background:var(--line-faint);border-radius:4px;overflow:hidden}
   .vdec-bar i{display:block;height:100%;background:var(--slate-blue)}
   .vdec-f{font-size:12.5px;color:var(--muted-2);white-space:nowrap}
@@ -1294,7 +1298,7 @@
     .vrow{grid-template-columns:minmax(0,1fr) auto 52px}
     .vrow-sz,.vrow-t{display:none}
     .vdec{grid-template-columns:minmax(0,1fr) auto}
-    .vdec-bar,.vdec-f{grid-column:1/-1}
+    .vdec-c,.vdec-f{grid-column:1/-1}
     .vdec.vdec-head{display:none}
   }
   .vcat-label{font-size:12.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-1);margin:18px 0 8px;border-bottom:1px solid var(--line-faint);padding-bottom:4px;font-weight:700}
@@ -30364,17 +30368,22 @@ function renderVoters(){
     else h+=`<div class="vmov"><div><div class="vmov-h up">Warming to you</div>${up.map(row).join("")||'<div class="threshline">No group warmed.</div>'}</div>
       <div><div class="vmov-h dn">Cooling on you</div>${dn.map(row).join("")||'<div class="threshline">No group cooled.</div>'}</div></div>`; }
 
-  // ---- 3. where the election is decided
-  { const rows=groups.map(id=>{ const g=SIMULANTS[id], close=Math.max(0,1-Math.abs(g.approval-50)/50);
-      return {id, g, w:g.size*g.turnout*close}; }).sort((a,b)=>b.w-a.w).slice(0,8);
-    const top=Math.max(0.0001,...rows.map(r=>r.w));
+  // ---- 3. where the election is decided: real voters, counted. For each
+  // group, the simulated voters in it who are on the fence about you
+  // (approval 40 to 60) and likely to turn out, weighted by how fully they
+  // belong to the group. These are the votes a campaign can still move.
+  { const tp=VOTERS.map(v=>turnoutProb(v));
+    const rows=groups.map(id=>{ let fence=0, votes=0;
+      VOTERS.forEach((v,i)=>{ const w=(v.m&&v.m[id])||0; if(!w)return; const t=w*tp[i]; votes+=t; if(v.approval>=40&&v.approval<=60)fence+=t; });
+      return {id, g:SIMULANTS[id], fence, votes}; }).sort((a,b)=>b.fence-a.fence).slice(0,8);
+    const top=Math.max(1,...rows.map(r=>r.fence));
     h+=`<div class="ebgroup-label">Where your election is decided</div><div class="ebgroup">
-      <div class="threshline" style="margin-bottom:8px">The groups with the most votes still in play: their share of voters, times how many of them vote, times how close they are to 50%. A big group that already loves or hates you has fewer votes to win than a smaller one on the fence.</div>
-      <div class="vdec vdec-head"><span>Group</span><span></span><span>Votes still in play</span><span>Share of voters · turnout · approve of you</span></div>`;
+      <div class="threshline" style="margin-bottom:8px">Voters still to be won: in each group, the people who are on the fence about you (approval between 40% and 60%) and likely to vote. Counted from the ${VOTERS.length.toLocaleString()} simulated voters. Groups overlap, so one person can count in several rows.</div>
+      <div class="vdec vdec-head"><span>Group</span><span></span><span>On the fence and likely to vote</span><span>Group approval</span></div>`;
     for(const r of rows){ const a=r.g.approval, side=a>=55?["Base","base"]:a<=45?["Opposed","opp"]:["Swing","swing"];
       h+=`<div class="vdec" data-detail="v_${r.id}"><span class="vdec-n">${r.g.name}</span><span class="vtag ${side[1]}">${side[0]}</span>
-        <span class="vdec-bar"><i style="width:${Math.round(r.w/top*100)}%"></i></span>
-        <span class="vdec-f">${Math.round(r.g.size*100)}% of voters · ${Math.round(r.g.turnout*100)}% vote · <b style="color:${apCol(a)}">${Math.round(a)}% approve</b></span></div>`; }
+        <span class="vdec-c"><span class="vdec-bar"><i style="width:${Math.round(r.fence/top*100)}%"></i></span><span class="vdec-num"><b>${Math.round(r.fence)}</b> of ${Math.round(r.votes)} who vote</span></span>
+        <span class="vdec-f"><b style="color:${apCol(a)}">${Math.round(a)}% approve</b></span></div>`; }
     h+=`</div>`; }
 
   // ---- 4. every group, compact, with a choice of order
