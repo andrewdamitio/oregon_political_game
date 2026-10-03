@@ -1261,6 +1261,11 @@
   .vdrv-bar{height:7px;background:var(--line-faint);border-radius:4px;overflow:hidden}
   .vdrv-bar i{display:block;height:100%}
   .vdrv-v{font-family:var(--font-data);font-weight:700;text-align:right}
+  .veg-row{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(50px,1fr) 44px;gap:10px;align-items:center;padding:5px 2px;border-bottom:1px solid var(--line-faint);font-size:13.5px}
+  .veg-n{font-weight:600}
+  .veg-n i{font-style:normal;font-weight:400;font-size:12px;color:var(--muted-3);margin-left:6px}
+  .veg-sum{margin-top:9px;font-size:13.5px;line-height:1.5}
+  #main .ebgroup .sf-l{color:var(--slate-blue);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
   .vchart-key{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--muted-2);margin-top:6px}
   .vchart-key i{display:inline-block;width:14px;height:3px;margin-right:6px;vertical-align:3px}
   .vchart-key i.dash{height:0;border-top:2px dashed;background:none}
@@ -30393,6 +30398,23 @@ function statewideDrivers(){
   if(W<=0)return [];
   return Object.keys(tot).map(k=>({label:k, link:link[k]||null, v:tot[k]/W})).filter(d=>Math.abs(d.v)>=0.05).sort((a,b)=>a.v-b.v);
 }
+/* THE ENTHUSIASM GAP. Who turns out: the voters who would vote for you, the
+   ones who would vote against, and the ones on the fence, with how likely
+   each is to vote. And what turnout is worth: the share voting for you
+   among the people likely to vote, against the share if everyone voted,
+   blended the same way votingIntention is. */
+function enthusiasmGap(){
+  const g={pro:{n:0,t:0},fence:{n:0,t:0},con:{n:0,t:0}};
+  let yesT=0,totT=0,yesA=0;
+  for(const v of VOTERS){ const t=turnoutProb(v), p=clamp(0.5+(v.approval-50)/95,0.08,0.92);
+    const k=v.approval>=53?"pro":v.approval<=47?"con":"fence"; g[k].n++; g[k].t+=t;
+    yesT+=t*p; totT+=t; yesA+=p; }
+  const N=Math.max(1,VOTERS.length);
+  for(const k in g)g[k].rate=g[k].n?g[k].t/g[k].n:0;
+  // in points of the vote, through the same blend the intention gauge uses
+  const worth=((totT>0?yesT/totT:0.5)-yesA/N)*0.65*100;
+  return {g, worth, N};
+}
 /* The main reason a group moved since last quarter: the driver whose push
    changed most in the direction they went. */
 function blocMoveReason(id,dir){
@@ -30454,6 +30476,17 @@ function renderVoters(){
       <div class="threshline" style="margin-bottom:8px">Points of approval each thing is worth across the people likely to vote: every group's reasons, weighted by how big the group is and how many of it vote. Click one to see it.</div>
       <div class="vmov"><div><div class="vmov-h dn">Costing you</div>${bad.map(row).join("")||'<div class="threshline">Nothing is costing you much.</div>'}</div>
       <div><div class="vmov-h up">Helping you</div>${good.map(row).join("")||'<div class="threshline">Nothing is helping you much.</div>'}</div></div></div>`; }
+
+  // ---- the enthusiasm gap
+  { const E=enthusiasmGap(), g=E.g, gap=(g.pro.rate-g.con.rate)*100;
+    const bar=(lbl,o,col)=>`<div class="veg-row"><span class="veg-n">${lbl}<i>${o.n.toLocaleString()} of ${E.N.toLocaleString()} voters</i></span>
+      <span class="vdrv-bar"><i style="width:${(o.rate*100).toFixed(0)}%;background:${col}"></i></span><span class="vdrv-v">${Math.round(o.rate*100)}%</span></div>`;
+    const w=E.worth;
+    h+=`<div class="ebgroup-label">The enthusiasm gap</div><div class="ebgroup">
+      <div class="threshline" style="margin-bottom:8px">How likely each side is to actually vote. People who feel strongly turn out; the lukewarm stay home. So a base that only mildly likes you can lose to an opposition that is angry, even when approval is even.</div>
+      ${bar("Would vote for you",g.pro,'var(--good)')}${bar("On the fence",g.fence,'var(--gold)')}${bar("Would vote against you",g.con,'var(--bad)')}
+      <div class="veg-sum">Your supporters are <b style="color:${gap>=0?'var(--good)':'var(--bad)'}">${Math.abs(gap).toFixed(0)} points ${gap>=0?"more":"less"} likely</b> to vote than your opponents. Turnout is ${Math.abs(w)<0.1?"worth almost nothing either way":(w>0?"<b style=\"color:var(--good)\">adding ":"<b style=\"color:var(--bad)\">costing you ")+Math.abs(w).toFixed(1)+" points</b> of the vote"} compared with everyone voting.</div>
+      <div class="threshline" style="margin-top:6px">To close it, give your supporters something to be excited about, or work their turnout from <span class="sf-l" data-vcamp2="1">Campaign HQ</span>. Election rules matter too: <span class="sf-l" data-detail="p_electionAdmin">Election Administration</span> and <span class="sf-l" data-detail="p_motorVoter">Motor Voter</span> decide how easily the lukewarm vote at all.</div></div>`; }
 
   // ---- 2. what moved
   { const mv=groups.map(id=>({id,d:histDelta("v_"+id)})).filter(x=>Math.abs(x.d)>=0.3);
@@ -30542,6 +30575,7 @@ function renderVoters(){
     GAME.history=GAME.history||{};
     for(const i of focusPanelIdx())if(VOTERS[i]&&!(GAME.history["fg_"+i]||[]).length)GAME.history["fg_"+i]=[{turn:GAME.turn,value:VOTERS[i].approval}];   // a starting point for each new member
     renderInPlace(); }));
+  main.querySelectorAll('[data-vcamp2]').forEach(c=>c.addEventListener('click',()=>{ const b=document.querySelector('nav.rail button[data-view="camphq"]'); if(b)b.click(); }));
   const camp=main.querySelector('[data-vcamp]'); if(camp)camp.addEventListener('click',()=>{ const b=document.querySelector('nav.rail button[data-view="camphq"]'); if(b)b.click(); });
 }
 /* ============================================================
