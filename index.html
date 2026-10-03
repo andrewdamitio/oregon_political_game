@@ -1261,6 +1261,8 @@
   .vdrv-bar{height:7px;background:var(--line-faint);border-radius:4px;overflow:hidden}
   .vdrv-bar i{display:block;height:100%}
   .vdrv-v{font-family:var(--font-data);font-weight:700;text-align:right}
+  .vdrv-row.vdec-row{grid-template-columns:minmax(0,1fr) 54px}
+  .vdrv-w{display:block;font-style:normal;font-size:12px;color:var(--bad);font-weight:400;margin-top:1px}
   .veg-row{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(50px,1fr) 44px;gap:10px;align-items:center;padding:5px 2px;border-bottom:1px solid var(--line-faint);font-size:13.5px}
   .veg-n{font-weight:600}
   .veg-row.veg-head{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted-3);padding-top:0}
@@ -30400,13 +30402,24 @@ function focusCares(v, labels){
    turnout, so a driver is worth what it is worth among the people who vote.
    Returns {label, link, v} sorted from most harmful to most helpful. */
 function statewideDrivers(){
-  const tot={}, link={}; let W=0;
+  // each entry: the weighted net across voters, whether it is a decision of
+  // yours (a law, a department's budget, land use, a choice in an event) or a
+  // condition, and the group it hurts most, since a law can be close to even
+  // statewide and still cost you a whole constituency
+  const tot={}, link={}, kind={}, worst={}; let W=0;
+  const note=(k,v,w,id,lnk,isDec)=>{ tot[k]=(tot[k]||0)+v*w; if(lnk)link[k]=lnk; if(isDec)kind[k]="decision";
+    if(!worst[k]||v<worst[k].v)worst[k]={v,id}; };
   for(const id in SIMULANTS){ const S=SIMULANTS[id]; if(S.static)continue;
     const w=(S.size||0)*(S.turnout||0.6); if(w<=0)continue; W+=w;
     let mc=[]; try{ mc=blocMoodContributors(id); }catch(e){}
-    for(const c of mc){ const k=c.lbl; tot[k]=(tot[k]||0)+c.v*w; if(c.lnk)link[k]=c.lnk; } }
+    for(const c of mc){ const dec=!!(c.lnk&&(/^(p_|a_)/.test(c.lnk)||c.lnk==="landuse")); note(c.lbl,c.v,w,id,c.lnk,dec); }
+    // the lasting reactions to choices you made in events and decisions
+    const gs={}; for(const gr of (GAME.grudges||[]))if(gr.target==="v_"+id&&gr.label)gs[gr.label]=(gs[gr.label]||0)+gr.value;
+    for(const lb in gs)note("\u201c"+lb+"\u201d",gs[lb],w,id,null,true); }
   if(W<=0)return [];
-  return Object.keys(tot).map(k=>({label:k, link:link[k]||null, v:tot[k]/W})).filter(d=>Math.abs(d.v)>=0.05).sort((a,b)=>a.v-b.v);
+  return Object.keys(tot).map(k=>({label:k, link:link[k]||null, v:tot[k]/W, kind:kind[k]||"condition",
+      worst:worst[k]&&worst[k].v<-0.3?{name:SIMULANTS[worst[k].id].name, v:worst[k].v}:null}))
+    .filter(d=>Math.abs(d.v)>=0.05||(d.kind==="decision"&&d.worst)).sort((a,b)=>a.v-b.v);
 }
 /* THE ELECTION-NIGHT RANGE around the voting intention, for each quarter in
    its history: the 80% band from the two random swings the night draws. The
@@ -30528,15 +30541,23 @@ function renderVoters(){
       <div class="vchart-key"><span><i style="background:var(--slate-blue)"></i>Approval</span><span><i class="dash" style="border-color:var(--gold)"></i>Voting for you, if the vote were that day</span><span><i class="band"></i>Likely range on the night (8 in 10)</span><span><i class="dash" style="border-color:var(--muted-2)"></i>50%</span></div></div>`; }
 
   // ---- what is costing you votes, and what is helping
-  { const d=statewideDrivers(), bad=d.filter(x=>x.v<0).slice(0,5), good=d.filter(x=>x.v>0).reverse().slice(0,5);
+  { const d=statewideDrivers();
+    const bad=d.filter(x=>x.v<0&&x.kind!=="decision").slice(0,5), good=d.filter(x=>x.v>0).reverse().slice(0,5);
+    // your own decisions that cost you: by their net, or by the group they hurt most when the net is near even
+    const dec=d.filter(x=>x.kind==="decision"&&x.v<=-0.05).slice(0,5);
     const sc=Math.max(0.5,...bad.map(x=>-x.v),...good.map(x=>x.v));
     const row=x=>`<div class="vdrv-row"${x.link?` data-detail="${x.link}"`:""}><span class="vdrv-n">${x.label}</span>
       <span class="vdrv-bar"><i style="width:${(Math.abs(x.v)/sc*100).toFixed(0)}%;background:${x.v<0?'var(--bad)':'var(--good)'}"></i></span>
       <span class="vdrv-v" style="color:${x.v<0?'var(--bad)':'var(--good)'}">${x.v>0?"+":"\u2212"}${Math.abs(x.v).toFixed(1)}</span></div>`;
     h+=`<div class="ebgroup-label">What is costing you votes, and what is helping</div><div class="ebgroup">
       <div class="threshline" style="margin-bottom:8px">Points of approval each thing is worth across the people likely to vote: every group's reasons, weighted by how big the group is and how many of it vote. Click one to see it.</div>
-      <div class="vmov"><div><div class="vmov-h dn">Costing you</div>${bad.map(row).join("")||'<div class="threshline">Nothing is costing you much.</div>'}</div>
-      <div><div class="vmov-h up">Helping you</div>${good.map(row).join("")||'<div class="threshline">Nothing is helping you much.</div>'}</div></div></div>`; }
+      <div class="vmov"><div><div class="vmov-h dn">Conditions costing you</div>${bad.map(row).join("")||'<div class="threshline">Nothing is costing you much.</div>'}</div>
+      <div><div class="vmov-h up">Helping you</div>${good.map(row).join("")||'<div class="threshline">Nothing is helping you much.</div>'}</div></div>
+      <div class="vmov-h dn" style="margin-top:12px">Laws, budgets and choices costing you</div>
+      ${dec.length?dec.map(x=>`<div class="vdrv-row vdec-row"${x.link?` data-detail="${x.link}"`:""}><span class="vdrv-n">${x.label}${x.worst?`<i class="vdrv-w">angers ${x.worst.name} \u2212${Math.abs(x.worst.v).toFixed(1)}</i>`:""}</span>
+        <span class="vdrv-v" style="color:${x.v<0?'var(--bad)':'var(--muted-2)'}">${x.v>=0?"+":"\u2212"}${Math.abs(x.v).toFixed(1)}</span></div>`).join("")
+        :'<div class="threshline">No law, budget or choice of yours is costing you votes on balance.</div>'}
+      <div class="threshline" style="margin-top:4px">Laws in force (yours and the ones you kept), department budgets, land use and the choices you made in events, where the net across voters is against you. Under each, the group it hurts most.</div></div>`; }
 
   // ---- the enthusiasm gap
   { const E=enthusiasmGap(), g=E.g, gap=(g.pro.rate-g.con.rate)*100;
