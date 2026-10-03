@@ -1253,6 +1253,17 @@
   .vchg{font-family:var(--font-data);font-size:12px;font-weight:600;white-space:nowrap}
   .vchg.up{color:var(--good)} .vchg.dn{color:var(--bad)} .vchg.flat{color:var(--muted-3)}
   .vmov{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:6px}
+  .vdrv-row{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(50px,1fr) 44px;gap:10px;align-items:center;padding:5px 2px;border-bottom:1px solid var(--line-faint);font-size:13.5px}
+  .vdrv-row[data-detail]{cursor:pointer}
+  .vdrv-row[data-detail]:hover .vdrv-n{color:var(--slate-blue)}
+  .vdrv-n .ico{width:13px;height:13px;vertical-align:-2px;margin-right:3px}
+  .vdrv-n .eb-want{font-size:11px;color:var(--muted-3);margin-left:4px}
+  .vdrv-bar{height:7px;background:var(--line-faint);border-radius:4px;overflow:hidden}
+  .vdrv-bar i{display:block;height:100%}
+  .vdrv-v{font-family:var(--font-data);font-weight:700;text-align:right}
+  .vchart-key{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--muted-2);margin-top:6px}
+  .vchart-key i{display:inline-block;width:14px;height:3px;margin-right:6px;vertical-align:3px}
+  .vchart-key i.dash{height:0;border-top:2px dashed;background:none}
   .vmov-h{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
   .vmov-h.up{color:var(--good)} .vmov-h.dn{color:var(--bad)}
   .vmov-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 10px;align-items:baseline;padding:7px 10px;border:1px solid var(--line);border-radius:var(--radius);background:var(--paper-2);margin-bottom:6px;cursor:pointer}
@@ -26699,7 +26710,7 @@ function sparkline(series, opts={}){
   const padL=opts.yLabels?40:pad;
   // a fill from a baseline (the zero line) rather than from the bottom edge
   const fillBase=opts.fillBase;
-  const vals=series.map(s=>s.value);
+  const vals=series.map(s=>s.value).concat(opts.series2&&opts.series2.series?opts.series2.series.map(s=>s.value):[]);
   let lo=Math.min(...vals), hi=Math.max(...vals);
   if(opts.min!==undefined)lo=Math.min(lo,opts.min);
   if(opts.max!==undefined)hi=Math.max(hi,opts.max);
@@ -26766,6 +26777,9 @@ function sparkline(series, opts={}){
     <polygon points="${area}" fill="url(#${gradId})"/>
     ${hl}
     ${marks}
+    ${(()=>{ const s2=opts.series2; if(!s2||!s2.series||s2.series.length<2)return "";
+      const p2=s2.series.filter(q=>q.turn==null||(q.turn>=t0&&q.turn<=tN)).map((q,i)=>`${(q.turn!=null?xByTurn(q.turn):x(i)).toFixed(1)},${y(q.value).toFixed(1)}`).join(" ");
+      return `<polyline points="${p2}" fill="none" stroke="${s2.color||'var(--gold)'}" stroke-width="2" stroke-dasharray="5 3"/>`; })()}
     <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="2.5"/>
     <circle cx="${x(series.length-1)}" cy="${y(last)}" r="3.5" fill="${col}"/>
     ${ends}
@@ -30366,6 +30380,19 @@ function focusCares(v, labels){
   return Object.keys(w).map(k=>[k,w[k]-(avg[k]||0)]).filter(x=>x[1]>0.05).sort((a,b)=>b[1]-a[1])
     .slice(0,2).map(x=>(labels[x[0]]||x[0]).toLowerCase()).join(" and ");
 }
+/* WHAT IS COSTING YOU VOTES. Every group's approval drivers, added up across
+   the electorate: each group weighted by its share of voters times its
+   turnout, so a driver is worth what it is worth among the people who vote.
+   Returns {label, link, v} sorted from most harmful to most helpful. */
+function statewideDrivers(){
+  const tot={}, link={}; let W=0;
+  for(const id in SIMULANTS){ const S=SIMULANTS[id]; if(S.static)continue;
+    const w=(S.size||0)*(S.turnout||0.6); if(w<=0)continue; W+=w;
+    let mc=[]; try{ mc=blocMoodContributors(id); }catch(e){}
+    for(const c of mc){ const k=c.lbl; tot[k]=(tot[k]||0)+c.v*w; if(c.lnk)link[k]=c.lnk; } }
+  if(W<=0)return [];
+  return Object.keys(tot).map(k=>({label:k, link:link[k]||null, v:tot[k]/W})).filter(d=>Math.abs(d.v)>=0.05).sort((a,b)=>a.v-b.v);
+}
 /* The main reason a group moved since last quarter: the driver whose push
    changed most in the direction they went. */
 function blocMoveReason(id,dir){
@@ -30405,6 +30432,28 @@ function renderVoters(){
       <div class="mcard"><div class="mname">Expected turnout</div><div class="mval">${Math.round(to)}%</div><div class="vsub">of eligible voters</div></div>
       <div class="mcard vsum-link" data-vcamp="1"><div class="mname">${nb.kind==="midterm"?"Midterm":"Your re-election"}</div><div class="mval">${nbTxt}</div><div class="vsub">Full forecast in Campaign HQ \u203a</div></div>
     </div>`; }
+
+  // ---- the term so far: approval and the vote, with the ballots marked
+  { const L=GAME.termLengthTurns||16, mt=GAME.midtermTurn||8, ap=GAME.history.approval||[];
+    const marks=[]; for(const q of ap){ const into=((q.turn%L)+L)%L; if(into===mt)marks.push({turn:q.turn,label:"Midterm"}); else if(into===L-1)marks.push({turn:q.turn,label:"Election"}); }
+    h+=`<div class="chartbox"><div class="charttitle">Your standing over time</div>
+      ${sparkline(ap,{color:'var(--slate-blue)',axis:"years",noEnds:true,min:30,max:70,
+        series2:{series:GAME.history.intention||[],color:'var(--gold)'},
+        hlines:[{value:50,color:"var(--muted-2)"}], marks,
+        yLabels:[0,10,20,30,40,50,60,70,80,90,100].map(v=>({v,l:v+"%"})),
+        fmt:v=>Math.round(v)+'%'})}
+      <div class="vchart-key"><span><i style="background:var(--slate-blue)"></i>Approval</span><span><i class="dash" style="border-color:var(--gold)"></i>Voting for you, if the vote were that day</span><span><i class="dash" style="border-color:var(--muted-2)"></i>50%</span></div></div>`; }
+
+  // ---- what is costing you votes, and what is helping
+  { const d=statewideDrivers(), bad=d.filter(x=>x.v<0).slice(0,5), good=d.filter(x=>x.v>0).reverse().slice(0,5);
+    const sc=Math.max(0.5,...bad.map(x=>-x.v),...good.map(x=>x.v));
+    const row=x=>`<div class="vdrv-row"${x.link?` data-detail="${x.link}"`:""}><span class="vdrv-n">${x.label}</span>
+      <span class="vdrv-bar"><i style="width:${(Math.abs(x.v)/sc*100).toFixed(0)}%;background:${x.v<0?'var(--bad)':'var(--good)'}"></i></span>
+      <span class="vdrv-v" style="color:${x.v<0?'var(--bad)':'var(--good)'}">${x.v>0?"+":"\u2212"}${Math.abs(x.v).toFixed(1)}</span></div>`;
+    h+=`<div class="ebgroup-label">What is costing you votes, and what is helping</div><div class="ebgroup">
+      <div class="threshline" style="margin-bottom:8px">Points of approval each thing is worth across the people likely to vote: every group's reasons, weighted by how big the group is and how many of it vote. Click one to see it.</div>
+      <div class="vmov"><div><div class="vmov-h dn">Costing you</div>${bad.map(row).join("")||'<div class="threshline">Nothing is costing you much.</div>'}</div>
+      <div><div class="vmov-h up">Helping you</div>${good.map(row).join("")||'<div class="threshline">Nothing is helping you much.</div>'}</div></div></div>`; }
 
   // ---- 2. what moved
   { const mv=groups.map(id=>({id,d:histDelta("v_"+id)})).filter(x=>Math.abs(x.d)>=0.3);
