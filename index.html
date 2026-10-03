@@ -1000,6 +1000,13 @@
   .fname .ico{width:17px;height:17px;color:var(--slate-blue);flex:0 0 auto}
   .fval{font-family:var(--font-data);font-size:19px;font-weight:600;margin-bottom:4px}
   .fnote{font-size:12px;color:var(--muted-3);line-height:1.4}
+  .sb-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:7px}
+  .sb-btn{font:inherit;font-size:12.5px;font-weight:600;padding:4px 10px;border:1px solid var(--line);border-left:3px solid var(--gold);background:rgba(192,134,24,.08);color:var(--ink);border-radius:var(--radius);cursor:pointer}
+  .sb-btn:hover:not([disabled]){border-color:var(--ink);border-left-color:var(--gold)}
+  .sb-btn[disabled]{opacity:.45;cursor:not-allowed}
+  .sb-btn .ico,.sb-done .ico{width:13px;height:13px;vertical-align:-2px;margin-right:4px}
+  .sb-done{font-size:12.5px;color:var(--moss);font-weight:600}
+  .sb-why{font-size:12px;color:var(--muted-2)}
   .sparkzone{font-size:11px;fill:var(--muted-3);font-style:italic;letter-spacing:.02em}
   .nm-list{margin:2px 0 8px;padding-left:18px;font-size:14px;line-height:1.5}
   .nm-list li{margin:5px 0}
@@ -19520,12 +19527,40 @@ function districtVote(row, sf, align, th, ch){
 }
 /* Every district in a chamber, scored four ways and ranked by your own share
    so callers that only want the ranking still get one. */
+/* CAMPAIGN BOOSTS. Political capital spent on your party's campaign in one
+   district: each push adds SEAT_BOOST_PTS points to your candidate's share
+   there, up to SEAT_BOOST_MAX pushes a seat. With the forecast's spread
+   (statewide and seat error together, about 5.4 points) a push is worth
+   about 7 points of win chance in a toss-up seat, less in a seat already
+   safe or already lost. Boosts last until that seat's next election. */
+const SEAT_BOOST_PTS=1.3, SEAT_BOOST_MAX=8, SEAT_BOOST_COST=1;
+function seatBoostN(chamber,id){ const b=GAME.seatBoost; return (b&&b[(chamber==="senate"?"s":"h")+id])||0; }
+function seatBoostPts(chamber,id){ return seatBoostN(chamber,id)*SEAT_BOOST_PTS; }
+/* Is this seat on the next ballot, so a boost can do anything? */
+function seatBoostable(chamber,id){
+  if(prOn())return false;
+  if(chamber!=="senate")return true;
+  const nextCls=GAME.senateClass?0:1;
+  return (id%2)===(nextCls?0:1);
+}
+function seatBoost(chamber,id){
+  if(!seatBoostable(chamber,id)||caucusStandDownSeat(chamber,id))return false;
+  if(seatBoostN(chamber,id)>=SEAT_BOOST_MAX)return false;
+  if(!window.SANDBOX&&GAME.capital<SEAT_BOOST_COST)return false;
+  GAME.capital=clamp(GAME.capital-SEAT_BOOST_COST,0,CAPITAL_MAX);
+  const k=(chamber==="senate"?"s":"h")+id;
+  (GAME.seatBoost=GAME.seatBoost||{})[k]=(GAME.seatBoost[k]||0)+1;
+  GAME.log.push(ico('ballot')+" Boosted your party's campaign in "+(chamber==="senate"?"SD ":"HD ")+id+" (\u25c8"+SEAT_BOOST_COST+", "+GAME.seatBoost[k]+" so far)");
+  return true;
+}
 function chamberVote(chamber, th){
   const rows=legCompRows(chamber);
   const sf=stateFeel(), a=coalitionAlignment(sf);
   const t=th||statewideThirds();
   return rows.map(r=>{
     const v=districtVote(r,sf,a,t,chamber);
+    const b=prOn()?0:seatBoostPts(chamber,r[0]);
+    if(b)v.you+=b;
     return {id:r[0], comp:r[1], support:v.you, vote:v};
   }).sort((x,y)=>y.support-x.support);
 }
@@ -19542,7 +19577,7 @@ function legCompRows(chamber){
 function chamberSupport(chamber){
   const rows=legCompRows(chamber);
   const sf=stateFeel(), a=coalitionAlignment(sf);
-  return rows.map(r=>({id:r[0], comp:r[1], support:districtSupport(r,sf,a)}))
+  return rows.map(r=>({id:r[0], comp:r[1], support:districtSupport(r,sf,a)+(prOn()?0:seatBoostPts(chamber,r[0]))}))
              .sort((x,y)=>y.support-x.support);
 }
 /* Which groups moved a seat the furthest from the statewide average — the
@@ -24412,6 +24447,21 @@ function legForecastHTML(){
     ${legForecastMapsHTML()}
     ${coalitionHTML("house", new Set(chamberSupport("house").filter(r=>r.support>50).map(r=>r.id)))}`;
 }
+/* The boost control under a district's odds: what a push buys here, how many
+   are in, and why it cannot be pushed when it cannot. */
+function seatBoostCtlHTML(ch,id,pr){
+  const n=seatBoostN(ch,id), tag=ch==="senate"?"SD":"HD";
+  const done=n?`<span class="sb-done">${ico('ballot')} Boosted ${n}\u00d7 (+${(n*SEAT_BOOST_PTS).toFixed(1)} points)</span>`:"";
+  if(!seatBoostable(ch,id))return done?`<div class="sb-row">${done}</div>`:"";
+  if(caucusStandDownSeat(ch,id))return `<div class="sb-row"><span class="sb-why">You stood down in ${tag} ${id}: there is no campaign to boost.</span></div>`;
+  // what one more push is worth here, from the same spread the forecast uses
+  const sd=Math.sqrt(FC_NAT*FC_NAT+FC_SEAT*FC_SEAT), z=x=>0.5*(1+Math.tanh(0.7978845608*(x+0.044715*x*x*x)));
+  const zNow=sd>0?Math.max(-6,Math.min(6,(pr<=0.0005?-6:pr>=0.9995?6:Math.log(pr/(1-pr))/1.702))):0;
+  const gain=Math.max(0,z(zNow+SEAT_BOOST_PTS/sd)-z(zNow));
+  const full=n>=SEAT_BOOST_MAX, poor=!window.SANDBOX&&GAME.capital<SEAT_BOOST_COST;
+  return `<div class="sb-row">${done}<button type="button" class="sb-btn" data-seatboost="1" ${full||poor?"disabled":""}>${ico('ballot')} Boost the campaign · \u25c8${SEAT_BOOST_COST}</button>
+    <span class="sb-why">${full?"At the limit of ${SEAT_BOOST_MAX} pushes for this seat.":poor?"Not enough political capital.":"+"+SEAT_BOOST_PTS+" points here, about +"+Math.max(1,Math.round(gain*100))+" points of win chance"}</span></div>`;
+}
 /* hover readout on the forecast maps, and the zoom on them */
 function wireForecast(root){
   wireMapZoom(root);
@@ -24421,7 +24471,7 @@ function wireForecast(root){
     const dflt=rd.textContent, tag=ch==="senate"?"SD":"HD";
     const geo={}; (ch==="senate"?OR_SENATE_DISTRICTS:OR_HOUSE_DISTRICTS).forEach(r=>geo[r[0]]=r);
     const comp={}; legCompRows(ch).forEach(r=>comp[r[0]]=r[1]);
-    const sfeel=stateFeel();
+    const sfeel=stateFeel(), shows={};
     card.querySelectorAll('[data-fcd]').forEach(el=>{
       const id=+el.dataset.fcd;
       const show=()=>{
@@ -24429,14 +24479,20 @@ function wireForecast(root){
         const dr=districtDrivers(comp[id],sfeel,2);
         rd.innerHTML=`<b>${tag} ${id}</b> — <b style="color:${pr>=0.5?'var(--good)':'var(--bad)'}">${Math.round(pr*100)}%</b> chance to win`
           +(held?` · <i>not on this ballot, you hold it</i>`:``)
-          +(dr.length?` · decided by its ${dr.map(o=>`<b>${o.name}</b> (+${Math.round(o.over*100)} pts vs the state, ${Math.round(SIMULANTS[o.b].approval)}% of them back you)`).join(", ")}`:``);
+          +(dr.length?` · decided by its ${dr.map(o=>`<b>${o.name}</b> (+${Math.round(o.over*100)} pts vs the state, ${Math.round(SIMULANTS[o.b].approval)}% of them back you)`).join(", ")}`:``)
+          +seatBoostCtlHTML(ch,id,pr);
+        const bb=rd.querySelector('[data-seatboost]');
+        if(bb)bb.addEventListener('click',ev=>{ ev.stopPropagation(); if(seatBoost(ch,id))render(); });
       };
+      if(window._fcSel&&window._fcSel.ch===ch&&window._fcSel.id===id)setTimeout(show,0);
       el.addEventListener('mouseenter',show);
       el.addEventListener('focus',show);
-      el.addEventListener('click',show);
+      // a click selects the district: its readout, and its boost button, stay put
+      el.addEventListener('click',()=>{ window._fcSel={ch,id}; show(); });
+      shows[id]=show;
     });
     const svg=card.querySelector('.fc-map');
-    if(svg)svg.addEventListener('mouseleave',()=>{ rd.textContent=dflt; });
+    if(svg)svg.addEventListener('mouseleave',()=>{ const sel=window._fcSel; if(sel&&sel.ch===ch&&shows[sel.id])shows[sel.id](); else rd.textContent=dflt; });
   });
 }
 /* HOW FAR THE MAPS ZOOM. One step is half again, which is the "slightly" a
@@ -24861,6 +24917,11 @@ function runLegislativeElection(approval){
   }
   L.sHeld=notUpMine.concat(wonUp);
   L.senate=L.sHeld.length;
+  // campaign boosts were for this ballot too: the House's all, and the
+  // Senate seats that were up (a boost on a held-over seat could not be made)
+  if(GAME.seatBoost){ const used=Object.keys(GAME.seatBoost).filter(k=>k[0]==="h"||upSet.has(+k.slice(1)));
+    if(used.length)GAME.log.push(ico('ballot')+" Campaign boosts spent on this ballot: "+used.map(k=>(k[0]==="s"?"SD ":"HD ")+k.slice(1)+" \u00d7"+GAME.seatBoost[k]).join(", "));
+    used.forEach(k=>delete GAME.seatBoost[k]); }
   // every stand-down pledge was for this ballot: they all reset now
   if(GAME.caucus&&GAME.caucus.stand){ const ks=Object.keys(GAME.caucus.stand);
     if(ks.length)GAME.log.push(ico('ballot')+" Unopposed by your party: "+ks.map(caucusCode).join(", ")+". Those pledges are spent.");
