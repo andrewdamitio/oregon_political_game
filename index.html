@@ -23675,8 +23675,14 @@ function whipChamberHTML(w, pol, dir){
   if(!w||w.total<=0)return "";
   const nm=w.chamber==="senate"?"Senate":(prOn()?"Assembly":"House");
   const ok=w.short===0&&w.expect>=w.need;
-  const pips=w.members.map(m=>{
-    const cls=m.dealt?"buy":m.incl>0?(m.mine?"y own":"y cross"):(w.buy.indexOf(m)>=0?"buy":(m.buyable?"n":"n hard"));
+  // drawn in blocks, in the legend's order: your yeses, crossover yeses, the
+  // whipped (deals made and the ones the whip would buy), the noes still for
+  // sale, then the ones that are not; leaning-yes first inside each block
+  const pipCls=m=>m.dealt?"buy":m.incl>0?(m.mine?"y own":"y cross"):(w.buy.indexOf(m)>=0?"buy":(m.buyable?"n":"n hard"));
+  const pipRank={"y own":0,"y cross":1,"buy":2,"n":3,"n hard":4};
+  const order=w.members.slice().sort((x,y)=>(pipRank[pipCls(x)]-pipRank[pipCls(y)])||(y.incl-x.incl));
+  const pips=order.map(m=>{
+    const cls=pipCls(m);
     const tag=w.chamber==="senate"?"SD":"HD";
     return `<i class="wp ${cls}" title="${floorName(w.chamber,m.id)} — ${m.incl>0?"yes":"no"}${m.dealt?" · a certain yes: you made a deal for this vote":""}${m.owed>0?" · owes you nothing, you already spent it":""}${m.incl<=0?" · "+holdoutReason(m,pol,dir):""}"></i>`;
   }).join("");
