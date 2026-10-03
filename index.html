@@ -611,6 +611,12 @@
   .hold-done{font-size:12.5px;color:var(--moss);padding:6px 2px}
   #floorCard .hold-acts .cf-chbtn{font-family:var(--font-body);font-size:12.5px;font-weight:500;letter-spacing:0;text-transform:none;padding:4px 10px;margin:0;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius);min-height:0;width:auto;box-shadow:none}
   #floorCard .hold-acts .cf-chbtn:hover:not([disabled]){border-color:var(--ink)}
+  #floorCard .hold-acts .cf-chbtn.hk-whip{border-left:3px solid var(--gold);background:rgba(184,134,11,.08)}
+  #floorCard .hold-acts .cf-chbtn.hk-proj{border-left:3px solid var(--moss);background:rgba(74,107,58,.08)}
+  #floorCard .hold-acts .cf-chbtn.hk-prom{border-left:3px solid var(--slate-blue);background:rgba(26,95,107,.08)}
+  #floorCard .hold-acts .cf-chbtn .ico{width:13px;height:13px;vertical-align:-2px;margin-right:4px}
+  #floorCard .hold-acts .hold-wait{font-size:12px;color:var(--muted-3);font-style:italic;align-self:center;white-space:nowrap}
+  #floorCard .hold-acts .hold-wait .ico{width:12px;height:12px;vertical-align:-2px;margin-right:3px}
   #floorCard .hold-acts .cf-chbtn[disabled]{opacity:.5}
   .cm-rec{font-size:13px}
   .cprim-note{font-size:13px;color:var(--muted-2);margin:2px 0 8px;line-height:1.45}
@@ -994,6 +1000,14 @@
   .fname .ico{width:17px;height:17px;color:var(--slate-blue);flex:0 0 auto}
   .fval{font-family:var(--font-data);font-size:19px;font-weight:600;margin-bottom:4px}
   .fnote{font-size:12px;color:var(--muted-3);line-height:1.4}
+  /* one row on a wide screen, whatever the number of cards; three, then two, then one as it narrows */
+  .fiscal-grid.forces{grid-template-columns:none!important;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:10px}
+  .fiscal-grid.forces .fcard{padding:9px 10px;min-width:0}
+  .fiscal-grid.forces .fval{font-size:17px;overflow-wrap:anywhere}
+  .fiscal-grid.forces .fnote{font-size:12px;line-height:1.4;hyphens:auto}
+  @media (max-width:1150px){ .fiscal-grid.forces{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr))!important} }
+  @media (max-width:700px){ .fiscal-grid.forces{grid-template-columns:repeat(2,minmax(0,1fr))!important} }
+  @media (max-width:440px){ .fiscal-grid.forces{grid-template-columns:minmax(0,1fr)!important} }
   .fcard-btn{margin-top:8px;display:inline-block;background:var(--slate-blue);color:var(--paper);border:var(--rule) solid var(--ink);font-family:var(--font-display);font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:5px 10px;cursor:pointer}
   .fcard-btn:hover{background:var(--ink)}
   /* the larger of the two sizes, for a button that is the only action on its page */
@@ -12053,7 +12067,7 @@ function srsFiscalCard(){
   // federally covered. The full card is for when they are not.
   if(GAME.srsActive && !GAME.activeSituations.timberCounties){
     return '<div class="fcard"><div class="fname">'+ico("handshake")+' Secure Rural Schools</div>'
-      +'<div class="fval" style="color:var(--good)">Federally funded ✓</div>'
+      +'<div class="fval" style="color:var(--good)">Funded ✓</div>'
       +'<div class="fnote">Congress is funding the O&amp;C and timber counties this year — worth '+Math.round(SRS_SHARE*100)+'% of what they need for sheriffs, jails and roads, at no cost to the state. It is reauthorized roughly four years in five; the next vote lands in <b>'+q+' quarter'+(q===1?"":"s")+'</b>.</div></div>';
   }
   const st=countyBackfillState(), fed=srsFederal();
@@ -21114,6 +21128,14 @@ function caucusDefections(){
 /* District projects: a road, a water system, a campus building, paid for
    out of the General Fund for two years. */
 const CAUCUS_PROJ_Q=8;
+/* After a project ends, the same member (or faction) waits this long for
+   another: a district that has just had one is not first in line. */
+const CAUCUS_PROJ_COOL=4;
+/* Quarters until this member or faction can be given a new project; 0 if now. */
+function caucusProjWait(target){
+  const C=GAME.caucus, until=C&&C.projCool&&C.projCool[target];
+  return until?Math.max(0,until-GAME.turn):0;
+}
 // what the rest of your bench holds against a project that was not theirs
 const CAUCUS_STING_ONE=1, CAUCUS_STING_FAC=3, CAUCUS_STING_OPP=2;
 function caucusProjectCost(target){
@@ -21203,8 +21225,9 @@ function caucusOppToolsHTML(k){
   { const on=caucusProjFor(k), own=on.find(p=>p.k===k), c=caucusProjectCost(k);
     h+=`<div class="ot-h">District project</div>`;
     on.forEach(p=>{ const q=p.until-GAME.turn, fk=p.k.startsWith("f:")?p.k.slice(2):null;
-      h+=`<div class="cf-live">${ico('houses')} ${fk?"Faction package running, through the "+caucusFactionName(fk):"Your project in their district is running"} · cooldown ${q} quarter${q===1?"":"s"}</div>`; });
-    if(!own)h+=`<div>Court them with a project in their district ($${c.amt.toFixed(2)}B a year for two years): ${c.boost} less loyal to their leadership while it runs. Every member of yours loses ${CAUCUS_STING_OPP}.</div>
+      h+=`<div class="cf-live">${ico('houses')} ${fk?"Faction package running, through the "+caucusFactionName(fk):"Your project in their district is running"} · ${q} more quarter${q===1?"":"s"}, then ${CAUCUS_PROJ_COOL} more before another</div>`; });
+    if(!own&&caucusProjWait(k)>0)h+=`<div class="cf-live">${ico('houses')} Their last project has ended. Another is possible in ${caucusProjWait(k)} quarter${caucusProjWait(k)===1?"":"s"}.</div>`;
+    else if(!own)h+=`<div>Court them with a project in their district ($${c.amt.toFixed(2)}B a year for two years): ${c.boost} less loyal to their leadership while it runs. Every member of yours loses ${CAUCUS_STING_OPP}.</div>
       <button class="fcard-btn" data-cfund="${k}">Court with a project · $${c.amt.toFixed(2)}B/yr</button>`; }
   h+=`<div class="ot-h">Committee co-chair</div>`;
   // the gavel
@@ -21238,9 +21261,11 @@ function caucusFund(target){
   caucusSync();
   const C=GAME.caucus, c=caucusProjectCost(target);
   if(C.proj.some(p=>p.k===target&&p.until>GAME.turn))return;
+  if(caucusProjWait(target)>0)return;
   const keys=target.startsWith("f:")?((C.facs[target.slice(2)]||{}).keys||[]).slice():[target];
   if(!keys.length)return;
   C.proj.push({k:target, keys, amt:c.amt, boost:c.boost, t0:GAME.turn, until:GAME.turn+CAUCUS_PROJ_Q});
+  (C.projCool=C.projCool||{})[target]=GAME.turn+CAUCUS_PROJ_Q+CAUCUS_PROJ_COOL;
   keys.forEach(k=>{ const m=C.m[k]; if(m)m.L=clamp(m.L+c.boost*0.4*(m.p==="mine"?1:-1),0,100); });
   // EVERYBODY ELSE NOTICES. Money for some of your members is money the rest
   // did not get; money for the other party is worse.
@@ -21709,6 +21734,10 @@ function prCompassMembers(px,py){
   return h;
 }
 /* PROMISES TO LEGISLATORS: pass a law they want within four quarters. */
+/* After a promise is kept or broken, the same member (or faction) waits
+   LP_COOL quarters before you can promise them anything new. */
+const LP_COOL=4;
+function lpWait(target){ const u=GAME.lpCool&&GAME.lpCool[target]; return u?Math.max(0,u-GAME.turn):0; }
 const LP_Q=4, LP_LIFT=8, LP_LIFT_FAC=6, LP_KEPT=5, LP_BROKEN=-18;
 function lpTrust(){ return GAME.lpTrust==null?1:GAME.lpTrust; }
 function lpMember(key,pr){ return pr?(GAME.pr&&GAME.pr.m[key]):(GAME.caucus&&GAME.caucus.m[key]); }
@@ -21754,6 +21783,7 @@ function lpOptions(m,onlyIssue){
 }
 function lpMake(target,pid,want){
   const {keys,pr}=lpKeys(target); if(!keys.length||lpPromisedLaw(pid,+want)||lpPromisedLaw(pid,-want))return;
+  if(lpActive(target)||lpWait(target)>0)return;
   const p=POLICIES[pid]||CATALOG[pid]; if(!p)return;
   const fac=target.startsWith("f:")||target.startsWith("pf:"), lift=(fac?LP_LIFT_FAC:LP_LIFT)*lpTrust(), due=GAME.turn+LP_Q;
   const dial=p.mechanic==="tier"||p.mechanic==="slider"||p.mechanic==="intensity";
@@ -21792,6 +21822,7 @@ function lpCheck(){
       m.g=clamp((m.g||0)+amt,-cap,cap); caucusNote(m,"_lpd"+lp.pid,(kept?"Kept your promise to ":partial?"Got partway on your promise to ":"Broke your promise to ")+lp.word,amt);
       m.L=clamp(m.L+amt*(opp?-0.3:0.5),0,100); }
     GAME.lpTrust=clamp(lpTrust()+(kept?0.05:-0.2*(1-part)),0.3,1);
+    (GAME.lpCool=GAME.lpCool||{})[lp.who]=GAME.turn+LP_COOL;
     const who=lp.fac?(lp.who.startsWith("pf:")?prFacName(lp.who.slice(3)):caucusFactionName(lp.who.slice(2))):(lp.pr?prTitle(lpMember(lp.keys[0],true)||{n:"?"}):caucusTitle(lp.keys[0]));
     const n2=lp.keys.length;
     const when=" in "+caucusQ(lp.made);
@@ -21811,6 +21842,8 @@ function lpHTML(target,m,onlyIssue){
   if(!m)return "";
   // a promise is something you make to your own bench, not to the other side's
   if(prOn()?m.party!==prMyParty():m.p!=="mine")return "";
+  if(lpWait(target)>0){ const q=lpWait(target);
+    return `<div class="cm-sec">Promise legislation</div><div class="cm-prim"><div class="cf-live">${ico('handshake')} Your last promise to them is settled. You can promise them something new in ${q} quarter${q===1?"":"s"}.</div></div>`; }
   const opts=lpOptions(m,onlyIssue); if(!opts.length)return "";
   const tr=lpTrust(), fac=target.startsWith("f:")||target.startsWith("pf:"), lift=Math.round((fac?LP_LIFT_FAC:LP_LIFT)*tr);
   return `<div class="cm-sec">Promise legislation</div><div class="cm-prim"><div>Promise to move a law ${fac?"they":"they"} want within ${LP_Q} quarters: +${lift} loyalty now${fac?" each":""}, +${LP_KEPT} if you keep it, ${LP_BROKEN} if you do not.${tr<1?` Your broken promises have cut the lift to ${Math.round(tr*100)}%.`:""}</div>
@@ -21894,10 +21927,15 @@ function floorHoldoutsHTML(w,billKey,pid){
     const lean=x.incl>0?"leaning yes":x.incl>-1.5?"on the fence":x.incl>-4?"leaning no":"opposed";
     const wc=Math.max(1,Math.ceil(x.resist*BILL_WHIP));
     const acts=[];
-    acts.push(x.buyable?`<button class="cf-chbtn" data-hold="whip" data-hch="${x.chamber}" data-hid="${x.id}" data-hc="${wc}" ${(window.SANDBOX||cap>=wc)?"":"disabled"}>Whip · ◈${wc}</button>`
+    acts.push(x.buyable?`<button class="cf-chbtn hk-whip" data-hold="whip" data-hch="${x.chamber}" data-hid="${x.id}" data-hc="${wc}" ${(window.SANDBOX||cap>=wc)?"":"disabled"}>Whip · ◈${wc}</button>`
                       :`<span class="hold-no">not for sale</span>`);
-    if(!pr&&!caucusProjFor(r.key).some(p=>p.k===r.key))acts.push(`<button class="cf-chbtn" data-hold="proj" data-hch="${x.chamber}" data-hid="${x.id}">District project · $0.05B/yr</button>`);
-    if(!lpActive(r.target)){ const o=lpOptions(m).find(o=>o.pid!==pid); if(o)acts.push(`<button class="cf-chbtn" data-hold="prom" data-hch="${x.chamber}" data-hid="${x.id}" data-hp="${o.pid}|${o.want}" title="Their vote on this bill, for your word that you will ${o.label.toLowerCase()} within ${LP_Q} quarters. Miss the deadline and everyone who wants it turns on you.">Promise to ${o.label.charAt(0).toLowerCase()+o.label.slice(1)} within ${LP_Q} quarters</button>`); }
+    if(!pr){ const run=caucusProjFor(r.key).some(p=>p.k===r.key), pw=caucusProjWait(r.key);
+      acts.push(run?`<span class="hold-wait">${ico('houses')} project running</span>`
+        :pw>0?`<span class="hold-wait">${ico('houses')} next project in ${pw}q</span>`
+        :`<button class="cf-chbtn hk-proj" data-hold="proj" data-hch="${x.chamber}" data-hid="${x.id}">${ico('houses')} District project · $0.05B/yr</button>`); }
+    if(lpActive(r.target))acts.push(`<span class="hold-wait">${ico('handshake')} promise outstanding</span>`);
+    else if(lpWait(r.target)>0)acts.push(`<span class="hold-wait">${ico('handshake')} next promise in ${lpWait(r.target)}q</span>`);
+    else { const o=lpOptions(m).find(o=>o.pid!==pid); if(o)acts.push(`<button class="cf-chbtn hk-prom" data-hold="prom" data-hch="${x.chamber}" data-hid="${x.id}" data-hp="${o.pid}|${o.want}" title="Their vote on this bill, for your word that you will ${o.label.toLowerCase()} within ${LP_Q} quarters. Miss the deadline and everyone who wants it turns on you.">${ico('handshake')} Promise to ${o.label.charAt(0).toLowerCase()+o.label.slice(1)} within ${LP_Q} quarters</button>`); }
     return `<div class="hold-row"><span class="hold-who"><b>${who}</b><span class="hold-lean">${lean} · ${pr?"":"loyalty "}${pr?"":Math.round(m.L)}${pr?"loyalty "+Math.round(m.L):""}</span></span><span class="hold-acts">${acts.join("")}</span></div>`; }).join("");
   if(dealt.length)h+=`<div class="hold-done">Certain yes on this vote: ${dealt.map(d=>`${d.r.pr?prTitle(d.r.m):caucusTitle(d.r.key)} (${d.kind})`).join(", ")}</div>`;
   return h+`</div>`;
@@ -22928,8 +22966,9 @@ function caucusMemberCard(k){
     h+=`<div class="cm-sec">District project</div><div class="cm-prim">`;
     // their own project, or a package paid through their faction: say which
     on.forEach(p=>{ const q=p.until-GAME.turn, fk=p.k.startsWith("f:")?p.k.slice(2):null;
-      h+=`<div class="cf-live">${ico('houses')} ${fk?"Faction package running, through the "+caucusFactionName(fk):"District project running"} · cooldown ${q} quarter${q===1?"":"s"}</div>`; });
-    if(!own)h+=`<div>Fund a project in their district ($${c.amt.toFixed(2)}B a year for two years): ${c.boost} more loyal while it runs. Every other member of yours loses ${CAUCUS_STING_ONE}.</div>
+      h+=`<div class="cf-live">${ico('houses')} ${fk?"Faction package running, through the "+caucusFactionName(fk):"District project running"} · ${q} more quarter${q===1?"":"s"}, then ${CAUCUS_PROJ_COOL} more before another</div>`; });
+    if(!own&&caucusProjWait(k)>0)h+=`<div class="cf-live">${ico('houses')} Their last project has ended. Another is possible in ${caucusProjWait(k)} quarter${caucusProjWait(k)===1?"":"s"}.</div>`;
+    else if(!own)h+=`<div>Fund a project in their district ($${c.amt.toFixed(2)}B a year for two years): ${c.boost} more loyal while it runs. Every other member of yours loses ${CAUCUS_STING_ONE}.</div>
       <button class="fcard-btn" data-cfund="${k}">District project · $${c.amt.toFixed(2)}B/yr</button>`;
     h+=`</div>`;
   }
@@ -30881,7 +30920,7 @@ function renderBudget(){
     const fundCards=h; h="";
     h+=`<div class="fcard"><div class="fname">${ico('chart-up')} Economic Cycle</div><div class="fval" style="color:${cycCol}">${cycWord}</div>
       <div class="fbar"><span class="fmid"></span><i style="left:${cycPct}%"></i></div>
-      <div class="fnote">The short-term boom-bust swing. Oregon sits inside a <b>national</b> cycle (currently ${GAME.natCycle>0.15?"expanding":GAME.natCycle<-0.15?"contracting":"flat"}) and is pulled toward it — strong fundamentals (business climate, in-migration, low unemployment) buy you real divergence above the nation, but not immunity. Moves the income tax — your biggest revenue source — hard: booms inflate revenue, recessions gut it.</div></div>`;
+      <div class="fnote">The short-term boom and bust, pulled toward the <b>national</b> cycle (now ${GAME.natCycle>0.15?"expanding":GAME.natCycle<-0.15?"contracting":"flat"}). A strong economy lets Oregon run ahead of the nation, not escape it. It moves the income tax hardest: booms inflate revenue, recessions gut it.</div></div>`;
     {
       const gsp=METRICS.gspLevel?METRICS.gspLevel.value:305;
       const gr=METRICS.gdp.value;
@@ -30928,7 +30967,7 @@ function renderBudget(){
   if(tab==="budget"){
   h+=`<div class="fiscal-panel"><div class="fiscal-title">Forces on the budget</div>
       <div class="fnote" style="margin:-2px 0 12px">Read-only: the cycle, the federal picture, and the rules that move revenue and cost between quarters.</div>
-      <div class="fiscal-grid">${budgetForces}</div></div>`;
+      <div class="fiscal-grid forces">${budgetForces}</div></div>`;
   h+=`<div class="budget-ledger" style="display:grid;grid-template-columns:1fr 1fr;gap:24px">`;
   // revenue column
   h+=`<div><h3 style="font-family:var(--font-display);font-size:17px;border-bottom:2px solid var(--good);padding-bottom:5px;margin-bottom:10px">Revenue by Source</h3>`;
