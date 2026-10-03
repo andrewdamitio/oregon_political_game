@@ -30751,6 +30751,8 @@ function renderBudget(){
   const revRows=Object.keys(REVENUE).sort((a,c)=>rev[c]-rev[a]);
   const spdRows=Object.keys(SPENDING).sort((a,c)=>spd[c]-spd[a]);
   const salesTaxOn = !!(POLICIES.salesTax && POLICIES.salesTax.enacted);
+  // two folders: the ledger, and the funds and forces behind it
+  const tab=window._budgetTab==="funds"?"funds":"budget";
   let h=`${BACK_BTN_HTML}
     <div class="sectionhdr">State Budget</div>
     <div class="sectionsub">Annualized, at 2025-27 biennium scale. ${salesTaxOn?'The personal income tax still carries most of the budget, alongside the sales tax you enacted.':'Oregon has no sales tax — the personal income tax carries the budget.'} Figures move as you change tax rates and program funding.
@@ -30773,8 +30775,15 @@ function renderBudget(){
         h+='<div class="pendbanner" style="margin:-10px auto 16px">'+ico('scissors')+' <b>A stabilization plan is landing:</b> share '+C.k+' of '+C.n+' is in, fully in by '+turnLabel(C.from+C.n-1)+'. $'+((C.cutTot+C.revTot)*C.k/C.n).toFixed(2)+'B of $'+(C.cutTot+C.revTot).toFixed(2)+'B a year so far. Until the rest lands, what it has not reached is borrowed.</div>'; }
       h+='<div class="fnote" style="margin:-14px auto 20px">Of that, <b>General Fund + Lottery</b>, the discretionary budget a legislature actually appropriates, is <b>$'+g.revenue.toFixed(1)+'B</b> in against <b>$'+g.spend.toFixed(1)+'B</b> out. The rest is the federal Medicaid match (<b>$'+g.federal.toFixed(1)+'B</b>, earmarked in and straight back out) and the constitutionally dedicated highway taxes (<b>$'+g.roads.toFixed(1)+'B</b>).</div>'; }
   }
-  // ---- fiscal machinery panel ----
   {
+    const N=netReserves();
+    h+=`<div class="ctabs" role="tablist">`
+      +`<button role="tab" aria-selected="${tab==="budget"}" data-btab="budget" class="${tab==="budget"?"on":""}"><b>${ico('chart-up')} State Budget</b><span>Revenue and spending, line by line</span></button>`
+      +`<button role="tab" aria-selected="${tab==="funds"}" data-btab="funds" class="${tab==="funds"?"on":""}"><b>${ico('bank')} Funds</b><span>Reserves ${fmtSignedB(N.net)}, PERS, and the forces on the budget</span></button>`
+      +`</div>`;
+  }
+  // ---- fiscal machinery panel: the Funds tab ----
+  if(tab==="funds"){
     const cyc=GAME.econCycle, cycWord=cyc>0.33?"Boom":cyc>0.10?"Expansion":cyc<-0.33?"Recession":cyc<-0.10?"Downturn":"Steady";
     const cycCol=cyc>0.10?'var(--good)':cyc<-0.10?'var(--bad)':'#8a8270';
     const cycPct=(cyc+1)/2*100;
@@ -30877,7 +30886,8 @@ function renderBudget(){
     h+=eoFiscalCard();
     h+=`</div></div>`;
   }
-  // two-column ledger (stacks on narrow screens — see .budget-ledger rule)
+  // ---- two-column ledger: the State Budget tab (stacks on narrow screens — see .budget-ledger rule)
+  if(tab==="budget"){
   h+=`<div class="budget-ledger" style="display:grid;grid-template-columns:1fr 1fr;gap:24px">`;
   // revenue column
   h+=`<div><h3 style="font-family:var(--font-display);font-size:17px;border-bottom:2px solid var(--good);padding-bottom:5px;margin-bottom:10px">Revenue by Source</h3>`;
@@ -30903,7 +30913,9 @@ function renderBudget(){
   h+=`<div class="ltotal"><span>Total Spending</span><span class="spend">${fmtB(b.spend,2)}</span></div></div>`;
   h+=`</div>`;
   h+=`<div class="sectionsub" style="margin-top:20px">Oregon's constitution requires a balanced budget. A surplus more than 2% over forecast triggers the <b>kicker</b>, which refunds all of it to taxpayers unless you have passed Kicker Reform. A deficit draws on the <b>Rainy Day Fund</b> automatically. Once that is empty the gap becomes structural debt, and forced cuts hit education, health and your political capital. The <b>Education Stability Fund</b> is a separate school reserve: it cannot close the general gap, only soften the school cut a forced deficit brings. You can <b>draw on the Rainy Day Fund</b> in the panel above to pay down structural debt or cover a gap without raising taxes, for ◈${RESERVE_DRAW_CAPITAL} and some goodwill among fiscal hawks.</div>`;
+  }
   main.innerHTML=h;
+  main.querySelectorAll('[data-btab]').forEach(b=>b.addEventListener('click',()=>{ window._budgetTab=b.dataset.btab; render(); }));
   main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
   const rdBtn=main.querySelector('[data-reservedraw]'); if(rdBtn)rdBtn.addEventListener('click',showReserveDraw);
   main.querySelectorAll('[data-fund]').forEach(el=>el.addEventListener('click',e=>{
