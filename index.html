@@ -6373,7 +6373,7 @@ const CATALOG={
   // Tiers, not a strength dial: the pension's new accrual reads the tier
   // (PERS_ACCRUAL), so each rung is a different reform, not a fraction of one.
   persReform:{name:"PERS Benefit Reform", domain:"economy", icon:"bank", mechanic:"tier", enabled:true,
-    desc:"Slow the growth of the ~$27–28B unfunded pension liability, and with it the bill every agency pays.\n\nHow it saves money: the state pays PERS an employer rate set by the size of the hole, about $75M a year for every $1B unfunded. New benefits earned today add about $1.12B a year to the hole. Reform shrinks that, and puts members' own money in.\n\nContribution Redirect is the SB 1049 approach. Part of each member's own retirement contribution goes into the pension fund (~$150M a biennium), and the salary counted toward a pension is capped, which cuts new accrual by about a fifth. The hole grows about $315M a year less, and after four years the employer rate is roughly $85M a year lower.\n\nAdding Defined Contribution for New Hires moves future employees to a 401(k)-style plan, cutting new accrual by about 40% in all. The hole grows about $555M a year less, and after four years the employer rate is roughly $150M a year lower. It draws the full weight of the unions.\n\nThe savings build slowly and show up as a lower PERS rate, not as a budget line. Moro v. State (2015) bars touching benefits already earned, so any reform only slows what is earned from here, and the unions will sue and sometimes win.",
+    desc:"Slow the growth of the ~$27–28B unfunded pension liability, and with it the bill every agency pays.\n\nHow it saves money: every employer pays PERS a rate that covers the pensions its workers earn this year and pays the old hole down over 20 years. Reform makes the pensions earned from now on cheaper, which lowers that rate at once, and puts members' own money into the hole.\n\nContribution Redirect is the SB 1049 approach. Part of each member's own retirement contribution goes into the pension fund (~$150M a biennium), and the salary counted toward a pension is capped, which makes new pensions about a fifth cheaper.\n\nAdding Defined Contribution for New Hires moves future employees to a 401(k)-style plan, making new pensions about 40% cheaper in all. It draws the full weight of the unions.\n\nThe savings show up as a lower PERS rate in every agency's payroll, not as a budget line. Moro v. State (2015) bars touching benefits already earned, so any reform only slows what is earned from here, and the unions will sue and sometimes win.",
     tiers:["No Reform","Contribution Redirect (SB 1049-style)","+ Defined Contribution for New Hires"],
     // no General Fund line: the savings are paid into the pension fund
     // (PERS_REDIRECT), and reach the budget through a lower employer rate
@@ -11946,23 +11946,39 @@ const PERS_REDIRECT=[0,0.075,0.075];
    Fund's share of that through every agency's payroll. */
 function persReformBudgetHTML(p){
   const wave=(GAME.persWave!=null?GAME.persWave:1);
-  const payShare=Object.values(PERS_PAYROLL).reduce((a,b)=>a+b,0);
-  const perB=0.075*0.35*payShare;                     // budget $B a year per $1B of hole
-  const slower=t=>(PERS_ACCRUAL[0]-PERS_ACCRUAL[t])*wave*4+PERS_REDIRECT[t];   // $B a year
+  const payShare=Object.values(PERS_PAYROLL).reduce((a,b)=>a+b,0), gf=0.35*payShare;
   const M=v=>v>=0.995?"$"+v.toFixed(2)+"B":"$"+Math.round(v*1000)+"M";
   const cur=(p&&p.enacted)?(p.tierIndex||0):0;
   let rows="";
   p.tiers.forEach((name,t)=>{
-    const sl=slower(t);
+    const cut=(PERS_ACCRUAL[0]-PERS_ACCRUAL[t])*wave*4, nc=Math.max(0,PERS_NC0-cut), rd=PERS_REDIRECT[t];
     rows+=`<tr${t===cur?' class="on"':''}><td>${name}${t===cur?' <span class="prb-now">now</span>':''}</td>`
-      +`<td>${M((PERS_ACCRUAL[t]*wave*4))}</td><td>${t?M(sl):"none"}</td>`
-      +`<td>${t?M(sl*4*perB):"none"}</td><td>${t?M(sl*8*perB):"none"}</td></tr>`;
+      +`<td>${M(nc)}</td><td>${t?M(cut*gf):"none"}</td><td>${rd?M(rd):"none"}</td></tr>`;
   });
   return `<div class="prb"><div class="ebgroup-label">What it does to the budget</div>
-    <div class="threshline">PERS Reform has no line in the budget. It slows how fast the pension hole grows, and a smaller hole lowers the employer rate every agency pays. The budget saving below is the General Fund share of that, at today's pace of new benefits. The hole is <b>$${Math.round(GAME.persUAL||28)}B</b> today.</div>
-    <table class="prb-t"><thead><tr><th>Setting</th><th>New benefits added to the hole each year</th><th>Hole grows slower by</th><th>Budget saving a year after 4 years</th><th>after 8 years</th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="threshline">The savings start at nothing and build every year the reform is in force, because each year's smaller addition to the hole stays smaller. Benefits already earned cannot be touched (Moro v. State, 2015), so no setting shrinks the hole by itself; investment returns still decide most years.</div></div>`;
+    <div class="threshline">Every employer pays PERS a rate covering the pensions its workers earn this year, plus a payment that clears the old hole over ${PERS_AMORT_YEARS} years. Reform makes the pensions earned from now on cheaper, which lowers the rate straight away. The hole is <b>$${Math.round(GAME.persUAL||0)}B</b> today.</div>
+    <table class="prb-t"><thead><tr><th>Setting</th><th>Cost of new pensions a year (all employers)</th><th>General Fund saving a year</th><th>Members' money paid into the hole a year</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="threshline">The saving starts as soon as the reform is in force and lasts as long as it does. Benefits already earned cannot be touched (Moro v. State, 2015), so the old hole is paid down the same way under every setting; the redirected money only speeds that up.</div></div>`;
 }
+/* EMPLOYER CONTRIBUTIONS. The rate every PERS employer pays does two jobs,
+   as the real PERS board sets it: it pays for the pensions current workers
+   earn this year (the normal cost), in full, so new benefits do not add to
+   the hole; and it pays the hole down over PERS_AMORT_YEARS, like a mortgage,
+   at the fund's assumed return. The hole meanwhile grows by interest at that
+   same rate, since the missing money earns nothing. With average markets the
+   hole shrinks by the difference, about 2.5% a year; a market that beats or
+   misses the assumption moves it on top.
+   The rate is in $B a year across all employers; the budget carries the
+   General Fund's share of any change from where it started. PERS_NC0 is set
+   so the starting rate is what it always was. */
+const PERS_ASSUMED=0.069, PERS_AMORT_YEARS=20, PERS_NC0=4.74;
+function persAmortFactor(){ const i=PERS_ASSUMED, n=PERS_AMORT_YEARS; return i/(1-Math.pow(1+i,-n)); }
+/* What reform takes off the normal cost, $B a year: the cheaper benefit new
+   service earns under each setting, at the pace service is being earned now. */
+function persNCcut(){ const w=(GAME.persWave!=null?GAME.persWave:1); return (PERS_ACCRUAL[0]-PERS_ACCRUAL[persReformLevel()])*w*4; }
+function persNormalCost(){ return Math.max(0, PERS_NC0-persNCcut()); }
+function persPaydown(){ return persAmortFactor()*Math.max(0,GAME.persUAL||0); }
+function persRateCalc(){ return +clamp(persNormalCost()+persPaydown(), 2, 14).toFixed(3); }
 function persReformLevel(){ const p=POLICIES.persReform; return (p&&p.enacted)?(p.tierIndex||0):0; }
 function policyNetCost(p){
   if(!p)return 0;
@@ -12893,11 +12909,12 @@ function startSituation(sid){
     GAME.log.push(ico('siren')+" Emergency response: $"+res.toFixed(1)+"B of reserves gone in a weekend and $"+borrowed.toFixed(1)+"B borrowed — the state will be paying for this quake for a decade");
   }
   if(sid==="recession"){
-    // the market drop blows a hole in the pension fund — bigger after a frothy boom
-    const persHit = 2.5 + (GAME.overheat||0)*2;
+    // The market drop itself already reaches the fund through its returns, so
+    // the only extra hit is the froth popping after an overheated boom.
+    const persHit = (GAME.overheat||0)*2;
     GAME.persUAL=+clamp((GAME.persUAL||28) + persHit, 3, 70).toFixed(2);
-    GAME.persRate=+clamp(5.26 + GAME.persUAL*0.075, 5.26, 11.5).toFixed(3);
-    GAME.log.push(ico('coffin')+" The market slump adds ~$"+persHit.toFixed(0)+"B to the PERS unfunded liability");
+    GAME.persRate=persRateCalc();
+    if(persHit>=0.5)GAME.log.push(ico('coffin')+" The boom's froth pops: ~$"+persHit.toFixed(1)+"B more on the PERS unfunded liability");
     GAME.overheat=Math.max(0,(GAME.overheat||0)-0.6); // a bust bleeds off the pressure
   }
   // The Big One does not get a toast. It gets the whole screen, at the end of
@@ -14032,11 +14049,15 @@ function tickEconomy(){
     // the market does not blow it open again first.
     const wave      = 0.28 + 0.72*Math.exp(-(GAME.turn||0)/46);   // 1.00 now → ~0.40 in 20 years
     GAME.persWave   = +wave.toFixed(3);
-    const accrual   = PERS_ACCRUAL[persLvl]*wave;          // new service cost added each quarter, by reform tier
-    // and what the reform pays in comes straight off the hole
-    GAME.persUAL = +clamp(GAME.persUAL - invEffect + accrual - PERS_REDIRECT[persLvl]/4, 3, 70).toFixed(3);
+    // New service is paid for in full by the normal-cost part of the rate, so
+    // it no longer lands in the hole. The hole grows by interest at the
+    // assumed return and shrinks by the paydown part of the rate, by a market
+    // that beats the assumption, and by what reform redirects in.
+    const interest  = GAME.persUAL*PERS_ASSUMED/4;
+    const paydown   = persPaydown()/4;
+    GAME.persUAL = +clamp(GAME.persUAL + interest - paydown - invEffect - PERS_REDIRECT[persLvl]/4, 0, 70).toFixed(3);
     GAME.persMarketSwing = +(-invEffect*4).toFixed(2);       // annualized, − = fund gaining
-    GAME.persRate = +clamp(5.26 + GAME.persUAL*0.075, 5.26, 11.5).toFixed(3);
+    GAME.persRate = persRateCalc();
   }
   // Oregon Health Plan enrollment — countercyclical: a downturn adds people who
   // newly qualify, a boom sheds them, with a slow upward drift (medical inflation,
@@ -17110,7 +17131,7 @@ const SURPLUS_ANGER={conservative:-7.5, libertarian:-7.5, wealthy:-5.5, business
 let SURPLUS_ANGER_K=0.75, SURPLUS_BITE=1.4;
 const SURPLUS_DEST={
   pers:{label:"the PERS hole", apply:a=>{ GAME.persUAL=+clamp((GAME.persUAL||28)-a,3,70).toFixed(3);
-          GAME.persRate=+clamp(5.26+GAME.persUAL*0.075,5.26,11.5).toFixed(3); },
+          GAME.persRate=persRateCalc(); },
         blocs:{publicUnions:7, retirees:4, moderate:2, businessClass:2, libertarian:-2}},
   esf:{ label:"the Education Stability Fund", apply:a=>{ GAME.eduStability=+(GAME.eduStability+a).toFixed(3); },
         blocs:{parents:6, publicUnions:5, liberal:3, students:2, libertarian:-2}},
@@ -30820,23 +30841,33 @@ const FUNDS={
     val:()=>GAME.persUAL||0,
     blurb:"Not a fund you hold — a hole you owe. PERS is the Public Employees Retirement System, the pensions Oregon has promised the people who work for it: teachers and school staff, state agency employees, police and firefighters, and city and county workers. This is the gap between what those retirements will cost and what has been set aside to pay for them. It is the only line here where a smaller number is better, and it drives the employer contribution rate that every public payroll in Oregon pays.",
     inflows:()=>{
-      const pr=persRisk(), reformed=persReformLevel()>0;
-      const wave=(GAME.persWave!=null?GAME.persWave:1);
-      return [{name:"New benefits earned this year", v:PERS_ACCRUAL[persReformLevel()]*wave*4,
-        note:"Service cost accruing at "+Math.round(wave*100)+"% of its starting pace — Tier 1 and Tier 2 members are retiring out and everyone hired since 1996 is on the cheaper OPSRP tier."+(reformed?" PERS Reform has bent the curve further.":"")}];
+      const ual=GAME.persUAL||0, assets=Math.max(30,130-ual), ex=persExcessQ()*4*assets;
+      const rows=[{name:"Interest on the hole, at the assumed "+(PERS_ASSUMED*100).toFixed(1)+"%", v:ual*PERS_ASSUMED,
+        note:"The missing money earns nothing, so what is owed on it keeps compounding at the rate the fund assumes."}];
+      if(ex<0)rows.push({name:"Investment return below the assumption", v:-ex,
+        note:"On about $"+Math.round(assets)+"B of assets under a "+persRisk().label.toLowerCase()+" posture. Below the assumption the hole grows."});
+      return rows;
     },
     outflows:()=>{
       const pr=persRisk(), assets=Math.max(30,130-(GAME.persUAL||28));
       // annualized, and from the same function the model ticks on
       const excess=persExcessQ()*4*assets;
-      const rows=[{name:"Investment return above the 6.9% assumption", v:excess,
-        note:"On about "+"$"+Math.round(assets)+"B of assets under a "+pr.label.toLowerCase()+" posture. Above the assumption the hole shrinks; below it, the hole grows."}];
+      const rows=[{name:"Employer contributions paying the hole down", v:persPaydown(),
+        note:"The part of every employer's PERS rate that pays off the hole over "+PERS_AMORT_YEARS+" years, like a mortgage. It is "+(persAmortFactor()*100).toFixed(1)+"% of the hole a year, so it shrinks as the hole does."},
+        {name:"Employer contributions for this year's new pensions", v:0,
+        note:"$"+persNormalCost().toFixed(2)+"B a year pays in full for the pensions current workers earn, so new service no longer adds to the hole."+(persReformLevel()>0?" PERS Reform has made new service cheaper.":"")}];
+      if(excess>0)rows.push({name:"Investment return above the assumption", v:excess,
+        note:"On about $"+Math.round(assets)+"B of assets under a "+pr.label.toLowerCase()+" posture. Above the assumption the hole shrinks."});
       const rd=PERS_REDIRECT[persReformLevel()];
       if(rd>0)rows.push({name:"Member contributions redirected by PERS reform", v:rd,
         note:"Part of each member's own retirement contribution, paid into the pension fund instead of their individual account."});
       return rows;
     },
-    note:"Every school district, university and state agency pays a share of its payroll into PERS, and that share rises and falls with this hole. Shrink the hole and all of their pension bills go down, leaving more for services. Let it grow and they all go up at once."},
+    note:()=>{ const ual=GAME.persUAL||0, net=ual*(persAmortFactor()-PERS_ASSUMED);
+      const yrs=ual<0.5?0:Math.log(1-PERS_ASSUMED*ual/Math.max(1e-6,persPaydown()))/-Math.log(1+PERS_ASSUMED);
+      return "Every school district, university and state agency pays a share of its payroll into PERS: $"+(GAME.persRate||0).toFixed(2)+"B a year now, the cost of new pensions plus the paydown. With average markets the hole shrinks by about $"+net.toFixed(1)+"B a year"
+        +(ual<0.5?" and is now closed.":", and is on course to close in about "+PERS_AMORT_YEARS+" years if markets match the assumption.")
+        +" A market that beats or misses the "+(PERS_ASSUMED*100).toFixed(1)+"% assumption moves it faster or slower, and a crash can set it back years."; }},
 
   debt:{ name:"Structural Debt", icon:"warning", series:"fund_debt", invert:true,
     val:()=>GAME.structuralDebt||0,
@@ -31485,7 +31516,7 @@ function renderBudget(){
     const cycCol=cyc>0.10?'var(--good)':cyc<-0.10?'var(--bad)':'#8a8270';
     const cycPct=(cyc+1)/2*100;
     const rdCol=GAME.rainyDay>1?'var(--good)':GAME.rainyDay>0.3?'var(--warn)':'var(--bad)';
-    const persPct=(GAME.persRate-5.26)/(9.35-5.26)*100;
+    const persPct=(GAME.persRate-(GAME.persRate0||7.36)+2)/4*100;
     h+=`<div class="fiscal-panel"><div class="fiscal-title">Fiscal Machinery</div>
       <div class="fnote" style="margin:-2px 0 12px">How the money moves between quarters. A shortfall hits <b>reserves</b> first, then becomes <b>structural debt</b>. Two pots are <b>dedicated to schools</b> and cannot be spent on anything else.</div>
       <div class="fiscal-grid">`;
@@ -31536,7 +31567,7 @@ function renderBudget(){
       h+=`<div class="fcard"><div class="fname">${ico('bank')} PERS — Unfunded Liability</div>
         <div class="fval" style="color:${funded>=0.8?'var(--warn)':'var(--clay)'}">${Math.round(ual)}B <span style="font-size:13.5px;color:var(--muted-3)">· ${Math.round(funded*100)}% funded</span></div>
         <div class="fbar2"><i style="width:${clamp((1-funded)/0.5*100,0,100)}%;background:var(--clay)"></i></div>
-        <div class="fnote">The hole between what PERS owes and what it holds. It moves with investment returns — ${swTxt} — and new benefits accrue every quarter. Sets the employer contribution rate (<b>${GAME.persRate.toFixed(2)}B</b>), of which <b>${growth>=0?'+':''}${growth.toFixed(2)}B</b> above the starting rate is fresh pressure on the General Fund. ${POLICIES.persReform?'PERS Reform is bending the accrual curve.':'PERS Reform can bend the accrual curve.'} New service cost is accruing at <b>${Math.round((GAME.persWave!=null?GAME.persWave:1)*100)}%</b> of its starting pace as the pre-1996 tiers retire out.</div><button class="fcard-btn" data-fund="pers">${ico('wrench')} Manage →</button></div>`;
+        <div class="fnote">The hole between what PERS owes and what it holds. Employer contributions pay it down over ${PERS_AMORT_YEARS} years, and investment returns move it: ${swTxt}. Sets the employer contribution rate (<b>${GAME.persRate.toFixed(2)}B</b>), of which <b>${growth>=0?'+':''}${growth.toFixed(2)}B</b> above the starting rate is fresh pressure on the General Fund. ${POLICIES.persReform?'PERS Reform is making new pensions cheaper, which lowers the rate.':'PERS Reform would make new pensions cheaper and lower the rate.'}</div><button class="fcard-btn" data-fund="pers">${ico('wrench')} Manage →</button></div>`;
     }
     // Everything past here is a readout, not a fund: it goes to the State Budget tab.
     const fundCards=h; h="";
@@ -32644,7 +32675,7 @@ for(const id in POLICIES){POLICIES[id]._id=id;POLICIES[id].eff=policyLevel(POLIC
 for(const id in CATALOG)CATALOG[id]._id=id;
 // PERS: derive the starting employer rate from the unfunded liability, and
 // anchor the budget so it only feels growth ABOVE this baseline.
-GAME.persRate  = +clamp(5.26 + GAME.persUAL*0.075, 5.26, 11.5).toFixed(3);
+GAME.persRate  = persRateCalc();
 GAME.persRate0 = GAME.persRate;
 syncCannabisTab();
 for(const id in SIMULANTS)SIMULANTS[id].id=id;
