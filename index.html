@@ -944,6 +944,13 @@
   .wdesk[data-wlink]{cursor:pointer;transition:border-color .15s}
   .wdesk[data-wlink]:hover{border-color:var(--slate-blue)}
   .wdesk[data-wlink]:hover .wdesk-more{text-decoration-thickness:2px}
+  .prb{margin:0 0 16px}
+  .prb-t{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}
+  .prb-t th{text-align:left;font-weight:600;color:var(--muted-2);font-size:12px;padding:4px 8px 6px 0;border-bottom:1px solid var(--line);vertical-align:bottom}
+  .prb-t td{padding:6px 8px 6px 0;border-bottom:1px solid var(--line)}
+  .prb-t tr.on td{font-weight:600}
+  .prb-now{font-size:11px;color:var(--slate-blue);font-weight:400;margin-left:4px}
+  @media (max-width:640px){ .prb-t{font-size:12px} .prb-t th:nth-child(5),.prb-t td:nth-child(5){display:none} }
   .wb-list{margin:4px 0 0;padding-left:18px}
   .wb-list li{margin:3px 0}
   .wb-what{margin-top:8px;font-size:13.5px;line-height:1.45}
@@ -11777,6 +11784,30 @@ const PERS_ACCRUAL=[0.28,0.22,0.16];
 /* Member contributions the reform redirects into the pension fund, $B a year:
    about $150M a biennium, the SB 1049 figure, on either reform tier. */
 const PERS_REDIRECT=[0,0.075,0.075];
+/* WHAT EACH SETTING OF PERS REFORM DOES TO THE MONEY, from the same numbers
+   the model ticks on. A setting slows how fast the unfunded hole grows (less
+   new accrual, plus members' own money redirected in); a smaller hole lowers
+   the employer rate, at $75M a year per $1B; the budget feels the General
+   Fund's share of that through every agency's payroll. */
+function persReformBudgetHTML(p){
+  const wave=(GAME.persWave!=null?GAME.persWave:1);
+  const payShare=Object.values(PERS_PAYROLL).reduce((a,b)=>a+b,0);
+  const perB=0.075*0.35*payShare;                     // budget $B a year per $1B of hole
+  const slower=t=>(PERS_ACCRUAL[0]-PERS_ACCRUAL[t])*wave*4+PERS_REDIRECT[t];   // $B a year
+  const M=v=>v>=0.995?"$"+v.toFixed(2)+"B":"$"+Math.round(v*1000)+"M";
+  const cur=(p&&p.enacted)?(p.tierIndex||0):0;
+  let rows="";
+  p.tiers.forEach((name,t)=>{
+    const sl=slower(t);
+    rows+=`<tr${t===cur?' class="on"':''}><td>${name}${t===cur?' <span class="prb-now">now</span>':''}</td>`
+      +`<td>${M((PERS_ACCRUAL[t]*wave*4))}</td><td>${t?M(sl):"none"}</td>`
+      +`<td>${t?M(sl*4*perB):"none"}</td><td>${t?M(sl*8*perB):"none"}</td></tr>`;
+  });
+  return `<div class="prb"><div class="ebgroup-label">What it does to the budget</div>
+    <div class="threshline">PERS Reform has no line in the budget. It slows how fast the pension hole grows, and a smaller hole lowers the employer rate every agency pays. The budget saving below is the General Fund share of that, at today's pace of new benefits. The hole is <b>$${Math.round(GAME.persUAL||28)}B</b> today.</div>
+    <table class="prb-t"><thead><tr><th>Setting</th><th>New benefits added to the hole each year</th><th>Hole grows slower by</th><th>Budget saving a year after 4 years</th><th>after 8 years</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="threshline">The savings start at nothing and build every year the reform is in force, because each year's smaller addition to the hole stays smaller. Benefits already earned cannot be touched (Moro v. State, 2015), so no setting shrinks the hole by itself; investment returns still decide most years.</div></div>`;
+}
 function persReformLevel(){ const p=POLICIES.persReform; return (p&&p.enacted)?(p.tierIndex||0):0; }
 function policyNetCost(p){
   if(!p)return 0;
@@ -26985,6 +27016,9 @@ function effectsBreakdownHTML(kind,obj){
     if(Math.abs(e-t)>0.02&&e>0.001)phaseRatio=t/e;
   }
   let h=`<div class="ebsection"><div class="charttitle">Effects</div>`;
+  // PERS reform has no budget line of its own: it works through the pension
+  // hole, so its page says what each setting does to the hole and the budget
+  if(kind==="policy"&&(obj===POLICIES.persReform||obj===CATALOG.persReform))h+=persReformBudgetHTML(obj);
 
   // 1. EVERYTHING IT MOVES, IN ONE BOX. Metrics and indicators are the same
   // kind of thing to the player, so they are gathered first and drawn together:
