@@ -30490,7 +30490,19 @@ function statewideDrivers(){
     for(const c of mc){ const dec=!!(c.lnk&&(/^(p_|a_)/.test(c.lnk)||c.lnk==="landuse")); note(c.lbl,c.v,w,id,c.lnk,dec); }
     // the lasting reactions to choices you made in events and decisions
     const gs={}; for(const gr of (GAME.grudges||[]))if(gr.target==="v_"+id&&gr.label)gs[gr.label]=(gs[gr.label]||0)+gr.value;
-    for(const lb in gs)note("\u201c"+lb+"\u201d",gs[lb],w,id,null,true); }
+    for(const lb in gs)note("\u201c"+lb+"\u201d",gs[lb],w,id,null,true);
+    // the crises and conditions running now: each one's push on this group,
+    // the same terms approvalTarget sums, scaled by the saturation it applies
+    // to the total so ten crises are not counted as ten times one
+    { const S=SIMULANTS[id], parts=[]; let raw=0;
+      for(const s2 in (GAME.activeSituations||{})){ const st=SITUATIONS[s2]; if(!st)continue; const sev=sitSeverity(s2);
+        const align=st.moodAxes?dot(st.moodAxes,S.ideology):0, mMag=st.moodMag||0;
+        let v=((st.kind==="good"?mMag:-mMag)+align*3)*sev;
+        if(st.groupMood&&st.groupMood[id]!==undefined)v+=st.groupMood[id]*sev*sitMoodMult(s2);
+        if(v){ parts.push([s2,v]); raw+=v; } }
+      let tot=raw; try{ tot+=apptMood(id); }catch(e){}
+      const k=Math.abs(tot)>1e-6?SIT_SATURATE*Math.tanh(tot/SIT_SATURATE)/tot:1;
+      for(const [s2,v] of parts)note(ico('warning')+" "+SITUATIONS[s2].name,v*k,w,id,"s_"+s2,false); } }
   if(W<=0)return [];
   return Object.keys(tot).map(k=>({label:k, link:link[k]||null, v:tot[k]/W, kind:kind[k]||"condition",
       worst:worst[k]&&worst[k].v<-0.3?{name:SIMULANTS[worst[k].id].name, v:worst[k].v}:null}))
