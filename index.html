@@ -30816,8 +30816,10 @@ function renderBudget(){
       +`<button role="tab" aria-selected="${tab==="funds"}" data-btab="funds" class="${tab==="funds"?"on":""}"><b>${ico('bank')} Funds</b><span>Reserves ${fmtSignedB(N.net)}, PERS, and the forces on the budget</span></button>`
       +`</div>`;
   }
-  // ---- fiscal machinery panel: the Funds tab ----
-  if(tab==="funds"){
+  // ---- the fiscal machinery: the funds go to the Funds tab, the forces on
+  // the budget to the State Budget tab. Built in pieces, then placed. ----
+  let budgetForces="";
+  { const keepH=h; h="";
     const cyc=GAME.econCycle, cycWord=cyc>0.33?"Boom":cyc>0.10?"Expansion":cyc<-0.33?"Recession":cyc<-0.10?"Downturn":"Steady";
     const cycCol=cyc>0.10?'var(--good)':cyc<-0.10?'var(--bad)':'#8a8270';
     const cycPct=(cyc+1)/2*100;
@@ -30875,11 +30877,8 @@ function renderBudget(){
         <div class="fbar2"><i style="width:${clamp((1-funded)/0.5*100,0,100)}%;background:var(--clay)"></i></div>
         <div class="fnote">The hole between what PERS owes and what it holds. It moves with investment returns — ${swTxt} — and new benefits accrue every quarter. Sets the employer contribution rate (<b>${GAME.persRate.toFixed(2)}B</b>), of which <b>${growth>=0?'+':''}${growth.toFixed(2)}B</b> above the starting rate is fresh pressure on the General Fund. ${POLICIES.persReform?'PERS Reform is bending the accrual curve.':'PERS Reform can bend the accrual curve.'} New service cost is accruing at <b>${Math.round((GAME.persWave!=null?GAME.persWave:1)*100)}%</b> of its starting pace as the pre-1996 tiers retire out.</div><button class="fcard-btn" data-fund="pers">${ico('wrench')} Manage →</button></div>`;
     }
-    // Everything past here is a readout, not a fund. Break to its own grid.
-    h+=`</div>
-      <div class="fiscal-title" style="margin-top:22px">Forces on the budget</div>
-      <div class="fnote" style="margin:-6px 0 12px">Read-only — the cycle, the federal picture, and the earmarks that move revenue and cost between quarters. None of these has its own page.</div>
-      <div class="fiscal-grid">`;
+    // Everything past here is a readout, not a fund: it goes to the State Budget tab.
+    const fundCards=h; h="";
     h+=`<div class="fcard"><div class="fname">${ico('chart-up')} Economic Cycle</div><div class="fval" style="color:${cycCol}">${cycWord}</div>
       <div class="fbar"><span class="fmid"></span><i style="left:${cycPct}%"></i></div>
       <div class="fnote">The short-term boom-bust swing. Oregon sits inside a <b>national</b> cycle (currently ${GAME.natCycle>0.15?"expanding":GAME.natCycle<-0.15?"contracting":"flat"}) and is pulled toward it — strong fundamentals (business climate, in-migration, low unemployment) buy you real divergence above the nation, but not immunity. Moves the income tax — your biggest revenue source — hard: booms inflate revenue, recessions gut it.</div></div>`;
@@ -30911,17 +30910,25 @@ function renderBudget(){
     }
     h+=`<div class="fcard"><div class="fname">${ico('globe')} Federal Funds Index</div><div class="fval" style="color:${GAME.fedIndex<0.95?'var(--bad)':'#4a463c'}">${(GAME.fedIndex*100).toFixed(0)}%</div>
       <div class="fnote">~$44B all-funds flows from Washington. A federal tax-law shock cuts this; it slowly recovers. A weaker match pushes Oregon Health Plan cost onto the state (above).</div></div>`;
+    const forcesA=h; h="";
+    // the Common School Fund is a fund, with a page: it stays with the funds
     { const sold=csfLandsSold(), pay=(GAME.csfPayout||0);
       h+=`<div class="fcard"><div class="fname">${ico('bank')} Common School Fund</div><div class="fval">${fmtB((GAME.csfCorpus||0),2)}</div>
         <div class="fnote">The statehood land grant, held by the State Land Board. IN: ${sold?'investment returns':'grazing leases, harvest on the trust lands, and investment returns'}. OUT: a fixed <b>${(CSF_PAYOUT_RATE*100).toFixed(1)}%</b> a year — <b>$${(pay*1000).toFixed(0)}M</b> — paid to schools <b>before</b> the General Fund is. It cannot be raided, and growing it shrinks what the General Fund owes schools. ${sold
           ? 'The lands are sold: a diversified portfolio now, earning more and swinging harder, with the lease deposits gone for good.'
           : 'The deposits ride on the cut and the leases, so the logging rate feeds this number.'}</div><button class="fcard-btn" data-fund="csf">${ico('wrench')} Manage →</button></div>`; }
+    const csfCard=h; h="";
     h+=srsFiscalCard();
     h+=eoFiscalCard();
-    h+=`</div></div>`;
+    budgetForces=forcesA+h;
+    h=keepH;
+    if(tab==="funds")h+=fundCards+csfCard+`</div></div>`;
   }
   // ---- two-column ledger: the State Budget tab (stacks on narrow screens — see .budget-ledger rule)
   if(tab==="budget"){
+  h+=`<div class="fiscal-panel"><div class="fiscal-title">Forces on the budget</div>
+      <div class="fnote" style="margin:-2px 0 12px">Read-only: the cycle, the federal picture, and the rules that move revenue and cost between quarters.</div>
+      <div class="fiscal-grid">${budgetForces}</div></div>`;
   h+=`<div class="budget-ledger" style="display:grid;grid-template-columns:1fr 1fr;gap:24px">`;
   // revenue column
   h+=`<div><h3 style="font-family:var(--font-display);font-size:17px;border-bottom:2px solid var(--good);padding-bottom:5px;margin-bottom:10px">Revenue by Source</h3>`;
