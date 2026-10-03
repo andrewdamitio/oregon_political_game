@@ -4403,13 +4403,15 @@ const PRIVATE_ATTAIN_PREMIUM=14;
    quarter-to-quarter market term. Equity returns are a bet on the broad
    economy far more than on the froth, so the cycle carries the weight. */
 const FUND_CYCLE_W=1.1;
-/* AND WHERE THE MIDDLE OF THE CYCLE ACTUALLY SITS. Measured across eight
-   twelve-year runs, econCycle averages -0.042 rather than zero, so a
-   portfolio betting on the raw index carries a permanent headwind: for the
-   aggressive posture that is 0.74%/yr of drag, more than the whole premium
-   it is paid. Betting on the cycle should mean betting on it being better
-   or worse than usual, so the bet is centred on usual. */
-const ECON_TREND=-0.042;
+/* AND WHERE THE MIDDLE OF THE CYCLE ACTUALLY SITS. The funds are invested
+   in national markets, so they ride the NATIONAL cycle and the stock market
+   that follows it. Over a million simulated quarters the national cycle
+   averages +0.033, not zero (the recovery after a recession pushes harder
+   than the recession pulls), and the market it drives settles at +0.0275.
+   A portfolio betting on the raw figures would carry a permanent tailwind,
+   about 1%/yr for the aggressive posture, so each bet is centred on usual:
+   it pays when the economy is better than usual, not for existing. */
+const NAT_TREND=0.033, MARKET_TREND=NAT_TREND*0.15/0.18;
 /* alpha is the excess return a posture earns on a timer, regardless of the
    economy; beta is how hard the cycle lands on it. An equity portfolio is
    almost all beta: the premium is payment for bearing the swing, and it
@@ -4428,7 +4430,7 @@ function persRisk(){ return PERS_RISK[GAME.persRisk] || PERS_RISK.balanced; }
    used to each recompute it and the panels had dropped the cycle term. */
 function persExcessQ(){
   const r=persRisk();
-  return r.alpha/4 + GAME.marketLevel*r.beta + (GAME.econCycle-ECON_TREND)*r.beta*FUND_CYCLE_W;
+  return r.alpha/4 + (GAME.marketLevel-MARKET_TREND)*r.beta + ((GAME.natCycle||0)-NAT_TREND)*r.beta*FUND_CYCLE_W;
 }
 /* The Common School Fund is run by the same Oregon Investment Council, and
    it is mostly financial assets — the trust land is a small, shrinking slice.
@@ -4451,7 +4453,7 @@ function csfRisk(){ return CSF_RISK[GAME.csfRisk] || CSF_RISK.balanced; }
 function csfReturnQ(sold){
   const c=csfRisk();
   const soldBonus = sold ? 0.010 : 0;
-  return (c.ret+soldBonus)/4 + GAME.marketLevel*c.beta + (GAME.econCycle-ECON_TREND)*c.beta*FUND_CYCLE_W;
+  return (c.ret+soldBonus)/4 + (GAME.marketLevel-MARKET_TREND)*c.beta + ((GAME.natCycle||0)-NAT_TREND)*c.beta*FUND_CYCLE_W;
 }
 /* Article XV §4(4)(d): this share of net lottery proceeds is constitutionally
    dedicated to the Education Stability Fund. REVENUE.lottery models the
@@ -4531,8 +4533,9 @@ const EXEC_ORDERS={
     blocEffect:{blueCollar:4, businessClass:3, rural:2, moderate:1, libertarian:-2},
     legalBase:0.06},
   eoHoldback:{area:"budget", name:"Across-the-Board Allotment Holdback", icon:"chart-down", capital:6, phaseIn:0, emergency:4,
-    reach:"Allotment control is an executive power. Withholding money the legislature appropriated is where its limits are contested.",
-    desc:"Order every agency to hold back a share of its quarterly allotment. It closes a gap in the budget immediately, without a session, without a vote and without anybody's agreement, and it does it by quietly not delivering services the legislature funded. The single most useful thing on this list when the floor is shut, and the one your own coalition will remember.\n\nIt is an emergency measure: it lasts four quarters, and the money comes back into the budget, and the hole with it, when it lapses. Renewing it costs more each time. It is also on the table whenever the legislature forces an emergency budget.",
+    reach:"A governor controls when agencies get their money, but holding back money the legislature appropriated is legally risky.",
+    desc:"Every agency holds back part of the money the legislature gave it, saving about $450 million a year. It needs no vote, so it works even when the floor is shut. The price is services: health care, schools and homelessness programs get worse while it runs, and the public-sector unions and your own left flank will remember it.\n\nIt lasts four quarters, then the savings stop. Renewing it costs more capital each time. It can be challenged in court, and if a court strikes it down, everything it held back is paid out at once: from the Rainy Day Fund first, and the rest as structural debt.",
+    releaseOnStrike:true,
     effects:{health:-2, eduOutcomes:-1.5, homelessness:1.5, behavioralHealth:-1.5},
     indicatorEffects:{adminOverhead:3},
     savings:0.45,
@@ -4591,7 +4594,7 @@ const EXEC_ORDERS={
     legalBase:0.01},
   eoDroughtEmergency:{area:"environment", name:"County Drought Emergency", icon:"water", capital:2, phaseIn:1, emergency:4,
     reach:"The drought statutes let the governor declare one on a county's request and let the Water Resources Department bend its own rules for the duration.",
-    desc:"Declare a drought emergency in the dry counties. Water users can swap, lease and temporarily transfer rights, and emergency wells get permits fast. Farms and towns get through the year; more water comes out of the ground and the rivers than would have.",
+    desc:"Declare a drought emergency in the dry counties. Water users can swap, lease and temporarily transfer rights, and emergency wells get permits fast. Farms and towns get through the year; more water comes out of the ground and the rivers than would have.\n\nIt does not end a drought, but while one is under way it halves the drought's damage to the economy and the harvest and takes about two-thirds of the anger out of rural, timber and irrigated-east voters. The environment takes a quarter more damage.",
     effects:{environment:-0.3},
     indicatorEffects:{ruralAlienation:-2},
     savings:-0.02,
@@ -4784,6 +4787,7 @@ function tickExecOrders(){
     // the fiction would recognise.
     // an emergency lapses when its declaration runs out
     if(E.emergency&&o.expires!=null&&GAME.turn>=o.expires&&o.state!=="enjoined"){
+      // (a lapsed holdback keeps what it saved: nobody struck it down)
       delete GAME.execOrders[id];
       GAME.log.push(ico('doc')+" Emergency lapsed — "+E.name+". Declare it again from Executive Orders if it is still needed");
       continue;
@@ -4809,6 +4813,16 @@ function tickExecOrders(){
       } else {
         o.resigns=(o.resigns||0)+1;
         GAME.mandateShock=(GAME.mandateShock||0)-4;
+        // STRUCK DOWN, SO IT NEVER HAPPENED. What it withheld goes to the
+        // agencies now: reserves first, then the shortfall, as the deficits it
+        // was hiding would have been covered.
+        if(E.releaseOnStrike&&(o.withheld||0)>0.001){
+          const w=o.withheld, fromRd=Math.min(w,Math.max(0,GAME.rainyDay||0)), toDebt=w-fromRd;
+          GAME.rainyDay=+((GAME.rainyDay||0)-fromRd).toFixed(3);
+          GAME.structuralDebt=+((GAME.structuralDebt||0)+toDebt).toFixed(3);
+          o.released={total:+w.toFixed(3), rd:+fromRd.toFixed(3), debt:+toDebt.toFixed(3)}; o.withheld=0;
+          GAME.log.push(ico('bank')+" The court ordered the $"+w.toFixed(2)+"B held back under "+E.name+" paid out to the agencies"+(fromRd>0.001?": $"+fromRd.toFixed(2)+"B from the Rainy Day Fund":"")+(toDebt>0.001?(fromRd>0.001?" and ":": ")+"$"+toDebt.toFixed(2)+"B added to the structural debt":"")+".");
+        }
         if(GAME.opposition)GAME.opposition.momentum=clamp(GAME.opposition.momentum+6,0,100);
         // The order stops applying the moment it is struck, so the anger it was
         // generating in its opponents simply stops with it — they won. What
@@ -8317,11 +8331,11 @@ const SIMULANTS={
   // ===== IDEOLOGY (mutually exclusive — a voter holds one, or none) =====
   socialist:{category:"ideology", name:"Socialists", size:0.12, turnout:0.66,
     ideology:{economic:-0.9,social:-0.7,environment:-0.7,govSize:-0.8}, approval:45,
-    sensitivities:{inequality:2.2, homelessness:1.6, environment:1.4, taxes:-0.8, income:1.6, crime:0.4},
+    sensitivities:{inequality:2.2, homelessness:1.6, environment:2.2, taxes:-0.8, income:1.6, crime:0.4},
     instPref:{communityCollege:0.8, aid:1.0}},
   liberal:{category:"ideology", name:"Liberals", size:0.26, turnout:0.72,
     ideology:{economic:-0.5,social:-0.6,environment:-0.6,govSize:-0.4}, approval:49,
-    sensitivities:{environment:1.6, homelessness:1.4, education:1.3, inequality:1.4, crime:0.7, health:1.2, income:0.9, logging:-1.2},
+    sensitivities:{environment:2.4, homelessness:1.4, education:1.3, inequality:1.4, crime:0.7, health:1.2, income:0.9, logging:-1.2},
     instPref:{university:0.5, communityCollege:0.6, aid:0.9}},
   moderate:{category:"ideology", name:"Moderates", size:0.29, turnout:0.66,
     ideology:{economic:-0.05,social:-0.05,environment:-0.1,govSize:0}, approval:46,
@@ -8329,11 +8343,11 @@ const SIMULANTS={
     instPref:{university:0.8, stateCollege:0.7, communityCollege:0.6, aid:0.4}},
   conservative:{category:"ideology", name:"Conservatives", size:0.25, turnout:0.72,
     ideology:{economic:0.6,social:0.6,environment:0.4,govSize:0.6}, approval:40,
-    sensitivities:{taxes:1.8, crime:1.7, gdp:1.4, gasprice:1.5, homelessness:0.9, inequality:-0.5, income:1.1, logging:1.0},
+    sensitivities:{taxes:1.8, crime:1.7, gdp:1.4, gasprice:1.5, homelessness:0.9, inequality:-0.5, income:1.1, logging:1.0, environment:0.4},
     instPref:{university:0.9, stateCollege:0.85, communityCollege:0.95}},
   libertarian:{category:"ideology", name:"Libertarians", size:0.08, turnout:0.64,
     ideology:{economic:0.7,social:-0.3,environment:0.2,govSize:0.9}, approval:42,
-    sensitivities:{taxes:2.0, gdp:1.3, crime:0.8, gasprice:1.4, income:1.2, inequality:-0.6},
+    sensitivities:{taxes:2.0, gdp:1.3, crime:0.8, gasprice:1.4, income:1.2, inequality:-0.6, environment:0.4},
     instPref:{}},
   // ===== REGION (mutually exclusive) =====
   urban:{category:"region", name:"Urbanites", size:0.34, turnout:0.62,
@@ -10621,7 +10635,11 @@ const SITUATIONS={
     // Smoke is a real health cost, but it is a per-quarter push divided by
     // health's 0.15 inertia: -6 was -40 on the target, the largest single
     // driver of the health collapse. Now -3, the same as a heat dome.
-    metricEffect:{environment:-11,health:-3,gdp:-0.55,loggingRate:-6}, moodAxes:{environment:-0.2}, moodMag:0.5, minTurns:2,
+    // The growth hit was -0.55, which the 0.25 inertia makes -2.2 points of
+    // growth while it burns: over half a national recession. The 2020 fires
+    // were a catastrophe where they burned and a rounding error in statewide
+    // output. Now -0.6 points, near a drought's.
+    metricEffect:{environment:-11,health:-3,gdp:-0.15,loggingRate:-6}, moodAxes:{environment:-0.2}, moodMag:0.5, minTurns:2,
     onTrigger:{capital:-2, metrics:{environment:-12},
       grudges:[{target:"m_environment", value:-3, decay:0.9, label:"Burn scars — forests & watersheds regrowing"}],
       countyMood:{spec:COUNTY_GROUPS.fireCountry, value:-5, decay:0.9, label:"Fire-country counties — evacuations & smoke"}}, mandateShock:-1.5,
@@ -10810,7 +10828,7 @@ const SITUATIONS={
     moodMag:2, moodAxes:{environment:-0.1},
     groupMood:{rural:-8, timber:-4, businessClass:-4, conservative:-3, moderate:-2, liberal:-2, urban:-1}},
   droughtWater:{name:"Drought & Water Crisis", kind:"bad", category:"event", cooldown:5,
-    desc:"A severe drought pits farms, fish, and cities against each other over water.",
+    desc:"A severe drought pits farms, fish, and cities against each other over water. It passes when the weather turns. A County Drought Emergency order blunts it while it lasts: half the economic damage and most of the rural anger, at some cost to rivers and aquifers.",
     metricEffect:{environment:-2,gdp:-0.2,loggingRate:-5}, moodAxes:{environment:-0.2}, moodMag:1, minTurns:3,
     onTrigger:{countyMood:{spec:COUNTY_GROUPS.irrigatedEast, value:-5, decay:0.9, label:"Irrigated east — water shutoffs"}},
     groupMood:{rural:-7,timber:-6,liberal:-2}},
@@ -12226,6 +12244,9 @@ function rollSecureRuralSchools(){
   const keep=0.85, restore=0.60;
   const now=was ? (Math.random()<keep) : (Math.random()<restore);
   GAME.srsActive=now;
+  // for the quarterly report: every year it is not renewed, and the year it comes back
+  const st=countyBackfillState();
+  if(!now||!was)GAME.srsNews={turn:GAME.turn, now, was, before:clamp(st+(was?SRS_SHARE:0),0,1), after:clamp(st+(now?SRS_SHARE:0),0,1)};
   if(now===was){ GAME.srsYears=(GAME.srsYears||0)+1; return; }
   GAME.srsYears=0;
   // no popup — it shows on the Fiscal Machinery board, and the Timber
@@ -12490,7 +12511,7 @@ function metricTarget(k, noRecovery){
   for(const sid in GAME.activeSituations){
     const s=SITUATIONS[sid];
     if(s&&s.metricEffect&&s.metricEffect[k]!==undefined)
-      t+=effExpr(s.metricEffect[k],sitSeverity(sid),"s:"+sid+":"+k)/m.inertia*sitMitigation(sid);
+      t+=effExpr(s.metricEffect[k],sitSeverity(sid),"s:"+sid+":"+k)/m.inertia*sitMitigation(sid,k);
   }
   // indicator feedback — relative to each indicator's CALIBRATED starting level,
   // so only movement away from the inherited status quo propagates. (Measuring
@@ -12696,7 +12717,7 @@ function metricContributors(k){
   for(const sid in GAME.activeSituations){
     const s=SITUATIONS[sid];
     if(s&&s.metricEffect&&s.metricEffect[k]!==undefined){
-      const e=effExpr(s.metricEffect[k],sitSeverity(sid),"s:"+sid+":"+k)/m.inertia*sitMitigation(sid);
+      const e=effExpr(s.metricEffect[k],sitSeverity(sid),"s:"+sid+":"+k)/m.inertia*sitMitigation(sid,k);
       if(Math.abs(e)>0.05)out.push({name:(s.kind==="good"?ico('sparkle')+" ":ico('warning')+" ")+s.name, v:e, link:"s_"+sid});
     }
   }
@@ -12814,7 +12835,14 @@ function durationOk(sid){
    policy that blunts it: a fully funded Preparedness Act takes a fifth off,
    less as it is funded less, and nothing if it was never passed. */
 const CASCADIA_PREP_MITIGATION=0.2;
-function sitMitigation(sid){
+/* A drought under a County Drought Emergency: swaps, leases and emergency
+   wells keep farms and towns going, at the rivers' and aquifers' expense. */
+const DROUGHT_EO_MIT=0.5, DROUGHT_EO_MOOD=0.35, DROUGHT_EO_ENV=1.25;
+function droughtEoOn(sid){ return sid==="droughtWater"&&typeof eoLive==="function"&&eoLive("eoDroughtEmergency"); }
+/* How much of a crisis's anger among voters lands. */
+function sitMoodMult(sid){ return droughtEoOn(sid)?DROUGHT_EO_MOOD:1; }
+function sitMitigation(sid,k){
+  if(droughtEoOn(sid))return k==="environment"?DROUGHT_EO_ENV:DROUGHT_EO_MIT;
   // fire crews: a funded Department of Forestry softens a fire season, a gutted one lets it run
   if(sid==="wildfireSeason"){ const f=(AGENCIES.forestry&&AGENCIES.forestry.funding)??0.5; return clamp(1-(f-0.5)*0.4,0.8,1.2); }
   if(sid!=="cascadiaQuake")return 1;
@@ -12844,8 +12872,7 @@ function startSituation(sid){
     const o=GAME.overheat;
     // about half what it once was: a hot boom should carry a risk, not be a
     // thing a governor learns to avoid
-    GAME.econCycle=clamp(GAME.econCycle-o*0.18,-1,1);
-    GAME.marketLevel=clamp(GAME.marketLevel-o*0.28,-1.2,1.2);   // the froth pops
+    GAME.econCycle=clamp(GAME.econCycle-o*0.18,-1,1);   // (Oregon's boom going bust; the national market is not Oregon's)
     if(METRICS.gdp)METRICS.gdp.value=clamp(METRICS.gdp.value-o*0.8,METRICS.gdp.min,METRICS.gdp.max);
     GAME.mandateShock=(GAME.mandateShock||0)-Math.round(o*1.2);
     GAME.log.push(ico('chart-down')+" The downturn is amplified by the preceding boom — the correction runs deeper than usual");
@@ -13660,7 +13687,7 @@ function approvalTarget(sid, raw){
       const mMag=s.moodMag||0;   // a situation may carry no approval swing at all (e.g. a standing baseline condition)
       sitMood+=((s.kind==="good"?mMag:-mMag)+align*3)*sev;
       // per-group extra reaction (a wildfire hits rural/timber harder, etc.)
-      if(s.groupMood&&s.groupMood[sid]!==undefined)sitMood+=s.groupMood[sid]*sev;
+      if(s.groupMood&&s.groupMood[sid]!==undefined)sitMood+=s.groupMood[sid]*sev*sitMoodMult(s2);
     }
     // who is sitting in which chair, for exactly as long as they sit there
     sitMood+=apptMood(sid);
@@ -13953,9 +13980,9 @@ function tickEconomy(){
   GAME.econCycle = clamp(GAME.econCycle*0.88 + (Math.random()-0.5)*0.18 - pull + natPull, -1, 1);
   // Oregon may run above the nation only as far as its own fundamentals justify
   GAME.econCycle = clamp(GAME.econCycle, GAME.natCycle-0.55, GAME.natCycle+divergence);
-  // an overheated market runs frothier (wider swings), setting up a bigger drop
-  const froth=1+(GAME.overheat||0)*0.45;
-  GAME.marketLevel = clamp(GAME.marketLevel*0.82 + GAME.econCycle*0.15 + (Math.random()-0.5)*0.34*froth, -1.2, 1.2);
+  // THE STOCK MARKET IS NATIONAL: it follows the national cycle, with its
+  // own noise, and an Oregon boom does not make Wall Street frothier
+  GAME.marketLevel = clamp(GAME.marketLevel*0.82 + (GAME.natCycle||0)*0.15 + (Math.random()-0.5)*0.34, -1.2, 1.2);
   // GDP metric tracks the cycle so the rest of the sim feels it
   if(METRICS.gdp){
     METRICS.gdp.eq = 1.3 + GAME.econCycle*0.55;
@@ -14868,6 +14895,9 @@ function fiscalCrisisThreshold(){
    redirects it, and reserves/deficits are reconciled. */
 function settleFiscal(){
   const {revenue,spend,balance:annualBal}=budgetBalance();
+  // money an order is withholding is recorded on it, in case a court makes the state pay it out
+  for(const id of eoLiveList()){ const E=EXEC_ORDERS[id], o=eoState(id);
+    if(E&&E.releaseOnStrike&&(E.savings||0)>0)o.withheld=+((o.withheld||0)+E.savings*eoRamp(id)/4).toFixed(4); }
   GAME.corpKickerToK12=0;      // and so is the corporate half that went to schools
   // the spending of an earlier refund tails off rather than stopping dead
   GAME.kickerStimulus=+(((GAME.kickerStimulus||0)*KICKER_GDP_DECAY)).toFixed(4);
@@ -15827,9 +15857,9 @@ function renderCompass(){
     <div class="sectionsub">All <b>${VOTERS.length.toLocaleString()}</b> voters in the game, one gray dot each: economic left to right, personal liberty at the bottom and state authority at the top. Each quarter a voter drifts a little toward you if they approve of you, and away if they do not. The mix changes too: a dot darkens as its group grows and fades as it shrinks. <b class="mono" style="color:var(--clay)">YOU</b> is your record, where your own changes count for more than what you inherited. <b class="mono" style="color:var(--gold)">START</b> is where you began. Drag the slider to replay the term up to this quarter.</div>`
     +`<div class="compass-wrap">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-        <button id="ecTogCentroid" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.voters?'Hide voters &amp; electorate center':'Show voters &amp; electorate center'}</button>
-        <button id="ecTogLegacy" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.legacy?'Hide past runs':'Show past runs'}</button>
-        <button id="ecTogMembers" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${prOn()?(EC_TAB_OPTS.members?'Hide parties':'Show parties'):(EC_TAB_OPTS.members?'Hide legislators':'Show legislators')}</button>
+        <button id="ecTogCentroid" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.voters?'Hide Voters &amp; Electorate Center':'Show Voters &amp; Electorate Center'}</button>
+        <button id="ecTogLegacy" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${EC_TAB_OPTS.legacy?'Hide Past Runs':'Show Past Runs'}</button>
+        <button id="ecTogMembers" class="enactbtn ghost" style="font-size:13.5px;padding:7px 13px">${prOn()?(EC_TAB_OPTS.members?'Hide Parties':'Show Parties'):(EC_TAB_OPTS.members?'Hide Legislators':'Show Legislators')}</button>
         <span class="mono" style="font-size:12.5px;color:var(--muted-3)">${legN?legN+' election'+(legN===1?'':'s')+' on record':'no past elections on record yet'}${EC_TAB_OPTS.legacy&&legN?' — green win, red loss; gold-ringed is this run':''}</span>
       </div>
       <div class="ec-stage" style="max-width:420px">
@@ -16574,7 +16604,14 @@ function showQuarterReport(quiet,next){
       const at=ph.indexOf("</div>", ph.indexOf("rsec-h"))+6;           // straight after the section's heading
       return ph.slice(0,at)+legisRows+ph.slice(at); })()+((GAME.lprom||[]).length?`<div class="rsection">${lpListHTML("Promises to legislators").replace(/<button[^>]*data-lpgo[^>]*>[^<]*<\/button>/g,"")}</div>`:"");
   const events=(GAME.log||[]).slice(-6).filter(l=>/began|RESOLVED|Midterms|kicker|Kicker|Reserves|Promise|Scandal|boom|Windfall|Federal|Deficit|debt|Austerity|Walkout warning/i.test(l));
-  const eventBlock=events.length?`<div class="rsection"><div class="rsec-h">${ico('doc')} This Quarter</div>${events.map(e=>`<div class="revent">${e}</div>`).join("")}</div>`:"";
+  // the federal timber-county payments: their own line, whatever else the log holds
+  const srsLine=(()=>{ const N=GAME.srsNews; if(!N||N.shown)return ""; N.shown=true;
+    const pct=v=>Math.round(v*100)+"%";
+    if(N.now&&!N.was)return ico('bank')+" <b>Congress renewed Secure Rural Schools.</b> Federal payments to Oregon's timber counties resume: county backfill rises from "+pct(N.before)+" to "+pct(N.after)+".";
+    if(N.was)return ico('warning')+" <b>Congress did not renew Secure Rural Schools.</b> The federal payments to Oregon's timber counties stop, and county backfill falls from "+pct(N.before)+" to "+pct(N.after)+". Your County Payments program can make up the gap.";
+    return ico('warning')+" <b>Congress again did not renew Secure Rural Schools.</b> The timber counties go another year without the federal payments (county backfill "+pct(N.after)+"). Your County Payments program can make up the gap."; })();
+  const evs=events.filter(l=>!/Secure Rural Schools/.test(l)).concat(srsLine?[srsLine]:[]);
+  const eventBlock=evs.length?`<div class="rsection"><div class="rsec-h">${ico('doc')} This Quarter</div>${evs.map(e=>`<div class="revent">${e}</div>`).join("")}</div>`:"";
   // WHAT IS COMING, not where the economy is now (the Economic Climate bar
   // already says that): the national undertow, whether Oregon is running hot,
   // and the next time voters have a say
@@ -16927,6 +16964,11 @@ function showExecOrderEvent(ev, next){
       <div class="lg-verdict hung" style="margin:12px 0">Its effects stop this quarter and the capital you spent is gone. The people it was angering have what they wanted and stop being angry about it — but the people you promised it to watched you lose, and that is what sticks.</div>
       <div class="rrow"><span class="rlabel">Political mandate</span><span class="rval" style="color:var(--clay)">−4</span></div>
       <div class="rrow"><span class="rlabel">Opposition momentum</span><span class="rval" style="color:var(--clay)">+6</span></div>
+      ${(()=>{ const r=(eoState(ev.id)||{}).released; if(!r)return "";
+        return `<div class="rrow"><span class="rlabel">Withheld money paid out</span><span class="rval" style="color:var(--clay)">$${r.total.toFixed(2)}B</span></div>`
+          +(r.rd>0.001?`<div class="rrow"><span class="rlabel">From the Rainy Day Fund</span><span class="rval">$${r.rd.toFixed(2)}B</span></div>`:"")
+          +(r.debt>0.001?`<div class="rrow"><span class="rlabel">Added to the structural debt</span><span class="rval" style="color:var(--clay)">$${r.debt.toFixed(2)}B</span></div>`:"")
+          +`<div class="fnote" style="margin-top:6px">The court treats the holdback as if it never happened: every dollar it held back goes to the agencies now.</div>`; })()}
       <div class="fnote" style="margin-top:10px">You can sign a revised, narrower order — at half again the capital, and worse odds. Governors do it all the time.</div>`;
   }
   card.innerHTML=h+`<button id="eoEventOk" class="enactbtn">Continue ▸</button>`;
@@ -20740,6 +20782,28 @@ function caucusBase(m){
   return 72+clamp(safe/14,0,1)*20;
 }
 /* What loyalty is heading toward, in parts, so the dossier can show them. */
+/* Where a district's biggest group turns the member: below this approval
+   yours pull away from you, above that theirs pull away from their party. */
+const TOPGROUP_COLD=40, TOPGROUP_WARM=60;
+/* THE GROUP A MEMBER IS ALIGNED WITH: their most specific tie, in this
+   order, from the traits their district gives them; with none, their
+   party's base. Nonprofit ties have no voter group of their own. */
+const ALIGN_TRAIT=[["pu","publicUnions"],["ag","rural"],["timber","timber"],["union","blueCollar"],["biz","businessClass"],["renters","renters"],
+  ["core","urban"],["rural","rural"],["red","conservative"],["deep","liberal"],["wealthy","wealthy"],["suburb","suburban"],["clack","motorists"]];
+/* The two groups a member answers to, with the most each can move them:
+   aligned 8, the district's biggest 5, one entry if they are the same. */
+function caucusAnswerGroups(m,key,row){
+  const out=[], al=caucusAlignedGroup(m,key); if(SIMULANTS[al])out.push({b:al, w:8, aligned:true});
+  row=row||caucusRow(key);
+  const top=row?caucusMakeup(row,1)[0]:null;
+  if(top&&top.b!==al&&SIMULANTS[top.b])out.push({b:top.b, w:5, aligned:false});
+  return out;
+}
+function caucusAlignedGroup(m,key){
+  const tr=caucusTraitsOf(key).map(t=>t.id);
+  for(const [id,b] of ALIGN_TRAIT)if(tr.includes(id)&&SIMULANTS[b])return b;
+  return caucusPartyOf(m)==="D"?"liberal":"conservative";
+}
 function caucusTargetParts(m,key){
   if(m.ind)return [["Independent: no party whip to answer to",22]];
   const row=caucusRow(key), st=caucusSat(m), parts=[];
@@ -20773,6 +20837,12 @@ function caucusTargetParts(m,key){
     const tot=hs.reduce((a,x)=>a+x.now,0), f=(tot&&Math.sign(tot)===Math.sign(m.g)&&Math.abs(tot)>Math.abs(m.g))?m.g/tot:1;
     hs.slice(0,5).forEach(x=>{ parts.push([x.nm+", "+caucusQ(x.t),x.now*f*k]); left-=x.now*f; });
     if(Math.abs(left)>=0.5)parts.push([hs.length?"Other recent stances":"Recent stances",left*k]); }
+  // THE GROUPS THEY ANSWER TO: the interest group they are aligned with
+  // (up to 8) and the one their district most over-represents (up to 5).
+  // Yours feel it when a group turns on you; theirs, when it warms to you.
+  for(const g of caucusAnswerGroups(m,key,row)){ const S=SIMULANTS[g.b], a=S.approval??50, lab=g.aligned?"Their interest group":"Their district's biggest group";
+    if(m.p==="mine"&&a<TOPGROUP_COLD)parts.push([lab+", "+S.name+", dislikes you ("+Math.round(a)+"%)",-clamp((TOPGROUP_COLD-a)*0.5*g.w/8,0,g.w)]);
+    if(m.p!=="mine"&&a>TOPGROUP_WARM)parts.push([lab+", "+S.name+", likes you ("+Math.round(a)+"%)",-clamp((a-TOPGROUP_WARM)*0.5*g.w/8,0,g.w)]); }
   const pr=caucusProjBoost(key); if(pr)parts.push([m.p==="mine"?"District projects":"Your projects in their district",m.p==="mine"?pr:-pr]);
   const ap=row?caucusApptSplit(m,row):[0,0];
   if(m.p==="mine"){
@@ -21517,7 +21587,7 @@ function caucusOpenChair(postId,groups,side){
 /* PARTY COLOURS. Each party in its own hue, full while loyal and paler as
    loyalty slips; your own members who turn angry go orange, a colour
    neither party owns. */
-const CAUCUS_HUE={D:{full:"#2f5d9e", pale:"#b7c6e0"}, R:{full:"#b23a3a", pale:"#e6b8b2"}, angry:"#eda052", angryDeep:"#b8520c", ind:"#8a8680"};
+const CAUCUS_HUE={D:{full:"#2f5d9e", pale:"#b7c6e0"}, R:{full:"#b23a3a", pale:"#e6b8b2"}, angry:"#eda052", angryDeep:"#b8520c", waver:"#d9ad2c", waverLight:"#ead37a", ind:"#8a8680"};
 function caucusHue(mine){ const my=caucusMyLetter(); return CAUCUS_HUE[mine?my:(my==="D"?"R":"D")]; }
 /* The colour follows the same lines the game uses. Your members: orange
    below the anger line, deepening toward livid; pale at the line, full by
@@ -21527,7 +21597,9 @@ function caucusColor(m){
   if(m.ind)return CAUCUS_HUE.ind;
   if(m.p==="mine"){ const H=caucusHue(true), at=caucusAngryAt();
     if(m.L<at)return cmMix(clamp((at-m.L)/30,0,1),CAUCUS_HUE.angry,CAUCUS_HUE.angryDeep);
-    return cmMix(clamp((m.L-at)/(88-at),0,1),H.pale,H.full); }
+    // wavering, the twelve points above the anger line: yellow, lighter as they firm up
+    if(m.L<at+12)return cmMix((m.L-at)/12,CAUCUS_HUE.waver,CAUCUS_HUE.waverLight);
+    return cmMix(clamp((m.L-at-12)/(88-at-12),0,1),H.pale,H.full); }
   const H=caucusHue(false), odds=(m.ch&&m.id!=null)?caucusOppOdds(m):CAUCUS_OPP_ANGRY;
   return cmMix(clamp((m.L-odds)/30,0,1),H.pale,H.full);
 }
@@ -23139,6 +23211,9 @@ function caucusMemberCard(k){
   }
   const tr=caucusTraitsOf(k);
   h+=`<div class="cm-sec">The district</div>`;
+  if(!m.ind){ const gs=caucusAnswerGroups(m,k,row), nm=g=>`<b>${SIMULANTS[g.b].name}</b> (${Math.round(SIMULANTS[g.b].approval??50)}% approve of you)`;
+    const al=gs.find(g=>g.aligned), di=gs.find(g=>!g.aligned);
+    h+=`<div class="cm-note" style="margin-bottom:6px">Answers to ${al?"the group they are aligned with, "+nm(al):""}${al&&di?", and to their district's biggest group, ":""}${di?nm(di):""}${al&&!di?", which is also their district's biggest":""}. ${mine?"If one turns on you (under "+TOPGROUP_COLD+"%), so does this member, the aligned group most.":"If one warms to you (over "+TOPGROUP_WARM+"%), this member drifts from their party, the aligned group most."}</div>`; }
   if(tr.length)h+=`<div class="cm-traits">${tr.map(t=>`<span class="ctrait"><b>${t.label}</b>${t.issues.map(i=>ISSUES[i].name.toLowerCase()).join(", ")}</span>`).join("")}</div>`;
   else h+=`<div class="cm-note">No issue stands out here, so the member holds the party line where they hold anything.</div>`;
   if(mk.length)h+=`<div class="cm-mk">${mk.map(x=>`<span>${x.name}<b>${Math.round(x.share*100)}%</b><i>state ${Math.round((SIMULANTS[x.b].size||0)*100)}%</i></span>`).join("")}</div>`;
@@ -29018,7 +29093,7 @@ function renderDetail(){
         const mm=s.moodMag||0;
         let m=(s.kind==="good"?mm:-mm);
         if(s.moodAxes)m+=dot(s.moodAxes,sim.ideology)*3;
-        if(s.groupMood&&s.groupMood[vid]!==undefined)m+=s.groupMood[vid];
+        if(s.groupMood&&s.groupMood[vid]!==undefined)m+=s.groupMood[vid]*sitMoodMult(sid);
         rows.push({vid,name:sim.name,m});
       }
       rows.sort((a,b)=>b.m-a.m);
@@ -30725,7 +30800,7 @@ const FUNDS={
         note:"Part of each member's own retirement contribution, paid into the pension fund instead of their individual account."});
       return rows;
     },
-    note:"The employer rate is derived from this number, so paying the hole down cuts what every service pays, and letting it grow raises the bill on all of them at once."},
+    note:"Every school district, university and state agency pays a share of its payroll into PERS, and that share rises and falls with this hole. Shrink the hole and all of their pension bills go down, leaving more for services. Let it grow and they all go up at once."},
 
   debt:{ name:"Structural Debt", icon:"warning", series:"fund_debt", invert:true,
     val:()=>GAME.structuralDebt||0,
@@ -31807,11 +31882,15 @@ function buildWebEdges(){
   // drawn (the detail page shows a longer tail), capped so no node explodes.
   for(const sid in SIMULANTS){
     if(SIMULANTS[sid].static)continue;
-    let n=0;
+    // levers and statistics are counted separately: laws are worth several
+    // points each and would otherwise take every slot, so a statistic a group
+    // really cares about (Liberals and the environment) never got an arrow
+    let n=0, ns=0;
     for(const c of blocMoodContributors(sid)){
       if(!c.lnk||Math.abs(c.v)<0.3)continue;
+      if(/^[mi]_/.test(c.lnk)){ if(ns>=6)continue; ns++; }
+      else { if(n>=14)continue; n++; }
       E.push({a:c.lnk,b:"v_"+sid,good:c.v>=0,w:Math.min(4,0.5+Math.abs(c.v)*0.6)});
-      if(++n>=14)break;
     }
   }
   // ...and the same relationship seen from the LEVER's side. Building the bloc
