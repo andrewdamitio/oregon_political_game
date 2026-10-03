@@ -1271,6 +1271,7 @@
   .veg-sum{margin-top:9px;font-size:13.5px;line-height:1.5}
   #main .sectionsub .sf-l[data-voters],#main .threshline .sf-l[data-voters]{color:var(--slate-blue);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
   #main .ebgroup .sf-l{color:var(--slate-blue);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+  #main .ebgroup+.chartbox,#main .vmov+.chartbox{margin-top:16px}
   .vchart-key{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--muted-2);margin-top:6px}
   .vchart-key i{display:inline-block;width:14px;height:3px;margin-right:6px;vertical-align:3px}
   .vchart-key i.dash{height:0;border-top:2px dashed;background:none}
@@ -30647,6 +30648,11 @@ function renderVoters(){
       <div class="mcard vsum-link" data-vcamp="1"><div class="mname">${nb.kind==="midterm"?"Midterm":"Your re-election"}</div><div class="mval">${nbTxt}</div><div class="vsub">Full forecast in Campaign HQ \u203a</div></div>
     </div>`; }
 
+  // ---- three folders: how you are doing, the groups, the focus group
+  const vtab=["standing","groups","focus"].includes(window._vTab)?window._vTab:"standing";
+  h+=`<div class="ctabs" role="tablist">`+[["standing","chart-up","How you're doing","The trend, what moved, and why"],["groups","people","Groups","Who decides your election"],["focus","id-card","Focus group","Ten voters you follow"]]
+    .map(([k,ic,t,sub])=>`<button role="tab" aria-selected="${vtab===k}" data-vtab="${k}" class="${vtab===k?"on":""}"><b>${ico(ic)} ${t}</b><span>${sub}</span></button>`).join("")+`</div>`;
+  if(vtab==="standing"){
   // ---- 2. what moved
   { const mv=groups.map(id=>({id,d:histDelta("v_"+id)})).filter(x=>Math.abs(x.d)>=0.3);
     const up=mv.filter(x=>x.d>0).sort((a,b)=>b.d-a.d).slice(0,3), dn=mv.filter(x=>x.d<0).sort((a,b)=>a.d-b.d).slice(0,3);
@@ -30674,6 +30680,8 @@ function renderVoters(){
       <div class="veg-sum">Your supporters are <b style="color:${gap>=0?'var(--good)':'var(--bad)'}">${Math.abs(gap).toFixed(0)} points ${gap>=0?"more":"less"} likely</b> to vote than your opponents. Turnout is ${Math.abs(w)<0.1?"worth almost nothing either way":(w>0?"<b style=\"color:var(--good)\">adding ":"<b style=\"color:var(--bad)\">costing you ")+Math.abs(w).toFixed(1)+" points</b> of the vote"} compared with everyone voting.</div>
       <div class="threshline" style="margin-top:6px">To close it, give your supporters something to be excited about, or work their turnout from <span class="sf-l" data-vcamp2="1">Campaign HQ</span>. Election rules matter too: <span class="sf-l" data-detail="p_electionAdmin">Election Administration</span> and <span class="sf-l" data-detail="p_motorVoter">Motor Voter</span> decide how easily the lukewarm vote at all.</div></div>`; }
 
+  }
+  if(vtab==="groups"){
   // ---- 3. where the election is decided: what winning each group over is worth
   { const lev=groupLeverage();
     const rows=groups.map(id=>({id, g:SIMULANTS[id], v:lev[id]||0})).sort((a,b)=>b.v-a.v).slice(0,8);
@@ -30714,6 +30722,8 @@ function renderVoters(){
     }
     h+=`</div>`; }
 
+  }
+  if(vtab==="focus"){
   // ---- 5. the focus group, last and compact
   { const picks=focusPanelIdx().map(i=>({v:VOTERS[i], i}));
     h+=`<div class="vall-h vfg-h"><div class="ebgroup-label" style="margin:0">Focus group</div><button type="button" class="sb-btn" data-fgnew="1">\u21bb New focus group</button></div>
@@ -30739,10 +30749,12 @@ function renderVoters(){
     }
     h+=`</div>`; }
 
+  }
   main.innerHTML=h;
   wireBackBtn();
   main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
   main.querySelectorAll('[data-vsort]').forEach(b=>b.addEventListener('click',()=>{ window._vSort=b.dataset.vsort; renderInPlace(); }));
+  main.querySelectorAll('[data-vtab]').forEach(b=>b.addEventListener('click',()=>{ window._vTab=b.dataset.vtab; renderInPlace(); }));
   main.querySelectorAll('[data-fgnew]').forEach(b=>b.addEventListener('click',()=>{ GAME.focusSeed=(GAME.focusSeed||0)+1;
     GAME.history=GAME.history||{};
     for(const i of focusPanelIdx())if(VOTERS[i]&&!(GAME.history["fg_"+i]||[]).length)GAME.history["fg_"+i]=[{turn:GAME.turn,value:VOTERS[i].approval}];   // a starting point for each new member
