@@ -1000,6 +1000,7 @@
   .fname .ico{width:17px;height:17px;color:var(--slate-blue);flex:0 0 auto}
   .fval{font-family:var(--font-data);font-size:19px;font-weight:600;margin-bottom:4px}
   .fnote{font-size:12px;color:var(--muted-3);line-height:1.4}
+  .sparkzone{font-size:11px;fill:var(--muted-3);font-style:italic;letter-spacing:.02em}
   .nm-list{margin:2px 0 8px;padding-left:18px;font-size:14px;line-height:1.5}
   .nm-list li{margin:5px 0}
   /* one row on a wide screen, whatever the number of cards; three, then two, then one as it narrows */
@@ -26498,6 +26499,7 @@ function trendArrow(k){
 function sparkline(series, opts={}){
   if(!series||series.length<2)return '<div class="sparkempty">No history yet — advance a few quarters.</div>';
   const w=opts.w||560, ht=opts.h||172, pad=24, botPad=opts.axis?32:24;
+  const padL=opts.yLabels?40:pad;
   // a fill from a baseline (the zero line) rather than from the bottom edge
   const fillBase=opts.fillBase;
   const vals=series.map(s=>s.value);
@@ -26508,8 +26510,8 @@ function sparkline(series, opts={}){
   const t0=series[0].turn!==undefined?series[0].turn:0;
   const tN=series[series.length-1].turn!==undefined?series[series.length-1].turn:series.length-1;
   const tspan=Math.max(1,tN-t0);
-  const xByTurn=t=>pad+(t-t0)/tspan*(w-2*pad);
-  const x=i=>series[i].turn!==undefined?xByTurn(series[i].turn):pad+i/(series.length-1)*(w-2*pad);
+  const xByTurn=t=>padL+(t-t0)/tspan*(w-padL-pad);
+  const x=i=>series[i].turn!==undefined?xByTurn(series[i].turn):padL+i/(series.length-1)*(w-padL-pad);
   const y=v=>ht-botPad-(v-lo)/(hi-lo)*(ht-pad-botPad);
   const pts=series.map((s,i)=>`${x(i).toFixed(1)},${y(s.value).toFixed(1)}`).join(" ");
   const col=opts.color||"var(--moss)";
@@ -26534,8 +26536,8 @@ function sparkline(series, opts={}){
     for(const L of opts.hlines){
       if(L.value<lo||L.value>hi)continue;
       const hy=y(L.value).toFixed(1), c=L.color||"var(--muted-3)";
-      hl+=`<line x1="${pad}" y1="${hy}" x2="${w-pad}" y2="${hy}" stroke="${c}" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.9"/>
-        <text x="${w-pad-2}" y="${(+hy-4).toFixed(1)}" text-anchor="end" class="sparkmark" fill="${c}">${L.label}</text>`;
+      hl+=`<line x1="${padL}" y1="${hy}" x2="${w-pad}" y2="${hy}" stroke="${c}" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.9"/>`
+        +(L.label?`<text x="${w-pad-2}" y="${(+hy-4).toFixed(1)}" text-anchor="end" class="sparkmark" fill="${c}">${L.label}</text>`:"");
     }
   }
   // x-axis quarter labels (start, middle, end), or with axis:"years" a tick
@@ -26555,15 +26557,21 @@ function sparkline(series, opts={}){
       axis+=`<text x="${tx}" y="${ht-8}" text-anchor="middle" class="sparkaxis">${turnLabel(t)}</text>`;
     }
   }
-  return `<svg viewBox="0 0 ${w} ${ht}" class="spark" preserveAspectRatio="none">
+  let yl="";
+  for(const Y of (opts.yLabels||[])){ if(Y.v<lo||Y.v>hi)continue;
+    yl+=`<text x="${padL-8}" y="${(y(Y.v)+4).toFixed(1)}" text-anchor="end" class="sparkaxis">${Y.l}</text>`; }
+  for(const Z of (opts.zones||[])){ if(Z.v<lo||Z.v>hi)continue;
+    yl+=`<text x="${padL+8}" y="${(y(Z.v)+4).toFixed(1)}" class="sparkzone">${Z.l}</text>`; }
+  const ends=opts.noEnds?"":`<text x="${pad}" y="14" class="sparklbl">${opts.fmt?opts.fmt(first):first.toFixed(1)}</text>
+    <text x="${w-pad}" y="14" text-anchor="end" class="sparklbl" fill="${col}">${opts.fmt?opts.fmt(last):last.toFixed(1)}</text>`;
+  return `<svg viewBox="0 0 ${w} ${ht}" class="spark" preserveAspectRatio="none">${yl}
     <defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" style="stop-color:${col};stop-opacity:0.22"/><stop offset="100%" style="stop-color:${col};stop-opacity:0"/></linearGradient></defs>
     <polygon points="${area}" fill="url(#${gradId})"/>
     ${hl}
     ${marks}
     <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="2.5"/>
     <circle cx="${x(series.length-1)}" cy="${y(last)}" r="3.5" fill="${col}"/>
-    <text x="${pad}" y="14" class="sparklbl">${opts.fmt?opts.fmt(first):first.toFixed(1)}</text>
-    <text x="${w-pad}" y="14" text-anchor="end" class="sparklbl" fill="${col}">${opts.fmt?opts.fmt(last):last.toFixed(1)}</text>
+    ${ends}
     ${axis}
   </svg>`;
 }
@@ -28800,7 +28808,9 @@ function renderDetail(){
     h+=`<div class="detailval" style="color:${nm>1?'var(--good)':nm<-1?'var(--clay)':'#8a8270'}">${nm>=0?'+':''}${nm.toFixed(1)}</div>`;
     h+=`<div class="chartbox"><div class="charttitle">National mood over time</div>
       ${sparkline(GAME.history["nationalMood"],{color:'var(--slate-blue)',min:-10,max:10,axis:"years",fillBase:0,
-        hlines:[{value:0,label:"Even: tailwind above, headwind below",color:"var(--muted-2)"}],
+        hlines:[{value:0,color:"var(--muted-2)"}], noEnds:true,
+        yLabels:[{v:10,l:"+10"},{v:5,l:"+5"},{v:0,l:"0"},{v:-5,l:"−5"},{v:-10,l:"−10"}],
+        zones:[{v:8,l:"Tailwind"},{v:-8,l:"Headwind"}],
         fmt:v=>(v>=0?'+':'')+v.toFixed(1)})}</div>`;
     // what it does, at today's value, in the order it reaches the election
     { const sg=v=>(v>=0?"+":"−")+Math.abs(v).toFixed(1);
