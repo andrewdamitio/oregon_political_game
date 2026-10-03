@@ -2442,6 +2442,12 @@
   /* the walkout keeps its own colour through the reset above */
   .crisis-card.walkout{background:linear-gradient(180deg,rgba(26,95,107,.14),var(--paper-2))!important;border-left:4px solid var(--slate-blue)!important}
   .crisis-card.walkout .crisis-tag{color:var(--slate-blue)!important}
+  .crisis-card.occupied{background:linear-gradient(180deg,rgba(110,46,96,.15),var(--paper-2))!important;border-left:4px solid #6e2e60!important}
+  .crisis-card.occupied .crisis-tag{color:#6e2e60!important}
+  .sit.occupied{border-left-color:#6e2e60!important}
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .crisis-card.occupied{border-left-color:#b56aa4!important} :root:not([data-theme="light"]) .crisis-card.occupied .crisis-tag{color:#c98bba!important} }
+  :root[data-theme="dark"] .crisis-card.occupied{border-left-color:#b56aa4!important}
+  :root[data-theme="dark"] .crisis-card.occupied .crisis-tag{color:#c98bba!important}
   .crisis-card.good{background:var(--paper-2)!important;border:1px solid var(--line)!important;border-left:4px solid var(--good)!important}
   .crisis-card:hover,.crisis-card.bad:hover,.crisis-card.good:hover{background:var(--hover-bg)!important}
   .crisis-card.crisis-major{border-left-width:6px!important}
@@ -10952,6 +10958,7 @@ const SITUATIONS={
     rules:"Costs capital and disrupts public services every quarter it runs, and shuts the floor: nothing new passes until the Capitol is cleared, except repealing right-to-work or restoring public-sector bargaining.",
     trigger:()=>{
       if(GAME.turn<=2)return false;
+      if(walkoutOn())return false;                 // a walkout already has the building shut: one shutdown at a time
       const fired=GAME.laborFired=GAME.laborFired||{};
       // "You took on organized labor directly" is the first line of this
       // card, so it has to have been you. An initiative the electorate
@@ -10988,6 +10995,7 @@ const SITUATIONS={
     rules:"Costs capital and slows freight every quarter it runs, and shuts the floor: nothing new passes until the convoys leave, except easing the Climate Protection Program, lowering or repealing the carbon tax, loosening the Forest Practices Act, or raising the Department of Forestry's harvest.",
     trigger:()=>{
       if(GAME.turn<=2)return false;
+      if(walkoutOn())return false;                 // a walkout already has the building shut: one shutdown at a time
       const fired=GAME.convoyFired=GAME.convoyFired||{};
       const c=convoyCauses();
       // one blockade per provocation; putting it back re-arms it
@@ -19787,6 +19795,7 @@ function walkoutEndAtElection(){
   GAME.log.push(ico('columns')+" The walkout is over: a new legislature is seated, and the "+who+" members take their seats in it.");
 }
 function walkoutTrigger(side){
+  if(capitolOccupied()) return false;                            // the building is already shut: one shutdown at a time
   if(POLICIES.quorumReform) return false;                        // amendment ended denial-of-quorum
   if(quorumProof()) return false;                                // nobody left to walk out with
   // too many of them would refuse to leave: the quorum would hold anyway
@@ -27742,7 +27751,7 @@ function renderBoard(){
       // event (weather, a quake, a recession) passes on its own
       const tag = s.kind==="good" ? (s.category==="event" ? "WINDFALL" : "BRIGHT SPOT")
         : (s.category==="event" ? "EVENT" : "CRISIS");
-      h+=`<div class="crisis-card ${s.kind} ${s.category}${isNew?' crisis-new':''}${sid==="cascadiaQuake"?' crisis-major':''}${(sid==="gopWalkout"||sid==="demWalkout")?' walkout':''}" data-detail="s_${sid}" style="animation-delay:${ci*45}ms">
+      h+=`<div class="crisis-card ${s.kind} ${s.category}${isNew?' crisis-new':''}${sid==="cascadiaQuake"?' crisis-major':''}${(sid==="gopWalkout"||sid==="demWalkout")?' walkout':''}${(sid==="laborUprising"||sid==="convoyBlockade")?' occupied':''}" data-detail="s_${sid}" style="animation-delay:${ci*45}ms">
         <div class="crisis-top"><span class="crisis-tag">${tag}</span><span class="crisis-age">${age}q</span></div>
         <div class="crisis-name">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div>
         <div class="crisis-desc">${descHTML(sitStory(s))}</div>
@@ -31334,7 +31343,7 @@ function renderSidebar(){
     keys=Object.keys(GAME.activeSituations).filter(k=>SITUATIONS[k]);
   sl.innerHTML=keys.length?keys.map(sid=>{const s=SITUATIONS[sid];
     const age=GAME.situationAge[sid]||0;
-    return `<div class="sit ${s.kind} sit-link${(sid==="gopWalkout"||sid==="demWalkout")?' walkout':''}" data-detail="s_${sid}"><div class="sname">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div><div class="sdesc">${sitCardLine(sid)}</div><div class="sage">${s.category==='event'?'event':'condition'} · ${age+1}q active</div></div>`;}).join(''):'<div class="empty">No active situations.</div>';
+    return `<div class="sit ${s.kind} sit-link${(sid==="gopWalkout"||sid==="demWalkout")?' walkout':''}${(sid==="laborUprising"||sid==="convoyBlockade")?' occupied':''}" data-detail="s_${sid}"><div class="sname">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div><div class="sdesc">${sitCardLine(sid)}</div><div class="sage">${s.category==='event'?'event':'condition'} · ${age+1}q active</div></div>`;}).join(''):'<div class="empty">No active situations.</div>';
   document.getElementById("logList").innerHTML=GAME.log.length?GAME.log.slice().reverse().map(l=>`<div class="log">${l}</div>`).join(''):'<div class="empty">—</div>';
   sl.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
   const nb=document.getElementById("nmBlock"), nl=document.getElementById("nmLabel");
