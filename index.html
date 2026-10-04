@@ -362,6 +362,11 @@
   .nmtrack{flex:1;height:8px;background:linear-gradient(90deg,var(--clay),var(--paper-2) 48%,var(--paper-2) 52%,var(--good));border-radius:var(--radius);position:relative}
   .nmtrack i{position:absolute;top:-3px;width:4px;height:14px;background:var(--ink);border-radius:var(--radius);transform:translateX(-50%);transition:left var(--motion-slow)}
   .sit .sname{font-weight:600;font-size:14.5px}
+  .sit .sage{margin:0 0 2px}
+  .sit .sit-body{margin-top:2px}
+  .sit .sit-body .crisis-moves{font-size:12px}
+  .sit .sit-body .cm-clear{font-size:11px}
+  .sit .sit-body .ev-desc{font-size:12px;color:var(--muted-2)}
   .sit .sdesc{font-size:12.5px;color:var(--muted-2);margin-top:2px}
   .empty{font-size:13.5px;color:var(--muted-3);font-style:italic}
   .log{font-family:var(--font-data);font-size:12.5px;color:var(--muted-2);border-top:1px dashed var(--line);padding-top:4px;margin-top:4px}
@@ -641,7 +646,7 @@
 .pl-zone.pl-safe{color:var(--good)} .pl-zone.pl-bubble{color:var(--warn)} .pl-zone.pl-out{color:var(--clay)}
 .pl-row{display:grid;grid-template-columns:48px minmax(0,1fr) 40px auto;gap:10px;align-items:center;padding:6px 12px;border-top:1px solid var(--line-faint);font-size:13.5px}
 .pl-night .pl-row{grid-template-columns:48px minmax(0,1fr) 40px}
-.pl-row.sit{background:color-mix(in srgb,var(--moss) 6%,transparent)}
+.pl-row.seated{background:color-mix(in srgb,var(--moss) 6%,transparent)}
 .pl-rank{font-family:var(--font-data);color:var(--muted-2)}
 .pl-who i{display:block;font-style:normal;font-size:12px;color:var(--muted-3)}
 .pl-who b.click{cursor:pointer;text-decoration:underline;text-decoration-color:var(--line-em);text-underline-offset:2px}
@@ -22219,7 +22224,7 @@ function prListTabHTML(){
   for(const id of shown){ const m=P.m[id]; if(!m)continue; const rank=L.indexOf(id)+1, zn=prListZone(rank,z);
     if(zn!==zone){ zone=zn; h+=`<div class="pl-zone pl-${zn}">${PR_ZONE_WORD[zn]}${zn==="safe"?` · #1 to #${z.lo}`:zn==="bubble"?` · #${z.lo+1} to #${z.hi}`:` · past #${z.hi}`}</div>`; }
     const dem=P.demoted&&P.demoted[id];
-    h+=`<div class="pl-row${m.seat?" sit":""}"><span class="pl-rank">#${rank}</span>
+    h+=`<div class="pl-row${m.seat?" seated":""}"><span class="pl-rank">#${rank}</span>
       <span class="pl-who">${m.seat?`<b class="click" data-prm="${id}">${m.n}</b>`:`<b>${m.n}</b>`}<i>${m.seat?"sitting member · "+wing(m.wing||0):m.recruit?"your recruit":"new candidate"}${dem?" · demoted":""}${m.f?" · "+prFacName(m.f):""}</i></span>
       <span class="pl-loy" style="${m.seat?`color:${caucusColor({p:"mine",L:m.L})}`:""}">${m.seat?Math.round(m.L):""}</span>
       <span class="pl-act">${open?`${rank>1?`<button class="cf-chbtn" data-prup="${id}" ${can(1)?"":"disabled"}>Up 5 · ◈1</button>`:""}${dem?"":`<button class="cf-chbtn" data-prdem="${id}" ${can(1)?"":"disabled"}>To the bottom · ◈1</button>`}`:""}</span></div>`; }
@@ -28572,15 +28577,7 @@ function renderBoard(){
     }
   }
   // ---- active crises at the top ----
-  // BY SEVERITY: what each one is costing you in approval right now, the
-  // same figure the Voters page's "Costing you" list reads (statewideDrivers),
-  // most costly first. The Big One still leads while it runs, and bright
-  // spots come after every crisis.
-  const sitCost={}; try{ for(const d of statewideDrivers())if(d.link&&d.link.startsWith("s_"))sitCost[d.link.slice(2)]=d.v; }catch(e){}
-  const crises=Object.keys(GAME.activeSituations).filter(sid=>SITUATIONS[sid]&&!(walkoutOn()&&(sid==="gopWalkout"||sid==="demWalkout"))).sort((a,b)=>{
-    const rank=s=>s==="cascadiaQuake"?-1:(SITUATIONS[s].kind==="good"?1:0);
-    return rank(a)-rank(b) || (sitCost[a]||0)-(sitCost[b]||0);
-  });
+  const crises=crisesInOrder();
   // how to show the network, above the crises so it stays put when switched
   const netMode=boardNetMode();
   h+=`<div class="bn-modebar" id="bnModeBar"><span class="bn-mode-k" id="bnModeK">Mode</span><div class="bn-toggle" role="tablist" aria-labelledby="bnModeK"><button role="tab" data-bnmode="focus" aria-selected="${netMode==="focus"}">Focus Chart</button><button role="tab" data-bnmode="map" aria-selected="${netMode==="map"}">Issue Web</button></div></div>`;
@@ -28591,8 +28588,7 @@ function renderBoard(){
       const isNew=sitAge===0;
       // a lasting problem is a crisis however it started; only a temporary
       // event (weather, a quake, a recession) passes on its own
-      const tag = s.kind==="good" ? (s.category==="event" ? "WINDFALL" : "BRIGHT SPOT")
-        : (s.category==="event" ? "EVENT" : "CRISIS");
+      const tag = sitTag(s).toUpperCase();
       h+=`<div class="crisis-card ${s.kind} ${s.category}${isNew?' crisis-new':''}${sid==="cascadiaQuake"?' crisis-major':''}${(sid==="gopWalkout"||sid==="demWalkout")?' walkout':''}${(sid==="laborUprising"||sid==="convoyBlockade")?' occupied':''}" data-detail="s_${sid}" style="animation-delay:${ci*45}ms">
         <div class="crisis-top"><span class="crisis-tag">${tag}</span><span class="crisis-age">${age}q</span></div>
         <div class="crisis-name">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div>
@@ -30056,6 +30052,22 @@ function crisisWatchRows(sid){
   if(W.alsoMetric)rows.push({k:W.alsoMetric, clear:W.alsoClearAt, down:!W.alsoAbove});
   return rows.filter(r=>METRICS[r.k]||INDICATORS[r.k]);
 }
+/* THE ORDER CRISES ARE SHOWN IN, on the board and in the sidebar alike: by
+   what each is costing you in approval right now, the same figure the Voters
+   page's "Costing you" list reads (statewideDrivers), most costly first. The
+   Big One leads while it runs, and bright spots and windfalls come last. A
+   walkout has its own banner. */
+function crisesInOrder(){
+  const sitCost={}; try{ for(const d of statewideDrivers())if(d.link&&d.link.startsWith("s_"))sitCost[d.link.slice(2)]=d.v; }catch(e){}
+  return Object.keys(GAME.activeSituations||{}).filter(sid=>SITUATIONS[sid]&&!(walkoutOn()&&(sid==="gopWalkout"||sid==="demWalkout"))).sort((a,b)=>{
+    const rank=s=>s==="cascadiaQuake"?-1:(SITUATIONS[s].kind==="good"?1:0);
+    return rank(a)-rank(b) || (sitCost[a]||0)-(sitCost[b]||0);
+  });
+}
+/* What a running situation is called, everywhere: a lasting problem is a
+   crisis however it started, a temporary one an event; the good ones a
+   bright spot or a windfall. */
+function sitTag(s){ return s.kind==="good"?(s.category==="event"?"Windfall":"Bright spot"):(s.category==="event"?"Event":"Crisis"); }
 /* A TIMED EVENT'S CLOCK. An event (a wildfire season, a recession, a
    windfall) runs at least minTurns quarters, then ends with a 55% chance
    each quarter after (updateSituations). The card shows that clock in
@@ -32514,10 +32526,11 @@ function renderSidebar(){
   const sl=document.getElementById("sitList"),
     // a key with no situation behind it throws on s.kind and takes the whole
     // sidebar with it; applySave strips these, nothing else was checking
-    keys=Object.keys(GAME.activeSituations).filter(k=>SITUATIONS[k]);
+    // the board's cards, compact, in the board's order
+    keys=crisesInOrder();
   sl.innerHTML=keys.length?keys.map(sid=>{const s=SITUATIONS[sid];
-    const age=GAME.situationAge[sid]||0;
-    return `<div class="sit ${s.kind} sit-link${(sid==="gopWalkout"||sid==="demWalkout")?' walkout':''}${(sid==="laborUprising"||sid==="convoyBlockade")?' occupied':''}" data-detail="s_${sid}"><div class="sname">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div><div class="sdesc">${sitCardLine(sid)}</div><div class="sage">${s.category==='event'?'event':'condition'} · ${age+1}q active</div></div>`;}).join(''):'<div class="empty">No active situations.</div>';
+    const age=GAME.situationAge[sid]||0, body=crisisMovesHTML(sid);
+    return `<div class="sit ${s.kind} sit-link${(sid==="gopWalkout"||sid==="demWalkout")?' walkout':''}${(sid==="laborUprising"||sid==="convoyBlockade")?' occupied':''}" data-detail="s_${sid}"><div class="sage">${sitTag(s)} · ${age+1}q</div><div class="sname">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div>${body?`<div class="sit-body">${body}</div>`:`<div class="sdesc">${sitCardLine(sid)}</div>`}</div>`;}).join(''):'<div class="empty">Nothing running.</div>';
   document.getElementById("logList").innerHTML=GAME.log.length?GAME.log.slice().reverse().map(l=>`<div class="log">${l}</div>`).join(''):'<div class="empty">—</div>';
   sl.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
   const nb=document.getElementById("nmBlock"), nl=document.getElementById("nmLabel");
