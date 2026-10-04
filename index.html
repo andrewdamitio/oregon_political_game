@@ -5149,6 +5149,9 @@ const LANDUSE={
     environment:[-8,-3,2,6,10],
     // homelessness comes through Housing Affordability ((2-index)*4), not directly
     gdp:[0.6,0.3,0,-0.2,-0.4],
+    // solar, wind and the lines that carry them need land: the looser the
+    // rules, the more gets built and the cheaper the power
+    electricRate:[-0.9,-0.45,0,0.4,0.8],
   },
   ideologyByStop:[
     {environment:0.7,economic:0.4,govSize:0.6},
@@ -12629,6 +12632,13 @@ function psychCommitmentTerms(){
    metricTarget runs so the statistic's page can show it without re-deriving
    the whole sum. */
 const _CRIME_FLOOR_GIVEBACK={};
+/* RISING DEMAND FOR POWER. Data centers, electrification and wildfire
+   hardening keep pushing Oregon's rates up whatever you do, so the price
+   starts rising: 0.12¢ a quarter on where it is heading, building to 2.4¢
+   over five years. New supply and transmission are what push back. Zero at
+   the start, so it does not move the calibration. */
+const ELEC_DEMAND_STEP=0.12, ELEC_DEMAND_MAX=2.4;
+function elecDemandPush(){ return Math.min(ELEC_DEMAND_MAX, ELEC_DEMAND_STEP*Math.max(0,GAME.turn||0)); }
 function metricTarget(k, noRecovery){
   const m=METRICS[k];
   if(!m)return 0;
@@ -12674,6 +12684,7 @@ function metricTarget(k, noRecovery){
   // and Oregon sells to the rest of the country: the national cycle pulls on
   // its growth directly, whatever premium the state has earned
   if(k==="gdp")t+=(GAME.natCycle||0)*0.8;
+  if(k==="electricRate")t+=elecDemandPush();
   // calibration offset: fixed at init so the default policy mix sustains the
   // REAL Oregon starting values — policy effects are deltas from the status quo
   t+=(m.calib||0);
@@ -12856,6 +12867,7 @@ function metricContributors(k){
     const e=LANDUSE.effects[k][LANDUSE.index];
     if(Math.abs(e)>0.03)out.push({name:ico(LANDUSE.icon)+' '+LANDUSE.name, v:e, link:"landuse"});
   }
+  if(k==="electricRate"){ const d=elecDemandPush(); if(d>0.03)out.push({name:ico('plug')+" Rising demand: data centers, electrification and wildfire hardening", v:d}); }
   for(const L of METRIC_LINKS)if(L.to===k){
     const e=(METRICS[L.from].value-L.ref)*L.coef*0.25/m.inertia;
     if(Math.abs(e)>0.05)out.push({name:'↪ '+(METRICS[L.from]?METRICS[L.from].name:L.from), v:e, link:"m_"+L.from});
