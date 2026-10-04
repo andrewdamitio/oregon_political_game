@@ -4916,9 +4916,21 @@ function outcomeContractingFactor(){
    Government Operations (competent procurement), State Capacity (you can
    see what you're buying), and MATURE Outcome-Based Contracting (providers paid
    on results) each help; any one, given enough of it, is a route out. */
+/* State Capacity's part in State Control, 0..1, WITHOUT Government
+   Operations: that budget already counts directly (the admin term), and
+   it also lifts State Capacity by up to 12 points, so read raw it counted
+   twice. Its own share comes out, and the range narrows from 45 points to
+   33 so the other ways of building capacity (Digital Government, Civil
+   Service, Outcome-Based Contracting and the rest) can still fill it alone,
+   each worth a little more here than before. */
+const NP_CAP_SPAN=33;
+function nonprofitCapacityPart(){
+  const g=POLICIES.govOps, own=(g&&g.indicatorEffects&&g.indicatorEffects.digitization)?g.indicatorEffects.digitization*effLevelOf(g):0;
+  return clamp((INDICATORS.digitization.value-own-40)/NP_CAP_SPAN,0,1);
+}
 function nonprofitControl(){
   const admin=clamp((policyLevel(POLICIES.govOps||{value:0.3})-0.3)/0.7,0,1);
-  const dig=clamp((INDICATORS.digitization.value-40)/45,0,1);         // 40→0 .. 85→1
+  const dig=nonprofitCapacityPart();
   const obc=Math.max(0,outcomeContractingFactor());                   // only the matured, positive half
   return clamp(admin*0.40 + dig*0.28 + obc*0.82, 0, 1);
 }
@@ -29684,7 +29696,7 @@ function renderDetail(){
         const starveSpend=clamp(1-(spend-0.7)/1.6,0,1), starveHl=clamp((60-METRICS.homelessness.value)/12,0,1);
         const starve=Math.min(starveSpend,starveHl);
         const admin=clamp((policyLevel(POLICIES.govOps||{value:0.3})-0.3)/0.7,0,1);
-        const dig=clamp((INDICATORS.digitization.value-40)/45,0,1);
+        const dig=nonprofitCapacityPart();
         const obc=Math.max(0,outcomeContractingFactor());
         const npBar=(lbl,frac,note)=>{
           const pct=Math.round(clamp(frac,0,1)*100);
@@ -29695,7 +29707,7 @@ function renderDetail(){
         h+=npBar("1. Starve it — cut routed spend, drop homelessness with direct levers", starve,
           `Routed spend <b>${fmtB(spend,2)}</b> must fall under <b>$0.70B</b> (${Math.round(starveSpend*100)}% there) AND homelessness <b>${Math.round(METRICS.homelessness.value)}</b> under <b>48</b> (${Math.round(starveHl*100)}% there). Use housing supply, land use, shelter and treatment instead of contracts.`);
         h+=npBar("2. Take the contract layer back — State Control past 78%", ctlF/0.78,
-          `State Control <b>${ctl}%</b> of the 78% needed. Fed by <b>Government Operations &amp; procurement</b> (at ${Math.round(admin*100)}% of its 40% share), <b>State Capacity</b> (${Math.round(dig*100)}% of its 28%), and <b>matured Outcome-Based Contracting</b> (${Math.round(obc*100)}% of its 82% — the strongest single lever).`);
+          `State Control <b>${ctl}%</b> of the 78% needed. Fed by <b>Government Operations &amp; procurement</b> (at ${Math.round(admin*100)}% of its 40% share), <b>State Capacity</b> apart from what Government Operations adds to it (${Math.round(dig*100)}% of its 28%), and <b>matured Outcome-Based Contracting</b> (${Math.round(obc*100)}% of its 82% — the strongest single lever).`);
         // route 3 is one decision, not a measure: the DOJ task force's case
         // (DILEMMAS.nonprofitCrackdown) comes once, and you indict or you do not
         { const fired=(GAME.dilemmaCooldown||{}).nonprofitCrackdown, onDesk=GAME.pendingDilemma==="nonprofitCrackdown";
