@@ -2887,7 +2887,7 @@
   }
   /* focus mode: the overview carries the crises and the statistics, so the
      board's own cards and tiles step aside rather than appear twice */
-  #main.net-focus .crisis-strip,#main.net-focus .keystat-row{display:none}
+  #main.net-focus .keystat-row{display:none}
   /* the denser overview */
   .fwo-chip.slim{padding:7px 10px;align-items:center}
   .fwo-chip.slim .fwo-n{font-size:13.5px}
@@ -28304,14 +28304,7 @@ function fwSearchHTML(){
 }
 function fwOverview(host){
   const X=fwIndex(), sec=[];
-  // crises, and bright spots
-  const crises=[], bright=[];
-  for(const sid in (GAME.activeSituations||{})){ const S=SITUATIONS[sid]; if(!S)continue;
-    const id="s_"+sid, feed=fwStrongest(X.in[id],e=>!e.good), fight=fwStrongest(X.in[id],e=>e.good);
-    if(S.kind==="good"){ const hold=fwStrongest(X.in[id]); bright.push(fwChip(id,"",hold?`Held up by ${fwName(hold.a)}`:"A bright spot","bright")); continue; }
-    const d=[feed?`Fed by <b>${fwName(feed.a)}</b>`:"", fight?`fought by <b>${fwName(fight.a)}</b>`:""].filter(Boolean).join(" · ")||"Nothing you run touches it yet";
-    crises.push(fwChip(id,"",d,"crisis")); }
-  if(crises.length||bright.length)sec.push(`<div class="fwo-sec"><div class="fwo-h">Crises <span>${crises.length}</span>${bright.length?` · bright spots <span>${bright.length}</span>`:""}</div><div class="fwo-grid">${crises.join("")}${bright.join("")}</div></div>`);
+  // crises and bright spots are the cards above the chart, the same in both modes
   // the headline statistics
   const stats=FW_KEY_METRICS.filter(k=>METRICS[k]).map(k=>{ const id="m_"+k, top=fwStrongest(X.in[id]);
     return fwChip(id, fmtMetric(METRICS[k])+(GAME.turn>0?` <span class="fwo-since">${legacyTag(k,"fw-sd")}</span>`:""),
@@ -28479,10 +28472,14 @@ function renderBoard(){
     }
   }
   // ---- active crises at the top ----
-  const crises=Object.keys(GAME.activeSituations).filter(sid=>!(walkoutOn()&&(sid==="gopWalkout"||sid==="demWalkout"))).sort((a,b)=>{
-    // the Big One leads the board for as long as it is running
-    const rank=s=>s==="cascadiaQuake"?-1:(SITUATIONS[s].category==="chronic"?0:(SITUATIONS[s].kind==="bad"?1:2));
-    return rank(a)-rank(b);
+  // BY SEVERITY: what each one is costing you in approval right now, the
+  // same figure the Voters page's "Costing you" list reads (statewideDrivers),
+  // most costly first. The Big One still leads while it runs, and bright
+  // spots come after every crisis.
+  const sitCost={}; try{ for(const d of statewideDrivers())if(d.link&&d.link.startsWith("s_"))sitCost[d.link.slice(2)]=d.v; }catch(e){}
+  const crises=Object.keys(GAME.activeSituations).filter(sid=>SITUATIONS[sid]&&!(walkoutOn()&&(sid==="gopWalkout"||sid==="demWalkout"))).sort((a,b)=>{
+    const rank=s=>s==="cascadiaQuake"?-1:(SITUATIONS[s].kind==="good"?1:0);
+    return rank(a)-rank(b) || (sitCost[a]||0)-(sitCost[b]||0);
   });
   // how to show the network, above the crises so it stays put when switched
   const netMode=boardNetMode();
