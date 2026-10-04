@@ -23515,6 +23515,25 @@ function chamberWhip(chamber, pol, dir, ctx, cushion){
           unbuyable: members.filter(m=>m.incl<=0&&!m.buyable).length};
 }
 /* Both chambers. Returns everything the floor screen needs. */
+/* A BILL AS VOTED. A bill with settings is voted on as the setting chosen:
+   that setting's voter reactions and ideology. On a repeal, the setting in
+   force. Anything else comes back as it is. */
+function billAsVoted(pol, dir, nw){
+  const tierBill=pol&&pol.mechanic==="tier"&&Array.isArray(pol.tiers)&&pol.tiers.length>1&&(pol.tierBlocEffects||pol.tierIdeology);
+  if(!tierBill)return null;
+  const t=dir==="repeal"?(pol.tierIndex||0)
+    :clamp(Math.round((nw==null?1:nw)*(pol.tiers.length-1)),Math.max(1,pol.tierMin||0),pol.tiers.length-1);
+  return Object.assign({},pol,{blocEffect:(pol.tierBlocEffects&&pol.tierBlocEffects[t])||{}, ideology:(pol.tierIdeology&&pol.tierIdeology[t])||{}, _votedTier:t});
+}
+/* What a measure on a bill with settings does to each group across its whole
+   range, bottom setting to top; a measure's magnitude then scales it. */
+function tierRangeBlocEffect(p){
+  if(!p||p.mechanic!=="tier"||!p.tierBlocEffects)return p?p.blocEffect:null;
+  const a=p.tierBlocEffects[Math.max(0,p.tierMin||0)]||{}, b=p.tierBlocEffects[p.tierBlocEffects.length-1]||{}, out={};
+  for(const k in b)out[k]=(b[k]||0);
+  for(const k in a)out[k]=(out[k]||0)-(a[k]||0);
+  return out;
+}
 function whipCount(id, dir, narrowed, cushion, skipOdds){
   const pol=(dir==="repeal")?POLICIES[id]:CATALOG[id];
   if(!pol)return null;
@@ -23525,11 +23544,8 @@ function whipCount(id, dir, narrowed, cushion, skipOdds){
   // lists. Without this the floor saw no reactions at all on a tiered bill,
   // and every member voted on party and loyalty alone. On a repeal it is the
   // setting in force that is being undone.
-  const tierBill=pol.mechanic==="tier"&&Array.isArray(pol.tiers)&&pol.tiers.length>1&&(pol.tierBlocEffects||pol.tierIdeology);
-  const tierAt=tierBill?(dir==="repeal"?(pol.tierIndex||0)
-    :clamp(Math.round(nw*(pol.tiers.length-1)),Math.max(1,pol.tierMin||0),pol.tiers.length-1)):0;
-  const scaled=tierBill
-    ? Object.assign({},pol,{blocEffect:(pol.tierBlocEffects&&pol.tierBlocEffects[tierAt])||{}, ideology:(pol.tierIdeology&&pol.tierIdeology[tierAt])||{}})
+  const voted=billAsVoted(pol,dir,nw), tierBill=!!voted;
+  const scaled=tierBill ? voted
     : (nw>=1)?pol:(()=>{
     const q=Object.assign({},pol);
     if(pol.blocEffect){ q.blocEffect={}; for(const k in pol.blocEffect)q.blocEffect[k]=pol.blocEffect[k]*nw; }
@@ -23884,6 +23900,7 @@ function floorBlockLabel(w){
 }
 /* Why one member is a holdout, in the language of who lives in their seat. */
 function holdoutReason(m, pol, dir){
+  { const F=GAME.pendingFloor, v=billAsVoted(pol,dir,F?F.narrowed:1); if(v)pol=v; }
   const rows=legCompRows(m.chamber);
   const row=rows.find(r=>r[0]===m.id); if(!row)return "";
   const be=pol.blocEffect;
@@ -26129,10 +26146,10 @@ function organisedGroups(){
 /* How much a given group would want this measure passed. Positive means it
    is a win for them in the direction proposed. */
 function measureFavour(cand, g){
-  const p=measureFor(cand.id); if(!p||!p.blocEffect)return 0;
+  const p=measureFor(cand.id), be=tierRangeBlocEffect(p); if(!p||!be)return 0;
   const groups=[g.ownGroup].concat(g.alliedGroups||[]);
   let sum=0;
-  for(const b of groups) if(p.blocEffect[b]!==undefined)sum+=p.blocEffect[b];
+  for(const b of groups) if(be[b]!==undefined)sum+=be[b];
   let mag=0; try{ mag=measureMagnitude(cand); }catch(e){ mag=0; }
   return sum*mag;
 }
@@ -26147,7 +26164,8 @@ function measureSponsorGroup(cand){
   return best;
 }
 function citizenSponsorWeight(cand){
-  const p=measureFor(cand.id); if(!p||!p.blocEffect)return 0;
+  const p0=measureFor(cand.id), be0=tierRangeBlocEffect(p0); if(!p0||!be0)return 0;
+  const p=Object.assign({},p0,{blocEffect:be0});
   // scale by how much the proposal actually changes: a one-tier nudge is a
   // smaller prize for a sponsor than an outright repeal
   const mag=measureMagnitude(cand);
