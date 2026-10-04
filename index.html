@@ -1012,6 +1012,18 @@
   .cm-watch .ico{width:13px;height:13px;flex:none}
   .cm-watch b{font-family:var(--font-data)}
   .cm-tr{font-family:var(--font-data);font-size:11.5px;color:var(--muted-3)}
+  .ev-clock{margin:4px 0 5px}
+  .ev-clock-t{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--ink)}
+  .ev-clock-t b{font-family:var(--font-data);font-size:11.5px;color:var(--muted-2)}
+  .ev-clock-bar{height:6px;background:var(--paper);border:1px solid var(--line);border-radius:3px;overflow:hidden;margin-top:3px}
+  .ev-clock-bar i{display:block;height:100%;background:var(--muted-2)}
+  .crisis-card.good .ev-clock-bar i{background:var(--good)}
+  .crisis-desc.ev-desc{-webkit-line-clamp:2;line-clamp:2}
+  .sit-bars{margin:10px 0 4px}
+  .sit-bar{margin:0 0 9px}
+  .sit-bar-t{display:flex;justify-content:space-between;gap:10px;font-size:13.5px;margin-bottom:3px}
+  .sit-bar-t>b{font-family:var(--font-data)}
+  .sit-bar-t i{font-style:normal;font-family:var(--font-display);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-2)}
   .cm-or{font-family:var(--font-display);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-3);margin:2px 0 1px}
   .cm-clear{margin-left:auto;font-size:11.5px;color:var(--muted-3)}
   .crisis-name{font-family:var(--font-display);font-size:15px;font-weight:600;margin-bottom:3px}
@@ -27604,6 +27616,32 @@ function eventOddsHTML(sid){
     +((s&&s.cooldown)?(' After it ends, another cannot begin for '+s.cooldown+' quarters.'):'')+'</div>';
   return h+'</div>';
 }
+/* HOW FAR TO CLEARING, as bars, the way the Nonprofit Industrial Complex
+   page shows its routes. Each measure runs from where it stood when the
+   crisis began (0%) to the line that clears it (100%); ground lost since
+   reads 0%. A second condition gets its own bar, and an alternative to it
+   is marked "or". */
+function sitClearBars(sid){
+  const s=SITUATIONS[sid], w=s&&s.watch; if(!w)return [];
+  const began=GAME.turn-(GAME.situationAge[sid]||0);
+  const startOf=(key,cur)=>{ const h=(GAME.history||{})[key]||[]; let v=null; for(const p of h){ if(p.turn<=began)v=p.value; else break; } return v==null?cur:v; };
+  const bar=(name,key,cur,at,down,pre)=>{ const from=startOf(key,cur);
+    const span=down?from-at:at-from, done=down?from-cur:cur-from;
+    const met=down?cur<=at:cur>=at;
+    const frac=met?1:span>0?clamp(done/span,0,1):0;
+    return {name, cur, at, down, frac, met, pre:pre||""}; };
+  const out=[];
+  if(w.indicator&&INDICATORS[w.indicator])out.push(bar(INDICATORS[w.indicator].name,"i_"+w.indicator,INDICATORS[w.indicator].value,w.clearAt,!!w.badHigh));
+  else if(w.metric&&METRICS[w.metric])out.push(bar(METRICS[w.metric].name,"m_"+w.metric,METRICS[w.metric].value,w.clearAt,!!w.badHigh));
+  if(w.alsoMetric&&METRICS[w.alsoMetric])out.push(bar(METRICS[w.alsoMetric].name,"m_"+w.alsoMetric,METRICS[w.alsoMetric].value,w.alsoClearAt,!w.alsoAbove,"and"));
+  if(w.alsoOrMetric&&METRICS[w.alsoOrMetric])out.push(bar(METRICS[w.alsoOrMetric].name,"m_"+w.alsoOrMetric,METRICS[w.alsoOrMetric].value,w.alsoOrClearAt,!w.alsoOrAbove,"or"));
+  return out;
+}
+function sitClearBarsHTML(sid){
+  const bars=sitClearBars(sid); if(!bars.length)return "";
+  return `<div class="sit-bars">`+bars.map(b=>{ const pct=Math.round(b.frac*100), col=b.met?'var(--good)':pct>=60?'var(--warn)':'var(--clay)';
+    return `<div class="sit-bar"><div class="sit-bar-t"><span>${b.pre?`<i>${b.pre}</i> `:""}${b.name} <b>${Math.round(b.cur)}</b>, ${b.met?"past":"needs to get "+(b.down?"below":"above")} ${b.at}</span><b style="color:${col}">${b.met?"met":pct+"%"}</b></div><div class="fbar2"><i style="width:${pct}%;background:${col}"></i></div></div>`; }).join("")+`</div>`;
+}
 function situationProgressHTML(sid){
   const s=SITUATIONS[sid]; if(!s||!s.watch)return "";
   const w=s.watch, isInd=!!w.indicator;
@@ -27649,7 +27687,9 @@ function situationProgressHTML(sid){
     min:Math.min(w.clearAt,cur)-pad, max:Math.max(w.clearAt,cur)+pad, fmt
   });
   let also="";
-  if(w.alsoMetric){
+  // on a crisis the bars above already show the second condition; a bright
+  // spot keeps the sentence
+  if(w.alsoMetric&&sGood){
     const am=METRICS[w.alsoMetric];
     if(am){
       // which side of the line satisfies it is a property of the condition,
@@ -27669,6 +27709,7 @@ function situationProgressHTML(sid){
   return `<div class="ebgroup-label">${sGood?"Are you keeping it?":"Are you ending it?"}</div>
     <div class="sitprog ${vcls}">
       <div class="sitprog-v">${verdict}</div>
+      ${sGood?"":sitClearBarsHTML(sid)}
       ${also}
       <div class="chartbox" style="margin:10px 0 0">
         <div class="charttitle">${nm} vs the level that ${sGood?"would cost you this":"clears this"} — last ${Math.min(24,series.length)} quarters</div>
@@ -29975,8 +30016,22 @@ function crisisWatchRows(sid){
   if(W.alsoMetric)rows.push({k:W.alsoMetric, clear:W.alsoClearAt, down:!W.alsoAbove});
   return rows.filter(r=>METRICS[r.k]||INDICATORS[r.k]);
 }
+/* A TIMED EVENT'S CLOCK. An event (a wildfire season, a recession, a
+   windfall) runs at least minTurns quarters, then ends with a 55% chance
+   each quarter after (updateSituations). The card shows that clock in
+   place of a measure, since nothing you do shortens it. */
+function eventClockHTML(sid){
+  const s=SITUATIONS[sid]; if(!s||s.category!=="event"||!s.minTurns)return "";
+  const age=GAME.situationAge[sid]||0, min=s.minTurns, left=Math.max(0,min-age);
+  const pct=Math.round(clamp(age/min,0,1)*100);
+  const txt=left>0?`At least ${left} more quarter${left===1?"":"s"}`:"Past its minimum: about even odds it ends each quarter";
+  return `<div class="ev-clock"><div class="ev-clock-t"><span>${txt}</span><b>${Math.min(age,min)}/${min}q</b></div><div class="ev-clock-bar"><i style="width:${pct}%"></i></div></div>
+    <div class="crisis-desc ev-desc">${descHTML(sitStory(s))}</div>`;
+}
 function crisisMovesHTML(sid){
-  const s=SITUATIONS[sid]; if(!s||s.kind==="good")return "";
+  const s=SITUATIONS[sid]; if(!s)return "";
+  if(s.category==="event")return eventClockHTML(sid);
+  if(s.kind==="good")return "";
   const rows=crisisWatchRows(sid); if(!rows.length)return "";
   const lines=rows.map(r=>{
     if(r.or)return `<div class="cm-or">or</div>`;
