@@ -20502,6 +20502,8 @@ function legisSeatMap(rows, seats, opts){
   // explicit per-seat holders — the Senate after a staggered election, where
   // the ~15 seats not on the ballot keep whoever won them last time
   if(opts.held){
+    const N=GAME.legis&&GAME.legis.night, t=chamber==="senate"?"s":"h";
+    if(N&&N[t])for(const id in N[t]){ voteOf[id]=N[t][id]; supportOf[id]=N[t][id].you; }
     const mine=new Set(opts.held);
     const pool=ranked.filter(r=>!opts.contested||opts.contested.has(r.id));
     const lastMine=[...pool].reverse().find(r=>mine.has(r.id));
@@ -25746,6 +25748,12 @@ function runLegislativeElection(approval){
   const _th=statewideThirds();
   const hRank=chamberVote("house", _th);
   const hWon=[], spHL=[], spHR=[];
+  // THE NIGHT'S OWN COUNT, seat by seat: the projection plus the night's
+  // swing, incumbency and boosts, as the seat was actually decided. The maps
+  // after the election read this, not the projection, so a seat is never
+  // shown going to the side that polled less.
+  const night={turn:GAME.turn, h:{}, s:{}};
+  const rec=(t,id,you,v)=>{ const T=Math.max(0.001,you+v.opp+v.spL+v.spR); night[t][id]={you:you/T*100, opp:v.opp/T*100, spL:v.spL/T*100, spR:v.spR/T*100}; };
   const indKept=[], indLost=[];
   for(const r of hRank){
     if(caucusStandDownSeat("house",r.id))continue;       // you stood down: it is theirs
@@ -25753,6 +25761,7 @@ function runLegislativeElection(approval){
     const iv=caucusIndVote("h",r.id);
     if(iv){ const f=1-iv.share/100; you*=f; v={opp:v.opp*f, spL:v.spL*f, spR:v.spR*f};
       if(iv.share>Math.max(you,v.opp,v.spL,v.spR)){ indKept.push(iv.k); continue; } indLost.push(iv.k); }
+    rec("h",r.id,you,v);
     const top=Math.max(you, v.opp, v.spL, v.spR);
     if(top===v.spL) spHL.push(r.id);
     else if(top===v.spR) spHR.push(r.id);
@@ -25760,6 +25769,7 @@ function runLegislativeElection(approval){
   }
   L.house=clamp(hWon.length,0,LEGIS.house);
   L.hHeld=hWon;
+  L.night=night;
 
   // ---- Senate: only this cycle's class of 15 is on the ballot ----
   GAME.senateClass = GAME.senateClass ? 0 : 1;
@@ -25777,6 +25787,7 @@ function runLegislativeElection(approval){
     const iv=caucusIndVote("s",r.id);
     if(iv){ const f=1-iv.share/100; you*=f; v={opp:v.opp*f, spL:v.spL*f, spR:v.spR*f};
       if(iv.share>Math.max(you,v.opp,v.spL,v.spR)){ indKept.push(iv.k); continue; } indLost.push(iv.k); }
+    rec("s",r.id,you,v);
     const top=Math.max(you, v.opp, v.spL, v.spR);
     if(top===v.spL) spSL.push(r.id);
     else if(top===v.spR) spSR.push(r.id);
