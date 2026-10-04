@@ -1000,6 +1000,7 @@
   .fname .ico{width:17px;height:17px;color:var(--slate-blue);flex:0 0 auto}
   .fval{font-family:var(--font-data);font-size:19px;font-weight:600;margin-bottom:4px}
   .fnote{font-size:12px;color:var(--muted-3);line-height:1.4}
+  .fsec-h{font-family:var(--font-display);font-size:19px;font-weight:600;margin:22px 0 6px;padding-bottom:4px;border-bottom:1px solid var(--line)}
   .sb-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:7px}
   .sb-btn{font:inherit;font-size:12.5px;font-weight:600;padding:4px 10px;border:1px solid var(--line);border-left:3px solid var(--gold);background:rgba(192,134,24,.08);color:var(--ink);border-radius:var(--radius);cursor:pointer}
   .sb-btn:hover:not([disabled]){border-color:var(--ink);border-left-color:var(--gold)}
@@ -30976,7 +30977,7 @@ function surplusDirectHTML(id){
    run the PERS portfolio. No capital — the board answers to you already. */
 function csfRiskControlHTML(){
   const cur=GAME.csfRisk||"balanced";
-  let h=`<div class="ebgroup-label" style="margin-top:16px">Investment posture</div>
+  let h=`<div class="fsec-h">Investment posture</div>
     <div class="fnote" style="margin-bottom:8px">The Oregon Investment Council runs this corpus the way it runs PERS — and most of it is financial assets, not land. Telling it how much risk to carry costs no political capital and takes effect next quarter. The distribution to schools is a fixed ${(CSF_PAYOUT_RATE*100).toFixed(1)}% of the corpus, so a bigger corpus is a smaller call on the General Fund — and a crash under an aggressive posture is a smaller school check in a bad year.</div>`;
   for(const k in CSF_RISK){
     const r=CSF_RISK[k], on=(k===cur);
@@ -30996,15 +30997,22 @@ function persAmortControlHTML(){
   const payShare=Object.values(PERS_PAYROLL).reduce((a,b)=>a+b,0), gf=0.35*payShare;
   const nowPay=persPaydown(), since=GAME.turn-(GAME.persAmortT??-99), cool=since<PERS_AMORT_COOL;
   const poor=!window.SANDBOX&&GAME.capital<PERS_AMORT_CAPITAL;
-  let h=`<div class="ebgroup-label" style="margin-top:16px">Paydown schedule</div>
-    <div class="fnote" style="margin-bottom:8px">How long employers have to pay off the hole. The schedule has <b>${Math.round(left)} years</b> left; anything the markets add or take away since is paid off over ${PERS_AMORT_LAYER} years of its own. Restarting it at a longer length lowers the rate straight away and pays more interest in all; a shorter one costs more now and clears the hole sooner. SB 1049 did this in 2019, going to 22 years. Changing it takes a bill: \u25c8${PERS_AMORT_CAPITAL}, and not again for ${PERS_AMORT_COOL} quarters.</div>`;
+  let h=`<div class="fsec-h">Paydown schedule</div>
+    <div class="fnote" style="margin-bottom:8px">How long employers have to pay off the hole. The schedule has <b>${Math.round(left)} years</b> left; anything the markets add or take away since is paid off over ${PERS_AMORT_LAYER} years of its own. Restarting it at a longer length lowers the rate straight away and pays more interest in all; a shorter one costs more now and clears the hole sooner. SB 1049 did this in 2019, going to 22 years.</div>
+    <div class="fnote" style="margin-bottom:8px"><b>Cost: \u25c8${PERS_AMORT_CAPITAL} political capital.</b> Unlike the investment posture, which is a word to the council you appoint, the schedule is set in law, so changing it means passing a bill, as SB 1049 was. Once changed, it cannot be changed again for ${PERS_AMORT_COOL} quarters.</div>`;
+  { const rest=ual-Math.min(persBase(),ual);
+    h+=`<div class="rrow" style="border-left:3px solid var(--slate-blue);padding-left:8px">
+      <span class="rlabel"><b>Current schedule: ${left%1?left.toFixed(2).replace(/\.?0+$/,""):left} years left</b>
+        <div class="fnote" style="margin-top:2px">Paydown ${fmtB(nowPay,2)} a year · rate ${fmtB(nc+nowPay,2)}${rest>0.05?" · $"+rest.toFixed(1)+"B of market losses since, on "+PERS_AMORT_LAYER+"-year paydowns of their own":rest<-0.05?" · $"+(-rest).toFixed(1)+"B of market gains since, credited over "+PERS_AMORT_LAYER+" years":""}</div></span>
+      <span class="rval"></span></div>`; }
   for(const n of PERS_AMORT_CHOICES){
-    const on=Math.abs(n-left)<0.13&&Math.abs(persBase()-ual)<0.01;
-    const pay=on?nowPay:persAmortFactorFor(n)*ual, d=(pay-nowPay)*gf, total=pay*n;
+    if(Math.abs(n-left)<0.5)continue;          // that is the schedule you are on
+    const on=false;
+    const pay=persAmortFactorFor(n)*ual, d=(pay-nowPay)*gf, total=pay*n;
     h+=`<div class="rrow" style="border-left:3px solid ${on?'var(--slate-blue)':'transparent'};padding-left:8px">
       <span class="rlabel"><b>${n} years</b>${on?' <span style="color:var(--slate-blue)">\u2014 current</span>':''}${n===22?' <span class="fnote">(what SB 1049 chose)</span>':''}
         <div class="fnote" style="margin-top:2px">Paydown ${fmtB(pay,2)} a year · rate ${fmtB(nc+pay,2)} · General Fund ${Math.abs(d)<0.005?"no change":(d>0?"+":"\u2212")+fmtB(Math.abs(d),2).replace(/^[-\u2212]/,"")+" a year"} · about ${fmtB(total,0)} paid in all</div></span>
-      <span class="rval">${on?"":`<button class="fcard-btn" data-persamort="${n}" ${(cool||poor)?"disabled":""}>Restart at ${n}</button>`}</span></div>`;
+      <span class="rval">${on?"":`<button class="fcard-btn" data-persamort="${n}" ${(cool||poor)?"disabled":""}>Restart at ${n} \u00b7 \u25c8${PERS_AMORT_CAPITAL}</button>`}</span></div>`;
   }
   if(cool)h+=`<div class="fnote" style="margin-top:4px">Changed ${since} quarter${since===1?"":"s"} ago; it can be changed again in ${PERS_AMORT_COOL-since}.</div>`;
   else if(poor)h+=`<div class="fnote" style="margin-top:4px">Not enough political capital (\u25c8${PERS_AMORT_CAPITAL}).</div>`;
@@ -31012,7 +31020,7 @@ function persAmortControlHTML(){
 }
 function persRiskControlHTML(){
   const cur=GAME.persRisk||"balanced";
-  let h=`<div class="ebgroup-label" style="margin-top:16px">Investment posture</div>
+  let h=`<div class="fsec-h">Investment posture</div>
     <div class="fnote" style="margin-bottom:8px">You appoint the Oregon Investment Council. Telling it how much risk to run costs no political capital and takes effect next quarter — but it decides how hard the hole swings with the economic cycle, and over a full term that is the largest single lever on the liability.</div>`;
   for(const k in PERS_RISK){
     const r=PERS_RISK[k], on=(k===cur);
