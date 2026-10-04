@@ -19769,7 +19769,7 @@ function coalitionCapital(){
   return +v.toFixed(2);
 }
 /* How much of a county's historical politics survives the current mood. The
-   district model has carried this since the beginning as LEG_ANCHOR; the
+   district model carries this as its party floor (LEG_PARTY_HOLD); the
    county map had no equivalent, so a bad term could hand Portland to the
    other side because Portland was angry about Portland. Applied before the
    reconciliation to the statewide share, so it widens the map's spread
@@ -19790,20 +19790,10 @@ function memberLean(lean){
   // a district effect: under proportional representation there are no districts
   return (rcvOn()&&!prOn()) ? 50+(lean-50)*(1-RCV_MODERATION) : lean;
 }
-const LEG_SPREAD=1.05;    // pts of district swing per pt of coalition differential
-const LEG_UNIFORM=0.45;   // pts of uniform swing per pt of statewide standing
-const LEG_ANCHOR=0.40;    // how much of the historical partisan baseline still holds
 // Standing is measured against the level a governor actually governs at in this
-// game, not against a notional 50 — a 44% governor holds a normal chamber, and
+// game, not against a notional 50: a 44% governor holds a normal chamber, and
 // an approval slump costs seats without annihilating the caucus.
 const LEG_REF=44;
-const LEG_TIDE_CAP=4.0;  // asymptotic ceiling (pts) on the FAVOURABLE uniform swing
-// A rout should cost you the marginals and the lean seats, not the whole
-// chamber. Wider than the favourable cap on purpose — an anti-incumbent wave
-// genuinely does hit harder than a pro-incumbent one — but it saturates for
-// the same reason: nothing in a real state legislature wipes every seat
-// including the safest ones off a statewide approval number alone.
-const LEG_TIDE_FLOOR=4.0;
 
 /* A turnout-weighted average of how you are doing statewide, so a district can be compared
    against it — the DIFFERENCE is what reshapes the coalition. */
@@ -19863,20 +19853,36 @@ function coalitionAlignment(sf){
   // coalition actually moves along
   return clamp(Math.tanh(slope/4.0),-1,1);
 }
-/* Where one district actually lands: its historical baseline scaled by which
-   way your coalition points, the coalition pull itself, and a uniform swing
-   from your overall standing. */
+/* WHERE ONE DISTRICT LANDS. Two things: the party on the ballot, and how
+   the people who live there feel about you.
+   The party first. Your candidate runs under your party's name, and a
+   district votes for a party long before it votes on you, so each seat
+   starts from its own lean toward your party (LEG_OWN of the way from even).
+   Then the district's own voters: the turnout-weighted average approval of
+   you among the groups that live there, against LEG_REF, at LEG_FEEL points
+   of vote per point of approval, saturating at LEG_FEEL_CAP either way.
+   Each group counts only where it lives, so a group souring on you costs
+   you the seats it lives in and can never lift a seat it does not.
+   Last, the swing is held within LEG_PARTY_WAVE points of the seat's
+   partisan floor: your base souring costs turnout and splinter votes
+   (districtVote), not a Portland seat going Republican, and a good quarter
+   does not carry Harney County for a Democrat. (sf and align are kept for
+   the callers; the district reads its own voters.) */
+const LEG_OWN=0.3, LEG_FEEL=0.6, LEG_FEEL_CAP=12, LEG_PARTY_HOLD=0.6, LEG_PARTY_WAVE=8;
+function districtFeel(comp){
+  let n=0,d=0;
+  for(let k=0;k<LEG_BLOCS.length;k++){ const S=SIMULANTS[LEG_BLOCS[k]]; if(!S||S.static)continue;
+    const w=(comp[k]||0)*(S.turnout||0.6); if(!(w>0))continue; n+=w*S.approval; d+=w; }
+  return d>0?n/d:50;
+}
 function districtSupport(row, sf, align){
-  const comp=row[1];
   const lean=row[3]!=null?row[3]:50;
-  const s=(sf==null?stateFeel():sf);
-  const a=(align==null?coalitionAlignment(s):align);
-  // uniform swing: full bite on the downside, saturating on the upside so a
-  // wave tops out at a realistic majority rather than annexing the chamber
-  const raw=s-LEG_REF;
-  const tide = raw>=0 ? LEG_TIDE_CAP*Math.tanh((raw*LEG_UNIFORM)/LEG_TIDE_CAP)
-                      : -LEG_TIDE_FLOOR*Math.tanh((-raw*LEG_UNIFORM)/LEG_TIDE_FLOOR);
-  return 50+(lean-50)*a*LEG_ANCHOR + coalitionPull(comp,s)*LEG_SPREAD + tide + (GAME.legisCalib||0);
+  const own=GAME.startId==="conservative"?100-lean:lean;
+  const raw=districtFeel(row[1])-LEG_REF;
+  const swing=LEG_FEEL_CAP*Math.tanh(raw*LEG_FEEL/LEG_FEEL_CAP);
+  const v=50+(own-50)*LEG_OWN+swing+(GAME.legisCalib||0);
+  const mid=50+(own-50)*LEG_PARTY_HOLD;
+  return clamp(v, mid-LEG_PARTY_WAVE, mid+LEG_PARTY_WAVE);
 }
 /* HOW HARD A FLANK BITES. FLANK_CEIL caps either splinter's statewide share,
    FLANK_FROM_OWN is how much of its vote comes out of the side it walked out
