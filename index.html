@@ -13227,7 +13227,11 @@ function tickOpposition(){
   const nowIds=oppCrisisIds(), prevIds=o.prevBadIds||nowIds;
   if(o.seen){                                          // skip the first tick — the opening crisis slate isn't "news"
     m += OPP_CRISIS_START*nowIds.filter(x=>prevIds.indexOf(x)<0).length;
-    m -= OPP_CRISIS_END*prevIds.filter(x=>nowIds.indexOf(x)<0).length;
+    const ended=prevIds.filter(x=>nowIds.indexOf(x)<0&&SITUATIONS[x]);
+    m -= OPP_CRISIS_END*ended.length;
+    // said out loud: a crisis you ended is an attack line they have lost
+    o.ended=ended.length?{turn:GAME.turn, names:ended.map(x=>SITUATIONS[x].name), pts:OPP_CRISIS_END*ended.length}:null;
+    if(ended.length)GAME.log.push(ico('chart-down')+" Ending "+ended.map(x=>SITUATIONS[x].name).join(" and ")+" took "+OPP_CRISIS_END*ended.length+" points off the opposition's momentum.");
   }
   m += OPP_CRISIS_RUN*nowIds.length;
   o.prevBadIds=nowIds; o.prevBad=nowIds.length; o.seen=true;
@@ -13249,6 +13253,7 @@ function oppositionBarb(){
   if(m<24) bank.push(`With your numbers holding, ${nm}'s bench looks thin — no serious challenger has stepped up.`);
   if(m>=24&&m<45) bank.push(`${nm} is testing attack lines but hasn't landed a punch.`);
   if(debt>1) bank.push(`${nm} hammered the ${fmtB(debt,1)} structural deficit on the chamber floor.`);
+  if(o.ended&&o.ended.turn>=GAME.turn-1) return `With ${o.ended.names[0]} over, ${nm} has lost one of their best attack lines and is looking for another.`;
   const law=(o.lawNames||[]).slice(-1)[0]; if(law&&law.t>=GAME.turn-1) bank.push(`${nm} is running against ${law.n}, and finding an audience.`,`${nm} called ${law.n} proof that you are not listening.`);
   if(t>4) bank.push(`${nm} says you've governed well to the right of the voters who elected you.`);
   if(t<-4) bank.push(`${nm} cast your agenda as being far to the left of your own coalition.`);
@@ -13409,7 +13414,10 @@ function oppDrivers(){
   const ca=(GAME.changeAppetite||0)*9; if(Math.abs(ca)>0.05)rows.push(["A restless electorate", ca]);
   const mp=mobilizedPressure(); if(mp)rows.push(["Groups organised for and against you", mp]);
   rows.push(["Settling back toward 24", (24-o.momentum)*0.06]);
-  return rows.filter(r=>Math.abs(r[1])>=0.05);
+  const out=rows.filter(r=>Math.abs(r[1])>=0.05);
+  // what ending a crisis did last quarter: a one-off, so marked as past
+  if(o.ended&&o.ended.turn>=GAME.turn-1)out.push(["Last quarter: you ended "+o.ended.names.join(" and "), -o.ended.pts, true]);
+  return out;
 }
 /* Every attack line that is true today, each with what it rests on. */
 function oppIssues(){
@@ -13465,8 +13473,9 @@ function oppositionTabHTML(){
     +`<div class="rrow"><span class="rlabel">Election night, volatility</span><span class="rval">± up to ${(clamp(m/100,0,1)*4.5).toFixed(1)} points</span></div>`
     +`<div class="rrow"><span class="rlabel">Lawsuits against your executive orders</span><span class="rval">${m>30?"+"+Math.round(clamp((m-30)/120,0,0.4)*100)+"% likelier":"no extra"}</span></div></div>`;
   // what is moving it
-  const dr=oppDrivers(), net=dr.reduce((a,r)=>a+r[1],0);
+  const all=oppDrivers(), dr=all.filter(r=>!r[2]), past=all.filter(r=>r[2]), net=dr.reduce((a,r)=>a+r[1],0);
   h+=`<div class="rsection"><div class="rsec-h">What is moving it this quarter</div>`
+    +past.map(r=>`<div class="rrow"><span class="rlabel">${r[0]}</span><span class="rval" style="color:var(--good)">${sg(r[1])} already off</span></div>`).join("")
     +dr.map(r=>`<div class="rrow"><span class="rlabel">${r[0]}</span><span class="rval" style="color:${r[1]>0?'var(--bad)':'var(--good)'}">${sg(r[1])}</span></div>`).join("")
     +`<div class="rrow opp-net"><span class="rlabel"><b>Net, before any new crisis</b></span><span class="rval" style="color:${net>0?'var(--bad)':'var(--good)'}"><b>${sg(net)}</b></span></div>`
     +`<div class="sectionsub" style="margin:6px 0 0;font-size:12.5px">A crisis that starts adds ${OPP_CRISIS_START}, each one running adds ${OPP_CRISIS_RUN} a quarter, and ending one takes ${OPP_CRISIS_END} off. A law that loses you more voters than it wins hands them an attack line that adds momentum for a few quarters. Weather and natural disasters do not count.</div></div>`;
