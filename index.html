@@ -6616,7 +6616,7 @@ const CATALOG={
                 socialist:-9, liberal:-8, collegeEducated:-6, urban:-4, students:-3, parents:-2},
     ideology:{economic:0.6, environment:0.7, govSize:0.4}},
   spendingCap:{name:"Constitutional Spending Limit", domain:"economy", icon:"chart-down", mechanic:"law", reform:true,
-    desc:"A TABOR-style amendment capping General Fund growth at population plus inflation, with anything above the line refunded or reserved. It forces a standing cut to every program budget and locks cuts in through downturns. Fiscal hawks support it. Public-sector Oregon opposes it.",
+    desc:"A TABOR-style amendment that caps discretionary spending at its level on the day it passes, growing about 3% a year for population and inflation. Any quarter spending runs over the limit, every program and department is cut automatically by the same share until it fits, and what they deliver falls with them. The Oregon Health Plan and debt service are exempt. Revenue it will not let you spend piles up as surplus for the kicker to refund, and the limit holds through downturns. Fiscal hawks support it. Public-sector Oregon opposes it.",
     enabled:true, costFull:0, capital:16, enactCapital:22, repealCost:16,
     effects:{gdp:0.1, taxBurden:-3},
     indicatorEffects:{businessClimate:4, taxGrievance:-6},
@@ -14374,12 +14374,8 @@ function spendingByArea(){
   if(POLICIES.prevailingWageRepeal){
     for(const id of ["natResources","housing"])if(out[id])out[id]*=0.90;
   }
-  // Constitutional Spending Limit: a standing haircut on every discretionary
-  // program area (debt service, pensions & entitlement medical are
-  // non-discretionary, so exempt).
-  if(POLICIES.spendingCap){
-    for(const id in out)if(id!=="debtAdmin"&&id!=="ohp")out[id]*=0.955;
-  }
+  // (The Constitutional Spending Limit is not a discount here: it cuts the
+  // programs themselves when spending runs over it. See spendCapEnforce.)
   return out;
 }
 /* The discretionary half of the ledger — what a legislature appropriates. The
@@ -15068,7 +15064,62 @@ function fiscalCrisisThreshold(){
 /* end-of-quarter fiscal settlement: the kicker drains surpluses above the
    2% line (research: entire surplus refunded, not just the excess), reform
    redirects it, and reserves/deficits are reconciled. */
+/* THE CONSTITUTIONAL SPENDING LIMIT, as Colorado's TABOR works. The limit is
+   the discretionary budget (General Fund + Lottery) on the day it passes,
+   growing each year with population plus inflation (SPEND_CAP_GROWTH). Any
+   quarter spending runs over it, every program and department that can be
+   turned down is cut by the same share until it fits: their funding settings
+   and levels fall, so what they deliver falls with them. Entitlement medical
+   care (the Oregon Health Plan) and debt service and administration are
+   exempt, as they were. Laws with a fixed cost cannot be scaled, so they are
+   not cut, and their growth crowds out everything else. Revenue the limit
+   will not let you spend piles up as surplus, which the kicker returns. */
+const SPEND_CAP_GROWTH=0.03, SPEND_CAP_EXEMPT=new Set(["ohp","debtAdmin"]);
+function spendCapLevers(){
+  const out=[];
+  for(const area in SPENDING){ if(SPEND_CAP_EXEMPT.has(area))continue; const A=SPENDING[area];
+    for(const aid of (A.agencies||[])){ const a=AGENCIES[aid]; if(a&&(a.funding??0.5)>0.05)out.push({kind:"agency", id:aid, o:a, key:"funding", floor:0.05, name:a.name}); }
+    for(const pid of (A.policies||[])){ const p=POLICIES[pid]; if(!p||!p.enacted||policyNetCost(p)<=0)continue;
+      if(p.mechanic==="slider"&&(p.value||0)>0)out.push({kind:"policy", id:pid, o:p, key:"value", floor:0, name:p.name});
+      else if(p.mechanic==="intensity"&&p.enabled&&(p.intensity||0)>0)out.push({kind:"policy", id:pid, o:p, key:"intensity", floor:0, name:p.name}); } }
+  return out;
+}
+function spendCapState(){
+  if(!POLICIES.spendingCap){ GAME.spendCap=null; return null; }
+  const C=GAME.spendCap;
+  if(!C||C.limit==null)GAME.spendCap={limit:+gfLotterySubtotal().spend.toFixed(3), since:GAME.turn, cuts:0};
+  return GAME.spendCap;
+}
+function spendCapEnforce(){
+  const C=spendCapState(); if(!C)return;
+  if(C.grown!==GAME.turn&&GAME.turn>C.since){ C.limit=+(C.limit*(1+SPEND_CAP_GROWTH/4)).toFixed(3); C.grown=GAME.turn; }
+  const over=()=>gfLotterySubtotal().spend-C.limit;
+  const start=gfLotterySubtotal().spend, ex0=over(); if(ex0<=0.005){ C.last=null; return; }
+  // the same share off every lever, re-measured until spending fits
+  let share=0;
+  for(let i=0;i<8&&over()>0.005;i++){
+    const L=spendCapLevers(); if(!L.length)break;
+    let room=0; for(const l of L){ room+=l.kind==="agency"?(l.o.costFull-l.o.costMin)*(l.o[l.key]-l.floor):policyNetCost(l.o); }
+    if(room<=0.001)break;
+    const f=clamp(over()/room*1.02,0.002,0.6);
+    for(const l of L)l.o[l.key]=+Math.max(l.floor, l.o[l.key]-(l.o[l.key]-l.floor)*f).toFixed(3);
+    share=1-(1-share)*(1-f);
+  }
+  const cut=start-gfLotterySubtotal().spend;
+  C.cuts=(C.cuts||0)+1; C.last={turn:GAME.turn, cut:+cut.toFixed(3), share:+share.toFixed(3), stillOver:+Math.max(0,over()).toFixed(3)};
+  GAME.log.push(ico('scissors')+" The spending limit cut every program and department "+Math.round(share*100)+"% ("+fmtB(cut,2)+"/yr) to fit under "+fmtB(C.limit,1)+".");
+}
+function spendCapCardHTML(){
+  const C=spendCapState(); if(!C)return "";
+  const sp=gfLotterySubtotal().spend, room=C.limit-sp, L=C.last&&C.last.turn>=GAME.turn-1?C.last:null;
+  return `<div class="fiscal-panel"><div class="fiscal-title">${ico('chart-down')} Constitutional Spending Limit</div>
+    <div class="rrow"><span class="rlabel">Discretionary spending</span><span class="rval">${fmtB(sp,2)} of ${fmtB(C.limit,2)} a year</span></div>
+    <div class="rrow"><span class="rlabel">${room>=0?"Room under the limit":"Over the limit"}</span><span class="rval" style="color:${room>=0?'var(--good)':'var(--bad)'}">${fmtB(Math.abs(room),2)}</span></div>
+    ${L?`<div class="rrow"><span class="rlabel">Last automatic cut</span><span class="rval">${Math.round(L.share*100)}% off every program, ${fmtB(L.cut,2)}/yr</span></div>`:""}
+    <div class="fnote" style="margin-top:6px">The limit grows ${Math.round(SPEND_CAP_GROWTH*100)}% a year, for population and inflation. Any quarter spending runs over it, every program and department is cut by the same share until it fits. The Oregon Health Plan, debt service and administration are exempt.</div></div>`;
+}
 function settleFiscal(){
+  spendCapEnforce();
   const {revenue,spend,balance:annualBal}=budgetBalance();
   // money an order is withholding is recorded on it, in case a court makes the state pay it out
   for(const id of eoLiveList()){ const E=EXEC_ORDERS[id], o=eoState(id);
@@ -32408,6 +32459,7 @@ function renderBudget(){
   }
   // ---- two-column ledger: the State Budget tab (stacks on narrow screens — see .budget-ledger rule)
   if(tab==="budget"){
+  h+=spendCapCardHTML();
   h+=`<div class="fiscal-panel"><div class="fiscal-title">Forces on the budget</div>
       <div class="fnote" style="margin:-2px 0 12px">Read-only: the cycle, the federal picture, and the rules that move revenue and cost between quarters.</div>
       <div class="fiscal-grid forces">${budgetForces}</div></div>`;
