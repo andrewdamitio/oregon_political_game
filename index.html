@@ -6111,12 +6111,24 @@ const CATALOG={
     blocEffect:{businessClass:7, wealthy:3, collegeEducated:3, moderate:2, libertarian:2, socialist:-5, liberal:-3, publicUnions:-2, poor:-2},
     effects:{gdp:0.35,unemployment:-0.5,environment:-3}, ideology:{economic:0.4,govSize:0.2,environment:0.3}},
   // ---- Oregon-flavored slate ----
-  sexWorkDecrim:{name:"Sex Work Decriminalization", domain:"social", icon:"handshake", binary:true, mechanic:"law", niche:true,
-    desc:"Decriminalize consensual adult sex work, redirecting enforcement toward trafficking and offering health and exit services. Polarizing; frees court capacity.",
-    enabled:true, costFull:0.15, capital:9, enactCapital:14,
-    effects:{violentCrime:-2,propertyCrime:-2,health:4},
-    blocEffect:{socialist:4, libertarian:4, liberal:2, conservative:-5, rural:-3, parents:-2, retirees:-2},
-    ideology:{social:-0.8,govSize:-0.4}},
+  /* Four ways a state treats sex work, each one a place that actually does
+     it. Health improves as the work comes out of hiding; full
+     decriminalization costs a little on crime, since legal markets have been
+     found to draw in more trafficking (Cho, Dreher and Neumayer, 2013). */
+  sexWorkDecrim:{name:"Sex Work Law", domain:"social", icon:"handshake", mechanic:"tier", niche:true,
+    desc:"How Oregon treats consensual adult sex work. It is a crime to buy or sell it today.\n\nThe Nordic model, as in Sweden and France, makes buying a crime but not selling, so the workers are no longer arrested and can come forward about abuse. Licensed brothels, as in Nevada, legalize it only inside licensed houses in counties that choose to allow them, with health checks and license fees. Full decriminalization, as New Zealand did in 2003, removes the criminal law from it altogether and treats it as work, with the most health benefit and the most controversy.\n\nEach step draws more support from libertarians and socialists and more opposition from conservatives, parents and rural voters.",
+    tiers:["Criminalized","Nordic Model","Licensed Brothels","Full Decriminalization"],
+    tierIndex:0, costByTier:[0,0.05,-0.03,0.08], capital:9, enactCapital:14,
+    effects:{},
+    tierEffects:[{},
+      {health:1, incarcerationRate:-0.5},
+      {health:3, incarcerationRate:-1},
+      {health:4, incarcerationRate:-1.5, violentCrime:1, propertyCrime:0.5}],
+    tierBlocEffects:[{},
+      {liberal:2, parents:1, socialist:-1, libertarian:-2},
+      {libertarian:3, moderate:1, liberal:1, conservative:-3, parents:-2, retirees:-1},
+      {socialist:4, libertarian:4, liberal:2, conservative:-5, rural:-3, parents:-3, retirees:-2}],
+    tierIdeology:[{},{social:-0.2},{social:-0.4,govSize:-0.1},{social:-0.8,govSize:-0.4}]},
   psilocybin:{name:"Psilocybin Therapy Program", domain:"eduHealth", icon:"mushroom", binary:true, mechanic:"law", niche:true,
     desc:"Build out Measure 109 supervised psilocybin therapy — a national first. Mental-health upside; licensing revenue; culturally divisive.",
     enabled:true, revenue:0.05, capital:6, enactCapital:9,
@@ -13860,7 +13872,8 @@ function collectionFactor(){
 const BUDGET_OPEN_GAP=-1.5;
 /* $B a year the across-the-board tax cut takes off the income and corporate taxes. */
 const TAX_CUT_FULL=2.5;
-const TAX_CUT_DEF=CATALOG.taxCut?Object.assign({},CATALOG.taxCut):null;   // the bill as written, for an old save that lost it
+const TAX_CUT_DEF=CATALOG.taxCut?Object.assign({},CATALOG.taxCut):null;
+const SEXWORK_DEF=CATALOG.sexWorkDecrim?Object.assign({},CATALOG.sexWorkDecrim):null;   // the bill as written, for an old save that lost it
 function taxCutAmount(){ const p=POLICIES.taxCut; return (p&&p.enacted!==false)?TAX_CUT_FULL*policyLevel(p):0; }
 function revenueBySource(){
   const out={};
@@ -32650,8 +32663,16 @@ function migrateTaxCut(){
   applyTaxCut(amt);
   if(!CATALOG.taxCut&&TAX_CUT_DEF)CATALOG.taxCut=Object.assign({},TAX_CUT_DEF);
 }
+/* A save from when this was an on/off law: it becomes the tiered law at
+   Full Decriminalization, which is what that law was. */
+function migrateSexWork(){
+  const p=POLICIES.sexWorkDecrim; if(!p||p.mechanic==="tier"||!SEXWORK_DEF)return;
+  const q=Object.assign({},SEXWORK_DEF,{enacted:true,_id:"sexWorkDecrim",tierIndex:3}); delete q.enactCapital; q.eff=p.eff;
+  POLICIES.sexWorkDecrim=q;
+}
 function render(){
   try{ migrateTaxCut(); }catch(e){}
+  try{ migrateSexWork(); }catch(e){}
   reportReturnCheck();
   sandboxTopUp(); mountSandboxFrame();
   renderHUD();renderSidebar();renderRailVoters();renderRailCompass();
