@@ -29378,6 +29378,7 @@ function renderDetail(){
       GAME.log.push(ico('coffin')+" PERS paydown restarted at "+n+" years (\u25c8"+PERS_AMORT_CAPITAL+")");
       render();
     }));
+    main.querySelectorAll('[data-persres]').forEach(el=>el.addEventListener('click',e=>{ persReserveMove(+e.currentTarget.dataset.persres); render(); }));
     main.querySelectorAll('[data-persrisk]').forEach(el=>el.addEventListener('click',e=>{
       GAME.persRisk=e.currentTarget.dataset.persrisk;
       GAME.log.push(ico('coffin')+" PERS portfolio set to "+persRisk().label.toLowerCase());
@@ -31932,7 +31933,38 @@ function renderFundDetail(id){
    is owed the money, makes the floor vote harder. */
 /* The button that opens the floor screen for moving surplus into this fund.
    Always there, because a quarter with nothing to move needs to say so. */
-function surplusDirectHTML(id){
+/* THE RESERVES INTO THE PENSION HOLE. With the kicker repealed, every surplus
+   the state has run stays the state's, and what was not directed settled into
+   the Rainy Day Fund. That accumulated money, not only this quarter's, can be
+   put against the PERS hole: a quarter, a half, or all of it. It is an
+   administrative transfer like any surplus move, with a little capital for
+   the share, and the public-sector and fiscal-hawk reactions a surplus move
+   to PERS draws. The Education Stability Fund is dedicated to schools and is
+   not offered. Whatever you move is no longer there for the next downturn. */
+const PERS_RES_SHARES=[0.25,0.5,1];
+function persReserveCost(frac){ return Math.round(1+clamp(frac,0,1)*4); }
+function persReserveHTML(){
+  if(!POLICIES.kickerReform)return `<div class="fnote" style="margin-top:12px">${ico('bank')} While the kicker stands, a surplus past the 2% line is refunded, and only this quarter's surplus can be moved. Repeal the kicker and the reserves you build up can be put against this hole too.</div>`;
+  const rd=GAME.rainyDay||0;
+  let h=`<div class="ebgroup-label" style="margin-top:16px">${ico('bank')} Your reserves</div>`;
+  if(rd<=0.05)return h+`<div class="fnote">The Rainy Day Fund is empty, so there are no accumulated reserves to move.</div>`;
+  h+=`<div class="fnote" style="margin-bottom:8px">With the kicker repealed, the surpluses you have run stay the state's. <b>${fmtB(rd,2)}</b> of them sits in the Rainy Day Fund and can be put against the PERS hole. Whatever you move is gone from the cushion the next recession draws on. The Education Stability Fund is dedicated to schools and cannot be moved.</div><div class="surp-act" style="display:flex;gap:8px;flex-wrap:wrap">`;
+  for(const f of PERS_RES_SHARES){ const c=persReserveCost(f), ok=window.SANDBOX||GAME.capital>=c;
+    h+=`<button class="fcard-btn" data-persres="${f}" ${ok?"":"disabled"}>${f===1?"All of it":Math.round(f*100)+"%"}: ${fmtB(rd*f,2)} · ◈${c}</button>`; }
+  return h+`</div>`;
+}
+function persReserveMove(frac){
+  if(!POLICIES.kickerReform)return;
+  const rd=GAME.rainyDay||0, amt=+(rd*clamp(frac,0,1)).toFixed(3), c=persReserveCost(frac);
+  if(amt<=0.005||(!window.SANDBOX&&GAME.capital<c))return;
+  GAME.capital=clamp(GAME.capital-c,0,CAPITAL_MAX);
+  GAME.rainyDay=+(rd-amt).toFixed(3);
+  SURPLUS_DEST.pers.apply(amt);
+  for(const b in SURPLUS_DEST.pers.blocs)createGrudge("v_"+b, SURPLUS_DEST.pers.blocs[b]*clamp(amt/2,0.15,1)*0.5, 0.9, "Reserves to the PERS hole");
+  GAME.log.push(ico('bank')+" "+fmtB(amt,2)+" moved from the Rainy Day Fund to the PERS hole (◈"+c+")");
+}
+function surplusDirectHTML(id){ return surplusDirectHTML0(id)+(id==="pers"?persReserveHTML():""); }
+function surplusDirectHTML0(id){
   if(id==="debt")return `<div class="fnote" style="margin-top:16px">${ico('cash')} Nothing to do here. Any surplus pays this down automatically before it goes anywhere else, with no vote and no capital.</div>`;
   if(!SURPLUS_DEST[id])return "";
   const pool=surplusPoolAmount();
