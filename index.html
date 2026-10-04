@@ -27642,6 +27642,38 @@ function sitClearBarsHTML(sid){
   return `<div class="sit-bars">`+bars.map(b=>{ const pct=Math.round(b.frac*100), col=b.met?'var(--good)':pct>=60?'var(--warn)':'var(--clay)';
     return `<div class="sit-bar"><div class="sit-bar-t"><span>${b.pre?`<i>${b.pre}</i> `:""}${b.name} <b>${Math.round(b.cur)}</b>, ${b.met?"past":"needs to get "+(b.down?"below":"above")} ${b.at}</span><b style="color:${col}">${b.met?"met":pct+"%"}</b></div><div class="fbar2"><i style="width:${pct}%;background:${col}"></i></div></div>`; }).join("")+`</div>`;
 }
+/* WHAT FEEDS EACH INDICATOR, measured rather than listed by hand: nudge one
+   statistic or indicator a point either way, re-run every indicator's own
+   derive(), and keep whatever moved. A hand-kept list drifts from the
+   formulas; this cannot. Cached for the quarter. out["m_x"] or out["i_x"] is
+   the indicators that input shapes, each with its move per point. */
+let _indInCache=null, _indInTurn=-1;
+function indicatorInputs(){
+  if(_indInCache&&_indInTurn===GAME.turn)return _indInCache;
+  const out={}, ids=Object.keys(INDICATORS).filter(i=>typeof INDICATORS[i].derive==="function");
+  const base={}; for(const i of ids){ try{ base[i]=INDICATORS[i].derive(); }catch(e){ base[i]=null; } }
+  const probe=(key,obj)=>{ const v0=obj.value;
+    try{
+      for(const i of ids){ if(base[i]==null||key==="i_"+i)continue;
+        let d=0;
+        for(const st of [1,-1]){ obj.value=v0+st; let x=base[i]; try{ x=INDICATORS[i].derive(); }catch(e){}
+          const dd=(x-base[i])*st; if(Math.abs(dd)>Math.abs(d))d=dd; }
+        obj.value=v0;
+        if(Math.abs(d)>=0.01)(out[key]=out[key]||[]).push({id:i, per:d}); }
+    } finally { obj.value=v0; } };
+  for(const k in METRICS)probe("m_"+k, METRICS[k]);
+  for(const i of ids)probe("i_"+i, INDICATORS[i]);
+  _indInCache=out; _indInTurn=GAME.turn; return out;
+}
+function indShapesHTML(key){
+  const rows=(indicatorInputs()[key]||[]).slice().sort((a,b)=>Math.abs(b.per)-Math.abs(a.per));
+  if(!rows.length)return "";
+  const sc=Math.max(0.05,...rows.map(r=>Math.abs(r.per)));
+  let h=`<div class="ebgroup-label">Indicators it shapes</div><div class="ebgroup">`;
+  for(const r of rows){ const I=INDICATORS[r.id];
+    h+=effectBar(ico(I.icon)+" "+I.name, r.per, sc, {color:indDeltaGood(r.id,r.per)?'var(--good)':'var(--clay)', link:"i_"+r.id, fmt:v=>(v>=0?'+':'')+v.toFixed(2)+(key==="m_gasPrice"?" per $1":" per pt")}); }
+  return h+`<div class="threshline" style="margin-top:6px;font-style:italic">How far each indicator moves for every ${key==="m_gasPrice"?"dollar":"point"} this ${key.startsWith("m_")?"statistic":"indicator"} rises. A fall moves it the other way.</div></div>`;
+}
 function situationProgressHTML(sid){
   const s=SITUATIONS[sid]; if(!s||!s.watch)return "";
   const w=s.watch, isInd=!!w.indicator;
@@ -29249,6 +29281,7 @@ function renderDetail(){
         h+=`</div>`;
       }
     }
+    h+=indShapesHTML("m_"+k);
     h+=blocImpactHTML(k);
   } else if(key.startsWith("p_")){
     const id=key.slice(2), p=POLICIES[id];
@@ -29925,6 +29958,7 @@ function renderDetail(){
         h+=effectBar(nm, ind.feedback[k]*100, scale*100, {color:good?'var(--good)':'var(--clay)', link:lk, fmt:v=>(v>=0?'+':'')+(v/100).toFixed(3)+'/pt'});}
       h+=`<div class="threshline" style="margin-top:6px;font-style:italic">Each point this indicator moves above its starting level nudges these metrics per quarter (and vice-versa below it).</div></div>`;
     }
+    h+=indShapesHTML("i_"+id);
     h+=`<div class="sectionsub" style="margin-top:12px">This indicator is computed from the state of your metrics and active situations — improve the underlying conditions and it follows, with some lag.</div>`;
     h+=blocImpactHTML(id);
   }
