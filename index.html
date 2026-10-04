@@ -629,6 +629,10 @@
 .egrand .pn-bst .eg-note{margin-bottom:8px;font-size:14px;color:var(--ink)}
 .pn-bst-row{display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-top:1px solid var(--line);font-size:14px}
 .pn-bst-row i{color:var(--muted);font-style:normal;margin-left:4px}
+.pn-bst-row em{display:inline-block;margin-left:6px;font-style:normal;font-size:12px;color:var(--clay)}
+.pn-bst-h{display:flex;justify-content:space-between;gap:10px;margin:12px 0 2px;font-family:var(--font-display);font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-1)}
+.pn-bst-h span{font-family:var(--font-body);text-transform:none;letter-spacing:0;font-size:12px;color:var(--muted-3)}
+.pn-bst-list{max-height:230px;overflow-y:auto;padding-right:4px}
   .pn-row{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid var(--line-faint);font-size:13.5px}
   .pn-row .cn-who i+i{color:var(--ink)}
   .pn-tag{font-size:11.5px;text-transform:uppercase;letter-spacing:.8px;padding:2px 7px;border-radius:9px;border:1px solid var(--line)}
@@ -22907,7 +22911,40 @@ function caucusIssueLaws(m,i){
 }
 /* PRIMARIES. Odds of the challenger you back: 20% on the first ◈, past
    even at the third, and never past 90%. */
-function caucusPrimaryOdds(spent){ return spent<=0?0:0.9-0.7*Math.exp(-(spent-1)/3.4); }
+function caucusPrimaryOdds(spent,k){
+  if(spent<=0)return 0;
+  const base=0.9-0.7*Math.exp(-(spent-1)/3.4);
+  const f=k?caucusPrimaryFactors(k):null; if(!f)return base;
+  // the money sets the odds against a typical member in a typical district;
+  // a member strong at home and a district cool on you both pull them down
+  const lg=Math.log(base/(1-base))+f.shift;
+  return clamp(1/(1+Math.exp(-lg)),0.03,0.92);
+}
+/* WHAT DECIDES A PRIMARY BESIDES THE MONEY. How strong the member is with
+   their own party's voters at home: years in the seat, local roots, and a
+   record that has served the district (the general-election edge, less the
+   breaks with their party, which win swing voters but cost primary voters).
+   And how the district feels about you, since your challenger runs as your
+   pick. Returned as a shift on the log-odds, with both parts named. */
+function caucusPrimaryFactors(k){
+  const C=GAME.caucus, m=C&&C.m[k]; if(prOn()||!m||m.p!=="mine")return null;
+  const p=caucusCandidateRaw(k); if(!p)return null;
+  const home=clamp(p.seniority-1+p.roots+p.record,-4,4);
+  const ch=k[0]==="s"?"senate":"house", id=+k.slice(1);
+  const row=chamberSupport(ch).find(r=>r.id===id), you=row?row.support-seatBoostPts(ch,id):50;
+  const shift=-home*0.28+(you-50)*0.05;
+  return {home, you, shift};
+}
+function caucusPrimaryFactorsLine(k,nm){
+  const f=caucusPrimaryFactors(k); if(!f)return "";
+  const hw=f.home>=1.5?"strong at home, which cuts your challenger's odds":f.home<=-1.5?"weak at home, which helps your challenger":"of ordinary standing at home";
+  const yw=f.you>=55?"warm toward you, which helps your challenger":f.you<=45?"cool toward you, which cuts your challenger's odds":"split on you";
+  return `${nm} is ${hw}; the district is ${yw} (${Math.round(f.you)}% back you).`;
+}
+/* CHALLENGES CLOSE ON PRIMARY DAY. From the primary until the election the
+   nominees are set, so there is no primary left to back anyone in; the
+   next one opens once this ballot is counted. */
+function caucusOwnPrimaryOpen(){ return !prOn()&&seatBoostWait()>0; }
 /* Oregon's primary is in May, two quarters before the November general. */
 const CAUCUS_PRIMARY_LEAD=2;
 /* The next few legislative ballots, in quarters from now, and whether this
@@ -22957,15 +22994,20 @@ function caucusPrimaryHTML(k){
   const nom=C.nom&&C.nom[k]&&C.nom[k].old===m.n?C.nom[k]:null;
   if(nom)return `<div class="cm-sec">Primary challenge</div><div class="cm-prim"><div>${m.n} lost the primary to <b>${nom.n}</b>, who carries the seat into the general. ${m.n} serves out the term.</div></div>`;
   // any member of your party can be challenged, loyal or not
-  const party=caucusPartyOf(m)==="D"?"Democratic":"Republican", can=window.SANDBOX||GAME.capital>=1;
+  const party=caucusPartyOf(m)==="D"?"Democratic":"Republican", open=caucusOwnPrimaryOpen(), can=open&&(window.SANDBOX||GAME.capital>=1);
   let h=`<div class="cm-sec">Primary challenge</div><div class="cm-prim">`;
+  if(!open){
+    const nb=nextBallotInfo();
+    return h+`<div>The primaries for ${nb.kind==="midterm"?"the midterm":"the general election"} are decided and the nominees are set${p?`. Your ◈${p.spent} behind ${p.n} carries over to the next primary`:""}. Challenges for the next ballot open once this one is counted, in ${nb.quartersAway} quarter${nb.quartersAway===1?"":"s"}.</div></div>`;
+  }
+  const why=caucusPrimaryFactorsLine(k,m.n);
   if(p){
-    const o=Math.round(caucusPrimaryOdds(p.spent)*100), o2=Math.round(caucusPrimaryOdds(p.spent+1)*100);
-    h+=`<div>You have put <b>◈${p.spent}</b> behind <b>${p.n}</b> in the ${party} primary: a <b>${o}%</b> chance they beat ${m.n} for the nomination. Decided ${caucusPrimaryWhen(k)}. If ${p.n} wins, they carry the seat into the general and ${m.n} serves out the term.</div>`
+    const o=Math.round(caucusPrimaryOdds(p.spent,k)*100), o2=Math.round(caucusPrimaryOdds(p.spent+1,k)*100);
+    h+=`<div>You have put <b>◈${p.spent}</b> behind <b>${p.n}</b> in the ${party} primary: a <b>${o}%</b> chance they beat ${m.n} for the nomination. Decided ${caucusPrimaryWhen(k)}. If ${p.n} wins, they carry the seat into the general and ${m.n} serves out the term. ${why}</div>`
       +`<button class="fcard-btn" data-cprim="${k}" ${can?"":"disabled"}>Put more behind them · ◈1 (to ${o2}%)</button>`;
   } else {
-    h+=`<div>Back a challenger in the ${party} primary, decided ${caucusPrimaryWhen(k)}. The odds are the chance your challenger takes the nomination from ${m.n}: 20% on the first ◈, rising with every ◈ after, never past 90%. ${m.n} will know the moment you start, and may retire rather than face it.${m.L>=caucusAngryAt()?` They are loyal to you now (${Math.round(m.L)}), and a challenge costs you some of that.`:""}</div>`
-      +`<button class="fcard-btn" data-cprim="${k}" ${can?"":"disabled"}>Back a challenger · ◈1</button>`;
+    h+=`<div>Back a challenger in the ${party} primary, decided ${caucusPrimaryWhen(k)}. Your challenger's chance of taking the nomination from ${m.n} is ${Math.round(caucusPrimaryOdds(1,k)*100)}% on the first ◈ and ${Math.round(caucusPrimaryOdds(3,k)*100)}% by the third, rising with every ◈ after. ${why} ${m.n} will know the moment you start, and may retire rather than face it.${m.L>=caucusAngryAt()?` They are loyal to you now (${Math.round(m.L)}), and a challenge costs you some of that.`:""}</div>`
+      +`<button class="fcard-btn" data-cprim="${k}" ${can?"":"disabled"}>Back a challenger · ◈1 (${Math.round(caucusPrimaryOdds(1,k)*100)}%)</button>`;
   }
   return h+`</div>`;
 }
@@ -22977,11 +23019,12 @@ function caucusCampaignHTML(){
   const ks=Object.keys(C.m).filter(k=>C.m[k].p==="mine"&&(C.m[k].L<at||(C.prim&&C.prim[k])||(C.nom&&C.nom[k]))).sort((a,b)=>C.m[a].L-C.m[b].L);
   let h=`<div class="camp-sec">${ico('people')} Disloyal party members</div>`;
   if(!ks.length)return h+`<div class="cprim-note">None of your members is angry with you. You can still back a challenger against any of them from their file on the Legislators page. Every member may also retire at an election: about 7% each time, more the longer they have served or the angrier they are.</div>`;
-  h+=`<div class="cprim-note">Angriest first. Back a challenger for ◈1 at a time; the percentage is the chance your challenger takes the nomination: 20% on the first ◈, past even at the third, never past 90%. Primaries are decided two quarters before the general, and the winner carries the seat into it. The member resents it at once, and a targeted one is likelier to retire, which hands the seat to your challenger. This list is the angry ones; you can back a challenger against any member of your party, loyal or not, from their file on the Legislators page.</div>
+  h+=`<div class="cprim-note">Angriest first. Back a challenger for ◈1 at a time; the percentage is the chance your challenger takes the nomination. It rises with every ◈, and falls against a member strong at home or in a district cool on you. Primaries are decided two quarters before the general, and the winner carries the seat into it. The member resents it at once, and a targeted one is likelier to retire, which hands the seat to your challenger. This list is the angry ones; you can back a challenger against any member of your party, loyal or not, from their file on the Legislators page.</div>
     <div class="cprim-key"><span><b>Loyalty</b> out of 100</span><span><b>Breaks</b> issues where they are off the party line</span><span><b>Seat</b> your party's share of the district</span><span><b>Edge</b> what they bring to the general next to a typical candidate of your party; a new nominee starts near 0</span></div><div class="cprim-list">`;
-  const can=window.SANDBOX||GAME.capital>=1, SHOW=6;
+  const open=caucusOwnPrimaryOpen(), can=open&&(window.SANDBOX||GAME.capital>=1), SHOW=6;
+  if(!open)h+=`<div class="cprim-note"><b>The primaries are decided.</b> Challenges for the next ballot open once this one is counted.</div>`;
   const row=k=>{ const m=C.m[k], p=C.prim&&C.prim[k], nom=C.nom&&C.nom[k]&&C.nom[k].old===m.n?C.nom[k]:null;
-    const o=p?Math.round(caucusPrimaryOdds(p.spent)*100):0, o2=Math.round(caucusPrimaryOdds((p?p.spent:0)+1)*100);
+    const o=p?Math.round(caucusPrimaryOdds(p.spent,k)*100):0, o2=Math.round(caucusPrimaryOdds((p?p.spent:0)+1,k)*100);
     const rw=caucusRow(k), lean=rw&&rw[3]!=null?rw[3]:50, own=Math.round(caucusPartyOf(m)==="D"?lean:100-lean);
     const seat=own>=62?"safe":own>=55?"likely":"swing", cp=caucusCandidateParts(k), edge=cp?cp.total:0;
     const L=Math.round(m.L), lc=L<at-15?"var(--bad)":L<at?"var(--clay)":"var(--muted-2)";
@@ -22991,7 +23034,7 @@ function caucusCampaignHTML(){
       <span class="cn-who"><b>${caucusTitle(k)}</b><i>${caucusPlace(m.ch,m.id)}${m.f?" · "+caucusFactionName(m.f):""}</i>
         <span class="cprim-sc"><span style="color:${lc}"><b>${L}</b> loyalty</span><span><b>${caucusBreaks(m).length}</b> breaks</span><span><b>${own}%</b> ${seat} seat</span><span><b>${edge>=0?"+":"−"}${Math.abs(edge).toFixed(1)}</b> edge</span>${caucusRetiring(k)?(caucusRetiring(k).go?`<span><b>Retiring</b></span>`:`<span>Running again</span>`):`<span><b>${Math.round(caucusRetireChance(k)*100)}%</b> may retire</span>`}</span>
         ${status?`<i class="cprim-st">${status}</i>`:""}</span>
-      ${nom?"":`<button class="cf-chbtn" data-cprim="${k}" ${can?"":"disabled"}>${p?"More · ◈1 → "+o2+"%":"Back a challenger · ◈1"}</button>`}</div>`; };
+      ${nom||!open?"":`<button class="cf-chbtn" data-cprim="${k}" ${can?"":"disabled"}>${p?"More · ◈1 → "+o2+"%":"Back a challenger · ◈1 → "+o2+"%"}</button>`}</div>`; };
   h+=ks.slice(0,SHOW).map(row).join("");
   if(ks.length>SHOW)h+=`<details class="cprim-more"><summary>Show ${ks.length-SHOW} more</summary>${ks.slice(SHOW).map(row).join("")}</details>`;
   return h+`</div>`;
@@ -23030,6 +23073,7 @@ function caucusReportHTML(){
 }
 function caucusBackPrimary(k,redraw){
   const C=GAME.caucus, m=C&&C.m[k]; if(!m||m.p!=="mine"||prOn())return;
+  if(!caucusOwnPrimaryOpen()){ GAME.log.push("✗ The primaries are decided; challenges open again after the election"); render(); return; }
   if(!window.SANDBOX&&GAME.capital<1){ GAME.log.push("✗ Not enough capital to back a primary challenger"); render(); return; }
   GAME.capital=clamp(GAME.capital-1,0,CAPITAL_MAX);
   const Pm=C.prim=C.prim||{};
@@ -23056,7 +23100,7 @@ function caucusRetireChance(k){
   const C=GAME.caucus, m=C.m[k]; if(!m)return 0;
   const yr=GAME.startYear+Math.floor(GAME.turn/4), served=Math.max(0,yr-(m.yr||yr));
   const p=C.prim&&C.prim[k];
-  return clamp(0.07+served*0.004+(m.p==="mine"&&m.L<caucusAngryAt()?0.06:0)+(p?caucusPrimaryOdds(p.spent)*0.25:0),0,0.45);
+  return clamp(0.07+served*0.004+(m.p==="mine"&&m.L<caucusAngryAt()?0.06:0)+(p?caucusPrimaryOdds(p.spent,k)*0.25:0),0,0.45);
 }
 /* ANNOUNCED RETIREMENTS. A member decides whether to run again one to three
    quarters before their seat is on the ballot, and says so, before the
@@ -23239,7 +23283,7 @@ function caucusPrimaryDay(){
     if(!m||m.p!=="mine"||m.n!==p.name){
       GAME.log.push(ico('ballot')+" The primary you backed in "+caucusCode(k)+" is moot: the seat did not stay with your party.");
       night.push({k, moot:true, old:p.name, n:p.n, spent:p.spent}); continue; }
-    const odds=caucusPrimaryOdds(p.spent), won=caucusRng(k+"|prim|"+GAME.turn)()<odds;
+    const odds=caucusPrimaryOdds(p.spent,k), won=caucusRng(k+"|prim|"+GAME.turn)()<odds;
     const rw=caucusRow(k), lean=rw&&rw[3]!=null?rw[3]:50, own=Math.round(caucusPartyOf(m)==="D"?lean:100-lean);
     const base={k, old:p.name, n:p.n, spent:p.spent, odds:Math.round(odds*100), own, place:caucusPlace(m.ch,m.id), title:caucusTitle(k)};
     if(won){
@@ -23337,7 +23381,7 @@ function showPrimaryNight(P,next){
   const seat=o=>o>=62?"a safe seat for your party":o>=55?"a seat that leans your way":"a swing seat";
   // the headline: your night if you had one, theirs if not
   const quiet=!L.length&&!O.length;
-  const big=quiet?"NOMINEES SET":L.length?won+" OF "+L.length:purged+" PURGED";
+  const big=quiet?"PRIMARIES":L.length?won+" OF "+L.length:purged+" PURGED";
   const good=L.length?won*2>=L.length:true;
   const sub=quiet?"No incumbent in either party faced a serious challenge"
     :L.length?(won===L.length?"Every challenger you backed won":won===0?"Every member you targeted held on":"Your challengers won "+won+" of "+L.length+" primaries")
@@ -23405,14 +23449,25 @@ function primaryBoostNoticeHTML(P){
     rows.push({k,m,ch,id,pr}); }
   rows.sort((a,b)=>a.pr-b.pr);
   const risk=rows.filter(r=>r.pr<0.5).length, close=rows.filter(r=>r.pr>=0.35&&r.pr<0.65).length;
-  const list=rows.filter(r=>r.pr<0.95).slice(0,3).map(r=>`<div class="pn-bst-row"><span><b>${caucusTitle(r.k)}</b> <i>${r.ch==="senate"?"SD":"HD"} ${r.id} ${caucusPlace(r.m.ch,r.m.id)}</i></span><b style="color:${r.pr>=0.5?'var(--good)':'var(--bad)'}">${Math.round(r.pr*100)}%</b></div>`).join("");
+  // the other side's seats on this ballot that your party has a real chance at
+  const theirs=[];
+  for(const k in C.m){ const m=C.m[k]; if(m.p==="mine")continue;
+    const ch=k[0]==="s"?"senate":"house", id=+k.slice(1), pr=(ch==="senate"?sf:hf).prob[id];
+    if(!seatBoostable(ch,id)||caucusStandDownSeat(ch,id)||pr==null||pr<0.05)continue;
+    theirs.push({k,m,ch,id,pr}); }
+  theirs.sort((a,b)=>b.pr-a.pr);
+  const line=(r,mine)=>{ const ret=caucusRetiring(r.k), tag=ret&&ret.go?`<em>open seat, ${mine?"your member":"their member"} retiring</em>`:"";
+    return `<div class="pn-bst-row"><span><b>${caucusTitle(r.k)}</b>${mine?"":` (${caucusPartyOf(r.m)})`} <i>${r.ch==="senate"?"SD":"HD"} ${r.id} ${caucusPlace(r.m.ch,r.m.id)}</i>${tag}</span><b style="color:${r.pr>=0.5?'var(--good)':'var(--bad)'}">${Math.round(r.pr*100)}%</b></div>`; };
+  const inPlay=rows.filter(r=>r.pr<0.95);
+  const list=(inPlay.length?`<div class="pn-bst-h">Your seats in play · ${inPlay.length}<span>your party's chance to hold</span></div><div class="pn-bst-list">${inPlay.map(r=>line(r,true)).join("")}</div>`:"")
+    +(theirs.length?`<div class="pn-bst-h">Their seats you could take · ${theirs.length}<span>your party's chance to win</span></div><div class="pn-bst-list">${theirs.map(r=>line(r,false)).join("")}</div>`:"");
   const sum=!rows.length?"None of your members is on this ballot."
     :risk?`${risk} of your ${rows.length} members on this ballot would lose if the vote were today${close?`, and ${close} seat${close===1?" is":"s are"} close enough for a push to matter`:""}.`
     :close?`All ${rows.length} of your members on this ballot are favoured, but ${close} seat${close===1?" is":"s are"} close enough for a push to matter.`
     :`All ${rows.length} of your members on this ballot are safe for now.`;
   return `<div class="pn-bst"><div class="eg-h3">${ico('ballot')} Campaign boosts are open</div>
     <div class="eg-note">With the nominees settled you can put political capital behind your party's candidates: \u25c8${SEAT_BOOST_COST} a push for +${SEAT_BOOST_PTS} points in one seat, up to ${SEAT_BOOST_MAX} a seat, until the ${gen} in ${P.gen} quarter${P.gen===1?"":"s"}. ${sum}</div>
-    ${list?`<div class="pn-bst-list">${list}</div>`:""}</div>`;
+    ${list}</div>`;
 }
 function caucusResolvePrimaries(upSenate){
   const C=GAME.caucus; if(prOn()||!C||!C.nom)return;
