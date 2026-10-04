@@ -22383,10 +22383,10 @@ function prTick(){
   const groups={};
   for(const m of prSeated()){ if(m.party==="ind")continue;
     if(m.f&&m.L>=prAngryAt(m)+8)m.f=null;
-    if(m.L<prAngryAt(m)){ const st=prSat(m); if(st.worst){ const fk=m.party+":"+st.worst+":"+(m.v[st.worst].pos<0?0:1); (groups[m.f||fk]=groups[m.f||fk]||[]).push(m); } } }
+    if(m.L<prAngryAt(m)){ const st=prSat(m), fk=prGrievanceKey(m,st); if(fk)(groups[m.f||fk]=groups[m.f||fk]||[]).push(m); } }
   const was=P.facs||{}; P.facs={};
   for(const fk in groups){ const ms=groups[fk]; if(ms.length>=4||(was[fk]&&ms.length>=3)){ P.facs[fk]={since:was[fk]?was[fk].since:GAME.turn, ids:ms.map(m=>m.id)}; ms.forEach(m=>m.f=fk);
-      if(!was[fk]){ const t=ms.length+" "+prPartyWord(ms[0].party)+" members have formed the "+prFacName(fk)+": they want "+prFacWant(fk).toLowerCase()+"."; GAME.log.push(ico('warning')+" "+t); news.push(t); } }
+      if(!was[fk]){ const t=ms.length+" "+prPartyWord(ms[0].party)+" members have formed the "+prFacName(fk)+": they want "+prFacWantLower(fk)+"."; GAME.log.push(ico('warning')+" "+t); news.push(t); } }
     else ms.forEach(m=>{ if(m.f===fk)m.f=null; }); }
   for(const m of prSeated())if(m.f&&!P.facs[m.f])m.f=null;
   for(const fk in was)if(!P.facs[fk]){ const t="The "+prFacName(fk)+" has broken up."; GAME.log.push(ico('people')+" "+t); news.push(t); }
@@ -22411,8 +22411,19 @@ function prTick(){
   P.qFrom=before;
   if(news.length&&GAME.turn>1)GAME.pendingCaucusNews={turn:GAME.turn, pr:true, lines:news, title:news.length===1?"The Assembly":"The Assembly: "+news.length+" developments"};
 }
-function prFacName(fk){ const [pid,i,side]=fk.split(":"); return prPartyWord(pid)+" "+ISSUES[i].fac[+side]; }
-function prFacWant(fk){ const [pid,i,side]=fk.split(":"); return ISSUES[i].want[+side]; }
+/* WHAT AN ANGRY MEMBER IS ANGRIEST ABOUT. Usually an issue gone the wrong
+   way; but a member whose resentment of a coalition partner outweighs it
+   is angry about the deal, and bands with the others who are. */
+function prGrievanceKey(m,st){
+  const coal=caucusHist(m).filter(x=>String(x.pid).indexOf("_coal_")===0&&x.now<0).sort((a,b)=>a.now-b.now)[0];
+  const coalPull=coal?coal.now*0.7:0, issuePull=st&&st.worst?Math.min(0,st.sat*20):0;
+  if(coal&&coalPull<issuePull&&(GAME.coalition&&[prMyParty()].concat(GAME.coalition.partners||[]).indexOf(coal.pid.slice(6))>=0))return m.party+":coal:"+coal.pid.slice(6);
+  return st&&st.worst?m.party+":"+st.worst+":"+(m.v[st.worst].pos<0?0:1):null;
+}
+function prFacWantLower(fk){ const w=prFacWant(fk); return prFacIsCoal(fk)?w.charAt(0).toLowerCase()+w.slice(1):w.toLowerCase(); }
+function prFacIsCoal(fk){ return String(fk).split(":")[1]==="coal"; }
+function prFacName(fk){ const [pid,i,side]=fk.split(":"); if(i==="coal")return prPartyWord(pid)+" members against the "+prPartyWord(side)+" deal"; return prPartyWord(pid)+" "+ISSUES[i].fac[+side]; }
+function prFacWant(fk){ const [pid,i,side]=fk.split(":"); if(i==="coal")return "The government without "+prPartyWord(side); return ISSUES[i].want[+side]; }
 function prTitle(m){ return "Rep. "+m.n; }
 /* Crossing the floor under PR: the member keeps the seat, in the new party. */
 function prCross(m,to){
@@ -22443,7 +22454,7 @@ function prDemote(id){
   if(!window.SANDBOX&&GAME.capital<1){ GAME.log.push("✗ Not enough capital to demote a list member"); render(); return; }
   GAME.capital-=1; P.demoted[id]=GAME.turn;
   { const L=P.lists[m.party], i=L.indexOf(id); if(i>=0){ L.splice(i,1); L.push(id); } }
-  m.g=clamp((m.g||0)-12,-20,20); caucusNote(m,"_dem","You demoted them on the list",-12); m.L=clamp(m.L-8,0,100);
+  m.g=clamp((m.g||0)-15,-20,20); caucusNote(m,"_dem","You demoted them on the list",-15); m.L=clamp(m.L-16,0,100);
   for(const o of prSeated())if(o!==m&&o.party===m.party&&Math.sign(o.wing||0)===Math.sign(m.wing||0)){ o.g=clamp((o.g||0)-2,-20,20); caucusNote(o,"_demw","You demoted a colleague from their flank",-2); }
   GAME.log.push(ico('ballot')+" "+prTitle(m)+" goes to the bottom of the "+prPartyWord(m.party)+" list for the next election.");
   render();
@@ -22530,9 +22541,9 @@ function renderPRLegislators(main,h){
       const a=Math.round(ms.reduce((s,m)=>s+m.L,0)/ms.length);
       h+=`<div class="cfac${pid!==mineP?" opp":""}"><div class="cf-h"><b>${prFacName(fk)}</b><span class="cf-n">${ms.length} members</span></div>
         <div class="cf-bar">Loyalty to their party ${a} ${caucusMeter(a,caucusColor({p:pid===mineP?"mine":"opp",L:a}))}</div>
-        <div class="cf-blurb">They want ${prFacWant(fk).toLowerCase()}.${pid===mineP?" Until they settle, they are unreliable on tax increases and a little further from your bills.":partners.includes(pid)?" A partner bench in revolt strains the coalition agreement.":" Their party's discipline against you is weaker while it lasts."}</div>
+        <div class="cf-blurb">They want ${prFacWantLower(fk)}.${pid===mineP?" Until they settle, they are unreliable on tax increases and a little further from your bills.":partners.includes(pid)?" A partner bench in revolt strains the coalition agreement.":" Their party's discipline against you is weaker while it lasts."}</div>
         <div class="cf-mems">${ms.map(m=>`<span class="cchip click" data-prm="${m.id}">#${(P.lists[m.party]||[]).indexOf(m.id)+1} ${m.n.split(" ").slice(-1)[0]}</span>`).join("")}</div>
-        ${pid===mineP||partners.includes(pid)?lpHTML("pf:"+fk,ms[0],fk.split(":")[1]):""}</div>`; });
+        ${(pid===mineP||partners.includes(pid))&&!prFacIsCoal(fk)?lpHTML("pf:"+fk,ms[0],fk.split(":")[1]):""}</div>`; });
     h+=`</div>`; }
   // party chips
   h+=`<div class="cch" style="margin-top:14px">`+tabParties.map(p=>`<button data-prp="${p}" class="${p===sel?"on":""}">${p==="ind"?"Independents":prPartyWord(p)} ${(GAME.legis.prCounts||{})[p]}${p===mineP?" · yours":partners.includes(p)?" · partner":""}</button>`).join("")+`</div>`;
