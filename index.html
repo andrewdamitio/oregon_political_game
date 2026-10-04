@@ -5042,9 +5042,9 @@ const SECTION_OF={
   govOps:"pubservices",
   // policies & agencies — taxes
   incomeTax:"taxes", cannabisTax:"taxes", corpTax:"taxes", salesTax:"taxes", gasTax:"taxes", vehicleReg:"taxes", evFee:"taxes", estateTax:"taxes", eitc:"taxes",
-  carbonTax:"taxes", taxCut:"taxes", kickerReform:"taxes", propTaxReform:"taxes", preschoolForAll:"taxes", persReform:"taxes",
+  carbonTax:"taxes", taxCut:"taxes", kickerReform:"taxes", propTaxReform:"taxes", persReform:"taxes",
   // public services
-  stateSchoolFund:"pubservices", universities:"pubservices", stateColleges:"pubservices", communityColleges:"pubservices",
+  stateSchoolFund:"pubservices", preschoolForAll:"pubservices", universities:"pubservices", stateColleges:"pubservices", communityColleges:"pubservices",
   higherEd:"pubservices", oregonPromise:"pubservices", phoneBanSchools:"pubservices", digitalGov:"pubservices", odot:"pubservices", motorVoter:"pubservices",
   rankedChoice:"pubservices", fullTimeLegislature:"pubservices", quorumReform:"pubservices",
   // law & order
@@ -6275,10 +6275,12 @@ const CATALOG={
     value:0.5, revenueFull:1.5, capital:9, enactCapital:13, taxDir:"burden",
     real:{min:0,max:60,unit:"$/ton",decimals:0,label:"price per ton"},
     effects:{environment:8,gdp:-0.3,gasPrice:0.45,taxBurden:7,electricRate:2.6}, ideology:{environment:-0.7,economic:-0.4,govSize:-0.3}},
-  // a rate cut, not a spending line: revenueBySource takes its dollars off the
-  // income tax and the corporate taxes (TAX_CUT_FULL a year at full strength)
-  taxCut:{name:"Across-the-Board Tax Cut", domain:"economy", icon:"chart-down", mechanic:"slider",
-    desc:"Cuts the personal income tax and the corporate taxes across every bracket, by up to $2.5B a year at full strength, split in proportion to what each raises. Popular with taxpayers and business; the hole it leaves in the General Fund forces service cuts.",
+  // A ONE-TIME BILL, not a standing law: passing it lowers the income tax and
+  // the corporate tax dials by the amount chosen (up to TAX_CUT_FULL a year),
+  // split in proportion to what each raises, and it stays in the catalog to
+  // be passed again. See applyTaxCut.
+  taxCut:{name:"Across-the-Board Tax Cut", domain:"economy", icon:"chart-down", mechanic:"slider", oneTime:true,
+    desc:"Cuts the personal income tax and the corporate taxes across every bracket, by up to $2.5B a year, split in proportion to what each raises. Popular with taxpayers and business; the hole it leaves in the General Fund forces service cuts.\n\nIt is a one-time bill, not a standing law. Passing it lowers the Personal Income Tax and Corporate Activity Tax rates on their own dials, where the cut stays, and the bill comes back here to be passed again if you want a deeper cut.",
     value:0.5, capital:10, enactCapital:14, taxDir:"cut",
     // per dollar, what cutting the income and corporate rates on the dials does
     effects:{gdp:0.13,unemployment:-0.09,taxBurden:-1.4}, ideology:{economic:0.7,govSize:0.6}},
@@ -13858,6 +13860,7 @@ function collectionFactor(){
 const BUDGET_OPEN_GAP=-1.5;
 /* $B a year the across-the-board tax cut takes off the income and corporate taxes. */
 const TAX_CUT_FULL=2.5;
+const TAX_CUT_DEF=CATALOG.taxCut?Object.assign({},CATALOG.taxCut):null;   // the bill as written, for an old save that lost it
 function taxCutAmount(){ const p=POLICIES.taxCut; return (p&&p.enacted!==false)?TAX_CUT_FULL*policyLevel(p):0; }
 function revenueBySource(){
   const out={};
@@ -19226,7 +19229,7 @@ function coalPass(id,value,why){
       return ((CATALOG[id]&&CATALOG[id].reform)?"Put "+nm+" to the voters":"Pass "+nm)+" within "+COAL_DEADLINE+" quarters"; },
     avail:()=>!!CATALOG[id]&&!POLICIES[id],
     snap:()=>GAME.turn,
-    met:v=>!!POLICIES[id]||!!pendingMeasure(id)||GAME.turn<(v||0)+COAL_DEADLINE,
+    met:v=>!!POLICIES[id]||!!pendingMeasure(id)||((GAME.enactedAt||{})[id]>=(v||0))||GAME.turn<(v||0)+COAL_DEADLINE,
     note:v=>(POLICIES[id]||pendingMeasure(id))?"":GAME.turn<(v||0)+COAL_DEADLINE?` (due in ${(v||0)+COAL_DEADLINE-GAME.turn}q)`:" (missed)"};
 }
 // a law you promise not to pass
@@ -29500,8 +29503,25 @@ function wirePolSearch(){
    response to a governor, and an initiative passed over your objection is
    not your doing however much you end up owning it. */
 function enactedViaBallot(id){ return (GAME.enactedVia||{})[id]==="ballot"; }
+/* The tax cut lands on the two rate dials. amt is $B a year; each rate falls
+   by the same share, so each tax gives up its proportion of the cut. */
+function applyTaxCut(amt){
+  const rv=revenueBySource(), ta=rv.personalIncome||0, tb=rv.corpActivity||0;
+  if(!(amt>0)||ta+tb<=0)return 0;
+  const f=Math.min(0.5, amt/(ta+tb));
+  for(const id of ["incomeTax","corpTax"]){ const p=POLICIES[id]; if(p)p.value=+Math.max(0,(p.value||0)*(1-f)).toFixed(4); }
+  return f;
+}
 function _applyEnact(id, level, via){
   const src=CATALOG[id]; if(!src)return;
+  if(src.oneTime&&id==="taxCut"){
+    const amt=TAX_CUT_FULL*Math.max(level||0, src.value||0)*(src.narrowed==null?1:src.narrowed);
+    const f=applyTaxCut(amt);
+    (GAME.enactedVia=GAME.enactedVia||{})[id]=via||"floor";
+    GAME.enactedAt[id]=GAME.turn;
+    GAME.log.push("\u2605 Passed the "+src.name+": $"+amt.toFixed(2)+"B a year off, both rates "+Math.round(f*100)+"% lower");
+    return;
+  }
   (GAME.enactedVia=GAME.enactedVia||{})[id]=via||"floor";
   const p=Object.assign({},src); delete p.enactCapital; p.enacted=true;
   p.eff=0;                       // effects phase in from zero
@@ -32618,7 +32638,17 @@ document.addEventListener("keydown",e=>{
   if(!btn)return;          // a decision is on screen: keys do nothing
   e.preventDefault(); btn.click();
 });
+/* A save from when the tax cut was a standing law: move its cut onto the two
+   rate dials and put the bill back in the catalog. */
+function migrateTaxCut(){
+  const p=POLICIES.taxCut; if(!p)return;
+  const amt=TAX_CUT_FULL*policyLevel(p);
+  delete POLICIES.taxCut;
+  applyTaxCut(amt);
+  if(!CATALOG.taxCut&&TAX_CUT_DEF)CATALOG.taxCut=Object.assign({},TAX_CUT_DEF);
+}
 function render(){
+  try{ migrateTaxCut(); }catch(e){}
   reportReturnCheck();
   sandboxTopUp(); mountSandboxFrame();
   renderHUD();renderSidebar();renderRailVoters();renderRailCompass();
