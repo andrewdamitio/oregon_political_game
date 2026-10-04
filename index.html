@@ -4214,7 +4214,7 @@ function indPolicyBoost(indId){
       b+=p.indicatorEffects[indId]*effLevelOf(p);
     // tier policies carry per-tier indicator effects
     if(p.mechanic==="tier"&&p.tierIndicatorEffects&&p.tierIndicatorEffects[p.tierIndex]&&p.tierIndicatorEffects[p.tierIndex][indId]!==undefined)
-      b+=p.tierIndicatorEffects[p.tierIndex][indId];
+      b+=p.tierIndicatorEffects[p.tierIndex][indId]*(p.landScaled?landUseIndustrialMult():1);
   }
   for(const aid in AGENCIES){
     const a=AGENCIES[aid];
@@ -5070,7 +5070,7 @@ const SECTION_OF={
   // new economy/education/health policies
   evIncentives:"environment", charterSchools:"pubservices", readingCurriculum:"pubservices", academicTracking:"pubservices",
   alcoholTax:"health", liquorControl:"economy", craftBevPromotion:"economy", smallBizSupport:"economy", agMinWageExempt:"economy",
-  deflectionProgram:"welfare", dataCenterEnergy:"economy", transmissionSiting:"environment", infraBank:"economy",
+  deflectionProgram:"welfare", industrialLand:"economy", dataCenterEnergy:"economy", transmissionSiting:"environment", infraBank:"economy",
   drugPossession:"laworder", sanctuaryRepeal:"laworder", parentalRights:"pubservices", policeShield:"laworder", spendingCap:"taxes",
   occupationalLicensing:"economy", civilServiceReform:"pubservices", certificateOfNeedRepeal:"health", prevailingWageRepeal:"economy",
   localPreemption:"economy", truthInSentencing:"laworder", electionAdmin:"pubservices", assetForfeiture:"laworder",
@@ -6105,6 +6105,35 @@ const CATALOG={
     value:0.5, costFull:1.5, capital:7, enactCapital:13,
     blocEffect:{parents:8, poor:4, liberal:3, socialist:3, publicUnions:2, blueCollar:2, conservative:-4, libertarian:-4, businessClass:-3, wealthy:-2},
     effects:{unemployment:-0.6,education:6,gdp:0.13,povertyRate:-2}, ideology:{economic:-0.5,social:-0.4,govSize:-0.5}},
+  /* INDUSTRIAL LAND READINESS. Not a tax break and not a capital budget: it
+     decides whether there is anywhere to build. It works inside Oregon's
+     land-use system and against it, so its worth and its cost both scale
+     with the Land Use setting (landUseIndustrialMult): where land is scarce,
+     freeing it is worth more and costs more. landScaled marks it for that. */
+  industrialLand:{name:"Industrial Land Readiness", domain:"economy", icon:"factory", mechanic:"tier", landScaled:true, phaseIn:6,
+    desc:"Whether Oregon keeps land ready for industry, and who decides where it goes. It applies to any manufacturer: chip fabs, battery and clean-energy plants, food processors, mass timber mills, port logistics. The semiconductor credit lowers what operating here costs, and the Infrastructure Capital Program builds the roads and pipes; this decides whether there is a site at all.\n\n"
+     +"Protect Industrial Land bars rezoning prime industrial land for housing or retail, as Oregon's Goal 9 and Portland's industrial sanctuary do. It keeps room for employers and takes some land from housing.\n\n"
+     +"State-Designated Sites lets the state name regionally significant industrial sites and override local zoning objections to them. Cities lose some control over their own land.\n\n"
+     +"Governor's Boundary Authority adds the power, as in SB 4 (2023), to pull large sites into urban growth boundaries outside the usual process. It frees the most land and converts farmland to do it.\n\n"
+     +"All of it works through the Land Use setting. Under strict growth boundaries, buildable industrial land is scarce, so each step is worth more and costs more: it eats into what the boundaries protect and angers the people who defend them. Under loose land use there is land to spare, and this does little either way.",
+    tiers:["Current Rules","Protect Industrial Land","State-Designated Sites","Governor's Boundary Authority"],
+    tierIndex:0, costByTier:[0,0,0.02,0.03], capital:9, enactCapital:13,
+    effects:{},
+    // the benefit terms (gdp, unemployment) scale with how scarce land is; so
+    // do the costs (environment, housing, local control, rural anger)
+    tierEffects:[{},
+      {gdp:0.08, unemployment:-0.10},
+      {gdp:0.18, unemployment:-0.20},
+      {gdp:0.30, unemployment:-0.30, environment:-2}],
+    tierIndicatorEffects:[{},
+      {businessClimate:2, housingAffordability:-2},
+      {businessClimate:4, housingAffordability:-2, localAutonomy:-6},
+      {businessClimate:6, housingAffordability:-1, localAutonomy:-8, ruralAlienation:3}],
+    tierBlocEffects:[{},
+      {blueCollar:2, businessClass:2, publicUnions:1, renters:-1, urban:-1},
+      {businessClass:4, blueCollar:3, moderate:1, urban:-2, suburban:-1},
+      {businessClass:6, blueCollar:4, liberal:-4, socialist:-2, collegeEducated:-2, rural:-3}],
+    tierIdeology:[{},{economic:0.1},{economic:0.25,govSize:0.1},{economic:0.4,environment:0.4,govSize:0.15}]},
   rndTaxCredit:{name:"R&D / Semiconductor Credit", domain:"economy", icon:"bulb", mechanic:"slider",
     desc:"Scalable credits to attract chip fabs and advanced manufacturing (Oregon CHIPS Act). Strong growth and jobs upside, but fabs are water- and power-hungry, drawing fire from environmental groups over aquifer drawdown and farmland conversion.",
     value:0.5, costFull:0.6, capital:6, enactCapital:10,
@@ -12160,6 +12189,15 @@ function tickEffSm(){
 /* Truancy pull on Public School Enrolment along its tier axis: soft tiers
    cost enrolment, the middle holds children in seats, the top drives some
    families to withdraw. Lerped and phase-in-aware. */
+/* How much the Land Use setting makes industrial land readiness worth, and
+   cost: Deregulated 25%, Light-touch 50%, Balanced 80%, Strong UGB 100%,
+   Strict Preservation 120%. */
+const LAND_IND_MULT=[0.25,0.5,0.8,1.0,1.2];
+function landUseIndustrialMult(){ return LAND_IND_MULT[LANDUSE.index]??1; }
+/* The level of industrial land readiness in force, 0 to 1, after phase-in:
+   a credit pays off more where there is somewhere to build. */
+function industrialLandLevel(){ const p=POLICIES.industrialLand; return p?effLevelOf(p):0; }
+const LAND_CREDIT_LIFT=0.25;
 function policyEffect(p,k){
   let raw;
   const eff=effLevelOf(p);
@@ -12171,6 +12209,9 @@ function policyEffect(p,k){
   } else {
     raw=(p.effects&&p.effects[k]!==undefined)?effExpr(p.effects[k],eff,"p:"+(p._id||p.name)+":"+k):0;
   }
+  if(p.landScaled)raw*=landUseIndustrialMult();
+  // the credits that bring manufacturers are worth more with sites to put them on
+  if(p===POLICIES.rndTaxCredit||p===POLICIES.reactorManufacturing)raw*=1+LAND_CREDIT_LIFT*industrialLandLevel()*landUseIndustrialMult();
   return raw*efficacy()*apptPolicyMult(p,k)*(p.revenueFull||p.noOverhead?1:serviceStrainMult())*nonprofitDragMult(p,k);
 }
 function tickPhase(){
@@ -27455,6 +27496,8 @@ function effectsBreakdownHTML(kind,obj){
   // PERS reform has no budget line of its own: it works through the pension
   // hole, so its page says what each setting does to the hole and the budget
   if(kind==="policy"&&(obj===POLICIES.persReform||obj===CATALOG.persReform))h+=persReformBudgetHTML(obj);
+  if(kind==="policy"&&obj&&obj.landScaled){ const m=landUseIndustrialMult();
+    h+=`<div class="whip-prev" style="margin:0 0 12px">${ico('map')} Your Land Use setting, <span class="sf-l" data-detail="landuse">${LANDUSE.presets[LANDUSE.index]}</span>, makes this worth <b>${Math.round(m*100)}%</b> and its costs <b>${Math.round(m*100)}%</b>. Stricter growth boundaries make freed land scarcer and every step more valuable, and more contested.</div>`; }
 
   // 1. EVERYTHING IT MOVES, IN ONE BOX. Metrics and indicators are the same
   // kind of thing to the player, so they are gathered first and drawn together:
@@ -28818,6 +28861,8 @@ function renderDetail(){
       <span class="pill dom">${DOMAINS[LANDUSE.domain].name}</span>
       <span class="pill">Current: ${LANDUSE.presets[LANDUSE.index]}</span></div>`;
     h+=floorShutNoteHTML("landuse");
+    { const il=POLICIES.industrialLand;
+      if(il&&il.tierIndex>0)h+=`<div class="whip-prev" style="margin:0 0 10px">${ico('factory')} <span class="sf-l" data-detail="p_industrialLand">Industrial Land Readiness</span> is in force at <b>${il.tiers[il.tierIndex]}</b>: an industrial carve-out from these rules. The stricter you set them, the more it is worth and the more it costs, ${Math.round(LAND_IND_MULT[LANDUSE.index]*100)}% at this setting.</div>`; }
     h+=`<div class="tiers" style="margin-bottom:12px">${LANDUSE.presets.map((p,i)=>`<span class="tier ${i===LANDUSE.index?'on':''}${floorShutFor("landuse")?' locked':''}" ${floorShutFor("landuse")?'':`data-landuse="${i}"`}>${p}</span>`).join("")}</div>`;
     h+=`<div class="sectionsub">At this setting — environment ${signed(LANDUSE.effects.environment[LANDUSE.index])}, housing affordability ${signed((2-LANDUSE.index)*4)}, which drives homelessness, GDP ${signed(LANDUSE.effects.gdp[LANDUSE.index],true)}.</div>`;
     if(pendActive)h+=`<div class="repealrow"><button class="undobtn" id="undoBtn">↩ Undo change (no capital)</button></div>`;
