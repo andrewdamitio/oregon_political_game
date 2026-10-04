@@ -11956,14 +11956,14 @@ function persReformBudgetHTML(p){
       +`<td>${M(nc)}</td><td>${t?M(cut*gf):"none"}</td><td>${rd?M(rd):"none"}</td></tr>`;
   });
   return `<div class="prb"><div class="ebgroup-label">What it does to the budget</div>
-    <div class="threshline">Every employer pays PERS a rate covering the pensions its workers earn this year, plus a payment that clears the old hole over ${PERS_AMORT_YEARS} years. Reform makes the pensions earned from now on cheaper, which lowers the rate straight away. The hole is <b>$${Math.round(GAME.persUAL||0)}B</b> today.</div>
+    <div class="threshline">Every employer pays PERS a rate covering the pensions its workers earn this year, plus a payment that clears the old hole in ${Math.round(persAmortLeft())} years on the current schedule. Reform makes the pensions earned from now on cheaper, which lowers the rate straight away. The hole is <b>$${Math.round(GAME.persUAL||0)}B</b> today.</div>
     <table class="prb-t"><thead><tr><th>Setting</th><th>Cost of new pensions a year (all employers)</th><th>General Fund saving a year</th><th>Members' money paid into the hole a year</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="threshline">The saving starts as soon as the reform is in force and lasts as long as it does. Benefits already earned cannot be touched (Moro v. State, 2015), so the old hole is paid down the same way under every setting; the redirected money only speeds that up.</div></div>`;
 }
 /* EMPLOYER CONTRIBUTIONS. The rate every PERS employer pays does two jobs,
    as the real PERS board sets it: it pays for the pensions current workers
    earn this year (the normal cost), in full, so new benefits do not add to
-   the hole; and it pays the hole down over PERS_AMORT_YEARS, like a mortgage,
+   the hole; and it pays the hole down on a fixed schedule, like a mortgage,
    at the fund's assumed return. The hole meanwhile grows by interest at that
    same rate, since the missing money earns nothing. With average markets the
    hole shrinks by the difference, about 2.5% a year; a market that beats or
@@ -11971,13 +11971,31 @@ function persReformBudgetHTML(p){
    The rate is in $B a year across all employers; the budget carries the
    General Fund's share of any change from where it started. PERS_NC0 is set
    so the starting rate is what it always was. */
-const PERS_ASSUMED=0.069, PERS_AMORT_YEARS=20, PERS_NC0=4.74;
-function persAmortFactor(){ const i=PERS_ASSUMED, n=PERS_AMORT_YEARS; return i/(1-Math.pow(1+i,-n)); }
+const PERS_ASSUMED=0.069, PERS_NC0=4.74;
+/* THE PAYDOWN SCHEDULE, in layers as PERS runs it. The hole on the schedule
+   (GAME.persBase) is paid off on a closed schedule: GAME.persAmortLeft years
+   remain, counting down a quarter at a time, and each payment is the level
+   payment that clears that layer when the count reaches zero. Everything the
+   markets add or take away after that (the rest of the hole) is its own
+   layer, paid off over PERS_AMORT_LAYER years at a time, so a late crash is
+   spread out instead of landing in the last few payments. Restarting the
+   schedule (the PERS page) folds the whole hole into one new schedule of the
+   chosen length: a longer one lowers the rate now and pays more interest in
+   all, which is what SB 1049 did in 2019 when it went to 22 years. */
+const PERS_AMORT_START=20, PERS_AMORT_LAYER=20, PERS_AMORT_FLOOR=0.25, PERS_AMORT_CHOICES=[15,20,22,30];
+const PERS_AMORT_CAPITAL=3, PERS_AMORT_COOL=4;
+function persAmortLeft(){ return GAME.persAmortLeft!=null?GAME.persAmortLeft:PERS_AMORT_START; }
+function persAmortFactorFor(n){ const i=PERS_ASSUMED; return i/(1-Math.pow(1+i,-Math.max(PERS_AMORT_FLOOR,n))); }
+function persAmortFactor(){ return persAmortFactorFor(persAmortLeft()); }
+function persBase(){ return GAME.persBase!=null?GAME.persBase:Math.max(0,GAME.persUAL||0); }
 /* What reform takes off the normal cost, $B a year: the cheaper benefit new
    service earns under each setting, at the pace service is being earned now. */
 function persNCcut(){ const w=(GAME.persWave!=null?GAME.persWave:1); return (PERS_ACCRUAL[0]-PERS_ACCRUAL[persReformLevel()])*w*4; }
 function persNormalCost(){ return Math.max(0, PERS_NC0-persNCcut()); }
-function persPaydown(){ return persAmortFactor()*Math.max(0,GAME.persUAL||0); }
+function persPaydown(){
+  const ual=Math.max(0,GAME.persUAL||0), base=Math.min(persBase(),ual), rest=ual-base;
+  return (persAmortLeft()>0?persAmortFactor()*base:0)+persAmortFactorFor(PERS_AMORT_LAYER)*rest;
+}
 function persRateCalc(){ return +clamp(persNormalCost()+persPaydown(), 2, 14).toFixed(3); }
 function persReformLevel(){ const p=POLICIES.persReform; return (p&&p.enacted)?(p.tierIndex||0):0; }
 function policyNetCost(p){
@@ -14057,6 +14075,11 @@ function tickEconomy(){
     const paydown   = persPaydown()/4;
     GAME.persUAL = +clamp(GAME.persUAL + interest - paydown - invEffect - PERS_REDIRECT[persLvl]/4, 0, 70).toFixed(3);
     GAME.persMarketSwing = +(-invEffect*4).toFixed(2);       // annualized, − = fund gaining
+    // the scheduled layer follows its schedule, whatever the markets do;
+    // and a quarter of the schedule has passed
+    { const b=persBase(), left=persAmortLeft();
+      GAME.persBase = left>0.25 ? +Math.max(0, b*(1+PERS_ASSUMED/4) - persAmortFactor()*b/4).toFixed(3) : 0; }
+    GAME.persAmortLeft = Math.max(0, +(persAmortLeft()-0.25).toFixed(2));
     GAME.persRate = persRateCalc();
   }
   // Oregon Health Plan enrollment — countercyclical: a downturn adds people who
@@ -28445,6 +28468,15 @@ function renderDetail(){
     main.innerHTML=renderFundDetail(key.slice(5));
     const bb=document.getElementById("fundBack");
     if(bb)bb.addEventListener('click',()=>{currentView="budget";detailKey=null;render();});
+    main.querySelectorAll('[data-persamort]').forEach(el=>el.addEventListener('click',e=>{
+      const n=+e.currentTarget.dataset.persamort; if(!(n>0))return;
+      if(GAME.turn-(GAME.persAmortT??-99)<PERS_AMORT_COOL)return;
+      if(!window.SANDBOX&&GAME.capital<PERS_AMORT_CAPITAL)return;
+      GAME.capital=clamp(GAME.capital-PERS_AMORT_CAPITAL,0,CAPITAL_MAX);
+      GAME.persAmortLeft=n; GAME.persBase=Math.max(0,GAME.persUAL||0); GAME.persAmortT=GAME.turn; GAME.persRate=persRateCalc();
+      GAME.log.push(ico('coffin')+" PERS paydown restarted at "+n+" years (\u25c8"+PERS_AMORT_CAPITAL+")");
+      render();
+    }));
     main.querySelectorAll('[data-persrisk]').forEach(el=>el.addEventListener('click',e=>{
       GAME.persRisk=e.currentTarget.dataset.persrisk;
       GAME.log.push(ico('coffin')+" PERS portfolio set to "+persRisk().label.toLowerCase());
@@ -30853,7 +30885,7 @@ const FUNDS={
       // annualized, and from the same function the model ticks on
       const excess=persExcessQ()*4*assets;
       const rows=[{name:"Employer contributions paying the hole down", v:persPaydown(),
-        note:"The part of every employer's PERS rate that pays off the hole over "+PERS_AMORT_YEARS+" years, like a mortgage. It is "+(persAmortFactor()*100).toFixed(1)+"% of the hole a year, so it shrinks as the hole does."},
+        note:"The part of every employer's PERS rate that pays off the hole on a fixed schedule, like a mortgage: "+Math.round(persAmortLeft())+" years left. It is "+((GAME.persUAL||0)>0.01?(persPaydown()/GAME.persUAL*100).toFixed(1):"0")+"% of the hole this year. Set the schedule below."},
         {name:"Employer contributions for this year's new pensions", v:0,
         note:"$"+persNormalCost().toFixed(2)+"B a year pays in full for the pensions current workers earn, so new service no longer adds to the hole."+(persReformLevel()>0?" PERS Reform has made new service cheaper.":"")}];
       if(excess>0)rows.push({name:"Investment return above the assumption", v:excess,
@@ -30863,10 +30895,10 @@ const FUNDS={
         note:"Part of each member's own retirement contribution, paid into the pension fund instead of their individual account."});
       return rows;
     },
-    note:()=>{ const ual=GAME.persUAL||0, net=ual*(persAmortFactor()-PERS_ASSUMED);
+    note:()=>{ const ual=GAME.persUAL||0, net=persPaydown()-ual*PERS_ASSUMED;
       const yrs=ual<0.5?0:Math.log(1-PERS_ASSUMED*ual/Math.max(1e-6,persPaydown()))/-Math.log(1+PERS_ASSUMED);
       return "Every school district, university and state agency pays a share of its payroll into PERS: $"+(GAME.persRate||0).toFixed(2)+"B a year now, the cost of new pensions plus the paydown. With average markets the hole shrinks by about $"+net.toFixed(1)+"B a year"
-        +(ual<0.5?" and is now closed.":", and is on course to close in about "+PERS_AMORT_YEARS+" years if markets match the assumption.")
+        +(ual<0.5?" and is now closed.":", and is on course to close in about "+Math.max(1,Math.round(persAmortLeft()))+" years if markets match the assumption.")
         +" A market that beats or misses the "+(PERS_ASSUMED*100).toFixed(1)+"% assumption moves it faster or slower, and a crash can set it back years."; }},
 
   debt:{ name:"Structural Debt", icon:"warning", series:"fund_debt", invert:true,
@@ -30894,7 +30926,7 @@ function renderFundDetail(id){
   h+=`<div class="ebgroup-label" style="margin-top:14px">Money in</div><div class="ebgroup">${inn.map(o=>row(o,1)).join("")}</div>`;
   h+=`<div class="ebgroup-label" style="margin-top:12px">Money out</div><div class="ebgroup">${out.map(o=>row(o,-1)).join("")}</div>`;
   h+=surplusDirectHTML(id);
-  if(id==="pers")h+=persRiskControlHTML();
+  if(id==="pers")h+=persRiskControlHTML()+persAmortControlHTML();
   if(id==="csf")h+=csfRiskControlHTML();
   const nt=(typeof F.note==="function")?F.note():F.note;
   h+=`<div class="lg-verdict" style="margin-top:14px">${nt}</div>`;
@@ -30954,6 +30986,28 @@ function csfRiskControlHTML(){
         <div class="fnote" style="margin-top:2px;opacity:.75">Long-run return on the corpus: <b>${(r.ret*100).toFixed(1)}%/yr</b> · market sensitivity <b>${(r.beta*400).toFixed(0)}%</b></div></span>
       <span class="rval">${on?"":`<button class="fcard-btn" data-csfrisk="${k}">Adopt</button>`}</span></div>`;
   }
+  return h;
+}
+/* THE PAYDOWN LENGTH. Each choice restarts the schedule at that many years.
+   What it shows: the paydown payment this year, the whole rate, what the
+   General Fund pays against today, and what the employers pay in all. */
+function persAmortControlHTML(){
+  const ual=Math.max(0,GAME.persUAL||0), left=persAmortLeft(), nc=persNormalCost();
+  const payShare=Object.values(PERS_PAYROLL).reduce((a,b)=>a+b,0), gf=0.35*payShare;
+  const nowPay=persPaydown(), since=GAME.turn-(GAME.persAmortT??-99), cool=since<PERS_AMORT_COOL;
+  const poor=!window.SANDBOX&&GAME.capital<PERS_AMORT_CAPITAL;
+  let h=`<div class="ebgroup-label" style="margin-top:16px">Paydown schedule</div>
+    <div class="fnote" style="margin-bottom:8px">How long employers have to pay off the hole. The schedule has <b>${Math.round(left)} years</b> left; anything the markets add or take away since is paid off over ${PERS_AMORT_LAYER} years of its own. Restarting it at a longer length lowers the rate straight away and pays more interest in all; a shorter one costs more now and clears the hole sooner. SB 1049 did this in 2019, going to 22 years. Changing it takes a bill: \u25c8${PERS_AMORT_CAPITAL}, and not again for ${PERS_AMORT_COOL} quarters.</div>`;
+  for(const n of PERS_AMORT_CHOICES){
+    const on=Math.abs(n-left)<0.13&&Math.abs(persBase()-ual)<0.01;
+    const pay=on?nowPay:persAmortFactorFor(n)*ual, d=(pay-nowPay)*gf, total=pay*n;
+    h+=`<div class="rrow" style="border-left:3px solid ${on?'var(--slate-blue)':'transparent'};padding-left:8px">
+      <span class="rlabel"><b>${n} years</b>${on?' <span style="color:var(--slate-blue)">\u2014 current</span>':''}${n===22?' <span class="fnote">(what SB 1049 chose)</span>':''}
+        <div class="fnote" style="margin-top:2px">Paydown ${fmtB(pay,2)} a year · rate ${fmtB(nc+pay,2)} · General Fund ${Math.abs(d)<0.005?"no change":(d>0?"+":"\u2212")+fmtB(Math.abs(d),2).replace(/^[-\u2212]/,"")+" a year"} · about ${fmtB(total,0)} paid in all</div></span>
+      <span class="rval">${on?"":`<button class="fcard-btn" data-persamort="${n}" ${(cool||poor)?"disabled":""}>Restart at ${n}</button>`}</span></div>`;
+  }
+  if(cool)h+=`<div class="fnote" style="margin-top:4px">Changed ${since} quarter${since===1?"":"s"} ago; it can be changed again in ${PERS_AMORT_COOL-since}.</div>`;
+  else if(poor)h+=`<div class="fnote" style="margin-top:4px">Not enough political capital (\u25c8${PERS_AMORT_CAPITAL}).</div>`;
   return h;
 }
 function persRiskControlHTML(){
@@ -31567,7 +31621,7 @@ function renderBudget(){
       h+=`<div class="fcard"><div class="fname">${ico('bank')} PERS — Unfunded Liability</div>
         <div class="fval" style="color:${funded>=0.8?'var(--warn)':'var(--clay)'}">${Math.round(ual)}B <span style="font-size:13.5px;color:var(--muted-3)">· ${Math.round(funded*100)}% funded</span></div>
         <div class="fbar2"><i style="width:${clamp((1-funded)/0.5*100,0,100)}%;background:var(--clay)"></i></div>
-        <div class="fnote">The hole between what PERS owes and what it holds. Employer contributions pay it down over ${PERS_AMORT_YEARS} years, and investment returns move it: ${swTxt}. Sets the employer contribution rate (<b>${GAME.persRate.toFixed(2)}B</b>), of which <b>${growth>=0?'+':''}${growth.toFixed(2)}B</b> above the starting rate is fresh pressure on the General Fund. ${POLICIES.persReform?'PERS Reform is making new pensions cheaper, which lowers the rate.':'PERS Reform would make new pensions cheaper and lower the rate.'}</div><button class="fcard-btn" data-fund="pers">${ico('wrench')} Manage →</button></div>`;
+        <div class="fnote">The hole between what PERS owes and what it holds. Employer contributions pay it down on a schedule with ${Math.round(persAmortLeft())} years left, and investment returns move it: ${swTxt}. Sets the employer contribution rate (<b>${GAME.persRate.toFixed(2)}B</b>), of which <b>${growth>=0?'+':''}${growth.toFixed(2)}B</b> above the starting rate is fresh pressure on the General Fund. ${POLICIES.persReform?'PERS Reform is making new pensions cheaper, which lowers the rate.':'PERS Reform would make new pensions cheaper and lower the rate.'}</div><button class="fcard-btn" data-fund="pers">${ico('wrench')} Manage →</button></div>`;
     }
     // Everything past here is a readout, not a fund: it goes to the State Budget tab.
     const fundCards=h; h="";
