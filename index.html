@@ -22252,7 +22252,11 @@ function prSeated(){ const P=GAME.pr; return P?Object.values(P.m).filter(m=>m.se
 /* A party's leader is the name at the top of its list. Yours is you. */
 function prLeaderOf(pid){ const P=GAME.pr, id=P&&P.lists&&P.lists[pid]&&P.lists[pid][0]; return id&&P.m[id]?P.m[id]:null; }
 function prFlank(w){ return w==null?"":w>0.34?"Left Flank":w<-0.34?"Right Flank":"Party Centre"; }
-function prListOpen(){ return prOn()&&nextBallotInfo().quartersAway>CAUCUS_PRIMARY_LEAD; }
+/* THE NEXT ASSEMBLY ELECTION. Under PR the Assembly is elected whole at the
+   general election only; the midterm carries ballot measures and nothing
+   else, so the list counts down to the general, not the next ballot. */
+function prNextAssembly(){ const L=GAME.termLengthTurns, into=GAME.turn-(GAME.term-1)*L; return {kind:"election", label:"the general election", quartersAway:Math.max(0,(L-1)-into)}; }
+function prListOpen(){ return prOn()&&prNextAssembly().quartersAway>CAUCUS_PRIMARY_LEAD; }
 function prListFill(pid,n){
   const P=GAME.pr, yr=GAME.startYear+Math.floor(GAME.turn/4), L=P.lists[pid]=P.lists[pid]||[];
   while(L.length<n){ const id="L"+(P.next++); P.m[id]={id, party:pid, n:prNewName(), since:GAME.turn, yr, g:0, L:null}; L.push(id); }
@@ -22303,7 +22307,7 @@ function prRecruit(){
    members of yours placed below the line know what it means, and those on
    the far side of the bubble feel it too. Queues list night. */
 function prListDay(){
-  const P=GAME.pr, nb=nextBallotInfo(); if(!P||nb.quartersAway!==CAUCUS_PRIMARY_LEAD||P.listDay===GAME.turn)return;
+  const P=GAME.pr, nb=prNextAssembly(); if(!P||nb.quartersAway!==CAUCUS_PRIMARY_LEAD||P.listDay===GAME.turn)return;
   P.listDay=GAME.turn;
   const pid=prMyParty(), fc=prForecast(), z=prListZones(fc), L=prListFill(pid,z.hi+5);
   const rows=[];
@@ -22349,7 +22353,7 @@ function showPrListNight(PL,next){
 }
 /* The Legislators page's list tab. */
 function prListTabHTML(){
-  const P=GAME.pr, pid=prMyParty(), fc=prForecast(), z=prListZones(fc), L=prListFill(pid,z.hi+5), open=prListOpen(), nb=nextBallotInfo();
+  const P=GAME.pr, pid=prMyParty(), fc=prForecast(), z=prListZones(fc), L=prListFill(pid,z.hi+5), open=prListOpen(), nb=prNextAssembly();
   const can=n=>open&&(window.SANDBOX||GAME.capital>=n);
   const wing=prFlank;
   const sit=L.map(id=>P.m[id]).filter(m=>m&&m.seat), zoneOf=m=>prListZone(L.indexOf(m.id)+1,z);
@@ -25193,7 +25197,7 @@ function prForecastHTML(){
 function prListSummaryHTML(fc){
   const P=GAME.pr; if(!prOn()||!P)return "";
   const pid=prMyParty(), z=prListZones(fc), L=P.lists[pid]||[], sit=L.map(id=>P.m[id]).filter(m=>m&&m.seat);
-  const n=k=>sit.filter(m=>prListZone(L.indexOf(m.id)+1,z)===k).length, nb=nextBallotInfo();
+  const n=k=>sit.filter(m=>prListZone(L.indexOf(m.id)+1,z)===k).length, nb=prNextAssembly();
   return `<div class="prf-head" style="margin-top:14px"><span>${ico('ballot')} Your party's list</span><span></span><span></span></div>
     <div class="prf-note">On this forecast <b>${n("safe")}</b> of your ${sit.length} sitting members ${n("safe")===1?"is":"are"} safe, <b>${n("bubble")}</b> ${n("bubble")===1?"is":"are"} on the bubble and <b>${n("out")}</b> ${n("out")===1?"is":"are"} below the line. ${prListOpen()?`The list locks ${nb.quartersAway-CAUCUS_PRIMARY_LEAD<=1?"next quarter":"in "+(nb.quartersAway-CAUCUS_PRIMARY_LEAD)+" quarters"}, two quarters before the election.`:"The list is locked until the election."}</div>
     <button class="enactbtn ghost" data-golist="1" style="font-size:13.5px;padding:7px 13px;margin-top:6px">Order your list on the Legislators page</button>`;
