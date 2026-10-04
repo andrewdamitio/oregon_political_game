@@ -17259,7 +17259,7 @@ function showExecOrderEvent(ev, next){
    same thing — what you can still pass for the rest of the term. */
 /* Is this quarter's start sequence already running (and so showing the report)? */
 function midtermSeqLive(){ const B=GAME.briefing; return !!(B&&B.steps&&B.turn===GAME.turn&&B.pos<B.steps.length); }
-function showMidterm(m){
+function showMidterm(m,next){
   const card=document.getElementById("midtermCard");
   const L=m.legis||{after:{senate:GAME.legis.senate,house:GAME.legis.house},
                     sSwing:0,hSwing:0,standingAfter:legisStanding(),standingBefore:legisStanding()};
@@ -17318,6 +17318,9 @@ function showMidterm(m){
     modal.classList.add("hidden");
     modal.classList.remove("grand");
     document.removeEventListener("keydown",onKey,true);
+    // what comes after the midterm comes after it, never over it: the
+    // quarter's briefing, report first, waits for this screen to close
+    if(next){ next(); return; }
     // the quarter's own sequence already opens with the report; opening it
     // again here replaced its handler and dropped every step queued after it
     if(!GAME.skipReport&&!midtermSeqLive())showQuarterReport();
@@ -17327,7 +17330,7 @@ function showMidterm(m){
   document.getElementById("midtermContinue").onclick=done;
   const mr=document.getElementById("midtermRevise");
   if(mr)mr.onclick=()=>{ modal.classList.add("hidden"); modal.classList.remove("grand"); document.removeEventListener("keydown",onKey,true);
-    showPlatformModal({revise:true, after:()=>{ if(!GAME.skipReport&&!midtermSeqLive())showQuarterReport(); }}); };
+    showPlatformModal({revise:true, after:()=>{ if(next){ next(); return; } if(!GAME.skipReport&&!midtermSeqLive())showQuarterReport(); }}); };
   document.addEventListener("keydown",onKey,true);
   setTimeout(()=>{try{document.getElementById("midtermContinue").focus({preventScroll:true});}catch(e){try{document.getElementById("midtermContinue").focus();}catch(_){}}},30);
 }
@@ -26042,7 +26045,8 @@ function doEndTurn(){
     startQuarterSequence();
   };
   const afterWalkout=()=>{
-    if(GAME.pendingMidterm){ const mt=GAME.pendingMidterm; GAME.pendingMidterm=null; showMidterm(mt); }
+    // the briefing opens when the midterm screen closes, not on top of it
+    if(GAME.pendingMidterm){ const mt=GAME.pendingMidterm; GAME.pendingMidterm=null; showMidterm(mt,brief); return; }
     brief();
   };
   const afterQuake=()=>{
