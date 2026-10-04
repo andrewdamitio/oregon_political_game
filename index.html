@@ -11009,6 +11009,8 @@ const SITUATIONS={
   measlesOutbreak:{name:"Measles Outbreak", kind:"bad", category:"event",
     desc:"A measles outbreak spreads through under-vaccinated schools (echoing the 2019 Clark County outbreak, 65+ cases). Oregon's nonmedical exemption rate is among the nation's highest.",
     metricEffect:{health:-2.5}, moodMag:1, minTurns:1, onTrigger:{capital:-3},
+    // parents remember an outbreak in their children's schools well after it ends
+    moodFade:0.65,
     groupMood:{suburban:-5,blueCollar:-3,parents:-5}},
   gopWalkout:{name:"Legislative Walkout", kind:"bad", category:"condition",
     get card(){ return walkoutCardLine("right"); },
@@ -13109,8 +13111,25 @@ function startSituation(sid){
     GAME.lastDilemmaResult={title:s.name, icon:"warning", choice:"No decision — this one you simply absorb", fx, noChoice:true, desc:sitStory(s)};
   }
 }
+/* WHAT A SITUATION DOES TO ONE GROUP'S MOOD while it runs: approvalTarget's
+   own terms for it, before the total is compressed. */
+function sitGroupMood(sid,gid){
+  const st=SITUATIONS[sid], S=SIMULANTS[gid]; if(!st||!S||S.static)return 0;
+  const sev=sitSeverity(sid), align=st.moodAxes?dot(st.moodAxes,S.ideology):0, mMag=st.moodMag||0;
+  let v=((st.kind==="good"?mMag:-mMag)+align*3)*sev;
+  if(st.groupMood&&st.groupMood[gid]!==undefined)v+=st.groupMood[gid]*sev*sitMoodMult(sid);
+  return v;
+}
+/* AN AFTERMATH. A situation with moodFade leaves its mood behind when it
+   ends, fading by that factor each quarter, instead of vanishing the
+   quarter it clears. Measured before the situation is removed. */
+function sitLeaveAftermath(sid){
+  const st=SITUATIONS[sid]; if(!st||!st.moodFade||!GAME.activeSituations[sid])return;
+  for(const gid in SIMULANTS){ const v=sitGroupMood(sid,gid); if(Math.abs(v)>=0.3)createGrudge("v_"+gid, v*st.moodFade, st.moodFade, "The aftermath of the "+st.name.toLowerCase()); }
+}
 function endSituation(sid,solved){
   const s=SITUATIONS[sid];
+  sitLeaveAftermath(sid);
   if(s&&s.cooldown)(GAME.eventCooldown=GAME.eventCooldown||{})[sid]=GAME.turn+s.cooldown;
   { const _s=SITUATIONS[sid]; if(_s&&typeof _s.onEnd==="function")try{ _s.onEnd(); }catch(e){} }
   delete GAME.activeSituations[sid]; delete GAME.situationAge[sid];
