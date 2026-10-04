@@ -656,6 +656,7 @@
   .pn-map path.pn-ow{fill:var(--gold);stroke:var(--ink);stroke-width:1} .pn-map path.pn-oh{fill:var(--muted-3);stroke:var(--ink);stroke-width:1}
   .pn-key{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted-2);margin-bottom:6px} .pn-key i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
   .pn-map path[data-pnn]{cursor:pointer;outline:none;stroke:var(--paper);stroke-width:0.8} .pn-map path[data-pnn]:hover,.pn-map path[data-pnn]:focus{filter:brightness(1.15);stroke:var(--ink);stroke-width:2}
+  .pn-map path.pn-off{fill:var(--paper-2);stroke:var(--line);stroke-width:0.8} .pn-key i.pn-off{background:var(--paper-2);border:1px solid var(--line)}
   .pn-map path.pn-raced{stroke:var(--ink);stroke-width:2.2}
   .pn-map path.pn-inc,.pn-key i.pn-inc{fill:var(--moss);background:var(--moss)}
   .pn-map path.pn-new,.pn-key i.pn-new{fill:#7fa36b;background:#7fa36b}
@@ -23637,7 +23638,10 @@ function primaryNomineeMap(P,fc){
   const pc=v=>Math.round((v||0)*100)+"%", used=new Set();
   const maps=[["h","house","House",OR_HOUSE_DISTRICTS],["s","senate","Senate",OR_SENATE_DISTRICTS]].map(([t,ch,nm,rows])=>{
     let n=0;
-    const paths=rows.map(r=>{ const id=r[0], k=t+id, m=C.m[k]; if(!m||!seatBoostable(ch,id))return "";
+    let off=0;
+    const paths=rows.map(r=>{ const id=r[0], k=t+id, m=C.m[k];
+      // a seat not on this ballot: drawn as its district, shaded, not as the counties under it
+      if(!m||!seatBoostable(ch,id)){ off++; return `<path class="pn-off" d="${r[1]}"></path>`; }
       const pr=(fc[ch]||{prob:{}}).prob[id], x=race[k], ret=caucusRetiring(k), nom=C.nom&&C.nom[k];
       let cls, say;
       if(m.p==="mine"){
@@ -23652,9 +23656,10 @@ function primaryNomineeMap(P,fc){
       return `<path class="${cls}${x?" pn-raced":""}" data-pnn="${k}" tabindex="0" d="${r[1]}"></path>`; }).join("");
     if(!n)return "";
     return `<figure class="pn-map"><svg viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Your party's nominees for the ${nm}">`
-      +OR_COUNTIES.map(c=>`<path d="${c[2]}" fill="var(--paper)" stroke="var(--line)" stroke-width="0.8"/>`).join("")+paths+`</svg><figcaption>${nm} · ${n} seat${n===1?"":"s"} on the ballot</figcaption></figure>`; }).join("");
+      +paths+`</svg><figcaption>${nm} · ${n} seat${n===1?"":"s"} on the ballot</figcaption></figure>`; }).join("");
   if(!maps)return {html:"",text};
-  const KEY=[["pn-inc","Your member running again"],["pn-new","New nominee, from a primary you backed"],["pn-open","Open seat, your member retiring"],["pn-chal","Their seat, your nominee challenging"],["pn-sd","Your party stood down"]];
+  if(maps.includes('class="pn-off"'))used.add("pn-off");
+  const KEY=[["pn-inc","Your member running again"],["pn-new","New nominee, from a primary you backed"],["pn-open","Open seat, your member retiring"],["pn-chal","Their seat, your nominee challenging"],["pn-off","Not on this ballot"],["pn-sd","Your party stood down"]];
   const key=KEY.filter(([c])=>used.has(c)).map(([c,l])=>`<span><i class="${c}"></i>${l}</span>`).concat(Object.keys(race).length?[`<span><i class="pn-raced-key"></i>Outlined: a contested primary</span>`]:[]);
   return {html:`<div class="eg-h3" style="margin-top:14px">Your party's nominees</div><div class="pn-maps">${maps}</div><div class="pn-key">${key.join("")}</div>`, text};
 }
