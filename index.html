@@ -464,6 +464,9 @@
   /* Legislators (party loyalty) */
   .cfacs{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px;margin:4px 0 6px}
   .cfac{background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;display:flex;flex-direction:column;gap:6px;cursor:pointer}
+  .cr-faclink{cursor:pointer;text-decoration:underline;text-decoration-color:var(--line-em);text-underline-offset:2px}
+  .cr-faclink:hover{color:var(--ink)}
+  .cfac.cfac-flash{box-shadow:0 0 0 3px var(--gold)}
   .cfac.on{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
   .cf-h{display:flex;justify-content:space-between;gap:8px;align-items:baseline;font-family:var(--font-display);font-size:16px}
   .cf-n{font-size:12px;color:var(--muted-2);font-family:var(--font-data);white-space:nowrap}
@@ -22544,7 +22547,7 @@ function renderPRLegislators(main,h){
   if(fks.length){ h+=`<div class="aarea">Wings in revolt</div><div class="cfacs">`;
     fks.forEach(fk=>{ const F=P.facs[fk], ms=F.ids.map(id=>P.m[id]).filter(m=>m&&m.seat&&m.party!=="ind"), pid=fk.split(":")[0]; if(!ms.length)return;
       const a=Math.round(ms.reduce((s,m)=>s+m.L,0)/ms.length);
-      h+=`<div class="cfac${pid!==mineP?" opp":""}"><div class="cf-h"><b>${prFacName(fk)}</b><span class="cf-n">${ms.length} members</span></div>
+      h+=`<div class="cfac${pid!==mineP?" opp":""}${window._prFac===fk?" on":""}" data-pfac="${fk}"><div class="cf-h"><b>${prFacName(fk)}</b><span class="cf-n">${ms.length} members</span></div>
         <div class="cf-bar">Loyalty to their party ${a} ${caucusMeter(a,caucusColor({p:pid===mineP?"mine":"opp",L:a}))}</div>
         <div class="cf-blurb">They want ${prFacWantLower(fk)}.${pid===mineP?" Until they settle, they are unreliable on tax increases and a little further from your bills.":partners.includes(pid)?" A partner bench in revolt strains the coalition agreement.":" Their party's discipline against you is weaker while it lasts."}</div>
         <div class="cf-mems">${ms.map(m=>`<span class="cchip click" data-prm="${m.id}">#${(P.lists[m.party]||[]).indexOf(m.id)+1} ${m.n.split(" ").slice(-1)[0]}</span>`).join("")}</div>
@@ -22561,7 +22564,7 @@ function renderPRLegislators(main,h){
   h+=`<div class="cmap-row"><div class="croster">`+list.map(m=>{ const rank=sel==="ind"?"":"#"+(P.lists[m.party].indexOf(m.id)+1), br=prBreaks(m);
       const lead=sel!==mineP&&sel!=="ind"&&P.lists[m.party]&&P.lists[m.party][0]===m.id;
       return `<div class="crow${m.id===pick?" on":""}" data-prm="${m.id}" tabindex="0"><span class="cr-code">${rank}</span>
-        <span class="cr-who"><b>${m.n}</b><i>${lead?"<b class=\"cr-fac\">Party leader</b> · ":""}${prFlank(m.wing||0)}${m.f?" · <b class=\"cr-fac\">"+prFacName(m.f)+"</b>":""}${P.demoted[m.id]?" · <b class=\"cr-fac\">demoted</b>":""}</i></span>
+        <span class="cr-who"><b>${m.n}</b><i>${lead?"<b class=\"cr-fac\">Party leader</b> · ":""}${prFlank(m.wing||0)}${m.f?" · <b class=\"cr-fac cr-faclink\" data-gofac=\""+m.f+"\">"+prFacName(m.f)+"</b>":""}${P.demoted[m.id]?" · <b class=\"cr-fac\">demoted</b>":""}</i></span>
         <span class="cr-views">${br.length?br.slice(0,2).map(i=>`<span class="cchip${m.v[i].conv?" conv":""}">${caucusViewLabel(i,m.v[i].pos)}</span>`).join(""):`<span class="cm-line">Party line</span>`}</span>
         <span class="cr-loy" style="color:${caucusColor({p:m.party===mineP?"mine":"opp",L:m.L})}">${Math.round(m.L)}</span></div>`; }).join("")+`</div>
     <div id="cmemFile">${pick?prMemberCard(P.m[pick]):""}</div></div>`;
@@ -22572,7 +22575,9 @@ function renderPRLegislators(main,h){
   main.querySelectorAll("[data-prdem]").forEach(b=>b.addEventListener("click",()=>prDemote(b.dataset.prdem)));
   main.querySelectorAll("[data-prexp]").forEach(b=>b.addEventListener("click",()=>prExpel(b.dataset.prexp)));
   lpWire(main); lpGoWire(main);
+  main.querySelectorAll("[data-pfac]").forEach(c=>c.addEventListener("click",ev=>{ if(ev.target.closest("button,select,[data-prm]"))return; window._prFac=window._prFac===c.dataset.pfac?null:c.dataset.pfac; render(); }));
   if(window._caucusScroll){ window._caucusScroll=false; caucusScrollToFile(); }
+  scrollToFaction();
 }
 function prMemberCard(m){
   const P=GAME.pr, mineP=prMyParty(), mine=m.party===mineP, rank=(P.lists[m.party]||[]).indexOf(m.id)+1, seats=(GAME.legis.prCounts||{})[m.party]||0;
@@ -22584,7 +22589,7 @@ function prMemberCard(m){
     <div class="cm-parts">${parts.map((p,i)=>`<span>${p[0]}<b class="${i&&p[1]>0.5?"up":p[1]<-0.5?"dn":""}">${i?(p[1]>0?"+":"")+Math.round(p[1]):Math.round(p[1])}</b></span>`).join("")}</div>`;
   if(m.party!=="ind"&&m.L<prAngryAt(m))h+=`<div class="cm-flag">${m.L<prLividAt(m)?"Livid: could cross to the neighbouring party with their seat.":"Angry with their leadership."}${mine?" No longer a reliable vote on a tax increase.":""}</div>`;
   h+=caucusVotesHTML(m,mine);
-  if(m.f)h+=`<div class="cm-flag">In the <b>${prFacName(m.f)}</b>.</div>`;
+  if(m.f)h+=`<div class="cm-flag">In the <b class="cr-faclink" data-gofac="${m.f}">${prFacName(m.f)}</b>. Its demands, and what you can promise it, are on its card under Wings in revolt.</div>`;
   if(isLeader)h+=`<div class="cm-flag">Leader of the ${prPartyWord(m.party)} party, at the top of its list.</div>`;
   if(P.demoted[m.id])h+=`<div class="cm-flag">Demoted: goes to the bottom of the list at the next election.</div>`;
   h+=`<div class="cm-sec">Views</div><div class="cm-views">`;
@@ -23199,7 +23204,7 @@ function renderCaucus(){
   h+=`<div class="croster">`+ks.map(k=>{ const m=C.m[k];
     return `<div class="crow${k===sel?" on":""}" data-cseat="${k}" tabindex="0">
       <span class="cr-code">${caucusCode(k)}</span>
-      <span class="cr-who"><b>${m.n}</b><i>${caucusPlace(m.ch,m.id)} · ${m.ind?"Ind":caucusPartyOf(m)==="D"?"Dem":"Rep"}${(()=>{ const t=caucusTraitsOf(k); return t.length?" · "+t.map(x=>x.label).join(", "):""; })()}${m.f?" · <b class=\"cr-fac\">"+caucusFactionName(m.f)+"</b>":""}${C.prim&&C.prim[k]?" · <b class=\"cr-fac\">primary backed</b>":""}${caucusCochair(k)?" · <b class=\"cr-fac\">co-chair</b>":""}${C.stand&&C.stand[k]?" · <b class=\"cr-fac\">you stood down</b>":""}${caucusOppHelp(k)?" · <b class=\"cr-fac\">you back them</b>":""}</i>${caucusRetireNote(k)?`<i class="cr-up cr-ret">${caucusRetireNote(k)}</i>`:""}${k[0]==="s"?`<i class="cr-up">${caucusSenateUp(k)}</i>`:""}</span>
+      <span class="cr-who"><b>${m.n}</b><i>${caucusPlace(m.ch,m.id)} · ${m.ind?"Ind":caucusPartyOf(m)==="D"?"Dem":"Rep"}${(()=>{ const t=caucusTraitsOf(k); return t.length?" · "+t.map(x=>x.label).join(", "):""; })()}${m.f?" · <b class=\"cr-fac cr-faclink\" data-gofac=\""+m.f+"\">"+caucusFactionName(m.f)+"</b>":""}${C.prim&&C.prim[k]?" · <b class=\"cr-fac\">primary backed</b>":""}${caucusCochair(k)?" · <b class=\"cr-fac\">co-chair</b>":""}${C.stand&&C.stand[k]?" · <b class=\"cr-fac\">you stood down</b>":""}${caucusOppHelp(k)?" · <b class=\"cr-fac\">you back them</b>":""}</i>${caucusRetireNote(k)?`<i class="cr-up cr-ret">${caucusRetireNote(k)}</i>`:""}${k[0]==="s"?`<i class="cr-up">${caucusSenateUp(k)}</i>`:""}</span>
       <span class="cr-views">${caucusBreakChips(m,2)}</span>
       <span class="cr-loy" style="color:${caucusLoyInk(m)}">${Math.round(m.L)}</span></div>`; }).join("")+`</div>`;
   main.innerHTML=h;
@@ -23219,6 +23224,7 @@ function renderCaucus(){
     p.addEventListener("keydown",ev=>{ if(ev.key==="Enter"){ ev.preventDefault(); pickSeat(p.dataset.cseat); } }); });
   main.querySelectorAll("[data-cfac]").forEach(c=>c.addEventListener("click",ev=>{ if(ev.target.closest("button,select,[data-cseat]"))return; const f=c.dataset.cfac; window._caucusFac=window._caucusFac===f?null:f; render(); }));
   main.querySelectorAll("[data-cfacoff]").forEach(b=>b.addEventListener("click",()=>{ window._caucusFac=null; render(); }));
+  setTimeout(scrollToFaction,0);
   lpWire(main); lpGoWire(main);
   main.querySelectorAll("[data-cprim]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation(); caucusBackPrimary(b.dataset.cprim); }));
   main.querySelectorAll("[data-cchair]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation();
@@ -23944,8 +23950,8 @@ function caucusMemberCard(k){
   if(mine)h+=`<div class="cm-vote${caucusAnger(m)?" bad":""}"><b>How they vote:</b> ${caucusVoteLine(m)}</div>`;
   h+=caucusVotesHTML(m,mine);
   if(m.f)h+=caucusFactionParts(m.f).opp
-    ? `<div class="cm-flag" style="color:var(--moss)">In the <b>${caucusFactionName(m.f)}</b>: at odds with their own leadership, and carrying less of their party's whip against you.</div>`
-    : `<div class="cm-flag">In the <b>${caucusFactionName(m.f)}</b>: angry enough to vote against you as a bloc.</div>`;
+    ? `<div class="cm-flag" style="color:var(--moss)">In the <b class="cr-faclink" data-gofac="${m.f}">${caucusFactionName(m.f)}</b>: at odds with their own leadership, and carrying less of their party's whip against you.</div>`
+    : `<div class="cm-flag">In the <b class="cr-faclink" data-gofac="${m.f}">${caucusFactionName(m.f)}</b>: angry enough to vote against you as a bloc.</div>`;
   if(m.switched!=null)h+=`<div class="cm-flag">${m.joined?"Crossed the floor to your party.":"Crossed the floor from your party."}</div>`;
   h+=walkoutMemberLine(k);
   if(!mine&&m.L<CAUCUS_LIVID&&m.switched==null)h+=`<div class="cm-flag" style="color:var(--moss)">Livid with their own party: could cross the floor to yours.</div>`;
@@ -25088,10 +25094,9 @@ function prCurveHTML(fc){
       d+=(i?"L":"M")+x(v).toFixed(1)+" "+(BASE-dens*(H-52)).toFixed(1);
     }
     // 2. hover a curve for its party: a wide invisible stroke carries the title
-    const tip=p.name+(p.id===fc.mine?' (yours)':'')+(inCo?', in your government':', outside it')+': most likely '+(f.share*100).toFixed(1)+'%, 8 in 10 between '+(f.lo*100).toFixed(1)+'% and '+(f.hi*100).toFixed(1)+'%';
     paths+='<path d="'+d+'" fill="none" style="stroke:'+p.col+'" stroke-width="'+(inCo?2.8:1.8)+'"'
       +(inCo?'':' stroke-opacity="0.55"')+' stroke-linejoin="round"/>'
-      +'<path class="fc-hit" d="'+d+'" fill="none" stroke="transparent" stroke-width="12"><title>'+tip+'</title></path>';
+      +'<path class="fc-hit" d="'+d+'" fill="none" stroke="transparent" stroke-width="12" data-fctip="'+p.id+'"></path>';
     ticks+='<line x1="'+x(f.mean).toFixed(1)+'" y1="'+(BASE-3)+'" x2="'+x(f.mean).toFixed(1)+'" y2="'+(BASE+3)+'" style="stroke:'+p.col+'" stroke-width="2"/>';
   }
   const thr=x(PR_THRESHOLD);
@@ -25135,7 +25140,7 @@ function prForecastHTML(){
     +prCurveHTML(fc)
     +'<div class="prf-key">'+PR_PARTIES.filter(p=>fc.parties[p.id].mean>=0.004).map(p=>{ const inCo=fc.coalIds.indexOf(p.id)>=0;
         return '<span><svg width="26" height="10" aria-hidden="true"><line x1="1" y1="5" x2="25" y2="5" style="stroke:'+p.col+'" stroke-width="'+(inCo?3:2)+'"'+(inCo?'':' stroke-opacity="0.55"')+'/></svg>'+p.short+(p.id===fc.mine?' (yours)':'')+'</span>'; }).join("")
-      +'</div><div class="prf-legend">A bold line is a party in your government, a faint one a party outside it; the dashed line is the threshold. Each curve is where that party\'s vote share is likely to land, and the tick under it is the middle of the range. Hover a curve for its party and numbers.</div>'
+      +'</div><div class="prf-legend">A bold line is a party in your government, a faint one a party outside it; the dashed line is the threshold. Each curve is where that party\'s vote share is likely to land, and the tick under it is the middle of the range. '+hv("Hover","Tap")+' a curve for its party and numbers.</div>'
     +'<div class="prf-head"><span>'+ico('handshake')+' In your government</span><span>share</span><span>seats</span></div>'
     +'<div class="prc-rows">'+inCo.map(row).join("")+'</div>'
     +'<div class="prf-total'+(fc.coal.seats>=LEGIS.majH?' ok':'')+'">'
@@ -25440,7 +25445,41 @@ function endangeredMembersHTML(hf,sf){
   return h;
 }
 /* hover readout on the forecast maps, and the zoom on them */
+/* The Assembly forecast's curves: the board's tooltip, not the browser's. */
+/* A faction's name on a member opens that faction's card: chosen, lit and
+   scrolled to, on the tab the member is on. */
+function goFaction(fk){
+  if(prOn()){ window._prFac=fk; }
+  else { window._caucusFac=fk; }
+  window._goFacScroll=true; render();
+}
+document.addEventListener("click",ev=>{ const t=ev.target.closest&&ev.target.closest("[data-gofac]"); if(!t)return; ev.stopPropagation(); ev.preventDefault(); goFaction(t.dataset.gofac); },true);
+function scrollToFaction(){
+  if(!window._goFacScroll)return; window._goFacScroll=false;
+  const fk=prOn()?window._prFac:window._caucusFac; if(!fk)return;
+  const el=document.querySelector(prOn()?'[data-pfac="'+CSS.escape(fk)+'"]':'[data-cfac="'+CSS.escape(fk)+'"]');
+  if(el){ el.scrollIntoView({block:"center",behavior:"smooth"}); el.classList.add("cfac-flash"); setTimeout(()=>el.classList.remove("cfac-flash"),1400); }
+}
+function wireCurveTips(root){
+  const svg=root.querySelector(".fc-curve"); if(!svg)return;
+  let tip=document.getElementById("fcTip");
+  if(!tip){ tip=document.createElement("div"); tip.id="fcTip"; tip.className="board-tip"; tip.style.display="none"; document.body.appendChild(tip); }
+  const fc=window._prFc||prForecast(), pct=v=>(v*100).toFixed(1)+"%", prev=(GAME.legis&&GAME.legis.prShares)||{};
+  svg.querySelectorAll("[data-fctip]").forEach(el=>{
+    const p=prParty(el.dataset.fctip), f=fc.parties[p.id], inCo=fc.coalIds.indexOf(p.id)>=0, v=prev[p.id];
+    const html=`<div class="bt-name"><i style="display:inline-block;width:11px;height:11px;background:${p.col}"></i>${p.name}${p.id===fc.mine?" (yours)":""}</div>
+      <div class="bt-meta">${inCo?"In your government":"Outside your government"}</div>
+      <div class="bt-val">Most likely ${pct(f.share)} · 8 in 10 between ${pct(f.lo)} and ${pct(f.hi)}</div>
+      <div class="bt-val">${f.seats} seats, ${f.sLo} to ${f.sHi}${v!=null?" · last election "+pct(v):""}</div>`;
+    const move=ev=>{ tip.style.left=Math.min(window.innerWidth-tip.offsetWidth-12,ev.clientX+14)+"px"; tip.style.top=(ev.clientY+16)+"px"; };
+    el.addEventListener("mouseenter",ev=>{ tip.innerHTML=html; tip.style.display="block"; move(ev); });
+    el.addEventListener("mousemove",move);
+    el.addEventListener("mouseleave",()=>{ tip.style.display="none"; });
+    el.addEventListener("click",ev=>{ tip.innerHTML=html; tip.style.display="block"; move(ev); });
+  });
+}
 function wireForecast(root){
+  wireCurveTips(root);
   wireMapZoom(root);
   root.querySelectorAll('[data-sbk]').forEach(b=>b.addEventListener('click',ev=>{ ev.stopPropagation();
     const [ch,id]=b.dataset.sbk.split("|"); if(seatBoost(ch,+id))renderInPlace(); }));
