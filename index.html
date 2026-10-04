@@ -2394,6 +2394,7 @@
   .cmap-info .ci-row span:last-child{font-family:var(--font-data);color:var(--muted-1);text-align:right}
   .cmap-info .ci-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:13px}
   .cmap-info .ci-tags span{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:3px 9px;font-size:12px;color:var(--muted-1)}
+  .cmap-info .ci-dim{font-style:normal;color:var(--muted-3);font-size:12px;margin-left:4px}
   .cmap-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted-2);margin-top:14px}
   .cmap-legend span{display:flex;align-items:center;gap:5px}
   .cmap-legend i{width:22px;height:10px;border-radius:var(--radius);display:inline-block;border:1px solid var(--line-faint)}
@@ -17758,6 +17759,33 @@ function cmapShades(mode){
       caption:"Your approval among the voters who live in each county, right now. This is the same number election night counts, so a wall of red east of the Cascades is a real problem and not a cosmetic one."
     };
   }
+  if(mode==="change"){
+    const cd=countyData(), a0=GAME.countyApp0||{};
+    return {
+      fill:r=>{ const d=((cd[r[0]]||{}).approval||45)-(a0[r[0]]!=null?a0[r[0]]:45);
+        return d>=0 ? cmMix(clamp(d/10,0,1)*0.9+0.08, "#e7e3d5", "#2f5130")
+                    : cmMix(clamp(-d/10,0,1)*0.9+0.08, "#e7e3d5", "#93242a"); },
+      legend:[{c:"#93242a",label:"Lost ground"},{c:"#e7e3d5",label:"No change"},{c:"#2f5130",label:"Gained ground"}],
+      caption:"How your approval in each county has moved since you took office. Ten points either way is the darkest shade."
+    };
+  }
+  if(mode==="lastrace"){
+    const L=GAME.lastGovRace||{counties:[]}, by={}; for(const c of L.counties)by[c.name]=c;
+    return {
+      fill:r=>{ const c=by[r[0]]; if(!c)return "#e7e3d5"; const m=(c.you-c.opp)*100;
+        return m>=0 ? cmMix(clamp(m/30,0,1)*0.85+0.15, "#e7e3d5", "#2f5130")
+                    : cmMix(clamp(-m/30,0,1)*0.85+0.15, "#e7e3d5", "#93242a"); },
+      legend:[{c:"#93242a",label:"Carried by the "+oppPartyName()},{c:"#e7e3d5",label:"Close"},{c:"#2f5130",label:"Carried by you"}],
+      caption:"How each county voted in the "+(L.year||"last")+" governor's race. The darker the shade, the wider the margin."
+    };
+  }
+  if(mode==="camp"){
+    return {
+      fill:r=>{ const cc=GAME.countyCamp&&GAME.countyCamp[r[0]]; return cmMix(cc?clamp(ccTotal(cc)/COUNTY_CAMP_CAP,0,1):0, "#e7e3d5", "#8a6a1f"); },
+      legend:[{c:"#e7e3d5",label:"No presence"},{c:"#8a6a1f",label:"Strong presence"}],
+      caption:"Where your campaign has worked. Presence lifts your vote and turnout on election night, fades a little each quarter, and some of it settles into lasting local organization."
+    };
+  }
   if(mode==="bloc"){
     const cd=countyData();
     const nm=(SIMULANTS[cmapBloc]||{name:cmapBloc}).name;
@@ -17792,8 +17820,11 @@ function renderCountyMap(){
   const svg=`<svg class="cmap-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Oregon county map">${paths}${labels}</svg>`;
   // no "Political lean" view: the electorate map already shows who lives
   // where, and each county's lean is in its own panel
-  const modes=[["electorate","Electorate"],["approval","Your approval"],["bloc","Where a group lives"],["urban","Urban–rural"]];
-  if(cmapMode==="lean")cmapMode="electorate";
+  const modes=[["electorate","Electorate"],["approval","Your approval"]]
+    .concat(GAME.countyApp0&&GAME.turn>0?[["change","Since you took office"]]:[])
+    .concat(GAME.lastGovRace&&GAME.lastGovRace.counties.length?[["lastrace","Last election"]]:[])
+    .concat([["camp","Campaign presence"],["bloc","Where a group lives"],["urban","Urban–rural"]]);
+  if(!modes.some(m=>m[0]===cmapMode))cmapMode="electorate";
   const modeBtns=modes.map(([k,l])=>`<button data-mode="${k}" class="${k===cmapMode?"on":""}">${l}</button>`).join("");
   // the group picker only matters in bloc mode
   const blocOpts=Object.keys(SIMULANTS).filter(sid=>SIMULANTS[sid]&&!SIMULANTS[sid].static&&SIMULANTS[sid].size)
@@ -17813,10 +17844,8 @@ function renderCountyMap(){
     <div class="cmap-layout">
       ${svg}
       <div class="cmap-info" id="cmapInfo">
-        <h4>All 36 counties</h4>
-        <div class="ci-sub">${hv("Hover or tab to a county for detail","Tap a county for detail")}</div>
-        <div class="ci-row" style="border-bottom:2px solid var(--line)"><span><b>Biggest shares of voters</b></span><span></span></div>
-        ${top5}
+        ${cmapSummaryHTML(cmapMode,top5)}
+        <div class="ci-sub" style="margin-top:12px">${hv("Hover or tab to a county for its detail","Tap a county for its detail")}</div>
         <div class="cmap-legend">${legend}</div>
       </div>
     </div>`;
@@ -17876,7 +17905,77 @@ function renderCountyMap(){
   main.querySelectorAll(".cmap-modes button").forEach(b=>b.addEventListener("click",()=>{ cmapMode=b.dataset.mode; renderCountyMap(); }));
   const bsel=document.getElementById("cmapBlocSel");
   if(bsel)bsel.addEventListener("change",()=>{ cmapBloc=bsel.value; renderCountyMap(); });
+  const hq=document.getElementById("cmapHQ");
+  if(hq)hq.onclick=()=>{ GAME.campTab="reelect"; currentView="camphq"; detailKey=null; render(); };
   wireBackBtn();
+}
+/* THE SIDE PANEL BEFORE YOU PICK A COUNTY: what the map in front of you
+   adds up to, statewide, for whichever way it is shaded. */
+function cmapSummaryHTML(mode, top5){
+  const rows=OR_COUNTIES, tot=rows.reduce((a,r)=>a+r[6],0), cd=countyData();
+  const app=n=>(cd[n]||{approval:45}).approval, pop=n=>{ const r=rows.find(x=>x[0]===n); return r?r[6]/tot:0; };
+  const pc=v=>(v*100).toFixed(1)+"%";
+  const row=(l,r,c)=>`<div class="ci-row"><span>${l}</span><span${c?` style="color:${c}"`:""}>${r}</span></div>`;
+  const hdr=t=>`<div class="cg-hdr">${t}</div>`;
+  const appCol=a=>a>=52?'var(--good)':a>=44?'var(--warn)':'var(--bad)';
+  const byApp=rows.map(r=>({n:r[0],a:app(r[0]),p:r[6]/tot})).sort((x,y)=>y.a-x.a);
+  if(mode==="approval"){
+    const ahead=byApp.filter(x=>x.a>=50), aheadP=ahead.reduce((a,x)=>a+x.p,0);
+    const big=byApp.slice().sort((x,y)=>y.p-x.p).slice(0,6);
+    return `<h4>Where you stand</h4>
+      <div class="ci-sub">More approve of you than not in ${ahead.length} of 36 counties, home to ${pc(aheadP)} of Oregon's voters.</div>
+      ${hdr("The six biggest counties")}${big.map(x=>row(x.n+` <i class="ci-dim">${pc(x.p)} of voters</i>`,Math.round(x.a)+"%",appCol(x.a))).join("")}
+      ${hdr("Your strongest")}${byApp.slice(0,3).map(x=>row(x.n,Math.round(x.a)+"%",appCol(x.a))).join("")}
+      ${hdr("Your weakest")}${byApp.slice(-3).reverse().map(x=>row(x.n,Math.round(x.a)+"%",appCol(x.a))).join("")}`;
+  }
+  if(mode==="change"){
+    const a0=GAME.countyApp0||{}, ch=rows.map(r=>({n:r[0],d:app(r[0])-(a0[r[0]]!=null?a0[r[0]]:app(r[0])),p:r[6]/tot})).sort((x,y)=>y.d-x.d);
+    const net=ch.reduce((a,x)=>a+x.d*x.p,0), f=d=>(d>=0?"+":"\u2212")+Math.abs(d).toFixed(1)+" pts", c=d=>d>=0.05?'var(--good)':d<=-0.05?'var(--bad)':'inherit';
+    const up=ch.filter(x=>x.d>=0.05).length, dn=ch.filter(x=>x.d<=-0.05).length;
+    return `<h4>Since you took office</h4>
+      <div class="ci-sub">Weighted by voters, your approval across the state has moved <b style="color:${c(net)}">${f(net)}</b>. You have gained ground in ${up} counties and lost it in ${dn}.</div>
+      ${hdr("Biggest gains")}${ch.slice(0,4).map(x=>row(x.n,f(x.d),c(x.d))).join("")}
+      ${hdr("Biggest losses")}${ch.slice(-4).reverse().map(x=>row(x.n,f(x.d),c(x.d))).join("")}`;
+  }
+  if(mode==="lastrace"){
+    const L=GAME.lastGovRace, cs=L.counties.slice(), won=cs.filter(c=>c.win==="you").length;
+    const close=cs.slice().sort((x,y)=>Math.abs(x.you-x.opp)-Math.abs(y.you-y.opp)).slice(0,4);
+    return `<h4>The ${L.year} election</h4>
+      <div class="ci-sub">You ${L.won?"won":"lost"} with ${pc(L.share)} of the vote and carried ${won} of 36 counties.</div>
+      ${hdr("The closest counties")}${close.map(c=>row(c.name,`You ${Math.round(c.you*100)} · ${oppPartyName()} ${Math.round(c.opp*100)}`,c.win==="you"?'var(--good)':'var(--bad)')).join("")}
+      <div class="cg-note">Margins this narrow are where campaign presence and a few points of approval decide the next race.</div>`;
+  }
+  if(mode==="camp"){
+    const cc=GAME.countyCamp||{}, worked=rows.map(r=>({n:r[0],f:cc[r[0]]?clamp(ccTotal(cc[r[0]])/COUNTY_CAMP_CAP,0,1):0})).filter(x=>x.f>0.02).sort((x,y)=>y.f-x.f);
+    const targets=rows.map(r=>({n:r[0],v:countyReceptiveness(r[0]),f:cc[r[0]]?ccTotal(cc[r[0]])/COUNTY_CAMP_CAP:0})).filter(x=>x.f<0.9).sort((x,y)=>y.v-x.v).slice(0,4);
+    return `<h4>Your campaign presence</h4>
+      <div class="ci-sub">${worked.length?`You have worked ${worked.length} of 36 counties.`:"You have not worked any county yet."} Campaign energy is spent county by county in Campaign HQ.</div>
+      ${worked.length?hdr("Where you have worked")+worked.slice(0,6).map(x=>row(x.n,campStrengthWord(x.f))).join(""):""}
+      ${hdr("Where a visit does the most now")}${targets.map(x=>row(x.n,campValueWord(x.v))).join("")}
+      <div class="cg-note">A visit does the most where a county is in play, and least where you are safe or buried.</div>
+      <button class="enactbtn ghost" id="cmapHQ" style="margin-top:10px;font-size:13.5px;padding:7px 13px">Open Campaign HQ</button>`;
+  }
+  if(mode==="bloc"){
+    const S=SIMULANTS[cmapBloc]||{name:cmapBloc,size:0,approval:50};
+    const conc=rows.map(r=>{ const d=cd[r[0]], f=d&&d.allSids?d.allSids.find(x=>x.sid===cmapBloc):null; return {n:r[0],o:f?f.over:0}; }).sort((x,y)=>y.o-x.o);
+    return `<h4>${S.name}</h4>
+      <div class="ci-sub">${Math.round((S.size||0)*100)}% of Oregon's voters. <b style="color:${appCol(S.approval)}">${Math.round(S.approval)}%</b> of them approve of you.</div>
+      ${hdr("Where they are most concentrated")}${conc.slice(0,6).map(x=>row(x.n,x.o.toFixed(1)+"\u00d7")).join("")}
+      <div class="cg-note">A multiple of their share of the whole state.</div>`;
+  }
+  if(mode==="urban"){
+    const tiers=[["City & suburbs",u=>u>=0.6],["Small-town",u=>u>0.42&&u<0.6],["Rural",u=>u<=0.42]].map(([l,f])=>{
+      let p=0,a=0; for(const r of rows){ const u=(COUNTY_PROFILE[r[0]]||{urb:0.4}).urb; if(!f(u))continue; p+=r[6]/tot; a+=app(r[0])*r[6]/tot; }
+      return {l,p,a:p>0?a/p:0}; });
+    return `<h4>City, town and country</h4>
+      <div class="ci-sub">Oregon's voters by the kind of county they live in, and how each part of the state rates you.</div>
+      ${hdr("Share of voters, and your approval")}${tiers.map(t=>row(`${t.l} <i class="ci-dim">${pc(t.p)} of voters</i>`,Math.round(t.a)+"%",appCol(t.a))).join("")}`;
+  }
+  const metro=["Multnomah","Washington","Clackamas"].reduce((a,n)=>a+pop(n),0);
+  return `<h4>All 36 counties</h4>
+    <div class="ci-sub">The three Portland-metro counties hold ${pc(metro)} of Oregon's voters.</div>
+    <div class="ci-row" style="border-bottom:2px solid var(--line)"><span><b>Biggest shares of voters</b></span><span></span></div>
+    ${top5}`;
 }
 /* Election-night breakdown: turnout + first-preference vote for every interest
    group. Voters belong to several groups at once, so the bars overlap. */
@@ -25595,6 +25694,9 @@ function doElectionTurn(){
   // the Assembly chooses the governor: no race of your own tonight
   if(prParliament()&&!flippedByMeasure){ render(); showAssemblyNight(legis); return; }
   const res=runElection(); res.measures=measures; res.legis=legis;
+  // kept for the county map's "last election"
+  GAME.lastGovRace={year:GAME.startYear+Math.floor(GAME.turn/4), share:res.share, won:!!res.won,
+    counties:(res.counties||[]).map(c=>({name:c.name, you:c.share, opp:c.opp, win:c.win}))};
   // re-elected: the party rallies, the more so the bigger the margin
   if(res.won&&!flippedByMeasure){ const m=(res.share-0.5)*200;
     partyElectionRally(clamp(3+m*0.35+((legis&&(legis.hSwing||0)+(legis.sSwing||0))||0)*0.2,3,12), "Re-elected by "+Math.abs(m).toFixed(0)+" points"); }
@@ -33281,6 +33383,9 @@ function bootWorld(startId){
   GAME.agendaBase=null;                        // re-taken from the world as dealt
   GAME.voterDrift=null;                        // a new electorate starts where it was built
   GAME.compassStart=agendaVector();            // where the mandate sits on the political compass
+  // approval county by county as you found it, for the map's "since you took office"
+  _ctyData=null; { const cd0=countyData(); GAME.countyApp0={}; for(const n in cd0)GAME.countyApp0[n]=+cd0[n].approval.toFixed(2); }
+  GAME.lastGovRace=null;
   // the electorate as inherited — every later size is held in a band round this
   GAME.sizeAnchor={}; for(const sid in SIMULANTS)GAME.sizeAnchor[sid]=SIMULANTS[sid].size;
   GAME.makeupShift={};
