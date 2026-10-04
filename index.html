@@ -19717,6 +19717,7 @@ function coalSignLate(pid){
   C.terms=C.terms||{}; C.posts=C.posts||{}; C.snap=C.snap||{};
   C.terms[pid]=ids; C.posts[pid]=coalPostsFor(pid,ids);
   apptInstallPartners([pid]);
+  coalitionFlankReaction([pid]);
   C.snap[pid]={};
   for(const d of coalTerms(pid)){ try{ C.snap[pid][d.id]=d.snap(); }catch(e){ C.snap[pid][d.id]=0; } }
 }
@@ -19771,6 +19772,34 @@ function coalitionSeatIds(){
   return out;
 }
 /* Sign the agreement: record what every promise was measured against. */
+/* WHO YOU GOVERN WITH, AS THE BENCHES SEE IT. Every member of your party
+   and of your partners reads each other party in the government against
+   where they sit themselves: their party's place on the left-right line,
+   moved toward their flank. A party close by is welcome, one far off is
+   resented. A Democratic Left Flank takes Working Families gladly and the
+   Constitution party badly, and the Constitution party's own members feel
+   the same about sitting with you. It lands once, when a party joins, and
+   fades like any other grievance. */
+const COAL_FLANK_SHIFT=0.4;
+function coalitionFlankReaction(joining){
+  prEnsure(); const P=GAME.pr; if(!P||!GAME.coalition)return;
+  const mine=prMyParty(), gov=[mine].concat(GAME.coalition.partners||[]);
+  const flankTot={};
+  for(const m of prSeated()){ if(gov.indexOf(m.party)<0)continue;
+    const x=(prParty(m.party).z||0)+(m.wing||0)*COAL_FLANK_SHIFT;
+    // every newly joined party, read by everyone already in; and a newcomer's
+    // members read the whole government they are joining
+    const others=joining.indexOf(m.party)>=0?gov.filter(q=>q!==m.party):joining.filter(q=>q!==m.party);
+    for(const q of others){
+      const d=Math.abs(x-(prParty(q).z||0)), amt=+clamp(-(d-1.0)*6,-14,5).toFixed(1);
+      if(Math.abs(amt)<0.5)continue;
+      m.g=clamp((m.g||0)+amt,-20,20); m.L=clamp(m.L+amt*0.8,0,100);
+      caucusNote(m,"_coal_"+q,(amt>0?"Glad to govern with ":"Resents governing with ")+prPartyWord(q),amt);
+      if(m.party===mine){ const f=prFlank(m.wing||0); (flankTot[f]=flankTot[f]||{sum:0,n:0,q}); flankTot[f].sum+=amt; flankTot[f].n++; if(amt<flankTot[f].sum/flankTot[f].n)flankTot[f].q=q; } } }
+  // the flank of yours that took it worst, in the log
+  let worst=null; for(const f in flankTot){ const a=flankTot[f].sum/flankTot[f].n; if(!worst||a<worst.a)worst={f,a,q:flankTot[f].q}; }
+  if(worst&&worst.a<=-2)GAME.log.push(ico('people')+" Your "+worst.f+" resents the deal with "+prPartyWord(worst.q)+".");
+}
 function formCoalition(partners,offers,walked){
   const terms={}, posts={}, snap={}, mood={};
   let bonus=0;
@@ -19790,6 +19819,7 @@ function formCoalition(partners,offers,walked){
   if(bonus)GAME.capital=clamp(GAME.capital-bonus,0,CAPITAL_MAX);
   apptInstallPartners(partners);   // the departments the agreement promised
   GAME.pendingCoalition=null;
+  if(partners.length)coalitionFlankReaction(partners);
   if(partners.length)
     GAME.log.push(ico('handshake')+" Government formed with "
       +partners.map(p=>prParty(p).short).join(" and ")
@@ -22103,8 +22133,11 @@ function prBreaks(m){
 }
 /* Loyalty starts by list position: the member at the cutoff owes the party
    the most. */
+// Fixed at the place they held when the election seated them: moving others
+// on the list mid-term used to move a member's angry line under them, so a
+// member could turn against you with nothing about them changed.
 function prBase(m){ const P=GAME.pr, list=(P.lists[m.party]||[]), seats=(GAME.legis.prCounts||{})[m.party]||1;
-  const r=Math.max(0,list.indexOf(m.id)); return 86+8*clamp(r/Math.max(1,seats-1),0,1); }
+  const r=m.seatRank!=null?m.seatRank:Math.max(0,list.indexOf(m.id)); return 86+8*clamp(r/Math.max(1,seats-1),0,1); }
 function prAngryAt(m){ return Math.min(74, prBase(m)-18); }
 function prLividAt(m){ return Math.min(45, prBase(m)-45); }
 function prSat(m){
@@ -22151,7 +22184,7 @@ function prSync(){
     const lean=GAME.legis.prSeatLean||[], pos=(GAME.legis.prLeans||{})[pid]||prParty(pid).lean||50, w=Math.max(4,(prParty(pid).spread||0.4)*20);
     // who is seated follows the list; where in the bench they sit (their wing) does not
     const who=P.lists[pid].slice(0,seats.length).sort((x,y)=>caucusRng(x+"|seat")()-caucusRng(y+"|seat")());
-    seats.forEach((seat,j)=>{ const id=who[j], m=P.m[id]; P.seatOf[seat]=id; m.seat=seat;
+    seats.forEach((seat,j)=>{ const id=who[j], m=P.m[id]; P.seatOf[seat]=id; m.seat=seat; m.seatRank=P.lists[pid].indexOf(id);
       m.wing=clamp(((lean[seat-1]!=null?lean[seat-1]:pos)-pos)/w,-1,1);
       if(!m.v)m.v=prViews(m); });
     P.lists[pid].slice(seats.length).forEach(id=>{ P.m[id].seat=null; });
@@ -22370,8 +22403,10 @@ function prTick(){
     const t=prCross(m,to); if(t)news.push(t); }
   // your members who became angry or livid this quarter
   for(const m of prSeated()){ if(m.party!==prMyParty())continue; const b=before[m.id]; if(b==null)continue;
-    if(m.L<prLividAt(m)&&b>=prLividAt(m))news.push(prTitle(m)+" (list #"+(P.lists[m.party].indexOf(m.id)+1)+") is livid: "+Math.round(b)+" → "+Math.round(m.L)+".");
-    else if(m.L<prAngryAt(m)&&b>=prAngryAt(m))news.push(prTitle(m)+" (list #"+(P.lists[m.party].indexOf(m.id)+1)+") has turned against you: "+Math.round(b)+" → "+Math.round(m.L)+"."); }
+    const why=()=>{ const pull=prTargetParts(m).slice(1).filter(x=>x[1]<0).sort((x,y)=>x[1]-y[1])[0]; return pull?" The biggest pull: "+pull[0].charAt(0).toLowerCase()+pull[0].slice(1)+" ("+Math.round(pull[1])+").":""; };
+    const dp=Math.round(b)===Math.round(m.L)?1:0, fmtL=v=>v.toFixed(dp);
+    if(m.L<prLividAt(m)&&b>=prLividAt(m))news.push(prTitle(m)+" (list #"+(P.lists[m.party].indexOf(m.id)+1)+") is livid with you: loyalty "+fmtL(b)+" → "+fmtL(m.L)+", under the "+Math.round(prLividAt(m))+" where a member could cross to another party."+why());
+    else if(m.L<prAngryAt(m)&&b>=prAngryAt(m))news.push(prTitle(m)+" (list #"+(P.lists[m.party].indexOf(m.id)+1)+") is now angry with you: loyalty "+fmtL(b)+" → "+fmtL(m.L)+", under the "+Math.round(prAngryAt(m))+" where a member counts as angry, so no longer reliable on a tax increase."+why()); }
   lpCheck().forEach(t=>news.push(t));
   P.qFrom=before;
   if(news.length&&GAME.turn>1)GAME.pendingCaucusNews={turn:GAME.turn, pr:true, lines:news, title:news.length===1?"The Assembly":"The Assembly: "+news.length+" developments"};
