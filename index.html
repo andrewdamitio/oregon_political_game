@@ -13191,7 +13191,28 @@ const OPP_WEATHER=["wildfireSeason","droughtWater","heatDome","cascadiaQuake","g
 // running is slight on purpose: momentum only settles back toward 24 at 6% of
 // the gap a quarter, so half a point a crisis on the six you inherit would
 // hold it near 74 on that alone
-const OPP_CRISIS_START=2, OPP_CRISIS_RUN=0.15, OPP_CRISIS_END=8;
+const OPP_CRISIS_START=2, OPP_CRISIS_RUN=0.4, OPP_CRISIS_END=8;
+/* AN UNPOPULAR LAW IS AMMUNITION. Each law you pass is weighed by who it
+   pleases and angers, by how many of them there are and how many vote. One
+   that is a net loss hands the opposition an attack line: OPP_LAW_HEAT
+   momentum per point of that loss, landing over the next few quarters as
+   the attack runs and fades (half each quarter). Popular laws give them
+   nothing to attack, so they do not count. */
+const OPP_LAW_HEAT=0.8, OPP_LAW_FLOOR=-0.5;
+function lawPopularity(p){
+  const be=(p&&p.mechanic==="tier"&&p.tierBlocEffects)?p.tierBlocEffects[p.tierIndex||0]:(p&&p.blocEffect);
+  let v=0; for(const b in (be||{})){ const S=SIMULANTS[b]; if(S&&!S.static)v+=be[b]*(S.size||0)*(S.turnout||0.6); }
+  return v;
+}
+function oppLawHeatTick(o){
+  const seen=o.lawsSeen||(o.lawsSeen=Object.keys(GAME.enactedAt||{}));
+  const fresh=Object.keys(GAME.enactedAt||{}).filter(id=>seen.indexOf(id)<0&&POLICIES[id]);
+  o.lawsSeen=Object.keys(GAME.enactedAt||{});
+  o.lawHeat=(o.lawHeat||0)*0.5; o.lawNames=(o.lawNames||[]).filter(x=>x.t>=GAME.turn-3);
+  for(const id of fresh){ const v=lawPopularity(POLICIES[id]); if(v>OPP_LAW_FLOOR)continue;
+    o.lawHeat+=-v*OPP_LAW_HEAT; o.lawNames.push({n:POLICIES[id].name, t:GAME.turn}); }
+  return o.lawHeat;
+}
 function oppCrisisIds(){
   return Object.keys(GAME.activeSituations).filter(x=>SITUATIONS[x]&&SITUATIONS[x].kind==="bad"&&OPP_WEATHER.indexOf(x)<0);
 }
@@ -13210,6 +13231,7 @@ function tickOpposition(){
   }
   m += OPP_CRISIS_RUN*nowIds.length;
   o.prevBadIds=nowIds; o.prevBad=nowIds.length; o.seen=true;
+  m += oppLawHeatTick(o);                                   // unpopular laws you passed
   if((GAME.structuralDebt||0)>1) m += 1.4;
   if((GAME.lastBalance||0)>1.5) m -= 1.2;
   m += Math.max(0, Math.abs(agendaRightwardShift())-4)*0.22;   // off-mandate drift is a wedge
@@ -13227,6 +13249,7 @@ function oppositionBarb(){
   if(m<24) bank.push(`With your numbers holding, ${nm}'s bench looks thin — no serious challenger has stepped up.`);
   if(m>=24&&m<45) bank.push(`${nm} is testing attack lines but hasn't landed a punch.`);
   if(debt>1) bank.push(`${nm} hammered the ${fmtB(debt,1)} structural deficit on the chamber floor.`);
+  const law=(o.lawNames||[]).slice(-1)[0]; if(law&&law.t>=GAME.turn-1) bank.push(`${nm} is running against ${law.n}, and finding an audience.`,`${nm} called ${law.n} proof that you are not listening.`);
   if(t>4) bank.push(`${nm} says you've governed well to the right of the voters who elected you.`);
   if(t<-4) bank.push(`${nm} cast your agenda as being far to the left of your own coalition.`);
   const bigBad=Object.keys(GAME.activeSituations).find(s=>SITUATIONS[s]&&SITUATIONS[s].kind==="bad"&&SITUATIONS[s].category!=="chronic");
@@ -13377,7 +13400,8 @@ function oppDrivers(){
   const o=GAME.opposition||{momentum:25}, oa=overallApproval(), rows=[];
   rows.push(["Your approval ("+oa.toFixed(0)+"%)", clamp((48-oa)*0.32,-6,4.5)]);
   rows.push(["The national mood", -NATIONAL_MOOD.value*0.35]);
-  const nc=oppCrisisIds().length; if(nc)rows.push([nc+" unresolved crisis"+(nc===1?"":"es"), OPP_CRISIS_RUN*nc]);
+  const nc=oppCrisisIds().length; if(nc)rows.push([nc+" unresolved "+(nc===1?"crisis":"crises"), OPP_CRISIS_RUN*nc]);
+  if((o.lawHeat||0)>=0.05){ const ns=(o.lawNames||[]).map(x=>x.n); rows.push(["Unpopular laws you passed"+(ns.length?" ("+ns.slice(-2).join(", ")+")":""), (o.lawHeat||0)*0.5]); }
   if((GAME.structuralDebt||0)>1)rows.push(["The structural deficit", 1.4]);
   if((GAME.lastBalance||0)>1.5)rows.push(["A budget surplus", -1.2]);
   const drift=Math.max(0,Math.abs(agendaRightwardShift())-4)*0.22; if(drift)rows.push(["Governing off your mandate", drift]);
@@ -13445,7 +13469,7 @@ function oppositionTabHTML(){
   h+=`<div class="rsection"><div class="rsec-h">What is moving it this quarter</div>`
     +dr.map(r=>`<div class="rrow"><span class="rlabel">${r[0]}</span><span class="rval" style="color:${r[1]>0?'var(--bad)':'var(--good)'}">${sg(r[1])}</span></div>`).join("")
     +`<div class="rrow opp-net"><span class="rlabel"><b>Net, before any new crisis</b></span><span class="rval" style="color:${net>0?'var(--bad)':'var(--good)'}"><b>${sg(net)}</b></span></div>`
-    +`<div class="sectionsub" style="margin:6px 0 0;font-size:12.5px">A crisis that starts adds ${OPP_CRISIS_START}, each one running adds ${OPP_CRISIS_RUN} a quarter, and ending one takes ${OPP_CRISIS_END} off. Weather and natural disasters do not count.</div></div>`;
+    +`<div class="sectionsub" style="margin:6px 0 0;font-size:12.5px">A crisis that starts adds ${OPP_CRISIS_START}, each one running adds ${OPP_CRISIS_RUN} a quarter, and ending one takes ${OPP_CRISIS_END} off. A law that loses you more voters than it wins hands them an attack line that adds momentum for a few quarters. Weather and natural disasters do not count.</div></div>`;
   // their campaign
   const iss=oppIssues();
   h+=`<div class="rsection"><div class="rsec-h">What they are running on</div>`
