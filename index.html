@@ -1013,12 +1013,6 @@
   .cm-watch b{font-family:var(--font-data)}
   .cm-tr{font-family:var(--font-data);font-size:11.5px;color:var(--muted-3)}
   .cm-clear{margin-left:auto;font-size:11.5px;color:var(--muted-3)}
-  .cm-lev-h{font-family:var(--font-display);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-2);margin:6px 0 3px;border-top:1px solid var(--line);padding-top:5px}
-  .cm-lev{display:flex;align-items:center;gap:6px;width:100%;background:none;border:0;padding:3px 2px;cursor:pointer;text-align:left;font:inherit;font-size:12.5px;color:var(--ink);border-radius:var(--radius)}
-  .cm-lev:hover,.cm-lev:focus-visible{background:var(--paper)}
-  .cm-lev .ico{width:13px;height:13px;flex:none}
-  .cm-lev span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:underline;text-decoration-color:var(--line-em);text-underline-offset:2px}
-  .cm-lev em{font-style:normal;font-size:11px;color:var(--moss);font-weight:600;flex:none}
   .crisis-name{font-family:var(--font-display);font-size:15px;font-weight:600;margin-bottom:3px}
   .crisis-desc{font-size:12.5px;color:var(--muted-2);line-height:1.3;display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
   /* A magnitude-9 rupture is not one card in a row of five: it takes the full
@@ -28484,7 +28478,6 @@ function renderBoard(){
     }
   }
   // ---- active crises at the top ----
-  setTimeout(()=>{ document.querySelectorAll("[data-cmlev]").forEach(b=>b.addEventListener("click",ev=>{ ev.stopPropagation(); openDetail(b.dataset.cmlev); })); },0);
   const crises=Object.keys(GAME.activeSituations).filter(sid=>!(walkoutOn()&&(sid==="gopWalkout"||sid==="demWalkout"))).sort((a,b)=>{
     // the Big One leads the board for as long as it is running
     const rank=s=>s==="cascadiaQuake"?-1:(SITUATIONS[s].category==="chronic"?0:(SITUATIONS[s].kind==="bad"?1:2));
@@ -29937,53 +29930,16 @@ function policyControlHTML(id,p){
 function signed(v,dollar){const s=v>=0?'+':'';return dollar?(s+v.toFixed(1)):(s+v.toFixed(0));}
 
 /* ---------- NEW POLICIES (catalog) ---------- */
-/* WHAT MOVES THIS. A crisis card on the Governing Board as a place to start:
-   the measure the crisis follows, where it stands, which way it went last
-   quarter and where it clears; then the strongest levers you could pull on
-   it now, each one click from the card: a law you have not passed, a
-   setting you could raise, an agency you could fund, an order you could
-   sign. Read only from effects the game already shows on each lever's own
-   page. Crises with no measure to watch keep their description. */
+/* A CRISIS CARD'S MEASURE. The measure the crisis follows on the Governing
+   Board: where it stands, which way it went last quarter and where it
+   clears. Which levers move it is for the player to work out. Crises with
+   no measure to watch keep their description. */
 function crisisWatchRows(s){
   // a crisis watches a statistic (metric) or an indicator; both read the same way
   const W=s&&s.watch, k0=W&&(W.metric||W.indicator); if(!k0)return [];
   const rows=[{k:k0, clear:W.clearAt, down:!!W.badHigh}];
   if(W.alsoMetric)rows.push({k:W.alsoMetric, clear:W.alsoClearAt, down:!W.alsoAbove});
   return rows.filter(r=>METRICS[r.k]||INDICATORS[r.k]);
-}
-function crisisLevers(rows, n){
-  const out=[];
-  // how much a change helps across the watched measures, positive = toward clearing
-  const helps=(fx,ix,f)=>{ let h=0; for(const r of rows){ const raw=METRICS[r.k]?(fx||{})[r.k]:(ix||{})[r.k]; if(raw===undefined)continue; const d=f(raw); h+=r.down?-d:d; } return h; };
-  const full=v=>effExpr(v,1);
-  // laws not yet passed: their full strength, or their strongest setting
-  for(const id in CATALOG){ const p=CATALOG[id]; if(!p||p.reform||(id==="countyPayments"&&typeof m5Reformed==="function"&&m5Reformed()))continue;
-    let h=helps(p.effects,p.indicatorEffects,full);
-    if(Array.isArray(p.tierEffects))p.tierEffects.forEach((te,t)=>{ const ti=(p.tierIndicatorEffects||[])[t]; h=Math.max(h,helps(te,ti,v=>+v||0)); });
-    if(h>0.05)out.push({h, id, link:"p_"+id, icon:p.icon, name:p.name, verb:"pass"}); }
-  // laws in force with room to go further
-  for(const id in POLICIES){ const p=POLICIES[id]; if(!p)continue;
-    if(Array.isArray(p.tiers)&&Array.isArray(p.tierEffects)&&p.mechanic==="tier"){
-      const cur=p.tierIndex||0, top=p.tiers.length-1; if(cur>=top)continue;
-      const now=p.tierEffects[cur]||{}, nowI=(p.tierIndicatorEffects||[])[cur]||{};
-      let best=0; for(let t=cur+1;t<=top;t++){ const te=p.tierEffects[t]||{}, ti=(p.tierIndicatorEffects||[])[t]||{};
-        const h=helps(te,ti,v=>+v||0)-helps(now,nowI,v=>+v||0); if(h>best)best=h; }
-      if(best>0.05)out.push({h:best, id, link:"p_"+id, icon:p.icon, name:p.name, verb:"go further"});
-      continue; }
-    if(p.mechanic!=="slider")continue;
-    const lv=policyLevel(p); if(lv>=0.95)continue;
-    const h=helps(p.effects,p.indicatorEffects,v=>effExpr(v,1)-effExpr(v,lv))+0;
-    if(h>0.05)out.push({h, id, link:"p_"+id, icon:p.icon, name:p.name, verb:"raise"}); }
-  // agencies short of full funding
-  for(const id in AGENCIES){ const a=AGENCIES[id], f=a.funding??0.5; if(f>=0.98)continue;
-    const h=helps(a.effects,a.indicatorEffects,v=>typeof v==="number"?v*(1-f):effExpr(v,1)-effExpr(v,f));
-    if(h>0.05)out.push({h, id, link:"a_"+id, icon:a.icon, name:a.name, verb:"fund"}); }
-  // executive orders not in force
-  for(const id in EXEC_ORDERS){ const E=EXEC_ORDERS[id]; if(eoLive(id))continue;
-    const h=helps(E.effects,E.indicatorEffects,v=>+v||0);
-    if(h>0.05)out.push({h, id, link:"eo_"+id, icon:E.icon, name:E.name, verb:E.emergency?"declare":"sign"}); }
-  out.sort((a,b)=>b.h-a.h);
-  return out.slice(0,n||3);
 }
 function crisisMovesHTML(sid){
   const s=SITUATIONS[sid]; if(!s||s.kind==="good")return "";
@@ -29995,9 +29951,7 @@ function crisisMovesHTML(sid){
       if(Math.abs(d)>=0.05){ const good=r.down?d<0:d>0; tr=`<span class="cm-tr" style="color:${good?'var(--good)':'var(--bad)'}">${d>0?"▲":"▼"}${Math.abs(d).toFixed(1)}</span>`; }
       else tr=`<span class="cm-tr">steady</span>`; }
     return `<div class="cm-watch">${ico(M.icon||"chart-up")} ${M.name} <b>${Math.round(v)}</b>${tr}<span class="cm-clear">${r.clear!=null?`clears ${r.down?"below":"above"} ${r.clear}`:""}</span></div>`; }).join("");
-  const lev=crisisLevers(rows,3);
-  return `<div class="crisis-moves">${lines}
-    ${lev.length?`<div class="cm-lev-h">What moves it</div>${lev.map(l=>`<button type="button" class="cm-lev" data-cmlev="${l.link}">${ico(l.icon||"doc")}<span>${l.name}</span><em>${l.verb}</em></button>`).join("")}`:""}</div>`;
+  return `<div class="crisis-moves">${lines}</div>`;
 }
 function renderPolicies(){
   syncNuclearBills();
