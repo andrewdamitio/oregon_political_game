@@ -1012,6 +1012,7 @@
   .cm-watch .ico{width:13px;height:13px;flex:none}
   .cm-watch b{font-family:var(--font-data)}
   .cm-tr{font-family:var(--font-data);font-size:11.5px;color:var(--muted-3)}
+  .cm-or{font-family:var(--font-display);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-3);margin:2px 0 1px}
   .cm-clear{margin-left:auto;font-size:11.5px;color:var(--muted-3)}
   .crisis-name{font-family:var(--font-display);font-size:15px;font-weight:600;margin-bottom:3px}
   .crisis-desc{font-size:12.5px;color:var(--muted-2);line-height:1.3;display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
@@ -29932,9 +29933,19 @@ function signed(v,dollar){const s=v>=0?'+':'';return dollar?(s+v.toFixed(1)):(s+
 /* ---------- NEW POLICIES (catalog) ---------- */
 /* A CRISIS CARD'S MEASURE. The measure the crisis follows on the Governing
    Board: where it stands, which way it went last quarter and where it
-   clears. Which levers move it is for the player to work out. Crises with
-   no measure to watch keep their description. */
-function crisisWatchRows(s){
+   clears. Which levers move it is for the player to work out. A crisis with
+   two ways out shows both, split by "or". Crises with no measure to watch
+   keep their description. */
+function crisisWatchRows(sid){
+  const s=SITUATIONS[sid];
+  // two routes out (SITUATIONS.nonprofitComplex.clear): homelessness under 48
+  // with less than $0.7B a year routed through the nonprofits, or the state
+  // re-taking control of the contract layer past 78%
+  if(sid==="nonprofitComplex")return [
+    {icon:"handshake", name:"Nonprofit spending", val:"$"+nonprofitSpend().toFixed(1)+"B/yr", cond:"clears under $0.7B"},
+    {k:"homelessness", clear:48, down:true, cond:"and below 48"},
+    {or:true},
+    {icon:"scales", name:"State control of contracts", val:Math.round(nonprofitControl()*100)+"%", cond:"above 78%"}];
   // a crisis watches a statistic (metric) or an indicator; both read the same way
   const W=s&&s.watch, k0=W&&(W.metric||W.indicator); if(!k0)return [];
   const rows=[{k:k0, clear:W.clearAt, down:!!W.badHigh}];
@@ -29943,14 +29954,17 @@ function crisisWatchRows(s){
 }
 function crisisMovesHTML(sid){
   const s=SITUATIONS[sid]; if(!s||s.kind==="good")return "";
-  const rows=crisisWatchRows(s); if(!rows.length)return "";
-  const lines=rows.map(r=>{ const M=METRICS[r.k]||INDICATORS[r.k], v=M.value;
+  const rows=crisisWatchRows(sid); if(!rows.length)return "";
+  const lines=rows.map(r=>{
+    if(r.or)return `<div class="cm-or">or</div>`;
+    if(!r.k)return `<div class="cm-watch">${ico(r.icon)} ${r.name} <b>${r.val}</b><span class="cm-clear">${r.cond}</span></div>`;
+    const M=METRICS[r.k]||INDICATORS[r.k], v=M.value;
     const hist=(GAME.history||{})[(METRICS[r.k]?"m_":"i_")+r.k]||[];
     let tr="";
     if(hist.length>=2){ const d=hist[hist.length-1].value-hist[hist.length-2].value;
       if(Math.abs(d)>=0.05){ const good=r.down?d<0:d>0; tr=`<span class="cm-tr" style="color:${good?'var(--good)':'var(--bad)'}">${d>0?"▲":"▼"}${Math.abs(d).toFixed(1)}</span>`; }
       else tr=`<span class="cm-tr">steady</span>`; }
-    return `<div class="cm-watch">${ico(M.icon||"chart-up")} ${M.name} <b>${Math.round(v)}</b>${tr}<span class="cm-clear">${r.clear!=null?`clears ${r.down?"below":"above"} ${r.clear}`:""}</span></div>`; }).join("");
+    return `<div class="cm-watch">${ico(M.icon||"chart-up")} ${M.name} <b>${Math.round(v)}</b>${tr}<span class="cm-clear">${r.cond||(r.clear!=null?`clears ${r.down?"below":"above"} ${r.clear}`:"")}</span></div>`; }).join("");
   return `<div class="crisis-moves">${lines}</div>`;
 }
 function renderPolicies(){
