@@ -6110,14 +6110,14 @@ const CATALOG={
      land-use system and against it, so its worth and its cost both scale
      with the Land Use setting (landUseIndustrialMult): where land is scarce,
      freeing it is worth more and costs more. landScaled marks it for that. */
-  industrialLand:{name:"Industrial Land Readiness", domain:"economy", icon:"factory", mechanic:"tier", landScaled:true, phaseIn:6,
+  industrialLand:{name:"Industrial Land Readiness", domain:"economy", icon:"factory", mechanic:"tier", landScaled:true, phaseIn:6, tierMin:1, noZeroTier:true,
     desc:"Whether Oregon keeps land ready for industry, and who decides where it goes. It applies to any manufacturer: chip fabs, battery and clean-energy plants, food processors, mass timber mills, port logistics. The semiconductor credit lowers what operating here costs, and the Infrastructure Capital Program builds the roads and pipes; this decides whether there is a site at all.\n\n"
      +"Protect Industrial Land bars rezoning prime industrial land for housing or retail, as Oregon's Goal 9 and Portland's industrial sanctuary do. It keeps room for employers and takes some land from housing.\n\n"
      +"State-Designated Sites lets the state name regionally significant industrial sites and override local zoning objections to them. Cities lose some control over their own land.\n\n"
      +"Governor's Boundary Authority adds the power, as in SB 4 (2023), to pull large sites into urban growth boundaries outside the usual process. It frees the most land and converts farmland to do it.\n\n"
      +"All of it works through the Land Use setting. Under strict growth boundaries, buildable industrial land is scarce, so each step is worth more and costs more: it eats into what the boundaries protect and angers the people who defend them. Under loose land use there is land to spare, and this does little either way.",
     tiers:["Current Rules","Protect Industrial Land","State-Designated Sites","Governor's Boundary Authority"],
-    tierIndex:0, costByTier:[0,0,0.02,0.03], capital:9, enactCapital:13,
+    tierIndex:0, costByTier:[0,0.01,0.02,0.03], capital:9, enactCapital:13,
     effects:{},
     // the benefit terms (gdp, unemployment) scale with how scarce land is; so
     // do the costs (environment, housing, local control, rural anger)
@@ -6125,14 +6125,17 @@ const CATALOG={
       {gdp:0.08, unemployment:-0.10},
       {gdp:0.18, unemployment:-0.20},
       {gdp:0.30, unemployment:-0.30, environment:-2}],
+    // the staff work of reviewing rezonings, designating sites and running
+    // boundary decisions lands on Administrative Overhead
     tierIndicatorEffects:[{},
-      {businessClimate:2, housingAffordability:-2},
-      {businessClimate:4, housingAffordability:-2, localAutonomy:-6},
-      {businessClimate:6, housingAffordability:-1, localAutonomy:-8, ruralAlienation:3}],
+      {businessClimate:2, housingAffordability:-2, adminOverhead:2},
+      {businessClimate:4, housingAffordability:-2, adminOverhead:4},
+      {businessClimate:6, housingAffordability:-1, adminOverhead:5, ruralAlienation:3}],
+    // cities losing say over their own land is felt by the people in them
     tierBlocEffects:[{},
       {blueCollar:2, businessClass:2, publicUnions:1, renters:-1, urban:-1},
-      {businessClass:4, blueCollar:3, moderate:1, urban:-2, suburban:-1},
-      {businessClass:6, blueCollar:4, liberal:-4, socialist:-2, collegeEducated:-2, rural:-3}],
+      {businessClass:4, blueCollar:3, moderate:1, urban:-3, suburban:-2},
+      {businessClass:6, blueCollar:4, liberal:-4, socialist:-2, collegeEducated:-2, urban:-3, suburban:-2, rural:-3}],
     tierIdeology:[{},{economic:0.1},{economic:0.25,govSize:0.1},{economic:0.4,environment:0.4,govSize:0.15}]},
   rndTaxCredit:{name:"R&D / Semiconductor Credit", domain:"economy", icon:"bulb", mechanic:"slider",
     desc:"Scalable credits to attract chip fabs and advanced manufacturing (Oregon CHIPS Act). Strong growth and jobs upside, but fabs are water- and power-hungry, drawing fire from environmental groups over aquifer drawdown and farmland conversion.",
@@ -29406,10 +29409,11 @@ function policyControlHTML(id,p){
     const lo=p.tierMin||0;
     let s=`<div class="tiers">`;
     p.tiers.forEach((t,i)=>{
+      if(p.noZeroTier&&i===0)return;           // the bottom step is not having the law: repeal does that
       const locked=i<lo;
       s+=`<span class="tier ${i===p.tierIndex?'on':''}${locked?' locked':''}" data-pol="${id}" ${locked?'':`data-kind="tier"`} data-i="${i}"${locked?' title="Barred by ballot measure"':''}>${locked?ico('lock'):''}${t}</span>`;
     });
-    if(lo>0)s+=`<span class="threshline" style="width:100%;margin-top:4px">Settings below <b>${p.tiers[lo]}</b> are barred by ballot measure.</span>`;
+    if(lo>0&&!p.noZeroTier)s+=`<span class="threshline" style="width:100%;margin-top:4px">Settings below <b>${p.tiers[lo]}</b> are barred by ballot measure.</span>`;
     return s+`</div>`;
   }
   if(p.mechanic==="intensity")
