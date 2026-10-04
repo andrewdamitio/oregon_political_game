@@ -13532,13 +13532,19 @@ function hedonicMood(){
   drag -= (GAME.expectations||0)*0.72;                          // the standing grumble
   return drag;
 }
+const CRIME_SHARE={violentCrime:0.6, propertyCrime:0.4};
+function crimeMood(k,wc){ return (effective(k)-50)*CRIME_SHARE[k]*0.08*wc; }
 function metricMood(sim, sid){
   const s=sim.sensitivities||{};
   const w=k=>(s[k]!==undefined?s[k]:1); // default weight 1 if unspecified
   let mood=0;
   mood+=(effective("education")-55)*0.07*w("education");
   mood+=(effective("unemployment")-80)*0.08*w("unemployment");
-  mood+=(((effective("violentCrime")*0.6+effective("propertyCrime")*0.4))-50)*0.08*w("crime");
+  // CRIME, as two terms. One blend of the two let low violent crime hide
+  // high property crime, so property crime read as pleasing voters and both
+  // were drawn with the blend's single sign. Split, with the same weights and
+  // the same neutral point, the sum is unchanged; each now shows its own way.
+  mood+=crimeMood("violentCrime",w("crime"))+crimeMood("propertyCrime",w("crime"));
   // HOMELESSNESS is the master sentiment driver — research shows it is the
   // #1 issue for every demographic group in Oregon, five-plus years running.
   // VISIBLE disorder moves opinion more than underlying outcomes: a low
@@ -13655,7 +13661,10 @@ function blocMoodContributors(sid){
   const add=(lbl,v,lnk)=>{if(Math.abs(v)>0.08)mc.push({lbl,v,lnk});};
   add("Education Quality",(effective('education')-55)*0.07*w2('education'),'m_education');
   add("Jobs & Unemployment",(effective('unemployment')-80)*0.08*w2('unemployment'),'m_unemployment');
-  add("Public Safety / Crime",(((effective('violentCrime')*0.6+effective('propertyCrime')*0.4))-50)*0.08*w2('crime'),'m_violentCrime');
+  // two lines, as approval itself counts them (crimeMood): one blend let low
+  // violent crime hide high property crime and filed both under violent crime
+  add("Violent Crime",crimeMood("violentCrime",w2("crime")),'m_violentCrime');
+  add("Property Crime",crimeMood("propertyCrime",w2("crime")),'m_propertyCrime');
   add("Visible Homelessness",(effective('homelessness')-45)*0.12*w2('homelessness')*visibleAmp,'m_homelessness');
   add("Public Health",(effective('health')-55)*0.06*w2('health'),'m_health');
   add("Environmental Quality",(effective('environment')-60)*0.07*w2('environment'),'m_environment');
@@ -13744,7 +13753,7 @@ function blocContribFor(key, sim, sid){
     case "education":        return (effective("education")-55)*0.07*w("education");
     case "unemployment":     return (effective("unemployment")-80)*0.08*w("unemployment");
     case "violentCrime":
-    case "propertyCrime":    return (((effective("violentCrime")*0.6+effective("propertyCrime")*0.4))-50)*0.08*w("crime");
+    case "propertyCrime":    return crimeMood(key,w("crime"));
     case "homelessness":     return (effective("homelessness")-45)*0.12*w("homelessness")*visibleAmp;
     case "health":           return (effective("health")-55)*0.06*w("health");
     case "environment":      return (effective("environment")-60)*0.07*w("environment");
