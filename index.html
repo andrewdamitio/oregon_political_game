@@ -22827,13 +22827,18 @@ function caucusSurrogatesHTML(){
   if(prOn()||!GAME.caucus)return "";
   const C=GAME.caucus, S=C.surr;
   let h=`<div class="camp-sec">${ico('people')} Your legislators on the trail</div>`;
-  if(!S||!S.out.length)return h+`<div class="cprim-note">In the four quarters before an election your members campaign in their districts: the ones warmer toward you than where they started win you ground with the groups their districts are made of, and the ones who have cooled cost you it. ${S?"Right now it is a wash.":"The next election is further off than that."}</div>`;
-  const plus=S.out.filter(x=>x[1]>0), minus=S.out.filter(x=>x[1]<0);
-  const cold=Object.keys(C.m).filter(k=>C.m[k].p==="mine"&&C.m[k].L-caucusBase(C.m[k])<-15).sort((a,b)=>C.m[a].L-C.m[b].L).slice(0,4);
-  return h+`<div class="cprim-note">This quarter, from your own members campaigning in their districts:
-    ${plus.length?`<span style="color:var(--moss)">${plus.map(x=>SIMULANTS[x[0]].name+" +"+x[1].toFixed(1)).join(", ")}</span>`:""}${plus.length&&minus.length?"; ":""}
-    ${minus.length?`<span style="color:var(--clay)">${minus.map(x=>SIMULANTS[x[0]].name+" "+x[1].toFixed(1)).join(", ")}</span>`:""}.
-    ${cold.length?`Speaking against you at home: ${cold.map(k=>caucusTitle(k)+" ("+caucusCode(k)+")").join(", ")}.`:""}</div>`;
+  const intro=`In the year before an election, the members of your own party campaign in their districts, and what they say about you moves how the voters there see you. A member more loyal to you than when they took their seat raises your approval with the groups their district is made of; one who has cooled on you lowers it.`;
+  if(!S||!S.out.length)return h+`<div class="cprim-note">${intro} Nothing moved this quarter${S?"":", or the next election is more than a year away"}.</div>`;
+  const plus=S.out.filter(x=>x[1]>0), minus=S.out.filter(x=>x[1]<0).sort((a,b)=>a[1]-b[1]);
+  const row=(x)=>`<div class="rrow"><span class="rlabel">${SIMULANTS[x[0]].name}</span><span class="rval" style="color:${x[1]>0?'var(--good)':'var(--bad)'}">${x[1]>0?"+":"\u2212"}${Math.abs(x[1]).toFixed(1)} pts</span></div>`;
+  const own=k=>{ const m=C.m[k]; return `<div class="rrow"><span class="rlabel">${caucusTitle(k)} <i style="font-style:normal;color:var(--muted-3)">${caucusCode(k)} ${caucusPlace(m.ch,m.id)}</i></span><span class="rval">loyalty ${Math.round(m.L)}, from ${Math.round(caucusBase(m))}</span></div>`; };
+  const cold=Object.keys(C.m).filter(k=>C.m[k].p==="mine"&&C.m[k].L-caucusBase(C.m[k])<-15).sort((a,b)=>C.m[a].L-C.m[b].L);
+  h+=`<div class="cprim-note">${intro} These are changes to your approval with each group this quarter, not to how many of them turn out.</div>`;
+  if(plus.length)h+=`<div class="cg-hdr">Approval gained</div>`+plus.map(row).join("");
+  if(minus.length)h+=`<div class="cg-hdr">Approval lost</div>`+minus.map(row).join("");
+  if(cold.length)h+=`<div class="cg-hdr">Your own members campaigning against you</div><div class="cprim-note" style="margin:0 0 4px">Members of your party, not the opposition, whose loyalty to you has fallen more than 15 points below where it started. They still run under your party's name, but at home they speak against you.</div>`
+    +cold.slice(0,6).map(own).join("")+(cold.length>6?`<div class="cprim-note">And ${cold.length-6} more.</div>`:"");
+  return h;
 }
 /* WALKOUTS ARE PEOPLE. The members of the walking party who are at odds with
    their leadership stay in their seats. If enough of them stay, the quorum
