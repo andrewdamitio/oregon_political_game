@@ -633,6 +633,21 @@
 .pn-bst-h{display:flex;justify-content:space-between;gap:10px;margin:12px 0 2px;font-family:var(--font-display);font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-1)}
 .pn-bst-h span{font-family:var(--font-body);text-transform:none;letter-spacing:0;font-size:12px;color:var(--muted-3)}
 .pn-bst-list{max-height:230px;overflow-y:auto;padding-right:4px}
+.pl-tools{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:6px 0 12px;font-size:13px;color:var(--muted-2)} .pl-tools span{flex:1 1 280px}
+.pl-list,.pl-night{border:1px solid var(--line);background:var(--paper-2)}
+.pl-night{width:min(640px,94vw);max-height:380px;overflow-y:auto;text-align:left;margin-top:8px}
+.pl-zone{font-family:var(--font-display);font-size:13px;letter-spacing:.06em;text-transform:uppercase;padding:6px 12px;border-top:2px solid var(--ink);background:var(--paper)}
+.pl-zone:first-child{border-top:0}
+.pl-zone.pl-safe{color:var(--good)} .pl-zone.pl-bubble{color:var(--warn)} .pl-zone.pl-out{color:var(--clay)}
+.pl-row{display:grid;grid-template-columns:48px minmax(0,1fr) 40px auto;gap:10px;align-items:center;padding:6px 12px;border-top:1px solid var(--line-faint);font-size:13.5px}
+.pl-night .pl-row{grid-template-columns:48px minmax(0,1fr) 40px}
+.pl-row.sit{background:color-mix(in srgb,var(--moss) 6%,transparent)}
+.pl-rank{font-family:var(--font-data);color:var(--muted-2)}
+.pl-who i{display:block;font-style:normal;font-size:12px;color:var(--muted-3)}
+.pl-who b.click{cursor:pointer;text-decoration:underline;text-decoration-color:var(--line-em);text-underline-offset:2px}
+.pl-loy{font-family:var(--font-data);font-weight:700;text-align:right}
+.pl-act{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+@media (max-width:640px){ .pl-row{grid-template-columns:40px minmax(0,1fr) 34px} .pl-act{grid-column:2 / -1;justify-content:flex-start} }
   .pn-row{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid var(--line-faint);font-size:13.5px}
   .pn-row .cn-who i+i{color:var(--ink)}
   .pn-tag{font-size:11.5px;text-transform:uppercase;letter-spacing:.8px;padding:2px 7px;border-radius:9px;border:1px solid var(--line)}
@@ -16600,6 +16615,7 @@ function briefCollect(){
   }
   if(GAME.pendingNominee){ GAME.pendingNominee=false; const C=GAME.challenger; if(C&&C.nominee!=null)items.push({kind:"nominee", icon:"people", title:C.field[C.nominee].name+" is the "+oppPartyName()+" nominee"}); }
   if(GAME.pendingBallotNotice){ const bn=GAME.pendingBallotNotice; GAME.pendingBallotNotice=null; items.push({kind:"ballot", bn, icon:"ballot", title:bn.measures.length+" citizen initiative"+(bn.measures.length===1?" has":"s have")+" qualified for the ballot"}); }
+  if(GAME.pendingPrList){ const pl=GAME.pendingPrList; GAME.pendingPrList=null; if(prOn())items.push({kind:"prlist", pl, icon:"ballot", title:"List night: the party lists are set"}); }
   if(GAME.pendingPrimaries){ const pp=GAME.pendingPrimaries; GAME.pendingPrimaries=null; if(!prOn()&&GAME.caucus){ const w=pp.list.filter(x=>x.won).length, all=pp.list.filter(x=>!x.moot).length; items.push({kind:"primaries", pp, icon:"ballot", title:primaryNightTitle(pp)}); } }
   if(GAME.pendingCaucusNews){ const cn=GAME.pendingCaucusNews; GAME.pendingCaucusNews=null; if(cn.pr||(!prOn()&&GAME.caucus))items.push({kind:"caucus", news:cn, icon:"people", title:cn.pr?cn.title:caucusNewsTitle(cn.n)}); }
   if(GAME.pendingTermLimitWarn){ const w=GAME.pendingTermLimitWarn; GAME.pendingTermLimitWarn=null; items.push({kind:"termlimit", w, icon:"warning", title:"Your second term ends after the next election"}); }
@@ -16628,7 +16644,7 @@ function startQuarterSequence(){
   const dec=items.filter(i=>i.decision).sort((a,b)=>SEQ_ORDER.indexOf(a.kind)-SEQ_ORDER.indexOf(b.kind));
   const news=items.filter(i=>!i.decision);
   // news last, each its own screen: the nominee, the ballot, the term limit, then the courts
-  const NEWS_ORDER=["primaries","caucus","nominee","ballot","termlimit","eo"];
+  const NEWS_ORDER=["prlist","primaries","caucus","nominee","ballot","termlimit","eo"];
   news.sort((a,b)=>NEWS_ORDER.indexOf(a.kind)-NEWS_ORDER.indexOf(b.kind));
   const steps=[].concat(GAME.skipReport?[]:[{kind:"report"}], dec, news);
   GAME.briefing={turn:GAME.turn, items, steps, pos:-1};
@@ -16662,6 +16678,7 @@ function seqOpen(st){
     case "termlimit": showTermLimitWarning(st.w, seqNext); break;
     case "caucus":    showCaucusNews(st.news, seqNext); break;
     case "primaries": showPrimaryNight(st.pp, seqNext); break;
+    case "prlist":    showPrListNight(st.pl, seqNext); break;
     case "eo":        showExecOrderEvent(st.ev, seqNext); break;
     case "coalExit":  GAME._exitFromBrief=true; drawCoalExit(); break;
     case "austerity": GAME._ausFromBrief=true; drawAusterity(); break;
@@ -19149,7 +19166,7 @@ function runPRElection(seed){
   const seats=prAllocate(shares);
   const layout=prLayout(seats);
   GAME.legis=GAME.legis||{};
-  GAME.legis.prSeats=layout; GAME.legis.prShares=shares; GAME.legis.prCounts=seats;
+  GAME.legis.prSeats=layout; GAME.legis.prShares=shares; GAME.legis.prCounts=seats; GAME.legis.prElec=(GAME.legis.prElec||0)+1;
   GAME.legis.prLeans=pos;
   /* Each member's own lean: their party's position plus where they sit
      inside it. Deterministic off the seat and the election, so a member
@@ -21993,7 +22010,7 @@ function prLoyMult(m){ return clamp(1+(m.L-prBase(m))/150,0.8,1.1); }
 function prSync(){
   if(!prOn()||!GAME.legis||!GAME.legis.prSeats)return;
   const P=GAME.pr=GAME.pr||{m:{},lists:{},seatOf:{},demoted:{},facs:{},next:1,key:null};
-  const layout=GAME.legis.prSeats, key=layout.join(",");
+  const layout=GAME.legis.prSeats, key=prSeatKey();
   if(P.key===key)return;
   const fresh=!P.key;
   const byParty={}; layout.forEach((pid,i)=>(byParty[pid]=byParty[pid]||[]).push(i+1));
@@ -22019,8 +22036,143 @@ function prSync(){
   for(const id in P.m){ const m=P.m[id]; if(m.seat&&!P.seatOf[m.seat])m.seat=null; if(m.seat&&m.L==null)m.L=prTarget(m); if(fresh&&m.seat)m.L=prTarget(m); }
   P.key=key;
 }
-function prEnsure(){ if(prOn()&&GAME.legis&&GAME.legis.prSeats&&(!GAME.pr||GAME.pr.key!==GAME.legis.prSeats.join(",")))prSync(); }
+/* The lists are reseated by each election, not only when the layout changes:
+   an election that returns the same seat counts still seats the new lists. */
+function prSeatKey(){ return GAME.legis.prSeats.join(",")+"|"+(GAME.legis.prElec||0); }
+function prEnsure(){ if(prOn()&&GAME.legis&&GAME.legis.prSeats&&(!GAME.pr||GAME.pr.key!==prSeatKey()))prSync(); }
 function prSeated(){ const P=GAME.pr; return P?Object.values(P.m).filter(m=>m.seat&&P.seatOf[m.seat]===m.id):[]; }
+/* YOUR PARTY'S LIST. Under proportional representation there are no
+   primaries: the seats your party wins go to the top of its list, in order.
+   You order your own. The list is open until two quarters before the
+   Assembly election, the same day district primaries would be decided, and
+   locked from then until the votes are counted. Where a member sits is
+   read against the forecast: safe if your party wins that many seats even
+   on a bad night (the 10th percentile), on the bubble up to a good night
+   (the 90th), and below the line past that. */
+function prListOpen(){ return prOn()&&nextBallotInfo().quartersAway>CAUCUS_PRIMARY_LEAD; }
+function prListFill(pid,n){
+  const P=GAME.pr, yr=GAME.startYear+Math.floor(GAME.turn/4), L=P.lists[pid]=P.lists[pid]||[];
+  while(L.length<n){ const id="L"+(P.next++); P.m[id]={id, party:pid, n:prNewName(), since:GAME.turn, yr, g:0, L:null}; L.push(id); }
+  return L;
+}
+function prListZones(fc){ const f=fc.parties[prMyParty()]; return {lo:Math.max(1,f.sLo), med:Math.max(1,f.seats), hi:Math.max(1,f.sHi)}; }
+function prListZone(rank,z){ return rank<=z.lo?"safe":rank<=z.hi?"bubble":"out"; }
+const PR_ZONE_WORD={safe:"Safe", bubble:"On the bubble", out:"Below the line"};
+/* Sitting members a move pushed from inside the likely seat count to outside it. */
+function prListPushed(pid,before,z){
+  const P=GAME.pr, L=P.lists[pid], hit=[];
+  for(const id of before){ const m=P.m[id]; if(!m||!m.seat||m.party!==pid)continue;
+    if(before.indexOf(id)+1<=z.med&&L.indexOf(id)+1>z.med){ m.g=clamp((m.g||0)-6,-20,20); caucusNote(m,"_lpush","Pushed down the list, past the likely cutoff",-6); m.L=clamp(m.L-3,0,100); hit.push(m); } }
+  return hit;
+}
+function prListLocked(){ GAME.log.push("✗ Your list is locked until the Assembly election"); render(); }
+/* Move a member up five places (◈1). A sitting member warms to it; anyone it
+   pushes past the likely cutoff does not. */
+function prPromote(id){
+  const P=GAME.pr, m=P&&P.m[id]; if(!m||m.party!==prMyParty())return;
+  if(!prListOpen())return prListLocked();
+  if(!window.SANDBOX&&GAME.capital<1){ GAME.log.push("✗ Not enough capital to move a list member"); render(); return; }
+  const L=P.lists[m.party], i=L.indexOf(id); if(i<=0)return;
+  const before=L.slice(), z=prListZones(prForecast());
+  GAME.capital-=1; L.splice(i,1); L.splice(Math.max(0,i-5),0,id);
+  if(P.demoted)delete P.demoted[id];
+  if(m.seat){ m.g=clamp((m.g||0)+5,-20,20); caucusNote(m,"_lup","You moved them up the list",5); }
+  const hit=prListPushed(m.party,before,z);
+  GAME.log.push(ico('ballot')+" "+(m.seat?prTitle(m):m.n)+" moves up to #"+(L.indexOf(id)+1)+" on the "+prPartyWord(m.party)+" list"+(hit.length?"; "+hit.map(x=>x.n).join(", ")+" "+(hit.length===1?"slips":"slip")+" past the likely cutoff":"")+".");
+  render();
+}
+/* Recruit a candidate of your choosing onto the list at the last safe place
+   (◈2). They owe the seat to you, and come in more loyal for it. */
+function prRecruit(){
+  const P=GAME.pr; if(!P)return;
+  if(!prListOpen())return prListLocked();
+  if(!window.SANDBOX&&GAME.capital<2){ GAME.log.push("✗ Not enough capital to recruit a candidate"); render(); return; }
+  const pid=prMyParty(), z=prListZones(prForecast()), L=prListFill(pid,z.hi+4), before=L.slice();
+  GAME.capital-=2;
+  const id="L"+(P.next++), m=P.m[id]={id, party:pid, n:prNewName(), since:GAME.turn, yr:GAME.startYear+Math.floor(GAME.turn/4), g:8, L:null, recruit:true, recruitAt:GAME.turn};
+  caucusNote(m,"_rec","You recruited them onto the list",8);
+  L.splice(Math.max(0,z.lo-1),0,id);
+  const hit=prListPushed(pid,before,z);
+  GAME.log.push(ico('ballot')+" You recruited "+m.n+" onto the "+prPartyWord(pid)+" list at #"+(L.indexOf(id)+1)+(hit.length?"; "+hit.map(x=>x.n).join(", ")+" "+(hit.length===1?"slips":"slip")+" past the likely cutoff":"")+".");
+  render();
+}
+/* LIST DAY. Two quarters before the Assembly election the lists lock. Sitting
+   members of yours placed below the line know what it means, and those on
+   the far side of the bubble feel it too. Queues list night. */
+function prListDay(){
+  const P=GAME.pr, nb=nextBallotInfo(); if(!P||nb.quartersAway!==CAUCUS_PRIMARY_LEAD||P.listDay===GAME.turn)return;
+  P.listDay=GAME.turn;
+  const pid=prMyParty(), fc=prForecast(), z=prListZones(fc), L=prListFill(pid,z.hi+5);
+  const rows=[];
+  L.forEach((id,i)=>{ const m=P.m[id]; if(!m)return; const rank=i+1, zone=prListZone(rank,z);
+    if(m.seat){
+      if(zone==="out"){ m.g=clamp((m.g||0)-8,-20,20); caucusNote(m,"_lout","Placed below the line on the list",-8); m.L=clamp(m.L-4,0,100); }
+      else if(zone==="bubble"&&rank>z.med){ m.g=clamp((m.g||0)-3,-20,20); caucusNote(m,"_lbub","Placed on the far side of the bubble",-3); } }
+    if(rank<=z.hi+5||m.seat)rows.push({id, n:m.n, rank, zone, sitting:!!m.seat, recruit:!!m.recruit, L:m.seat?Math.round(m.L):null, wing:m.seat?m.wing||0:null}); });
+  const others=PR_PARTIES.filter(p=>p.id!==pid).map(p=>{ const f=fc.parties[p.id]; return {id:p.id, seats:f.seats, lo:f.sLo, hi:f.sHi, share:f.share}; });
+  GAME.pendingPrList={turn:GAME.turn, gen:nb.quartersAway, kind:nb.kind, z, rows, others, share:fc.parties[pid].share, coal:fc.coal};
+  GAME.log.push(ico('ballot')+" The party lists are set for the "+(nb.kind==="midterm"?"midterm":"election")+". Your party is projected to win "+z.med+" seats.");
+}
+/* LIST NIGHT: the party lists, locked, against the forecast. */
+function showPrListNight(PL,next){
+  const card=document.getElementById("primaryCard"), modal=document.getElementById("primaryModal");
+  if(!card||!modal||!PL){ if(next)next(); return; }
+  const z=PL.z, yr=GAME.startYear+Math.floor(((PL.turn||GAME.turn)+(PL.gen||0))/4), gen=PL.kind==="midterm"?"the midterm":"the general election";
+  const sit=PL.rows.filter(r=>r.sitting), cnt=k=>sit.filter(r=>r.zone===k).length, rec=PL.rows.filter(r=>r.recruit&&r.zone!=="out").length;
+  const wing=w=>w==null?"":w>0.34?"left wing":w<-0.34?"right wing":"centre";
+  let h=`<div class="egrand pn-grand">
+    <div class="eg-kicker">LIST NIGHT · ${yr} · STATE OF OREGON</div>
+    <div class="eg-result win">THE LISTS</div>
+    <div class="wm-rule"></div>
+    <div class="eg-sub" style="font-size:19px">The ${myPartyName()} list is projected to seat ${z.med} of ${PR_SEATS}, between ${z.lo} and ${z.hi}</div>
+    <div class="eg-sub" style="font-size:14px;max-width:640px">The lists are locked until ${gen} in ${PL.gen} quarters. The seats your party wins go to the top of its list, in order. Of your ${sit.length} sitting members, <b>${cnt("safe")}</b> ${cnt("safe")===1?"is":"are"} safe, <b>${cnt("bubble")}</b> ${cnt("bubble")===1?"is":"are"} on the bubble and <b>${cnt("out")}</b> ${cnt("out")===1?"is":"are"} below the line${rec?`, and ${rec} candidate${rec===1?"":"s"} you recruited ${rec===1?"is":"are"} likely in`:""}. The ones below the line know it.</div>
+    <div class="pl-night">`;
+  let zone=null;
+  for(const r of PL.rows){
+    if(r.zone!==zone){ zone=r.zone; h+=`<div class="pl-zone pl-${zone}">${PR_ZONE_WORD[zone]}${zone==="safe"?` · #1 to #${z.lo}`:zone==="bubble"?` · #${z.lo+1} to #${z.hi}`:` · past #${z.hi}`}</div>`; }
+    h+=`<div class="pl-row"><span class="pl-rank">#${r.rank}</span><span class="pl-who"><b>${r.n}</b><i>${r.sitting?"sitting member · "+wing(r.wing):r.recruit?"your recruit":"new candidate"}</i></span><span class="pl-loy">${r.L!=null?r.L:""}</span></div>`; }
+  h+=`</div>
+    <div class="eg-section"><div class="eg-h3">Everyone else's projection</div>
+      ${PL.others.filter(o=>o.hi>0).map(o=>`<div class="rrow"><span class="rlabel">${prPartyWord(o.id)}${coalitionPartners().includes(o.id)?" · your partner":""}</span><span class="rval">${o.seats} seats <i style="color:var(--muted-3);font-style:normal">(${o.lo} to ${o.hi})</i></span></div>`).join("")}
+      <div class="rrow"><span class="rlabel"><b>Your government</b></span><span class="rval"><b>${PL.coal.seats}</b> of ${PR_SEATS} · ${Math.round(PL.coal.pMaj*100)}% chance of a majority</span></div></div>
+    <button class="enactbtn" id="plOk">Continue ▸</button></div>`;
+  card.innerHTML=h;
+  modal.classList.add("grand"); modal.classList.remove("hidden"); card.scrollTop=0;
+  const openedAt=Date.now();
+  const close=()=>{ if(Date.now()-openedAt<400)return; modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); if(next)next(); };
+  const onKey=e=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); } };
+  document.getElementById("plOk").onclick=close;
+  document.addEventListener("keydown",onKey,true);
+}
+/* The Legislators page's list tab. */
+function prListTabHTML(){
+  const P=GAME.pr, pid=prMyParty(), fc=prForecast(), z=prListZones(fc), L=prListFill(pid,z.hi+5), open=prListOpen(), nb=nextBallotInfo();
+  const can=n=>open&&(window.SANDBOX||GAME.capital>=n);
+  const wing=w=>w>0.34?"left wing":w<-0.34?"right wing":"centre of the party";
+  const sit=L.map(id=>P.m[id]).filter(m=>m&&m.seat), zoneOf=m=>prListZone(L.indexOf(m.id)+1,z);
+  let h=`<div class="ascore">
+    <div class="as-cell"><div class="as-k">Projected seats</div><div class="as-v">${z.med}<span> · ${z.lo} to ${z.hi}</span></div></div>
+    <div class="as-cell"><div class="as-k">Sitting members safe</div><div class="as-v">${sit.filter(m=>zoneOf(m)==="safe").length}<span>/${sit.length}</span></div></div>
+    <div class="as-cell"><div class="as-k">On the bubble</div><div class="as-v">${sit.filter(m=>zoneOf(m)==="bubble").length}</div></div>
+    <div class="as-cell"><div class="as-k">Below the line</div><div class="as-v" style="color:${sit.some(m=>zoneOf(m)==="out")?"var(--clay)":"inherit"}">${sit.filter(m=>zoneOf(m)==="out").length}</div></div>
+  </div>
+  <div class="sectionsub">Your party's seats at the next Assembly election go to the top of this list, in order. <b>Safe</b> is inside the seats your party wins even on a bad night, <b>on the bubble</b> is up to what it wins on a good one, and <b>below the line</b> past that. ${open
+    ?`The list is open until two quarters before ${nb.kind==="midterm"?"the midterm":"the general election"}, in ${nb.quartersAway-CAUCUS_PRIMARY_LEAD} quarter${nb.quartersAway-CAUCUS_PRIMARY_LEAD===1?"":"s"}; then it locks.`
+    :`<b>The list is locked</b> until the votes are counted, in ${nb.quartersAway} quarter${nb.quartersAway===1?"":"s"}.`}</div>
+  <div class="pl-tools"><button class="fcard-btn" data-prrec="1" ${can(2)?"":"disabled"}>Recruit a candidate at #${z.lo} · ◈2</button>
+    <span>Your own pick, at the last safe place. They owe the seat to you and come in more loyal. Everyone below moves down one, and a sitting member pushed past the likely cutoff resents it.</span></div>
+  <div class="pl-list">`;
+  let zone=null;
+  const shown=L.filter((id,i)=>i<z.hi+5||(P.m[id]&&P.m[id].seat));
+  for(const id of shown){ const m=P.m[id]; if(!m)continue; const rank=L.indexOf(id)+1, zn=prListZone(rank,z);
+    if(zn!==zone){ zone=zn; h+=`<div class="pl-zone pl-${zn}">${PR_ZONE_WORD[zn]}${zn==="safe"?` · #1 to #${z.lo}`:zn==="bubble"?` · #${z.lo+1} to #${z.hi}`:` · past #${z.hi}`}</div>`; }
+    const dem=P.demoted&&P.demoted[id];
+    h+=`<div class="pl-row${m.seat?" sit":""}"><span class="pl-rank">#${rank}</span>
+      <span class="pl-who">${m.seat?`<b class="click" data-prm="${id}">${m.n}</b>`:`<b>${m.n}</b>`}<i>${m.seat?"sitting member · "+wing(m.wing||0):m.recruit?"your recruit":"new candidate"}${dem?" · demoted":""}${m.f?" · "+prFacName(m.f):""}</i></span>
+      <span class="pl-loy" style="${m.seat?`color:${caucusColor({p:"mine",L:m.L})}`:""}">${m.seat?Math.round(m.L):""}</span>
+      <span class="pl-act">${open?`${rank>1?`<button class="cf-chbtn" data-prup="${id}" ${can(1)?"":"disabled"}>Up 5 · ◈1</button>`:""}${dem?"":`<button class="cf-chbtn" data-prdem="${id}" ${can(1)?"":"disabled"}>To the bottom · ◈1</button>`}`:""}</span></div>`; }
+  return h+`</div>`;
+}
 /* On the floor: the whip compressed, their breaks at half weight, an angry
    member unreliable on taxes, a wing in revolt a little further off. */
 function prFloorTerm(m,pol,dir,ctx,mine,ally){
@@ -22049,6 +22201,7 @@ function prBillShock(pid,delta,nm){
 /* Once a quarter. */
 function prTick(){
   prEnsure(); const P=GAME.pr; if(!P)return;
+  prListDay();
   const news=[], before={}; for(const m of prSeated())before[m.id]=m.L;
   for(const m of prSeated()){ m.g=(m.g||0)*0.8; if(Math.abs(m.g)<0.3)m.g=0;
     for(const i in (m.gg||{})){ m.gg[i]*=0.8; if(Math.abs(m.gg[i])<0.3)delete m.gg[i]; }
@@ -22118,16 +22271,18 @@ function prReseat(){
   Lg.hHeld=[]; Lg.prCentre=[];
   Lg.prSeats.forEach((p,i)=>{ const s=i+1; if(p===mine)Lg.hHeld.push(s); else if(p==="centre"||p==="ind")Lg.prCentre.push(s); });
   Lg.house=Lg.hHeld.length;
-  if(P)P.key=Lg.prSeats.join(",");
+  if(P)P.key=prSeatKey();
 }
 /* Your tools: demote to the bottom of the list, or expel. */
 function prDemote(id){
   const P=GAME.pr, m=P&&P.m[id]; if(!m||m.party!==prMyParty()||P.demoted[id])return;
+  if(!prListOpen())return prListLocked();
   if(!window.SANDBOX&&GAME.capital<1){ GAME.log.push("✗ Not enough capital to demote a list member"); render(); return; }
   GAME.capital-=1; P.demoted[id]=GAME.turn;
+  { const L=P.lists[m.party], i=L.indexOf(id); if(i>=0){ L.splice(i,1); L.push(id); } }
   m.g=clamp((m.g||0)-12,-20,20); caucusNote(m,"_dem","You demoted them on the list",-12); m.L=clamp(m.L-8,0,100);
   for(const o of prSeated())if(o!==m&&o.party===m.party&&Math.sign(o.wing||0)===Math.sign(m.wing||0)){ o.g=clamp((o.g||0)-2,-20,20); caucusNote(o,"_demw","You demoted a colleague from their wing",-2); }
-  GAME.log.push(ico('ballot')+" "+prTitle(m)+" goes to the bottom of the "+prPartyWord(m.party)+" list at the next election.");
+  GAME.log.push(ico('ballot')+" "+prTitle(m)+" goes to the bottom of the "+prPartyWord(m.party)+" list for the next election.");
   render();
 }
 function prExpel(id){
@@ -22164,7 +22319,7 @@ function renderPRLegislators(main,h){
   const angry=mine.filter(m=>m.L<prAngryAt(m)).length, partners=coalitionPartners();
   // TWO SIDES: your government (your party and its partners) and everyone outside it
   const govSet=new Set([mineP].concat(partners)), ptabOf=p=>govSet.has(p)?"gov":"opp";
-  if(window._prSel&&P.m[window._prSel])window._prTab=ptabOf(P.m[window._prSel].party);
+  if(window._prSel&&P.m[window._prSel]&&P.m[window._prSel].seat)window._prTab=ptabOf(P.m[window._prSel].party);
   const ptab=window._prTab||"gov", counts=GAME.legis.prCounts||{};
   const tabParties=PR_ORDER.slice().reverse().concat(["ind"]).filter(p=>counts[p]&&ptabOf(p)===ptab);
   const sel=window._prParty&&tabParties.includes(window._prParty)?window._prParty:(ptab==="gov"?mineP:tabParties[0]);
@@ -22173,10 +22328,19 @@ function renderPRLegislators(main,h){
     <p>Every list member is loyal to their own party's leadership; for your party that is you. Loyalty starts between 86 and 94, highest near the list cutoff, and moves about half as far as a district member's would. It changes a member's party vote by a fifth at most.</p>
     <p>Members' views are their party's line, shifted toward the wing they sit in, and about one in six holds a personal conviction against the party on one issue. On the floor they vote those breaks at half the weight a district member would.</p>
     <p>A member counts as angry about 18 points below where they started. Four or more angry members of the same party with the same grievance form a wing in revolt. In your party, angry members stop being reliable on tax increases. In a coalition partner, a bench in revolt strains the agreement. The other parties' leaderships pick their own fights.</p>
-    <p>You order your own party's lists. Demoting a member (◈1) sends them to the bottom at the next election, where the seats may run out before they are reached; their wing resents it a little. Expelling a member (◈4) takes effect now: they sit as an independent and vote on each bill alone, and your whole bench resents it. A member livid with their party may, rarely, cross to the neighbouring party with their seat.</p>
+    <p>You order your own party's list, on the <b>Your Party's List</b> tab. Moving a member up five places costs ◈1, and sending one to the bottom (a demotion) costs ◈1; the seats may run out before a demoted member is reached, and their wing resents it a little. Recruiting a candidate of your own at the last safe place costs ◈2. A sitting member a move pushes past the likely cutoff resents it. The list locks two quarters before each Assembly election, and members placed below the line know it. Expelling a member (◈4) takes effect now: they sit as an independent and vote on each bill alone, and your whole bench resents it. A member livid with their party may, rarely, cross to the neighbouring party with their seat.</p>
   </div></details>`;
   { const gs=[...govSet].reduce((a,p)=>a+(counts[p]||0),0);
-    { const _cut=h.indexOf("</div>")+6; h=h.slice(0,_cut)+`<div class="ctabs" role="tablist"><button role="tab" aria-selected="${ptab==="gov"}" data-ptab="gov" class="${ptab==="gov"?"on":""}"><b>${ico('people')} Your Government</b><span>${[...govSet].map(prPartyWord).join(" and ")} · ${gs} of ${PR_SEATS} Assembly seats</span></button><button role="tab" aria-selected="${ptab==="opp"}" data-ptab="opp" class="${ptab==="opp"?"on":""}"><b>${ico('columns')} The Opposition</b><span>Everyone outside it · ${PR_SEATS-gs} of ${PR_SEATS} Assembly seats</span></button></div>`+h.slice(_cut); } }
+    { const _cut=h.indexOf("</div>")+6; h=h.slice(0,_cut)+`<div class="ctabs" role="tablist"><button role="tab" aria-selected="${ptab==="gov"}" data-ptab="gov" class="${ptab==="gov"?"on":""}"><b>${ico('people')} Your Government</b><span>${[...govSet].map(prPartyWord).join(" and ")} · ${gs} of ${PR_SEATS} Assembly seats</span></button><button role="tab" aria-selected="${ptab==="opp"}" data-ptab="opp" class="${ptab==="opp"?"on":""}"><b>${ico('columns')} The Opposition</b><span>Everyone outside it · ${PR_SEATS-gs} of ${PR_SEATS} Assembly seats</span></button><button role="tab" aria-selected="${ptab==="list"}" data-ptab="list" class="${ptab==="list"?"on":""}"><b>${ico('ballot')} Your Party's List</b><span>Who gets your seats at the next election · ${prListOpen()?"open":"locked"}</span></button></div>`+h.slice(_cut); } }
+  if(ptab==="list"){
+    main.innerHTML=h+prListTabHTML();
+    main.querySelectorAll("[data-ptab]").forEach(b=>b.addEventListener("click",()=>{ window._prTab=b.dataset.ptab; window._prSel=null; window._prParty=null; render(); }));
+    main.querySelectorAll("[data-prm]").forEach(b=>b.addEventListener("click",()=>{ const m=P.m[b.dataset.prm]; if(!m)return; window._prSel=m.id; window._prParty=m.party; window._caucusScroll=true; render(); }));
+    main.querySelectorAll("[data-prup]").forEach(b=>b.addEventListener("click",()=>prPromote(b.dataset.prup)));
+    main.querySelectorAll("[data-prdem]").forEach(b=>b.addEventListener("click",()=>prDemote(b.dataset.prdem)));
+    main.querySelectorAll("[data-prrec]").forEach(b=>b.addEventListener("click",()=>prRecruit()));
+    return;
+  }
   if(ptab==="opp"){
     // the mirror of yours: their discipline, their seats, their angry, independents
     const theirs=seated.filter(m=>m.party!=="ind"&&ptabOf(m.party)==="opp");
@@ -22244,8 +22408,9 @@ function prMemberCard(m){
     h+=`<details class="cv${pb?" br":""}"><summary><span class="cv-i">${ISSUES[i].name}${v.int>=1?" ★":""}</span><span class="cv-p${pb?" cv-brk":""}">${caucusViewLabel(i,v.pos)}${pb?(v.conv?" · personal conviction":" · breaks with party"):""}</span><span class="cv-open">${nl} law${nl===1?"":"s"}<i>▸</i></span></summary><div class="cv-laws">${caucusIssueLaws(m,i)}</div></details>`; });
   h+=`</div><div class="cm-note">★ an issue they care about. In red: a view that breaks with their party. Click an issue for the laws behind it.</div>`;
   if(mine&&m.seat){
-    h+=`<div class="cm-sec">Your party's list</div><div class="cm-prim"><div>${P.demoted[m.id]?"Already demoted for the next election.":`Demote them to the bottom of the list for the next election (◈1): the seats may run out before they are reached. Their wing resents it a little.`}</div>
-      ${P.demoted[m.id]?"":`<button class="fcard-btn" data-prdem="${m.id}" ${window.SANDBOX||GAME.capital>=1?"":"disabled"}>Demote on the list · ◈1</button>`}
+    const lo=prListOpen();
+    h+=`<div class="cm-sec">Your party's list</div><div class="cm-prim"><div>${P.demoted[m.id]?"Already demoted for the next election.":!lo?"Your list is locked until the Assembly election.":`Demote them to the bottom of the list for the next election (◈1): the seats may run out before they are reached. Their wing resents it a little. The whole list is on the <b>Your party's list</b> tab.`}</div>
+      ${P.demoted[m.id]||!lo?"":`<button class="fcard-btn" data-prdem="${m.id}" ${window.SANDBOX||GAME.capital>=1?"":"disabled"}>Demote on the list · ◈1</button>`}
       <div>Or expel them now (◈4): they sit as an independent until the next election and vote on each bill alone. Your whole bench resents it.</div>
       <button class="fcard-btn" data-prexp="${m.id}" ${window.SANDBOX||GAME.capital>=4?"":"disabled"}>Expel from the party · ◈4</button></div>`;
   }
@@ -24776,7 +24941,18 @@ function prForecastHTML(){
         ? 'The forecast assumes the same partners come back in — it is a count of the benches you are governing with, not a promise that they will sign again.'
         : 'You are governing without partners, so this is your own party alone. Anything above the line has to be negotiated for after the count.')+'</div>'
     +'<div class="prf-head"><span>'+ico('columns')+' Outside it</span><span>share</span><span>seats</span></div>'
-    +'<div class="prc-rows">'+outCo.map(row).join("")+'</div>';
+    +'<div class="prc-rows">'+outCo.map(row).join("")+'</div>'
+    +prListSummaryHTML(fc);
+}
+/* Campaign HQ under PR: where your sitting members stand on your list against
+   this forecast, with the way to the list itself. */
+function prListSummaryHTML(fc){
+  const P=GAME.pr; if(!prOn()||!P)return "";
+  const pid=prMyParty(), z=prListZones(fc), L=P.lists[pid]||[], sit=L.map(id=>P.m[id]).filter(m=>m&&m.seat);
+  const n=k=>sit.filter(m=>prListZone(L.indexOf(m.id)+1,z)===k).length, nb=nextBallotInfo();
+  return `<div class="prf-head" style="margin-top:14px"><span>${ico('ballot')} Your party's list</span><span></span><span></span></div>
+    <div class="prf-note">On this forecast <b>${n("safe")}</b> of your ${sit.length} sitting members ${n("safe")===1?"is":"are"} safe, <b>${n("bubble")}</b> ${n("bubble")===1?"is":"are"} on the bubble and <b>${n("out")}</b> ${n("out")===1?"is":"are"} below the line. ${prListOpen()?`The list locks ${nb.quartersAway-CAUCUS_PRIMARY_LEAD<=1?"next quarter":"in "+(nb.quartersAway-CAUCUS_PRIMARY_LEAD)+" quarters"}, two quarters before the election.`:"The list is locked until the election."}</div>
+    <button class="enactbtn ghost" data-golist="1" style="font-size:13.5px;padding:7px 13px;margin-top:6px">Order your list on the Legislators page</button>`;
 }
 /* ============================================================
    CASCADIA — THE MAP, AND THE PAGE IT SITS ON
@@ -27062,6 +27238,7 @@ function wireCampHQ(root){
   if(root.querySelector('.lfc-maps'))wireMapZoom(root);
   const cr=root.querySelector('#campRevise'); if(cr)cr.addEventListener('click',()=>{ const pop=document.getElementById("campPopupModal"), inPop=pop&&!pop.classList.contains("hidden"); if(inPop)pop.classList.add("hidden"); showPlatformModal({revise:true, after:()=>{ if(inPop)campRedraw(); }}); });
   root.querySelectorAll('[data-cprim]').forEach(el=>el.addEventListener('click',ev=>{ ev.stopPropagation(); caucusBackPrimary(el.dataset.cprim,campRedraw); }));
+  root.querySelectorAll('[data-golist]').forEach(el=>el.addEventListener('click',()=>{ window._prTab="list"; window._prSel=null; currentView="caucus"; detailKey=null; render(); }));
   root.querySelectorAll('[data-camptab]').forEach(el=>el.addEventListener('click',()=>{
     // arriving at the ballot tab, every measure starts collapsed
     if(el.dataset.camptab==="ballot"&&GAME.campTab!=="ballot")(GAME.ballot.pending||[]).forEach(m=>{ m._open=false; });
