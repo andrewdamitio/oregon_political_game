@@ -14790,14 +14790,15 @@ function drawCoalition(next){
   }
   const keep=[modal.scrollTop, card.scrollTop];
   card.innerHTML='<div class="sectionhdr">'+ico('handshake')+' Forming a Government</div>'
-    +'<div class="sectionsub">Nobody won this election. Under proportional representation almost nobody does, so the count decides who has to talk to whom. '
-    +'You hold <b>'+own+'</b> of '+PR_SEATS+'. A majority is '+LEGIS.majH+'.</div>'
+    +'<div class="sectionsub">'+(own>=LEGIS.majH
+      ?'Your party won a majority on its own: <b>'+own+'</b> of '+PR_SEATS+', where '+LEGIS.majH+' is enough. You can govern alone, or bring partners in anyway for a wider majority that survives a few of your own members breaking ranks. Any agreement from the last Assembly ended with it.'
+      :'Nobody won this election. Under proportional representation almost nobody does, so the count decides who has to talk to whom. You hold <b>'+own+'</b> of '+PR_SEATS+'. A majority is '+LEGIS.majH+'. Any agreement from the last Assembly ended with it.')+'</div>'
     +'<div class="coal-tally'+(have?' ok':'')+'"><span>Your government</span>'
       +'<b>'+seats+' / '+PR_SEATS+'</b>'
       +'<span>'+(have?("a majority, with "+(seats-LEGIS.majH)+" to spare"):("still "+(LEGIS.majH-seats)+" short of "+LEGIS.majH))+'</span></div>'
     // The button sits with the tally it depends on, above the benches.
     +'<button class="enactbtn" id="coalGo" style="margin-top:10px">'
-      +(have?('Form a government with '+(agreeing.length?agreeing.map(p=>prParty(p).short).join(" and "):"nobody")+(bonus?' (◈'+bonus+')':'')+' ▸')
+      +(have?(agreeing.length?'Form a government with '+agreeing.map(p=>prParty(p).short).join(" and ")+(bonus?' (◈'+bonus+')':'')+' ▸':'Govern alone with your majority ▸')
            :(GAME._coalMust?'Concede: no government can be formed ▸':'Govern as a minority ▸'))+'</button>'
     +(holdouts.length?'<div class="fnote" style="margin-top:6px;color:var(--clay)">'+holdouts.map(p=>prParty(p).short).join(" and ")
       +(holdouts.length===1?" has not agreed, so its seats do not count yet.":" have not agreed, so their seats do not count yet.")+'</div>':'')
@@ -19405,6 +19406,7 @@ function coalitionBriefHTML(){
     if(GAME.pendingCoalition)
       return `<div class="rrow"><span class="rlabel" style="color:var(--gold)">${ico('handshake')} Government</span><span class="rval" style="color:var(--gold)">not yet formed</span></div>`;
     const left=coalitionCandidates();
+    if(((GAME.legis.prCounts||{})[prMyParty()]||0)>=LEGIS.majH)return `<div class="rrow"><span class="rlabel">Government</span><span class="rval" style="color:var(--good)">your party alone, a majority</span></div>`;
     return `<div class="rrow"><span class="rlabel">Government</span><span class="rval" style="color:var(--clay)">${left.length?"minority — no partners":"stranded — nobody left to ask"}</span></div>`;
   }
   let h="";
@@ -25904,7 +25906,9 @@ function runLegislativeElection(approval){
     // a new chamber means a new negotiation: the old agreement died with
     // the parliament that signed it
     GAME.coalition=null;
-    GAME.pendingCoalition=(GAME.legis.house<LEGIS.majH);
+    // talks open after every Assembly election, a majority of your own
+    // included: you may still want partners, or a different set of them
+    GAME.pendingCoalition=true;
     // under a legislatively elected governor the new Assembly must seat you
     GAME.parlCheckPending=prParliament();
     return {before, after, sSwing:0, hSwing:after.house-before.house, senateUp:[],
