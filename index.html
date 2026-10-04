@@ -1060,6 +1060,7 @@
   .emr-n i{font-style:normal;color:var(--muted-2);font-size:12.5px;margin-left:4px}
   .emr-p{font-family:var(--font-data);font-weight:700;text-align:right}
   .emr-b{display:flex;gap:8px;align-items:center;justify-content:flex-end}
+  .emr-done{display:inline-block;min-width:66px;text-align:right}
   .sparkzone{font-size:11px;fill:var(--muted-3);font-style:italic;letter-spacing:.02em}
   .nm-list{margin:2px 0 8px;padding-left:18px;font-size:14px;line-height:1.5}
   .nm-list li{margin:5px 0}
@@ -15863,7 +15864,8 @@ function tickGroundGame(){
   // an extra unit while citizen measures are on the coming ballot — a front
   // you didn't ask for still needs working
   const citizenOnBallot=((GAME.ballot&&GAME.ballot.pending)||[]).some(m=>m.source==="citizen");
-  GAME.campEnergyMax=6+(citizenOnBallot?1:0);
+  // and one more from primary day to the election, for the legislative races
+  GAME.campEnergyMax=6+(citizenOnBallot?1:0)+(campLegisWindow()?1:0);
   GAME.campEnergy=GAME.campEnergyMax;   // refill for the new quarter
 }
 
@@ -20021,6 +20023,10 @@ function districtVote(row, sf, align, th, ch){
    about 7 points of win chance in a toss-up seat, less in a seat already
    safe or already lost. Boosts last until that seat's next election. */
 const SEAT_BOOST_PTS=1.3, SEAT_BOOST_MAX=8, SEAT_BOOST_COST=1;
+/* From primary day to the election: the nominees are set and the
+   legislative campaigns are on, so the office has one more point of energy
+   a quarter to spend on them (or anywhere else). */
+function campLegisWindow(){ if(prOn())return false; const nb=nextBallotInfo(); return nb.quartersAway<=CAUCUS_PRIMARY_LEAD; }
 function seatBoostN(chamber,id){ const b=GAME.seatBoost; return (b&&b[(chamber==="senate"?"s":"h")+id])||0; }
 function seatBoostPts(chamber,id){ return seatBoostN(chamber,id)*SEAT_BOOST_PTS; }
 /* Is this seat on the next ballot, so a boost can do anything? */
@@ -20044,11 +20050,13 @@ function seatBoost(chamber,id){
   if(seatBoostWait()>0)return false;
   if(!seatBoostable(chamber,id)||caucusStandDownSeat(chamber,id))return false;
   if(seatBoostN(chamber,id)>=SEAT_BOOST_MAX)return false;
-  if(!window.SANDBOX&&GAME.capital<SEAT_BOOST_COST)return false;
-  GAME.capital=clamp(GAME.capital-SEAT_BOOST_COST,0,CAPITAL_MAX);
+  // campaign energy, shared with your own campaign: the office has only so
+  // many people and days to send anywhere
+  if(!window.SANDBOX&&(GAME.campEnergy||0)<SEAT_BOOST_COST)return false;
+  GAME.campEnergy=Math.max(0,(GAME.campEnergy||0)-SEAT_BOOST_COST);
   const k=(chamber==="senate"?"s":"h")+id;
   (GAME.seatBoost=GAME.seatBoost||{})[k]=(GAME.seatBoost[k]||0)+1;
-  GAME.log.push(ico('ballot')+" Boosted your party's campaign in "+(chamber==="senate"?"SD ":"HD ")+id+" (\u25c8"+SEAT_BOOST_COST+", "+GAME.seatBoost[k]+" so far)");
+  GAME.log.push(ico('ballot')+" Boosted your party's campaign in "+(chamber==="senate"?"SD ":"HD ")+id+" ("+SEAT_BOOST_COST+" campaign energy, "+GAME.seatBoost[k]+" so far)");
   return true;
 }
 function chamberVote(chamber, th){
@@ -23738,7 +23746,7 @@ function primaryBoostNoticeHTML(P,fc){
     :close?`All ${rows.length} of your members on this ballot are favoured, but ${close} seat${close===1?" is":"s are"} close enough for a push to matter.`
     :`All ${rows.length} of your members on this ballot are safe for now.`;
   return `<div class="pn-bst"><div class="eg-h3">${ico('ballot')} Campaign boosts are open</div>
-    <div class="eg-note">With the nominees settled you can put political capital behind your party's candidates: \u25c8${SEAT_BOOST_COST} a push for +${SEAT_BOOST_PTS} points in one seat, up to ${SEAT_BOOST_MAX} a seat, until the ${gen} in ${P.gen} quarter${P.gen===1?"":"s"}. ${sum}</div>
+    <div class="eg-note">With the nominees settled you can put campaign energy behind your party's candidates: ${SEAT_BOOST_COST} a push for +${SEAT_BOOST_PTS} points in one seat, up to ${SEAT_BOOST_MAX} a seat, until the ${gen} in ${P.gen} quarter${P.gen===1?"":"s"}. Your office gets one extra point of energy each quarter until then. ${sum}</div>
     ${list}</div>`;
 }
 function caucusResolvePrimaries(upSenate){
@@ -25289,9 +25297,9 @@ function seatBoostCtlHTML(ch,id,pr){
   const sd=Math.sqrt(FC_NAT*FC_NAT+FC_SEAT*FC_SEAT), z=x=>0.5*(1+Math.tanh(0.7978845608*(x+0.044715*x*x*x)));
   const zNow=sd>0?Math.max(-6,Math.min(6,(pr<=0.0005?-6:pr>=0.9995?6:Math.log(pr/(1-pr))/1.702))):0;
   const gain=Math.max(0,z(zNow+SEAT_BOOST_PTS/sd)-z(zNow));
-  const full=n>=SEAT_BOOST_MAX, poor=!window.SANDBOX&&GAME.capital<SEAT_BOOST_COST;
-  return `<div class="sb-row">${done}<button type="button" class="sb-btn" data-seatboost="1" ${full||poor?"disabled":""}>${ico('ballot')} Boost the campaign · \u25c8${SEAT_BOOST_COST}</button>
-    <span class="sb-why">${full?"At the limit of ${SEAT_BOOST_MAX} pushes for this seat.":poor?"Not enough political capital.":"+"+SEAT_BOOST_PTS+" points here, about +"+Math.max(1,Math.round(gain*100))+" points of win chance"}</span></div>`;
+  const full=n>=SEAT_BOOST_MAX, poor=!window.SANDBOX&&(GAME.campEnergy||0)<SEAT_BOOST_COST;
+  return `<div class="sb-row"><button type="button" class="sb-btn" data-seatboost="1" ${full||poor?"disabled":""}>${ico('ballot')} Boost the campaign · ${SEAT_BOOST_COST} energy</button>${done}
+    <span class="sb-why">${full?"At the limit of "+SEAT_BOOST_MAX+" pushes for this seat.":poor?"No campaign energy left this quarter.":"+"+SEAT_BOOST_PTS+" points here, about +"+Math.max(1,Math.round(gain*100))+" points of win chance"}</span></div>`;
 }
 /* YOUR MEMBERS MOST AT RISK. Every member of your party whose seat is on the
    next ballot, lowest odds first, each with a boost, once the primary has
@@ -25309,14 +25317,14 @@ function endangeredMembersHTML(hf,sf){
   let h=`<div class="camp-sec" style="margin-top:14px">${ico('ballot')} Your members most at risk</div>
     <div class="sectionsub" style="margin-top:0">Members of your party on the next ballot, lowest chance of holding their seat first. ${w>0
       ?`Campaign boosts open after the primary picks your nominees, in ${w} quarter${w===1?"":"s"}.`
-      :`Each boost is \u25c8${SEAT_BOOST_COST} for +${SEAT_BOOST_PTS} points in that seat, up to ${SEAT_BOOST_MAX} a seat, spent at the election.`}</div>`;
+      :`Each boost is ${SEAT_BOOST_COST} campaign energy for +${SEAT_BOOST_PTS} points in that seat, up to ${SEAT_BOOST_MAX} a seat, spent at the election. Energy is shared with your own campaign, and the office gets one extra point a quarter until the election.`}</div>`;
   if(!top.length)return h+`<div class="threshline">None of your members on this ballot is below 95%.</div>`;
   h+=`<div class="emr">`+top.map(r=>{ const n=seatBoostN(r.ch,r.id), tag=r.ch==="senate"?"SD":"HD";
-    const poor=!window.SANDBOX&&GAME.capital<SEAT_BOOST_COST, full=n>=SEAT_BOOST_MAX;
+    const poor=!window.SANDBOX&&(GAME.campEnergy||0)<SEAT_BOOST_COST, full=n>=SEAT_BOOST_MAX;
     const ret=(typeof caucusRetireNote==="function"&&caucusRetireNote(r.k))?" · retiring, open seat":"";
     return `<div class="emr-row"><span class="emr-n"><b>${caucusTitle(r.k)}</b> <i>${tag} ${r.id} ${caucusPlace(r.m.ch,r.m.id)}${ret}</i></span>
       <span class="emr-p" style="color:${r.pr>=0.5?'var(--good)':'var(--bad)'}">${Math.round(r.pr*100)}%</span>
-      <span class="emr-b">${n?`<span class="sb-done">+${(n*SEAT_BOOST_PTS).toFixed(1)} pts</span>`:""}${w>0?"":`<button type="button" class="sb-btn" data-sbk="${r.ch}|${r.id}" ${poor||full?"disabled":""}>${ico('ballot')} Boost · \u25c8${SEAT_BOOST_COST}</button>`}</span></div>`; }).join("")+`</div>`;
+      <span class="emr-b"><span class="sb-done emr-done">${n?`+${(n*SEAT_BOOST_PTS).toFixed(1)} pts`:""}</span>${w>0?"":`<button type="button" class="sb-btn" data-sbk="${r.ch}|${r.id}" ${poor||full?"disabled":""}>${ico('ballot')} Boost · ${SEAT_BOOST_COST} energy</button>`}</span></div>`; }).join("")+`</div>`;
   return h;
 }
 /* hover readout on the forecast maps, and the zoom on them */
@@ -27369,7 +27377,7 @@ function wireCampHQ(root){
    persist to GAME state and show up in the End-Quarter popup. */
 function renderCampaignHQ(){
   let h=`${BACK_BTN_HTML}<div class="sectionhdr">${ico('ballot')} Campaign HQ</div>
-    <div class="sectionsub">Your platform, your opponents, and this quarter's campaign. Campaign energy is spent on voter groups, the county map, or a measure on the ballot. Anything you do here carries into the campaign screen when you end the quarter.</div>${rulesBox(`Campaign energy refills each quarter. Spend it on voter groups or counties in <b>Your re-election</b>, or on a measure in <b>Ballot measures</b>. <b>The legislature</b> forecasts the next legislative election, and once the primaries have picked the nominees, political capital can boost your party's campaigns there. <b>The opposition</b> shows who is running against you.`)}`;
+    <div class="sectionsub">Your platform, your opponents, and this quarter's campaign. Campaign energy is spent on voter groups, the county map, or a measure on the ballot. Anything you do here carries into the campaign screen when you end the quarter.</div>${rulesBox(`Campaign energy refills each quarter. Spend it on voter groups or counties in <b>Your re-election</b>, or on a measure in <b>Ballot measures</b>. <b>The legislature</b> forecasts the next legislative election, and once the primaries have picked the nominees, campaign energy can boost your party's campaigns there, with one extra point of energy each quarter until the election. <b>The opposition</b> shows who is running against you.`)}`;
   h+=campHQBodyHTML();
   main.innerHTML=h;
   wireBackBtn();
