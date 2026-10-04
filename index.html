@@ -8169,6 +8169,21 @@ function apptPseudoBill(postId, cand){
 /* The confirmation count, through the same whip the floor uses. Under
    proportional representation the Assembly confirms; otherwise the Senate
    does, and the House has no part in it. */
+/* WHERE A CONFIRMATION'S VOTES ARE. The bare count does not say why a
+   nominee is short; this does: how many of your members and of theirs lean
+   yes, and the reason most of yours would not, if there is one. */
+function apptVoteSplit(w){
+  const F=w&&w.floor; if(!F||!F.members||!F.members.length)return "";
+  const mine=F.members.filter(m=>m.mine), theirs=F.members.filter(m=>!m.mine);
+  const yes=a=>a.filter(m=>m.incl>0).length;
+  let why="";
+  if(floorFrozen())why="The floor is shut: nothing can be confirmed.";
+  else if(walkoutOn())why="A walkout is on.";
+  else if(GAME.caucus&&!prOn()){ const t=F.chamber==="senate"?"s":"h", at=caucusAngryAt();
+    const angry=mine.filter(m=>{ const c=GAME.caucus.m[t+m.id]; return c&&c.L<at; }).length;
+    if(angry&&mine.length&&yes(mine)<mine.length)why=angry+" of yours "+(angry===1?"is":"are")+" angry with you."; }
+  return `Yours ${yes(mine)} of ${mine.length} · theirs ${yes(theirs)} of ${theirs.length}${why?". "+why:""}`;
+}
 function apptWhip(postId, cand, cushion){
   const pol=apptPseudoBill(postId,cand);
   const _sf=stateFeel();
@@ -32118,7 +32133,7 @@ function apptCompareHTML(id){
   h+=`<tr><th title="Points added to the Administrative Overhead gauge. Lower is better.">Admin overhead</th>`+cols.map((x,k)=>cell(bo[k],x.ovh?apptSigned(x.ovh):"—")).join("")+`</tr>`;
   h+=`<tr><th>${chamber}</th>`+cols.map((x,k)=>{
     const col=x.odds>=70?"var(--moss)":x.odds>=45?"var(--gold)":"var(--clay)";
-    return cell(bv[k],`${x.w.floor.expect.toFixed(0)} of ${x.w.floor.total}, needs ${x.w.floor.need}<div class="acmp-note" style="color:${col}">${x.odds}% as it stands</div>`);
+    return cell(bv[k],`${x.w.floor.expect.toFixed(0)} of ${x.w.floor.total}, needs ${x.w.floor.need}<div class="acmp-note" style="color:${col}">${window.SANDBOX?"carries in sandbox":x.odds+"% as it stands"}</div><div class="acmp-note">${apptVoteSplit(x.w)}</div>`);
   }).join("")+`</tr>`;
   h+=`<tr><th>Pleases</th>`+cols.map(x=>`<td>${SIMULANTS[x.c.group]?SIMULANTS[x.c.group].name:"—"}</td>`).join("")+`</tr>`;
   if(!prOn())h+=`<tr><th title="Legislators: a nominee pleases your members whose districts are made of the group they come from, and angers the ones whose districts are made of the group they are against">Legislators</th>`+cols.map(x=>`<td class="acmp-ties">${caucusTiesHTML(caucusApptTies(x.c.group,x.c.foe,x.c.side),x.c.side)}</td>`).join("")+`</tr>`;
