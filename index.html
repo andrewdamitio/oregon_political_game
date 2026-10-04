@@ -6133,10 +6133,10 @@ const CATALOG={
       {businessClimate:6, housingAffordability:-1, adminOverhead:5, ruralAlienation:3}],
     // cities losing say over their own land is felt by the people in them
     tierBlocEffects:[{},
-      {blueCollar:2, businessClass:2, publicUnions:1, renters:-1, urban:-1},
-      {businessClass:4, blueCollar:3, moderate:1, urban:-3, suburban:-2},
-      {businessClass:6, blueCollar:4, liberal:-4, socialist:-2, collegeEducated:-2, urban:-3, suburban:-2, rural:-3}],
-    tierIdeology:[{},{economic:0.1},{economic:0.25,govSize:0.1},{economic:0.4,environment:0.4,govSize:0.15}]},
+      {blueCollar:3, businessClass:2, publicUnions:2, moderate:1, renters:-1, urban:-1},
+      {businessClass:4, blueCollar:4, publicUnions:2, moderate:2, urban:-3, suburban:-2},
+      {businessClass:6, blueCollar:5, publicUnions:2, moderate:2, liberal:-1, socialist:-2, collegeEducated:-1, urban:-3, suburban:-2, rural:-2}],
+    tierIdeology:[{},{economic:0.05},{economic:0.12,govSize:0.1},{economic:0.12,environment:0.12,govSize:0.1}]},
   rndTaxCredit:{name:"R&D / Semiconductor Credit", domain:"economy", icon:"bulb", mechanic:"slider",
     desc:"Scalable credits to attract chip fabs and advanced manufacturing (Oregon CHIPS Act). Strong growth and jobs upside, but fabs are water- and power-hungry, drawing fire from environmental groups over aquifer drawdown and farmland conversion.",
     value:0.5, costFull:0.6, capital:6, enactCapital:10,
@@ -23520,7 +23520,17 @@ function whipCount(id, dir, narrowed, cushion, skipOdds){
   if(!pol)return null;
   // a concession is a weaker bill: scale what it does to everyone at once
   const nw=(narrowed==null?1:narrowed);
-  const scaled=(nw>=1)?pol:(()=>{
+  // A BILL WITH SETTINGS is voted on as the setting chosen: its voters'
+  // reactions and its ideology are that setting's, read from the per-setting
+  // lists. Without this the floor saw no reactions at all on a tiered bill,
+  // and every member voted on party and loyalty alone. On a repeal it is the
+  // setting in force that is being undone.
+  const tierBill=pol.mechanic==="tier"&&Array.isArray(pol.tiers)&&pol.tiers.length>1&&(pol.tierBlocEffects||pol.tierIdeology);
+  const tierAt=tierBill?(dir==="repeal"?(pol.tierIndex||0)
+    :clamp(Math.round(nw*(pol.tiers.length-1)),Math.max(1,pol.tierMin||0),pol.tiers.length-1)):0;
+  const scaled=tierBill
+    ? Object.assign({},pol,{blocEffect:(pol.tierBlocEffects&&pol.tierBlocEffects[tierAt])||{}, ideology:(pol.tierIdeology&&pol.tierIdeology[tierAt])||{}})
+    : (nw>=1)?pol:(()=>{
     const q=Object.assign({},pol);
     if(pol.blocEffect){ q.blocEffect={}; for(const k in pol.blocEffect)q.blocEffect[k]=pol.blocEffect[k]*nw; }
     if(pol.ideology){ q.ideology={}; for(const k in pol.ideology)q.ideology[k]=pol.ideology[k]*nw; }
@@ -23538,7 +23548,7 @@ function whipCount(id, dir, narrowed, cushion, skipOdds){
   // bill as written (a marquee bill clamps at 1) and then scaled by how far it
   // has been narrowed, so a half-strength bill is half the loyalty test —
   // rather than staying a full one because its uncut form was well over the cap.
-  ctx.disc=BILL_LOY_FLOOR+(1-BILL_LOY_FLOOR)*clamp(billSalience(pol)*nw,0,1);
+  ctx.disc=BILL_LOY_FLOOR+(1-BILL_LOY_FLOOR)*clamp(tierBill?billSalience(scaled):billSalience(pol)*nw,0,1);
   ctx.billKey="b:"+dir+":"+id;
   if(!GAME.caucus)caucusSync();
   prEnsure();
