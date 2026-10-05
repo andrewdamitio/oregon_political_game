@@ -20132,11 +20132,35 @@ function districtVote(row, sf, align, th, ch){
   bite(spR, !govLeft);
   const tot=you+opp+spL+spR;
   if(tot>0){ you=you/tot*100; opp=opp/tot*100; spL=spL/tot*100; spR=spR/tot*100; }
-  let win="you", best=you;
-  if(opp>best){ win="opp"; best=opp; }
-  if(spL>best){ win="spL"; best=spL; }
-  if(spR>best){ win="spR"; best=spR; }
-  return {you, opp, spL, spR, win};
+  return {you, opp, spL, spR, win:legSeatWinner(you,opp,spL,spR)};
+}
+/* WHO TAKES A SEAT. First past the post: the largest share. Under ranked
+   choice, an instant runoff: while nobody holds a majority of the ballots
+   still live, the last-placed candidate is eliminated and their ballots
+   move to each voter's next choice, mostly to the major party on their own
+   side (RCV_XFER_OWN), some to the other, and the rest exhaust. So a flank
+   party no longer splits its side: its votes come home unless it outpolls
+   that side's major party. */
+const RCV_XFER_OWN=0.72, RCV_XFER_OTHER=0.13;
+function legSeatWinner(you,opp,spL,spR){
+  const v={you,opp,spL,spR};
+  const top=()=>Object.keys(v).reduce((a,k)=>v[k]>v[a]?k:a, "you");
+  if(!rcvOn()||prOn())return top();
+  // the major on each side: your party is the left one unless you started on the right
+  const leftMajor=GAME.startId==="conservative"?"opp":"you", rightMajor=leftMajor==="you"?"opp":"you";
+  const side={spL:leftMajor, spR:rightMajor, you:leftMajor==="you"?"spL":"spR", opp:leftMajor==="opp"?"spL":"spR"};
+  const live=new Set(Object.keys(v).filter(k=>v[k]>0.01));
+  for(let round=0;round<3&&live.size>2;round++){
+    const tot=[...live].reduce((a,k)=>a+v[k],0), lead=[...live].reduce((a,k)=>v[k]>v[a]?k:a);
+    if(v[lead]>tot/2)break;
+    const out=[...live].reduce((a,k)=>v[k]<v[a]?k:a); live.delete(out);
+    // a flank's ballots go to its side's major; a major's go to its flank, then across
+    const own=live.has(side[out])?side[out]:null;
+    const other=[...live].find(k=>k!==own&&(k==="you"||k==="opp"));
+    if(own)v[own]+=v[out]*RCV_XFER_OWN; if(other)v[other]+=v[out]*RCV_XFER_OTHER;
+    v[out]=0;
+  }
+  return [...live].reduce((a,k)=>v[k]>v[a]?k:a);
 }
 /* Every district in a chamber, scored four ways and ranked by your own share
    so callers that only want the ranking still get one. */
@@ -25973,10 +25997,10 @@ function runLegislativeElection(approval){
     if(iv){ const f=1-iv.share/100; you*=f; v={opp:v.opp*f, spL:v.spL*f, spR:v.spR*f};
       if(iv.share>Math.max(you,v.opp,v.spL,v.spR)){ indKept.push(iv.k); continue; } indLost.push(iv.k); }
     rec("h",r.id,you,v);
-    const top=Math.max(you, v.opp, v.spL, v.spR);
-    if(top===v.spL) spHL.push(r.id);
-    else if(top===v.spR) spHR.push(r.id);
-    else if(top===you) hWon.push(r.id);
+    const w=legSeatWinner(you, v.opp, v.spL, v.spR);
+    if(w==="spL") spHL.push(r.id);
+    else if(w==="spR") spHR.push(r.id);
+    else if(w==="you") hWon.push(r.id);
   }
   L.house=clamp(hWon.length,0,LEGIS.house);
   L.hHeld=hWon;
@@ -25999,10 +26023,10 @@ function runLegislativeElection(approval){
     if(iv){ const f=1-iv.share/100; you*=f; v={opp:v.opp*f, spL:v.spL*f, spR:v.spR*f};
       if(iv.share>Math.max(you,v.opp,v.spL,v.spR)){ indKept.push(iv.k); continue; } indLost.push(iv.k); }
     rec("s",r.id,you,v);
-    const top=Math.max(you, v.opp, v.spL, v.spR);
-    if(top===v.spL) spSL.push(r.id);
-    else if(top===v.spR) spSR.push(r.id);
-    else if(top===you) wonUp.push(r.id);
+    const w=legSeatWinner(you, v.opp, v.spL, v.spR);
+    if(w==="spL") spSL.push(r.id);
+    else if(w==="spR") spSR.push(r.id);
+    else if(w==="you") wonUp.push(r.id);
   }
   L.sHeld=notUpMine.concat(wonUp);
   L.senate=L.sHeld.length;
