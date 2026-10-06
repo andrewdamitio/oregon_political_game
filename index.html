@@ -14712,8 +14712,13 @@ function drawCoalExit(){
     +'<div class="lg-verdict '+st.tier+'" style="margin:12px 0"><b>'+st.label+'.</b> '+st.note+'</div>'
     +'<div class="fnote">'+(prParliament()&&now<LEGIS.majH?'Under a legislatively elected governor a government without a majority has fallen. You must build a new one from the parties still at the table, or the Assembly will choose someone else. ':'')+'There is no second negotiation with them this parliament — a party that has walked out once does not come back to the same agreement. '
     +'What is left is whoever else is in the chamber, and whether any of them want something you can still afford to give.</div>'
-    +'<button class="enactbtn" id="coalExitOk" style="margin-top:12px">Continue \u25b8</button>';
+    +(coalReshuffleOpen()&&!(prParliament()&&now<LEGIS.majH)
+      ?'<div class="fnote" style="margin-top:10px">You can reopen talks now: your remaining partners stay on the terms they signed, and you can bring in any party still willing to talk. '+p.short+' will not come back this Assembly.</div>'
+       +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px"><button class="enactbtn" id="coalReopen">Reopen talks \u25b8</button><button class="enactbtn ghost" id="coalExitOk">Carry on with who is left \u25b8</button></div>'
+      :'<button class="enactbtn" id="coalExitOk" style="margin-top:12px">Continue \u25b8</button>');
   modal.classList.remove("hidden");
+  const ro=document.getElementById("coalReopen");
+  if(ro)ro.onclick=()=>{ GAME.pendingCoalExit=null; modal.classList.add("hidden"); coalReshuffle(()=>{ try{render();}catch(e){} if(GAME._exitFromBrief){ GAME._exitFromBrief=false; briefReturn(); } }); };
   const go=document.getElementById("coalExitOk");
   if(go)go.onclick=()=>{
     GAME.pendingCoalExit=null; modal.classList.add("hidden");
@@ -14749,7 +14754,7 @@ function drawCoalition(next){
   const c=(GAME.legis&&GAME.legis.prCounts)||{};
   const mine=prMyParty(), own=c[mine]||0;
   // only a party that has said yes brings its seats
-  const agreeing=GAME.coalPick.filter(pid=>coalSupport(pid,coalOfferIds(pid),GAME.coalPick).agree);
+  const agreeing=GAME.coalPick.filter(pid=>(GAME._coalReshuffle&&GAME._coalReshuffle.partners.indexOf(pid)>=0)||coalSupport(pid,coalOfferIds(pid),GAME.coalPick).agree);
   const holdouts=GAME.coalPick.filter(pid=>agreeing.indexOf(pid)<0);
   let seats=own; for(const pid of agreeing)seats+=(c[pid]||0);
   const have=seats>=LEGIS.majH;
@@ -14809,7 +14814,7 @@ function drawCoalition(next){
   }
   const keep=[modal.scrollTop, card.scrollTop];
   card.innerHTML='<div class="sectionhdr">'+ico('handshake')+' Forming a Government</div>'
-    +'<div class="sectionsub">'+(own>=LEGIS.majH
+    +'<div class="sectionsub">'+(GAME._coalReshuffle?'A partner has left mid-term. Your remaining partners stay on the terms they signed; invite any party still willing to talk to rebuild your numbers. You hold <b>'+own+'</b> of '+PR_SEATS+' yourself, and a majority is '+LEGIS.majH+'.':own>=LEGIS.majH
       ?'Your party won a majority on its own: <b>'+own+'</b> of '+PR_SEATS+', where '+LEGIS.majH+' is enough. You can govern alone, or bring partners in anyway for a wider majority that survives a few of your own members breaking ranks. Any agreement from the last Assembly ended with it.'
       :'Nobody won this election. Under proportional representation almost nobody does, so the count decides who has to talk to whom. You hold <b>'+own+'</b> of '+PR_SEATS+'. A majority is '+LEGIS.majH+'. Any agreement from the last Assembly ended with it.')+'</div>'
     +'<div class="coal-tally'+(have?' ok':'')+'"><span>Your government</span>'
@@ -14818,7 +14823,7 @@ function drawCoalition(next){
     // The button sits with the tally it depends on, above the benches.
     +'<button class="enactbtn" id="coalGo" style="margin-top:10px">'
       +(have?(agreeing.length?'Form a government with '+agreeing.map(p=>prParty(p).short).join(" and ")+(bonus?' (◈'+bonus+')':'')+' ▸':'Govern alone with your majority ▸')
-           :(GAME._coalMust?'Concede: no government can be formed ▸':'Govern as a minority ▸'))+'</button>'
+           :(GAME._coalMust?'Concede: no government can be formed ▸':GAME._coalReshuffle&&agreeing.length?'Govern without a majority, with '+agreeing.map(p=>prParty(p).short).join(" and ")+' ▸':'Govern as a minority ▸'))+'</button>'
     +(holdouts.length?'<div class="fnote" style="margin-top:6px;color:var(--clay)">'+holdouts.map(p=>prParty(p).short).join(" and ")
       +(holdouts.length===1?" has not agreed, so its seats do not count yet.":" have not agreed, so their seats do not count yet.")+'</div>':'')
     +(have?'':(GAME._coalMust
@@ -14856,7 +14861,7 @@ function drawCoalition(next){
   }));
   const go=document.getElementById("coalGo");
   if(go)go.onclick=()=>{
-    formCoalition(have?agreeing:[], GAME.coalOffer, GAME._coalWalked);
+    formCoalition((have||GAME._coalReshuffle)?agreeing:[], GAME.coalOffer, GAME._coalWalked);
     GAME.coalPick=null; GAME.coalOffer=null;
     modal.classList.add("hidden");
     render();
@@ -19864,7 +19869,49 @@ function coalitionFlankReaction(joining){
   let worst=null; for(const f in flankTot){ const a=flankTot[f].sum/flankTot[f].n; if(!worst||a<worst.a)worst={f,a,q:flankTot[f].q}; }
   if(worst&&worst.a<=-2)GAME.log.push(ico('people')+" Your "+worst.f+" resents the deal with "+prPartyWord(worst.q)+".");
 }
+/* A MID-TERM RESHUFFLE, after a partner walks out. The talks screen opens
+   with your remaining partners already in, on the terms they signed; you can
+   invite any party still willing to talk, though not one that walked out
+   this Assembly. Whoever is in when you sign is the government, majority or
+   not. Kept partners keep their mood, their commitments and their posts,
+   and the up-front money they were paid is not paid again; only newcomers
+   stir the benches. */
+function coalReshuffleOpen(){
+  if(!prOn()||!GAME.coalition)return false;
+  const c=(GAME.legis&&GAME.legis.prCounts)||{}, mine=prMyParty(), walked=GAME.coalition.walked||[], inGov=GAME.coalition.partners||[];
+  return PR_PARTIES.some(p=>p.id!==mine&&(c[p.id]||0)>0&&inGov.indexOf(p.id)<0&&walked.indexOf(p.id)<0&&coalitionWillTalk(p.id));
+}
+function coalReshuffle(after){
+  const C=GAME.coalition; if(!C)return after&&after();
+  GAME._coalReshuffle={partners:C.partners.slice(), mood:Object.assign({},C.mood), snap:Object.assign({},C.snap), terms:Object.assign({},C.terms), posts:Object.assign({},C.posts), formedTurn:C.formedTurn};
+  GAME._coalWalked=(C.walked||[]).slice();
+  GAME.coalPick=C.partners.slice();
+  GAME.coalOffer={}; for(const pid of C.partners)GAME.coalOffer[pid]=(C.terms[pid]||[]).slice();
+  drawCoalition(after||(()=>{}));
+}
 function formCoalition(partners,offers,walked){
+  const RS=GAME._coalReshuffle; GAME._coalReshuffle=null;
+  if(RS){
+    // the existing government, with whoever was added
+    const C=GAME.coalition||{partners:[],mood:{},snap:{},terms:{},posts:{}};
+    const fresh=partners.filter(p=>RS.partners.indexOf(p)<0), dropped=RS.partners.filter(p=>partners.indexOf(p)<0);
+    let bonus=0;
+    C.partners=partners.slice(); C.walked=(walked||C.walked||[]).slice();
+    for(const pid of dropped){ delete C.mood[pid]; delete C.terms[pid]; delete C.posts[pid]; delete C.snap[pid]; if(typeof apptPartnerWalked==="function")apptPartnerWalked(pid); }
+    for(const pid of fresh){
+      const ids=((offers&&offers[pid])||coalDefaultOffer(pid)).slice();
+      C.terms[pid]=ids; C.posts[pid]=coalPostsFor(pid,ids);
+      if(ids.indexOf("bonus")>=0)bonus+=COAL_BONUS_CAP;
+      C.mood[pid]=coalitionStartMood(pid, coalSupport(pid,ids,partners).total);
+      C.snap[pid]={}; for(const d of coalTerms(pid)){ try{ C.snap[pid][d.id]=d.snap(); }catch(e){ C.snap[pid][d.id]=0; } }
+    }
+    GAME.coalition=C; GAME._coalWalked=null; GAME.pendingCoalition=null;
+    if(bonus)GAME.capital=clamp(GAME.capital-bonus,0,CAPITAL_MAX);
+    if(fresh.length){ apptInstallPartners(fresh); coalitionFlankReaction(fresh); }
+    GAME.log.push(ico('handshake')+(fresh.length?" "+fresh.map(p=>prParty(p).short).join(" and ")+" join"+(fresh.length===1?"s":"")+" the government":" No new partners: you govern with who is left")
+      +" — "+coalitionSeats(false)+" of "+PR_SEATS+(bonus?", ◈"+bonus+" paid up front":""));
+    return;
+  }
   const terms={}, posts={}, snap={}, mood={};
   let bonus=0;
   for(const pid of partners){
