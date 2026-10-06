@@ -632,6 +632,7 @@
 .pn-bst-h{display:flex;justify-content:space-between;gap:10px;margin:12px 0 2px;font-family:var(--font-display);font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-1)}
 .pn-bst-h span{font-family:var(--font-body);text-transform:none;letter-spacing:0;font-size:12px;color:var(--muted-3)}
 .pn-bst-list{max-height:230px;overflow-y:auto;padding-right:4px}
+.lp-impact{font-size:13px;color:var(--muted-1);margin:6px 0 2px;line-height:1.5}
 .pl-tools{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:6px 0 12px;font-size:13px;color:var(--muted-2)} .pl-tools span{flex:1 1 280px}
 .pl-list,.pl-night{border:1px solid var(--line);background:var(--paper-2)}
 .pl-night{width:min(640px,94vw);max-height:380px;overflow-y:auto;text-align:left;margin-top:8px}
@@ -22847,6 +22848,21 @@ function lpCheck(){
   return lines;
 }
 /* The block in a member's file, or on a faction card. */
+/* WHAT A PROMISE DOES FOR A WHOLE FACTION. Each member's loyalty rises by
+   half the lift at once (lpMake), and the rest comes through over the next
+   quarters as the promise weighs on where they are heading. Counted against
+   each member's own angry line: how many are back over it at once, how many
+   are still under, and whether that leaves the faction together (it holds
+   while three or more stay angry). */
+function lpFactionImpact(target){
+  const {keys,pr}=lpKeys(target); if(!keys.length)return null;
+  const lift=LP_LIFT_FAC*lpTrust(), at=m=>pr?prAngryAt(m):caucusAngryAt();
+  let back=0, still=0, gap=0;
+  for(const k of keys){ const m=lpMember(k,pr); if(!m)continue; const line=at(m), now=m.L+lift*0.5;
+    if(m.L>=line)continue;
+    if(now>=line)back++; else { still++; gap+=line-now; } }
+  return {n:keys.length, back, still, gap:still?gap/still:0, holds:still>=3};
+}
 function lpHTML(target,m,onlyIssue){
   const a=lpActive(target);
   if(a){ const left=a.due-GAME.turn, moved=(caucusLevel(a.pid)-a.from)*a.want, direct=a.who===target;
@@ -22857,6 +22873,8 @@ function lpHTML(target,m,onlyIssue){
   const opts=lpOptions(m,onlyIssue); if(!opts.length)return "";
   const tr=lpTrust(), fac=target.startsWith("f:")||target.startsWith("pf:"), lift=Math.round((fac?LP_LIFT_FAC:LP_LIFT)*tr);
   return `<div class="cm-sec">Promise legislation</div><div class="cm-prim"><div>Promise to move a law ${fac?"they":"they"} want within ${LP_Q} quarters: +${lift} loyalty now${fac?" each":""}, +${LP_KEPT} if you keep it, ${LP_BROKEN} if you do not.${tr<1?` Your broken promises have cut the lift to ${Math.round(tr*100)}%.`:""}</div>
+    ${(()=>{ if(!fac)return ""; const I=lpFactionImpact(target); if(!I)return "";
+      return `<div class="lp-impact">For the faction: <b>${I.back}</b> of its ${I.n} members would be back over their angry line at once${I.still?`, and ${I.still} still under it, by about ${I.gap.toFixed(1)} points each`:""}. ${I.holds?"With three or more still angry, the faction holds together for now; their loyalty keeps rising over the next quarters as the promise sinks in.":"That leaves fewer than three angry, so the faction breaks up at the next count."}</div>`; })()}
     <div class="lp-row"><select data-lpsel="${target}">${opts.map(o=>`<option value="${o.pid}|${o.want}">${o.label}</option>`).join("")}</select><button class="fcard-btn" data-lpmake="${target}">Promise it</button></div></div>`;
 }
 /* Where each promise stands, for the reminders. */
