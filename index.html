@@ -19320,13 +19320,14 @@ function prVoteShares(){
      the ones in the middle to Oregon Forward. That is what an unpopular
      governor costs a party when nobody is trapped by a wasted vote. */
   const incumbent=clamp((ap-46)/26, -1, 1)*4.0;
+  const pushBy=(typeof prPushes==="function")?prPushes():{}, pushed=Object.keys(pushBy).length>0;
   let tot=0;
   for(const v of VOTERS){
     const t=turnoutProb(v); if(t<=0.001)continue;
     const ln=prVoterLean(v);
     let best=null, bd=1e9;
     for(const p of PR_PARTIES){
-      const d=Math.abs(ln-pos[p.id]) - p.pull - (p.id===mine?incumbent:0);
+      const d=Math.abs(ln-pos[p.id]) - p.pull - (p.id===mine?incumbent:0) - (pushed?prPushPull(v,p.id,pushBy):0);
       if(d<bd){ bd=d; best=p.id; }
     }
     tally[best]+=t; tot+=t;
@@ -20261,7 +20262,68 @@ const SEAT_BOOST_PTS=1.3, SEAT_BOOST_MAX=8, SEAT_BOOST_COST=1;
 /* From primary day to the election: the nominees are set and the
    legislative campaigns are on, so the office has one more point of energy
    a quarter to spend on them (or anywhere else). */
-function campLegisWindow(){ if(prOn())return false; const nb=nextBallotInfo(); return nb.quartersAway<=CAUCUS_PRIMARY_LEAD; }
+function campLegisWindow(){ if(prOn())return prPushOpen(); const nb=nextBallotInfo(); return nb.quartersAway<=CAUCUS_PRIMARY_LEAD; }
+/* CAMPAIGNING FOR THE ASSEMBLY. Under PR there are no seats to boost, so a
+   push is spent on a party's statewide campaign with one voter group: each
+   adds PR_PUSH_PULL to that party's pull on every voter, in proportion to
+   how far they belong to the group, so the share moves where that group
+   lives in the electorate. Pushes open on list day, once the lists are
+   locked, and last until the Assembly election; up to PR_PUSH_MAX per party
+   and group. A push for a partner (keeping them over the threshold, say)
+   costs your own party PR_PUSH_COST of pull with the same group: their
+   gain is partly your voters. */
+const PR_PUSH_PULL=0.4, PR_PUSH_MAX=6, PR_PUSH_COST=0.12;
+function prPushOpen(){ return prOn()&&!!GAME.legis&&!!GAME.legis.prCounts&&!prListOpen(); }
+function prPushes(){ const P=GAME.prPush; return (P&&P.elec===(GAME.legis&&GAME.legis.prElec||0))?P.by:{}; }
+function prPushN(pid,g){ const b=prPushes(); return (b[pid]&&b[pid][g])||0; }
+/* Extra pull each party has on one voter from the pushes in force. */
+function prPushPull(v,pid,by){
+  let x=0; const mine=prMyParty();
+  for(const q in by){ for(const g in by[q]){ const w=(v.m&&v.m[g])||0; if(w<=0)continue; const n=by[q][g];
+    if(q===pid)x+=n*PR_PUSH_PULL*w; else if(pid===mine&&q!==mine)x-=n*PR_PUSH_COST*w; } }
+  return x;
+}
+function prPush(pid,g){
+  if(!prPushOpen())return false;
+  const gov=[prMyParty()].concat(coalitionPartners()); if(gov.indexOf(pid)<0||!SIMULANTS[g])return false;
+  if(prPushN(pid,g)>=PR_PUSH_MAX)return false;
+  if(!window.SANDBOX&&(GAME.campEnergy||0)<1)return false;
+  GAME.campEnergy=Math.max(0,(GAME.campEnergy||0)-1);
+  const elec=GAME.legis.prElec||0;
+  if(!GAME.prPush||GAME.prPush.elec!==elec)GAME.prPush={elec, by:{}};
+  const by=GAME.prPush.by; (by[pid]=by[pid]||{})[g]=(by[pid][g]||0)+1;
+  GAME.log.push(ico('ballot')+" Campaign push for "+prParty(pid).short+" with "+SIMULANTS[g].name+" (1 energy, "+by[pid][g]+" so far)");
+  return true;
+}
+/* What one more push would move, in points of statewide share. */
+function prPushGain(pid,g){
+  const before=prVoteShares()[pid]||0;
+  const elec=GAME.legis.prElec||0, P=GAME.prPush, keep=P?JSON.stringify(P):null;
+  if(!GAME.prPush||GAME.prPush.elec!==elec)GAME.prPush={elec, by:{}};
+  const by=GAME.prPush.by; (by[pid]=by[pid]||{})[g]=(by[pid][g]||0)+1;
+  const after=prVoteShares()[pid]||0;
+  GAME.prPush=keep?JSON.parse(keep):null;
+  return (after-before)*100;
+}
+function prPushHTML(fc){
+  if(!prOn()||!GAME.legis||!GAME.legis.prCounts)return "";
+  let h=`<div class="prf-head" style="margin-top:14px"><span>${ico('ballot')} Campaigning for the Assembly</span><span></span><span></span></div>`;
+  if(!prPushOpen()){ const q=prNextAssembly().quartersAway-CAUCUS_PRIMARY_LEAD;
+    return h+`<div class="prf-note">Pushes for your party's Assembly campaign open once the party lists are locked, ${q<=1?"next quarter":"in "+q+" quarters"}, two quarters before the election. Until then, the lists are still being set.</div>`; }
+  const gov=[prMyParty()].concat(coalitionPartners());
+  const sel=gov.indexOf(window._prPushParty)>=0?window._prPushParty:gov[0];
+  const groups=Object.keys(SIMULANTS).filter(g=>!SIMULANTS[g].static&&SIMULANTS[g].size).sort((a,b)=>SIMULANTS[b].size*(SIMULANTS[b].turnout||0.6)-SIMULANTS[a].size*(SIMULANTS[a].turnout||0.6)).slice(0,10);
+  const poor=!window.SANDBOX&&(GAME.campEnergy||0)<1, f=fc.parties[sel];
+  h+=`<div class="prf-note">The lists are locked, so the campaign is about the share itself. Spend campaign energy on a party's statewide campaign with one voter group: it moves that party's share among the voters who belong to it. Energy is shared with your own campaign, with one extra point a quarter until the election.${sel!==prMyParty()?" A push for a partner costs your own party a little with the same group, because some of their gain is your voters.":""}</div>`;
+  h+=`<div class="cch" style="margin:8px 0">`+gov.map(p=>`<button data-prpushp="${p}" class="${p===sel?"on":""}">${prParty(p).short}${p===prMyParty()?" · yours":" · partner"}</button>`).join("")+`</div>`;
+  if(sel!==prMyParty()&&f&&f.pIn<0.995)h+=`<div class="prf-note" style="color:var(--clay)">${prParty(sel).short} has a <b>${Math.round((1-f.pIn)*100)}%</b> chance of missing the ${Math.round(PR_THRESHOLD*100)}% threshold, and with it every seat.</div>`;
+  h+=`<div class="emr">`+groups.map(g=>{ const n=prPushN(sel,g), full=n>=PR_PUSH_MAX, gain=full?0:prPushGain(sel,g);
+    return `<div class="emr-row"><span class="emr-n"><b>${SIMULANTS[g].name}</b> <i>${Math.round(SIMULANTS[g].size*100)}% of voters</i></span>
+      <span class="emr-p">${full?"max":"+"+gain.toFixed(2)}</span>
+      <span class="emr-b"><span class="sb-done emr-done">${n?n+"× pushed":""}</span><button type="button" class="sb-btn" data-prpush="${sel}|${g}" ${poor||full?"disabled":""}>${ico('ballot')} Push · 1 energy</button></span></div>`; }).join("")+`</div>
+    <div class="prf-note">The middle column is what one more push adds to ${prParty(sel).short}'s statewide share, in points.</div>`;
+  return h;
+}
 function seatBoostN(chamber,id){ const b=GAME.seatBoost; return (b&&b[(chamber==="senate"?"s":"h")+id])||0; }
 function seatBoostPts(chamber,id){ return seatBoostN(chamber,id)*SEAT_BOOST_PTS; }
 /* Is this seat on the next ballot, so a boost can do anything? */
@@ -25349,7 +25411,7 @@ function prForecastHTML(){
         : 'You are governing without partners, so this is your own party alone. Anything above the line has to be negotiated for after the count.')+'</div>'
     +'<div class="prf-head"><span>'+ico('columns')+' Outside it</span><span>share</span><span>seats</span></div>'
     +'<div class="prc-rows">'+outCo.map(row).join("")+'</div>'
-    +prListSummaryHTML(fc);
+    +prListSummaryHTML(fc)+prPushHTML(fc);
 }
 /* Campaign HQ under PR: where your sitting members stand on your list against
    this forecast, with the way to the list itself. */
@@ -25677,6 +25739,8 @@ function wireCurveTips(root){
 }
 function wireForecast(root){
   wireCurveTips(root);
+  root.querySelectorAll('[data-prpushp]').forEach(b=>b.addEventListener('click',()=>{ window._prPushParty=b.dataset.prpushp; renderInPlace(); }));
+  root.querySelectorAll('[data-prpush]').forEach(b=>b.addEventListener('click',ev=>{ ev.stopPropagation(); const [p,g]=b.dataset.prpush.split("|"); if(prPush(p,g))renderInPlace(); }));
   wireMapZoom(root);
   root.querySelectorAll('[data-sbk]').forEach(b=>b.addEventListener('click',ev=>{ ev.stopPropagation();
     const [ch,id]=b.dataset.sbk.split("|"); if(seatBoost(ch,+id))renderInPlace(); }));
