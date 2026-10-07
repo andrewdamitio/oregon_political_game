@@ -15490,6 +15490,9 @@ function runElection(){
   const GV=(POLICIES.rankedChoice&&POLICIES.rankedChoice.enabled)?GOV_THIRD.rcv:GOV_THIRD.fptp;
   const rcv=POLICIES.rankedChoice&&POLICIES.rankedChoice.enabled;
   let yes=0,no=0,thirdL=0,thirdR=0,thirdC=0,tot=0;
+  // under ranked choice, where each minor party's ballots go when it is
+  // eliminated: to you, to the challenger, or nowhere (y, n, e)
+  const NEXT={l:{y:0,n:0,e:0}, r:{y:0,n:0,e:0}, c:{y:0,n:0,e:0}};
   // Oregon Forward is on the ballot only while the system that made it
   // viable is in force.
   const ctrRuns=centreRuns();
@@ -15584,6 +15587,16 @@ function runElection(){
       else if(ctrPull>0.22+Math.random()*0.4){ thirdC+=t; bucket="c"; }                               // or to the middle
       else { no+=t; bucket="n"; }                                     // backs the challenger
     }
+    // THEIR NEXT CHOICE. A voter who put a minor party first still ranks one
+    // of the two majors next, at the rate they like you against the
+    // challenger (their approval of you already carries how far the nominee
+    // sits from them), tilted toward the major on their own side of the
+    // flank. Some rank nobody else, and the further out they sit the likelier.
+    if(rcv&&(bucket==="l"||bucket==="r"||bucket==="c")){
+      const ex=bucket==="c"?0.16:clamp(0.10+Math.max(0,pole-0.40)*0.55,0.08,0.42);
+      const tilt=bucket==="c"?0:((bucket==="l")===govLeft?0.25:-0.25);
+      const pYou=clamp(0.5+(app-50)/45+tilt,0.03,0.97);
+      const N=NEXT[bucket]; N.e+=t*ex; N.y+=t*(1-ex)*pYou; N.n+=t*(1-ex)*(1-pYou); }
     // fan this voter's ballot out across the counties they belong to
     const cw=v.cw;
     if(cw)for(let ci=0;ci<cw.length;ci++){ const wq=cw[ci]; if(wq<=0)continue; const b=byC[ci]; b.elig+=wq; b.pl+=wq*partisanLean; const wt=wq*t; b.tot+=wt; b[bucket]+=wt;
@@ -15598,16 +15611,36 @@ function runElection(){
   // whichever of you and the challenger is closer. A left-governing incumbent
   // recovers most of the LEFT splinter; a right-governing one recovers the
   // RIGHT splinter. Without RCV, splinter votes are simply lost to you.
-  let fromThird=0;
-  if(rcv){
-    // A centrist's second preference is near a coin flip between the two
-    // majors, which is what standing in the middle amounts to.
-    fromThird = thirdL*(govLeft?0.55:0.16) + thirdR*(govLeft?0.16:0.55) + thirdC*0.42;
-    yes += fromThird;
-  }
   const third=thirdL+thirdR+thirdC;
-  const eff=yes+no+(rcv?third-fromThird:third);
-  let share=clamp(eff>0?yes/eff:0.5,0,1);
+  // THE INSTANT RUNOFF. Count first choices; while nobody holds a majority of
+  // the ballots still live, the last-placed candidate is eliminated and each
+  // of their ballots moves to its next choice, or exhausts if it has none.
+  // The result is your share of the ballots still live in the final round.
+  let irv=null, share;
+  if(rcv){
+    const v={you:yes, opp:no, spL:thirdL, spR:thirdR, spC:thirdC}, next={spL:NEXT.l, spR:NEXT.r, spC:NEXT.c};
+    const live=new Set(Object.keys(v).filter(k=>v[k]>1e-9)); let ex=0; const rounds=[];
+    for(let i=0;i<6;i++){
+      const T=[...live].reduce((a,k)=>a+v[k],0), lead=[...live].reduce((a,k)=>v[k]>v[a]?k:a);
+      const row={v:{}, ex, T}; for(const k in v)row.v[k]=live.has(k)?v[k]:null; rounds.push(row);
+      if(v[lead]>T/2||live.size<=2)break;
+      const out=[...live].reduce((a,k)=>v[k]<v[a]?k:a); row.out=out; live.delete(out);
+      const w=v[out]; v[out]=0; let moved=0;
+      if(next[out]){ const X=next[out], sum=(X.y+X.n+X.e)||1;
+        if(live.has("you")){ v.you+=w*X.y/sum; moved+=w*X.y/sum; }
+        if(live.has("opp")){ v.opp+=w*X.n/sum; moved+=w*X.n/sum; } }
+      else { // a major out-polled by a minor: its voters go to the nearest minor or the other major
+        const near=(out==="you")===govLeft?"spL":"spR", other=out==="you"?"opp":"you";
+        for(const [k,f] of [[near,0.40],["spC",0.20],[other,0.10]])if(live.has(k)){ v[k]+=w*f; moved+=w*f; } }
+      ex+=w-moved;
+    }
+    const fin=rounds[rounds.length-1], rival=Object.keys(fin.v).filter(k=>k!=="you"&&fin.v[k]!=null).sort((a,b)=>fin.v[b]-fin.v[a])[0];
+    share=fin.v.you!=null&&rival?fin.v.you/(fin.v.you+fin.v[rival]):fin.v.you!=null?1:(rounds.find(r=>r.out==="you")||fin).v.you/Math.max(1e-9,(rounds.find(r=>r.out==="you")||fin).T);
+    irv={rounds, rival:rival||"opp", tot};
+  } else {
+    const eff=yes+no+third;
+    share=clamp(eff>0?yes/eff:0.5,0,1);
+  }
   // Realism anchor: how far the governor's record sits from the electorate's
   // own centre of gravity. Track it and you keep a small incumbency edge;
   // govern far from it and that edge erodes. Blended in so a strong record
@@ -15636,18 +15669,17 @@ function runElection(){
   // the splinters on afterwards, so the thing they aim at is the headline
   // expressed head-to-head.
   const thirdSW  = tot>0 ? third/tot : 0;
-  const shareH2H = clamp(share/Math.max(0.02, 1-thirdSW), 0.02, 0.98);
+  const shareH2H = rcv ? share : clamp(share/Math.max(0.02, 1-thirdSW), 0.02, 0.98);
   // ---- per-county results, from those same tallies ----
   // Head-to-head first (you vs challenger among major-candidate ballots), then
   // third parties layered on proportionally. This keeps the you/opp ordering
   // stable across counties — ideologically sorted counties concentrate intense
   // voters who bleed to a splinter, and that shouldn't flip the two-way read.
-  const swThL = tot>0 ? thirdL/tot : 0, swThR = tot>0 ? thirdR/tot : 0, swThC = tot>0 ? thirdC/tot : 0;
+  // under RCV the map shows the final round: the minor parties are gone
+  const swThL = rcv||tot<=0 ? 0 : thirdL/tot, swThR = rcv||tot<=0 ? 0 : thirdR/tot, swThC = rcv||tot<=0 ? 0 : thirdC/tot;
   const counties=OR_COUNTIES.map((c,ci)=>{
     const b=byC[ci];
-    const backL = rcv ? b.l*(govLeft?0.55:0.16) : 0;
-    const backR = rcv ? b.r*(govLeft?0.16:0.55) : 0;
-    const backC = rcv ? b.c*0.42 : 0;
+    const backL=0, backR=0, backC=0;   // the final round is read off the head-to-head preference below
     const y=b.y+backL+backR+backC, thl=Math.max(0,b.l-backL), thr=Math.max(0,b.r-backR),
           thc=Math.max(0,b.c-backC);
     const ctot=y+b.n+thl+thr+thc;
@@ -15665,9 +15697,9 @@ function runElection(){
     const cAnchor=(-(c[5]||0))*(govLeft?1:-1)*COUNTY_ANCHOR;
     return { name:c[0], abbr:c[1], popK:c[6],
              _h2h: (major>0 ? b.hy/major : 0.5) + clamp(plGap*0.06,-0.16,0.16) + cAnchor,
-             _thL: 0.45*(ctot>0?thl/ctot:0) + 0.55*swThL,
-             _thR: 0.45*(ctot>0?thr/ctot:0) + 0.55*swThR,
-             _thC: 0.45*(ctot>0?thc/ctot:0) + 0.55*swThC,
+             _thL: rcv?0:0.45*(ctot>0?thl/ctot:0) + 0.55*swThL,
+             _thR: rcv?0:0.45*(ctot>0?thr/ctot:0) + 0.55*swThR,
+             _thC: rcv?0:0.45*(ctot>0?thc/ctot:0) + 0.55*swThC,
              turnout: b.elig>0 ? b.tot/b.elig : turnoutPct };
   });
   // reconcile the population-weighted county head-to-head mean to the statewide share
@@ -15718,33 +15750,25 @@ function runElection(){
     }
   }
   // ---- ranked-choice second round (only meaningful when RCV is on) ----
+  // The rounds as reported. The headline is the raw count blended with the
+  // realism anchor and the challenger's momentum, so the same number of
+  // ballots is moved between you and your final rival in every round: the
+  // last round lands on the declared result and each transfer is unchanged.
   let rcvRounds=null;
-  if(rcv){
-    const T=tot||1;
-    const r1You=yes1/T, r1Opp=no/T, r1L=thirdL/T, r1R=thirdR/T, r1C=thirdC/T;
-    const cL=govLeft?0.55:0.16, cR=govLeft?0.16:0.55;   // splinter → you, per the model
-    const toYouL=r1L*cL, toYouR=r1R*cR, toYouC=r1C*0.42;
-    const remL=r1L-toYouL, remR=r1R-toYouR, remC=r1C-toYouC;
-    const toOppL=remL*0.30, toOppR=remR*0.30;           // a minority find the challenger
-    const toOppC=remC*0.62;                             // the middle mostly does
-    const exhausted=(remL-toOppL)+(remR-toOppR)+(remC-toOppC);   // the rest ranked no one else
-    // Shift both rounds by whatever the anchor and the challenger's momentum
-    // did to the headline, so round two lands on the declared result and
-    // round one plus the transfers still equals round two.
-    const radj = share - (r1You+toYouL+toYouR+toYouC);
-    const aYou = clamp(r1You+radj, 0.01, 0.98), aOpp = clamp(r1Opp-radj, 0.01, 0.98);
-    rcvRounds={
-      r1:{you:aYou, opp:aOpp, spL:r1L, spR:r1R, spC:r1C},
-      xfer:{toYou:toYouL+toYouR+toYouC, toOpp:toOppL+toOppR+toOppC, exhausted},
-      r2:{you:clamp(aYou+toYouL+toYouR+toYouC,0,1), opp:clamp(aOpp+toOppL+toOppR+toOppC,0,1), exhausted}
-    };
+  if(irv){
+    const R=irv.rounds, fin=R[R.length-1], T0=irv.tot||1, rv=irv.rival;
+    let d=0; if(fin.v.you!=null&&fin.v[rv]!=null){ const C=fin.v.you+fin.v[rv]; d=share*C-fin.v.you; }
+    rcvRounds={rival:rv, rounds:R.map(r=>{ const v={}; for(const k in r.v)v[k]=r.v[k]==null?null:Math.max(0,(r.v[k]+(k==="you"?d:k===rv?-d:0))/T0);
+      return {v, ex:r.ex/T0, live:r.T/T0, out:r.out||null}; })};
   }
   return {won:share>=0.5, share, approval:overallApproval(), intention:votingIntention(),
           turnout:turnoutPct, rcv, counties, blocs, rcvRounds, oppMomentum:oppM, oppSwingPts:+(oppSwing*100).toFixed(1),
           challenger:{name:chal.name, role:chal.role, style:chal.style, like:Math.round(chal.like), likePts:+(chalLike*100).toFixed(1)},
           thirdShare:tot>0?third/tot:0,
           thirdShareL:tot>0?thirdL/tot:0, thirdShareR:tot>0?thirdR/tot:0,
-          thirdShareC:tot>0?thirdC/tot:0};
+          thirdShareC:tot>0?thirdC/tot:0,
+          // under ranked choice: first choices, as shares of every ballot
+          first:rcvRounds?{you:rcvRounds.rounds[0].v.you||0, opp:rcvRounds.rounds[0].v.opp||0}:null};
 }
 /* ============================ CAMPAIGN & PROMISES ============================
    The final quarter of each term is a campaign. The player gets a pool of
@@ -18365,9 +18389,29 @@ function egBlocCharts(blocs){
   if(rest.length)h+=`<div class="eg-blk-cat">Other</div>`+rest.map(bar).join("");
   return h+`</div>`;
 }
+/* Ranked choice, round by round: each column is a count of the ballots still
+   live, the last-placed candidate is struck out and their ballots move on. */
+function egRcvRoundsTable(r){
+  const RR=r.rcvRounds, R=RR.rounds, pc=x=>(x*100).toFixed(1)+"%";
+  const names={you:"You", opp:oppPartyName(), spL:splinterName("left"), spR:splinterName("right"), spC:centreName()};
+  const cls={you:"you", opp:"opp"};
+  const keys=["you","opp","spL","spR","spC"].filter(k=>R[0].v[k]!=null&&R[0].v[k]>0.0005);
+  const one=R.length===1;
+  const head=R.map((x,i)=>`<th>Round ${i+1}</th>`).join("");
+  const rows=keys.map(k=>`<tr${R.some(x=>x.out===k)?' class="elim"':''}><td class="${cls[k]||""}">${names[k]}</td>`+R.map((x,i)=>{
+      if(x.v[k]==null)return "<td>—</td>";
+      const share=x.v[k]/Math.max(1e-9,x.live), prev=i>0&&R[i-1].v[k]!=null?x.v[k]-R[i-1].v[k]:0;
+      return `<td>${i===R.length-1&&!x.out?"<b>"+pc(share)+"</b>":pc(share)}${prev>0.0005?` <span class="pos" title="Ballots picked up from the candidate eliminated before, as a share of all ballots cast">(+${(prev*100).toFixed(1)} of all)</span>`:""}${x.out===k?" ▼":""}</td>`; }).join("")+"</tr>").join("");
+  const exRow=R.length>1?`<tr><td>Exhausted, no next choice</td>`+R.map(x=>`<td class="neg">${x.ex>0.0005?pc(x.ex)+" of all":"—"}</td>`).join("")+"</tr>":"";
+  return `<div class="eg-section"><h3 class="eg-h3">Ranked choice, round by round</h3>
+    <div class="eg-note">${one?"Somebody held a majority of first choices, so the count ended in the first round.":"Nobody held a majority of first choices. Each round the last-placed candidate (▼) is eliminated and their ballots move to each voter's next choice, or exhaust if they ranked no one else. The count ends when one candidate holds a majority of the ballots still live."}</div>
+    <table class="eg-rcv"><thead><tr><th>Candidate</th>${head}</tr></thead><tbody>${rows}${exRow}</tbody></table>
+    <div class="eg-note" style="margin:8px 0 0">Each round's percentage is a share of the ballots still live in it. In green, the ballots a candidate picked up from the one eliminated before, as a share of all ballots cast. A minor party's voters rank you second at the rate they prefer you to ${oppPartyName()}.</div></div>`;
+}
 /* Ranked-choice: what the second round looked like. */
 function egRcvTable(r){
   if(!r.rcv||!r.rcvRounds)return"";
+  if(r.rcvRounds.rounds)return egRcvRoundsTable(r);
   const R=r.rcvRounds, p=x=>(x*100).toFixed(1)+"%", d=x=>(x>0?"+":"")+(x*100).toFixed(1)+"%";
   return `<div class="eg-section"><h3 class="eg-h3">Ranked choice — the second round</h3>
     <div class="eg-note">No one had a first-round majority. The minor parties finished last and were eliminated; their ballots move to each voter's next ranked choice, or exhaust if they ranked no one else.</div>
@@ -18663,6 +18707,8 @@ function showElection(r){
     ? (marginPts>=22?"A commanding win" : marginPts>=8?"A solid win" : "Held on by a whisker")
     : (marginPts<=-14?"A decisive loss" : "Lost by a hair");
   const third=r.thirdShare||0, oppTotal=clamp(1-r.share-third,0,1);
+  // under ranked choice the headline is the final round; the bar is first choices
+  const F=r.rcv&&r.first?r.first:null, barYou=F?F.you:r.share, barOpp=F?F.opp:oppTotal;
   const yr=GAME.startYear+GAME.term*4;
   const cRows=countyResults(r);
   const wonCty=cRows.filter(c=>c.win==="you").length;
@@ -18670,18 +18716,18 @@ function showElection(r){
     <div class="eg-kicker">${succ?'OPEN-SEAT ELECTION':'GENERAL ELECTION'} · ${yr} · STATE OF OREGON</div>
     <div class="eg-result ${won?'win':'lose'}">${bigWord}</div>
     <div class="wm-rule"></div>
-    <div class="eg-sub" style="font-size:19px">${flavour} — <b>${(r.share*100).toFixed(1)}%</b> to <b>${(oppTotal*100).toFixed(1)}%</b></div>
+    <div class="eg-sub" style="font-size:19px">${flavour} — <b>${(r.share*100).toFixed(1)}%</b> to <b>${((F?1-r.share:oppTotal)*100).toFixed(1)}%</b>${F?` <span style="font-size:14px;color:var(--muted-2)">in the final round of the count</span>`:""}</div>
     ${succ?(r.flippedByMeasure
       ? `<div class="eg-sub" style="font-size:13.5px;color:var(--muted-2)">A measure on this same ballot just reinstated Oregon's two-term limit — you were running for a third term, but the seat turns out not to have been yours to seek. Tonight counts as your successor's election.</div>`
       : `<div class="eg-sub" style="font-size:13.5px;color:var(--muted-2)">You are term-limited and not on the ballot. The vote is a referendum on the record you leave behind.</div>`
     ):``}
     <div class="eg-bar" role="img" aria-label="Statewide vote shares">
-      <i data-w="${(r.share*100).toFixed(1)}" data-t="${who} — ${(r.share*100).toFixed(1)}%" title="${who} — ${(r.share*100).toFixed(1)}%" style="width:0;background:var(--moss)"></i>
+      <i data-w="${(barYou*100).toFixed(1)}" data-t="${who} — ${(barYou*100).toFixed(1)}%${F?" of first choices":""}" title="${who} — ${(barYou*100).toFixed(1)}%" style="width:0;background:var(--moss)"></i>
       <i data-w="${((r.thirdShareL||0)*100).toFixed(1)}" data-t="${splinterName("left")} — ${((r.thirdShareL||0)*100).toFixed(1)}%" title="${splinterName("left")} — ${((r.thirdShareL||0)*100).toFixed(1)}%" style="width:0;background:var(--slate-blue)"></i>
       <i data-w="${((r.thirdShareR||0)*100).toFixed(1)}" data-t="${splinterName("right")} — ${((r.thirdShareR||0)*100).toFixed(1)}%" title="${splinterName("right")} — ${((r.thirdShareR||0)*100).toFixed(1)}%" style="width:0;background:var(--gold)"></i>
       ${(r.thirdShareC||0)>0.0005?`<i data-w="${((r.thirdShareC||0)*100).toFixed(1)}" data-t="${centreName()} — ${((r.thirdShareC||0)*100).toFixed(1)}%" title="${centreName()} — ${((r.thirdShareC||0)*100).toFixed(1)}%" style="width:0;background:#7d6f9c"></i>`:``}
-      <i data-w="${(oppTotal*100).toFixed(1)}" data-t="${oppPartyName()} — ${(oppTotal*100).toFixed(1)}%" title="${oppPartyName()} — ${(oppTotal*100).toFixed(1)}%" style="width:0;background:var(--clay)"></i>
-    </div>
+      <i data-w="${(barOpp*100).toFixed(1)}" data-t="${oppPartyName()} — ${(barOpp*100).toFixed(1)}%${F?" of first choices":""}" title="${oppPartyName()} — ${(barOpp*100).toFixed(1)}%" style="width:0;background:var(--clay)"></i>
+    </div>${F?`<div class="eg-sub" style="font-size:12.5px;color:var(--muted-2);margin-top:2px">The bar is first choices. The count below shows how the eliminated parties' ballots moved.</div>`:""}
     <div class="eg-barread" id="egBarRead">${hv("Hover","Tap")} a segment for its exact share</div>
     ${(()=>{ const t=fptpOppWould(r), was=GAME.fptpOpp||null;
       if(t&&t!==was)return `<div class="eg-sub" style="font-size:14px;color:var(--gold)">Under ranked choice <b>${prParty(t).name}</b> outpolled the ${GAME.startId==="conservative"?"Democrats":"Republicans"}. They become the opposition next term.</div>`;
@@ -19376,7 +19422,7 @@ function prOppPartyId(){
 const RCV_TAKEOVER_BOOST=1.25;
 function fptpOppWould(r){
   if(prOn()||!r||!r.rcv)return null;
-  const main=clamp(1-r.share-(r.thirdShare||0),0,1);
+  const main=r.first?r.first.opp:clamp(1-r.share-(r.thirdShare||0),0,1);
   const cands=GAME.startId==="conservative"?[["left",r.thirdShareL||0],["centre",r.thirdShareC||0]]:[["right",r.thirdShareR||0],["centre",r.thirdShareC||0]];
   const best=cands.sort((a,b)=>b[1]-a[1])[0];
   return best[1]*RCV_TAKEOVER_BOOST>main?best[0]:null;
@@ -20483,6 +20529,22 @@ function districtVote(row, sf, align, th, ch){
    party no longer splits its side: its votes come home unless it outpolls
    that side's major party. */
 const RCV_XFER_OWN=0.72, RCV_XFER_OTHER=0.13;
+/* Where a flank party's ballots go in a district runoff: to you or to the
+   other major, at the rate its voters prefer you to them, and the rest
+   exhaust. A flank on your own side comes home strongly while its voters
+   still rate you; one that has soured on you leaves more ballots unranked,
+   and some go across. Read once a quarter from the flank groups' approval. */
+function rcvLegXfer(fl){
+  const k=GAME.turn+"|"+fl, C=rcvLegXfer._c||(rcvLegXfer._c={});
+  if(C[k])return C[k];
+  const ap=sid=>SIMULANTS[sid]&&SIMULANTS[sid].approval!=null?SIMULANTS[sid].approval:50;
+  const a=fl==="spL"?(ap("socialist")*0.6+ap("liberal")*0.4):(ap("conservative")*0.6+ap("libertarian")*0.4);
+  const mineLeft=GAME.startId!=="conservative", ours=(fl==="spL")===mineLeft;
+  let you, opp;
+  if(ours){ you=clamp(0.40+(a-35)*0.012,0.25,0.85); opp=clamp(0.20-(a-35)*0.004,0.05,0.30); }
+  else { you=clamp(0.05+(a-30)*0.006,0.02,0.35); opp=clamp(0.75-(a-30)*0.006,0.40,0.85); }
+  return C[k]={you, opp};
+}
 function legSeatWinner(you,opp,spL,spR){
   const v={you,opp,spL,spR};
   const top=()=>Object.keys(v).reduce((a,k)=>v[k]>v[a]?k:a, "you");
@@ -20495,10 +20557,13 @@ function legSeatWinner(you,opp,spL,spR){
     const tot=[...live].reduce((a,k)=>a+v[k],0), lead=[...live].reduce((a,k)=>v[k]>v[a]?k:a);
     if(v[lead]>tot/2)break;
     const out=[...live].reduce((a,k)=>v[k]<v[a]?k:a); live.delete(out);
-    // a flank's ballots go to its side's major; a major's go to its flank, then across
-    const own=live.has(side[out])?side[out]:null;
-    const other=[...live].find(k=>k!==own&&(k==="you"||k==="opp"));
-    if(own)v[own]+=v[out]*RCV_XFER_OWN; if(other)v[other]+=v[out]*RCV_XFER_OTHER;
+    // a flank's ballots go to you or the other major at the rate its voters
+    // prefer you; a major's go to its own flank, then across
+    if(out==="spL"||out==="spR"){ const X=rcvLegXfer(out);
+      if(live.has("you"))v.you+=v[out]*X.you; if(live.has("opp"))v.opp+=v[out]*X.opp; }
+    else { const own=live.has(side[out])?side[out]:null;
+      const other=[...live].find(k=>k!==own&&(k==="you"||k==="opp"));
+      if(own)v[own]+=v[out]*RCV_XFER_OWN; if(other)v[other]+=v[out]*RCV_XFER_OTHER; }
     v[out]=0;
   }
   return [...live].reduce((a,k)=>v[k]>v[a]?k:a);
