@@ -621,6 +621,16 @@
   .cprim-sc{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--muted-2);margin-top:2px} .cprim-sc b{color:inherit;font-family:var(--font-data)} .cprim-sc span:not([style]) b{color:var(--ink)}
   .cprim-st{font-style:normal;font-size:12px;color:var(--ink);margin-top:2px}
 .fc-curve .fc-hit{cursor:help;pointer-events:stroke}
+.pl-lines-wrap{overflow-x:auto}
+.pl-lines{border-collapse:collapse;font-size:12.5px;width:100%;min-width:620px}
+.pl-lines th,.pl-lines td{padding:5px 7px;border-bottom:1px solid var(--line-faint);text-align:left;vertical-align:top}
+.pl-lines thead th{font-family:var(--font-display);font-size:12px;letter-spacing:.04em;white-space:nowrap}
+.pl-lines thead th .coal-sw{display:inline-block;width:9px;height:9px;margin-right:5px}
+.pl-lines .pl-mine{background:color-mix(in srgb,var(--moss) 10%,transparent)}
+.pl-lines td.pl-firm{font-weight:700}
+.pl-lines td i{font-style:normal;color:var(--muted-3)}
+.pl-lines td.pl-torn{color:var(--muted-3);font-style:italic}
+.cv-star{color:var(--gold);cursor:help}
 .prf-key{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--ink);margin:6px 0 2px}
 .prf-key span{display:inline-flex;align-items:center;gap:6px}
 .pn-bst{max-width:640px;margin:14px auto 4px;padding:12px 16px;border:1px solid var(--moss);border-left-width:4px;background:color-mix(in srgb,var(--moss) 8%,transparent);text-align:left}
@@ -22368,6 +22378,37 @@ function caucusBreakChips(m,max){
    ============================================================ */
 const PR_ORDER=["right","gop","centre","dem","left"];      // by left-right score, right first
 function prPartyLine(pid){ const z=prParty(pid).z||0; return Math.abs(z)<0.2?0:(z>0?1:-1); }
+/* EACH PARTY'S LINE, ISSUE BY ISSUE, from -1 (the right's view) to +1 (the
+   left's); between -0.2 and 0.2 the party is torn and leaves it to its
+   members. The flanks hold the hard line everywhere; the two majors lean
+   their way with their own soft spots (Democrats split over crime and
+   homelessness after the 2024 recriminalization fight); Oregon Forward is
+   pro-housing, pro-choice and business-minded, and torn on the rest. */
+const PR_LINES={
+  left:  {guns:1, housing:0.6, rent:1, climate:1, forests:1, taxes:1, labor:1, crime:1, homeless:1, abortion:1, schools:1, business:1, transit:1, immigration:1},
+  dem:   {guns:0.8, housing:0.6, rent:0.5, climate:0.8, forests:0.4, taxes:0.6, labor:0.8, crime:-0.1, homeless:0.1, abortion:1, schools:0.8, business:0.5, transit:0.6, immigration:0.8},
+  centre:{guns:0, housing:0.8, rent:-0.4, climate:0.3, forests:-0.3, taxes:-0.5, labor:-0.4, crime:-0.5, homeless:-0.4, abortion:0.6, schools:-0.3, business:-0.5, transit:0, immigration:0},
+  gop:   {guns:-1, housing:-0.3, rent:-0.8, climate:-0.8, forests:-0.8, taxes:-1, labor:-0.8, crime:-0.9, homeless:-0.8, abortion:-0.7, schools:-0.8, business:-0.8, transit:-0.8, immigration:-0.7},
+  right: {guns:-1, housing:-0.8, rent:-1, climate:-1, forests:-1, taxes:-1, labor:-1, crime:-1, homeless:-1, abortion:-1, schools:-1, business:-1, transit:-1, immigration:-1}
+};
+const PR_VIEWS_V=2;
+function prLineOn(pid,i){ const L=PR_LINES[pid]; return L&&L[i]!=null?L[i]:prPartyLine(pid); }
+/* A member breaks with their party on an issue when they sit a long way
+   from its line: across it, or out of step with a party that is torn. */
+function prBreaksLine(p,L){ return L>0.2?p<=0.2&&L-p>=0.5 : L<-0.2?p>=-0.2&&p-L>=0.5 : Math.abs(p)>=0.6; }
+/* The table of every party's line, for the Legislators page. */
+function prLinesHTML(){
+  const c=(GAME.legis&&GAME.legis.prCounts)||{}, mine=prMyParty();
+  const parties=PR_PARTIES.filter(p=>(c[p.id]||0)>0||p.id===mine);
+  const ids=ISSUE_IDS.filter(i=>ISSUES[i].partisan!==false);
+  const cell=(pid,i)=>{ const L=prLineOn(pid,i);
+    if(Math.abs(L)<=0.2)return `<td class="pl-torn">Torn: members vote their own view</td>`;
+    return `<td${Math.abs(L)>=0.9?' class="pl-firm"':''}>${caucusViewLabel(i,L)}${Math.abs(L)>=0.9?"":" <i>(leans)</i>"}</td>`; };
+  return `<details class="ahow"><summary>Party lines on every issue</summary><div class="ahow-body">
+    <p>Where each party's leadership stands. Its members vote this line unless they sit on a flank that pulls them off it or hold a conviction against it; the issues where a member breaks are marked on their file. Bold is a hard line; "leans" is a softer one; "torn" means the party leaves it to its members.</p>
+    <div class="pl-lines-wrap"><table class="pl-lines"><thead><tr><th>Issue</th>${parties.map(p=>`<th${p.id===mine?' class="pl-mine"':''}><span class="coal-sw" style="background:${p.col}"></span>${p.short}${p.id===mine?" (yours)":""}</th>`).join("")}</tr></thead>
+    <tbody>${ids.map(i=>`<tr><th>${ISSUES[i].name}</th>${parties.map(p=>cell(p.id,i)).join("")}</tr>`).join("")}</tbody></table></div></div></details>`;
+}
 function prPartyWord(pid){ return prParty(pid).short; }
 function prMemberAt(seat){ const P=GAME.pr; if(!P||!P.seatOf)return null; const id=P.seatOf[seat]; return id?P.m[id]:null; }
 function prNewName(){
@@ -22377,22 +22418,21 @@ function prNewName(){
 /* Views: the party's line, pulled by the wing (seat lean inside the bench),
    and for about one member in six a conviction against it on one issue. */
 function prViews(m){
-  const pl=prPartyLine(m.party), r=caucusRng("pr|"+m.id+"|"+m.n);
+  const r=caucusRng("pr|"+m.id+"|"+m.n);
   const ids=ISSUE_IDS.filter(i=>ISSUES[i].partisan!==false);
   const conv=r()<0.17?ids[Math.floor(r()*ids.length)]:null;
   const cares=new Set([ids[Math.floor(r()*ids.length)], ids[Math.floor(r()*ids.length)]]);
   const v={};
-  for(const i of ids){
+  for(const i of ids){ const pl=prLineOn(m.party,i);
     let pos=pl+(m.wing||0)*0.4;
-    if(i===conv)pos=pl===0?(r()<0.5?-0.8:0.8):-pl*0.4;
+    if(i===conv)pos=Math.abs(pl)<=0.2?(r()<0.5?-0.8:0.8):-Math.sign(pl)*0.4;
     v[i]={pos:+clamp(pos,-1,1).toFixed(2), int:0.5+(cares.has(i)?0.5:0)+(i===conv?0.3:0), conv:i===conv||undefined};
   }
   return v;
 }
 function prBreaks(m){
-  const pl=prPartyLine(m.party), out=[];
-  for(const i in (m.v||{})){ const p=m.v[i].pos;
-    if(pl>0?p<=0.2:pl<0?p>=-0.2:Math.abs(p)>=0.6)out.push(i); }
+  const out=[];
+  for(const i in (m.v||{})){ if(prBreaksLine(m.v[i].pos,prLineOn(m.party,i)))out.push(i); }
   return out;
 }
 /* Loyalty starts by list position: the member at the cutoff owes the party
@@ -22460,7 +22500,8 @@ function prSync(){
 /* The lists are reseated by each election, not only when the layout changes:
    an election that returns the same seat counts still seats the new lists. */
 function prSeatKey(){ return GAME.legis.prSeats.join(",")+"|"+(GAME.legis.prElec||0); }
-function prEnsure(){ if(prOn()&&GAME.legis&&GAME.legis.prSeats&&(!GAME.pr||GAME.pr.key!==prSeatKey()))prSync(); }
+function prEnsure(){ if(prOn()&&GAME.legis&&GAME.legis.prSeats&&(!GAME.pr||GAME.pr.key!==prSeatKey()))prSync();
+  const P=GAME.pr; if(P&&P.viewsV!==PR_VIEWS_V){ for(const id in P.m){ const m=P.m[id]; if(m.v&&m.party!=="ind")m.v=prViews(m); } P.viewsV=PR_VIEWS_V; } }
 function prSeated(){ const P=GAME.pr; return P?Object.values(P.m).filter(m=>m.seat&&P.seatOf[m.seat]===m.id):[]; }
 /* YOUR PARTY'S LIST. Under proportional representation there are no
    primaries: the seats your party wins go to the top of its list, in order.
@@ -22614,8 +22655,8 @@ function prListTabHTML(){
 function prFloorTerm(m,pol,dir,ctx,mine,ally){
   let v=0;
   const d=ctx&&ctx.demand, list=d&&_issueOf[d.pid];
-  if(list&&m.v){ const pl=prPartyLine(m.party);
-    for(const [i,dirI] of list){ const vv=m.v[i]; if(vv)v+=(vv.pos-pl)*vv.int*dirI*d.delta*FACTION_VOTE*0.5; } }
+  if(list&&m.v){
+    for(const [i,dirI] of list){ const vv=m.v[i]; if(vv)v+=(vv.pos-prLineOn(m.party,i))*vv.int*dirI*d.delta*FACTION_VOTE*0.5; } }
   if((mine||ally)&&m.L<prAngryAt(m)){ if(caucusTaxUp(pol,dir))v-=2.5; if(m.f)v-=0.6; }
   return v;
 }
@@ -22779,6 +22820,7 @@ function renderPRLegislators(main,h){
     <p>A member counts as angry about 18 points below where they started. Four or more angry members of the same party with the same grievance form a wing in revolt. In your party, angry members stop being reliable on tax increases. In a coalition partner, a bench in revolt strains the agreement. The other parties' leaderships pick their own fights.</p>
     <p>You order your own party's list, on the <b>Your Party's List</b> tab. Moving a member up five places costs ◈1, and sending one to the bottom (a demotion) costs ◈1; the seats may run out before a demoted member is reached, and their flank resents it a little. Recruiting a candidate of your own at the last safe place costs ◈2. A sitting member a move pushes past the likely cutoff resents it. The list locks two quarters before each Senate election, and members placed below the line know it. Expelling a member (◈4) takes effect now: they sit as an independent and vote on each bill alone, and your whole bench resents it. A member livid with their party may, rarely, cross to the neighbouring party with their seat.</p>
   </div></details>`;
+  h+=prLinesHTML();
   { const gs=[...govSet].reduce((a,p)=>a+(counts[p]||0),0);
     { const _cut=h.indexOf("</div>")+6; h=h.slice(0,_cut)+`<div class="ctabs" role="tablist"><button role="tab" aria-selected="${ptab==="gov"}" data-ptab="gov" class="${ptab==="gov"?"on":""}"><b>${ico('people')} Your Government</b><span>${[...govSet].map(prPartyWord).join(" and ")} · ${gs} of ${PR_SEATS} Senate seats</span></button><button role="tab" aria-selected="${ptab==="opp"}" data-ptab="opp" class="${ptab==="opp"?"on":""}"><b>${ico('columns')} The Opposition</b><span>Everyone outside it · ${PR_SEATS-gs} of ${PR_SEATS} Senate seats</span></button><button role="tab" aria-selected="${ptab==="list"}" data-ptab="list" class="${ptab==="list"?"on":""}"><b>${ico('ballot')} Your Party's List</b><span>Who gets your seats at the next election · ${prListOpen()?"open":"locked"}</span></button></div>`+h.slice(_cut); } }
   if(ptab==="list"){
@@ -22859,11 +22901,11 @@ function prMemberCard(m){
   if(m.f)h+=`<div class="cm-flag">In the <b class="cr-faclink" data-gofac="${m.f}">${prFacName(m.f)}</b>. Its demands, and what you can promise it, are on its card under Wings in revolt.</div>`;
   if(isLeader)h+=`<div class="cm-flag">Leader of the ${prPartyWord(m.party)} party, at the top of its list.</div>`;
   if(P.demoted[m.id])h+=`<div class="cm-flag">Demoted: goes to the bottom of the list at the next election.</div>`;
-  h+=`<div class="cm-sec">Views</div><div class="cm-views">`;
+  h+=`<div class="cm-sec">Views</div><div class="cm-note" style="margin:0 0 4px">★ An issue they care about most: it weighs more in how they vote and how they judge you. In red, a view that breaks with their party's line.</div><div class="cm-views">`;
   const br=prBreaks(m);
   ISSUE_IDS.filter(i=>m.v&&m.v[i]).sort((a,b)=>(br.includes(b)-br.includes(a))||(m.v[b].int-m.v[a].int)).forEach(i=>{ const v=m.v[i], pb=br.includes(i), nl=ISSUES[i].pols.filter(([pid])=>POLICIES[pid]||CATALOG[pid]).length;
-    h+=`<details class="cv${pb?" br":""}"><summary><span class="cv-i">${ISSUES[i].name}${v.int>=1?" ★":""}</span><span class="cv-p${pb?" cv-brk":""}">${caucusViewLabel(i,v.pos)}${pb?(v.conv?" · personal conviction":" · breaks with party"):""}</span><span class="cv-open">${nl} law${nl===1?"":"s"}<i>▸</i></span></summary><div class="cv-laws">${caucusIssueLaws(m,i)}</div></details>`; });
-  h+=`</div><div class="cm-note">★ an issue they care about. In red: a view that breaks with their party. Click an issue for the laws behind it.</div>`;
+    h+=`<details class="cv${pb?" br":""}"><summary><span class="cv-i">${ISSUES[i].name}${v.int>=1?' <span class="cv-star" title="An issue they care about most: it weighs more in how they vote and how they judge you">★</span>':""}</span><span class="cv-p${pb?" cv-brk":""}">${caucusViewLabel(i,v.pos)}${pb?(v.conv?" · personal conviction":" · breaks with party"):""}</span><span class="cv-open">${nl} law${nl===1?"":"s"}<i>▸</i></span></summary><div class="cv-laws">${caucusIssueLaws(m,i)}</div></details>`; });
+  h+=`</div><div class="cm-note">Click an issue for the laws behind it.</div>`;
   if(mine&&m.seat){
     const lo=prListOpen();
     h+=`<div class="cm-sec">Your party's list</div><div class="cm-prim"><div>#${rank} on your party's list for the next election${P.demoted[m.id]?", demoted to the bottom":""}. ${lo?"Move them up or down on the <b>Your Party's List</b> tab.":"Your list is locked until the Senate election."}</div>
@@ -24264,7 +24306,7 @@ function caucusMemberCard(k){
   if(tr.length)h+=`<div class="cm-traits">${tr.map(t=>`<span class="ctrait"><b>${t.label}</b>${t.issues.map(i=>ISSUES[i].name.toLowerCase()).join(", ")}</span>`).join("")}</div>`;
   else h+=`<div class="cm-note">No issue stands out here, so the member holds the party line where they hold anything.</div>`;
   if(mk.length)h+=`<div class="cm-mk">${mk.map(x=>`<span>${x.name}<b>${Math.round(x.share*100)}%</b><i>state ${Math.round((SIMULANTS[x.b].size||0)*100)}%</i></span>`).join("")}</div>`;
-  h+=`<div class="cm-sec">Views</div><div class="cm-views">`;
+  h+=`<div class="cm-sec">Views</div><div class="cm-note" style="margin:0 0 4px">★ An issue their district cares about most: it weighs more in how they vote and how they judge you. In red, a view that breaks with their party.</div><div class="cm-views">`;
   const order=ISSUE_IDS.filter(i=>m.v[i]).sort((a,b)=>{ const ba=caucusBreaks(m).includes(a), bb=caucusBreaks(m).includes(b); return (bb-ba)||(m.v[b].int-m.v[a].int); });
   // what sets this member apart comes first, one row each: a break with the
   // party, an issue the district cares about, a district interest. Where they
@@ -24278,9 +24320,9 @@ function caucusMemberCard(k){
     const pb=br&&ISSUES[i].partisan!==false, di=ISSUES[i].partisan===false, nl=i==="tolls"?1:ISSUES[i].pols.filter(([pid])=>POLICIES[pid]||CATALOG[pid]).length;
     if(!stands(i)&&!folded){ folded=true;
       h+=`<details class="cv-line"><summary>Party line on ${lineIds.length} other issue${lineIds.length===1?"":"s"}: <span>${lineIds.map(x=>ISSUES[x].name).join(", ")}</span></summary>`; }
-    h+=`<details class="cv${pb?" br":""}"><summary><span class="cv-i">${ISSUES[i].name}${v.int>=1?" ★":""}</span><span class="cv-p${pb?" cv-brk":""}">${caucusViewLabel(i,v.pos)}${pb?(v.conv?" · personal conviction":" · breaks with party"):""}${di?`<span class="cv-di"> · district interest</span>`:""}</span><span class="cv-open">${nl} law${nl===1?"":"s"}<i>▸</i></span></summary><div class="cv-laws">${caucusIssueLaws(m,i)}</div></details>`; });
+    h+=`<details class="cv${pb?" br":""}"><summary><span class="cv-i">${ISSUES[i].name}${v.int>=1?' <span class="cv-star" title="An issue they care about most: it weighs more in how they vote and how they judge you">★</span>':""}</span><span class="cv-p${pb?" cv-brk":""}">${caucusViewLabel(i,v.pos)}${pb?(v.conv?" · personal conviction":" · breaks with party"):""}${di?`<span class="cv-di"> · district interest</span>`:""}</span><span class="cv-open">${nl} law${nl===1?"":"s"}<i>▸</i></span></summary><div class="cv-laws">${caucusIssueLaws(m,i)}</div></details>`; });
   if(folded)h+=`</details>`;
-  h+=`</div><div class="cm-note">★ an issue the district cares about. In red: a view that breaks with the party. Click an issue to see the laws behind it and which way each has moved since you took office.</div>`;
+  h+=`</div><div class="cm-note">Click an issue to see the laws behind it and which way each has moved since you took office.</div>`;
   if(row)h+=caucusApptListsHTML([k],mk.map(x=>x.b),m.p,mine?"they":"they");
   return h+`</div>`;
 }
