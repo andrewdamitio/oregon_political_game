@@ -20492,6 +20492,21 @@ function statewideThirds(){
   const rcv=(POLICIES.rankedChoice&&POLICIES.rankedChoice.enabled)?1.35:1;
   return { L:clamp(L*0.17*rcv,0,FLANK_CEIL), R:clamp(R*0.17*rcv,0,FLANK_CEIL) };
 }
+/* WHO FILES. A flank party does not run everywhere. Whether it puts up a
+   candidate in a seat is settled once per ballot, by chance weighted toward
+   where it is strong: more likely the better it polls statewide, more likely
+   at its own end of the state, and more likely under ranked choice, where a
+   minor candidate is no longer a spoiler. The draw is fixed for the cycle,
+   so the forecast and the night agree. Where it does not file, its voters
+   stay with the majors. */
+function flankFiles(fl,seat,strength,home){
+  const into=GAME.turn-(GAME.term-1)*GAME.termLengthTurns, cyc=GAME.term+"|"+(into<=GAME.midtermTurn?"m":"g");
+  const p=clamp(0.12+strength*2.6*home+(rcvOn()?0.15:0),0.08,0.92);
+  // the forecast asks thousands of times a quarter: one draw per seat per cycle
+  const D=flankFiles._d&&flankFiles._d.cyc===cyc?flankFiles._d:(flankFiles._d={cyc, r:{}}), k=seat+"|"+fl;
+  if(D.r[k]==null)D.r[k]=caucusRng("file|"+cyc+"|"+k)();
+  return D.r[k]<p;
+}
 /* ONE DISTRICT, FOUR WAYS. First past the post: the seat goes to the largest
    share, which is not the same as the largest side. Either flank can be the
    one that splits you, depending on which way your coalition points. */
@@ -20507,6 +20522,8 @@ function districtVote(row, sf, align, th, ch){
   const homeL=1-FLANK_HOME+FLANK_HOME*clamp((lean-50)/50,0,1);
   const homeR=1-FLANK_HOME+FLANK_HOME*clamp((50-lean)/50,0,1);
   let spL=t.L*100*homeL, spR=t.R*100*homeR;
+  if(!flankFiles("L",row[0],t.L,homeL))spL=0;
+  if(!flankFiles("R",row[0],t.R,homeR))spR=0;
   // WHOSE VOTE EACH ONE SPLITS. A flank takes most of its vote from the side
   // it is a flank of, and your coalition decides which side that is.
   const govLeft=a0>=0;
