@@ -642,6 +642,10 @@
 .coal-dock.ready{border-color:var(--moss);background:color-mix(in srgb,var(--moss) 14%,var(--paper))}
 .coal-dock.just{animation:coalFlash 1.4s ease}
 .coal-dock .enactbtn{margin:0!important}
+.coal-btns{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.coal-dock .coal-btns{gap:8px}
+#coalitionCard .enactbtn.coal-concede{background:var(--paper);color:var(--ink);border:2px solid var(--ink);box-shadow:none}
+#coalitionCard .enactbtn.coal-concede:hover{background:color-mix(in srgb,var(--clay) 12%,var(--paper));border-color:var(--clay);color:var(--clay)}
 .ctr{margin:14px 0;padding:10px 14px 8px;background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius)}
 .ctr-p{padding:10px 0;border-bottom:1px solid var(--rule)}
 .ctr-p:last-of-type{border-bottom:0}
@@ -14937,21 +14941,24 @@ function drawCoalition(next){
       +'<b>'+seats+' / '+PR_SEATS+'</b>'
       +'<span>'+(have?("a majority, with "+(seats-LEGIS.majH)+" to spare"):("still "+(LEGIS.majH-seats)+" short of "+LEGIS.majH))+'</span></div>'
     // The button sits with the tally it depends on, above the benches.
-    +'<button class="enactbtn" id="coalGo" style="margin-top:10px">'
+    +(must?'<div class="coal-btns"><button class="enactbtn coal-concede" id="coalConcede" style="margin-top:10px">Concede ▸</button>':'')
+    +'<button class="enactbtn" id="coalGo" style="margin-top:10px"'+(must&&!have?' disabled':'')+'>'
       +(have?(agreeing.length?'Form a government with '+agreeing.map(p=>prParty(p).short).join(" and ")+(bonus?' (◈'+bonus+')':'')+' ▸':'Govern alone with your majority ▸')
-           :(must?'Concede: no government can be formed ▸':GAME._coalReshuffle&&agreeing.length?'Govern without a majority, with '+agreeing.map(p=>prParty(p).short).join(" and ")+' ▸':'Govern as a minority ▸'))+'</button>'
+           :(must?'Form a government: '+(LEGIS.majH-seats)+' more seats needed':GAME._coalReshuffle&&agreeing.length?'Govern without a majority, with '+agreeing.map(p=>prParty(p).short).join(" and ")+' ▸':'Govern as a minority ▸'))+'</button>'
+    +(must?'</div>':'')
     +(holdouts.length?'<div class="fnote" style="margin-top:6px;color:var(--clay)">'+holdouts.map(p=>prParty(p).short).join(" and ")
       +(holdouts.length===1?" has not agreed, so its seats do not count yet.":" have not agreed, so their seats do not count yet.")+'</div>':'')
-    +(have?'':(must
-      ? '<div class="fnote" style="margin-top:6px;color:var(--clay)">The Senate chooses the governor. Without a government of '+LEGIS.majH+' your governorship ends.</div>'
+    +(must?'<div class="fnote" style="margin-top:6px;color:'+(have?'var(--muted-1)':'var(--clay)')+'">The Senate chooses the governor. Form a government of '+LEGIS.majH+' to stay in office, or concede and it passes to someone else.</div>':have?'':(must
+      ? ''
       : '<div class="fnote" style="margin-top:6px;color:var(--clay)">You can refuse to deal. A minority governor keeps the veto and the executive order and passes almost nothing else.</div>'))
     +'<div class="fnote" style="margin:12px 0 2px">Invite a party, then build its offer. Each promise adds support, and a party signs once support reaches zero with its must-have included. A term marked in red is broken today: sign it and it counts against you until you put it right. '
     +'Every promise except a payment up front is a standing condition, checked each quarter for the rest of the term. Keep them and partners whip their benches and pay you capital. '
     +'Break them and the partnership sours until they leave, with no second negotiation before the next election. A pledged law has a deadline, and missing it counts double.</div>'
     +rows
     +'<div class="coal-dock'+(have?' ready':'')+(GAME._coalJustMajority?' just':'')+'"><span><b>'+seats+' / '+PR_SEATS+'</b> '+(have?'a majority':'still '+(LEGIS.majH-seats)+' short of '+LEGIS.majH)+'</span>'
-      +'<button class="enactbtn" id="coalGo2">'+(have?(agreeing.length?'Form a government with '+agreeing.map(p=>prParty(p).short).join(" and ")+' ▸':'Govern alone with your majority ▸')
-        :(must?'Concede: no government can be formed ▸':GAME._coalReshuffle&&agreeing.length?'Govern without a majority ▸':'Govern as a minority ▸'))+'</button></div>';
+      +(must?'<span class="coal-btns"><button class="enactbtn coal-concede" id="coalConcede2">Concede</button>':'')
+      +'<button class="enactbtn" id="coalGo2"'+(must&&!have?' disabled':'')+'>'+(have?(agreeing.length?'Form a government with '+agreeing.map(p=>prParty(p).short).join(" and ")+' ▸':'Govern alone with your majority ▸')
+        :(must?'Form a government ▸':GAME._coalReshuffle&&agreeing.length?'Govern without a majority ▸':'Govern as a minority ▸'))+'</button>'+(must?'</span>':'')+'</div>';
   GAME._coalJustAgreed=null; GAME._coalJustMajority=false;
   modal.classList.remove("hidden");
   modal.scrollTop=keep[0]; card.scrollTop=keep[1];
@@ -14980,12 +14987,14 @@ function drawCoalition(next){
     drawCoalition();
   }));
   const go=document.getElementById("coalGo"), go2=document.getElementById("coalGo2");
+  const concede=()=>{ GAME.coalPick=null; GAME.coalOffer=null; GAME._coalNext=null; GAME._coalMust=false; modal.classList.add("hidden");
+    showNoGovernment(have?"declined":"noMajority",{my:((GAME.legis&&GAME.legis.prCounts)||{})[prMyParty()]||0}); };
+  ["coalConcede","coalConcede2"].forEach(id=>{ const b=document.getElementById(id); if(b)b.onclick=concede; });
   if(go2)go2.onclick=()=>go&&go.onclick();
   GAME._coalPrevAgree=agreeing.slice(); GAME._coalPrevHave=have;
   if(go)go.onclick=()=>{
-    // the talks were opened from somewhere that does not handle the failure
-    if(must&&!have&&!GAME._coalMust){ GAME.coalPick=null; GAME.coalOffer=null; GAME._coalNext=null; modal.classList.add("hidden");
-      showNoGovernment("noMajority",{my:((GAME.legis&&GAME.legis.prCounts)||{})[prMyParty()]||0}); return; }
+    // under a parliament there is no government short of a majority: Concede is the way out
+    if(must&&!have)return;
     formCoalition((have||GAME._coalReshuffle)?agreeing:[], GAME.coalOffer, GAME._coalWalked);
     GAME.coalPick=null; GAME.coalOffer=null;
     modal.classList.add("hidden");
@@ -19261,9 +19270,11 @@ function showNoGovernment(why,d){
   if(window.SANDBOX){ GAME.log.push(ico('warning')+" No government could be formed. Outside the sandbox, the Senate would choose another governor"); render(); return; }
   GAME.gameOver=true;
   const place=["first","second","third","fourth","fifth"][(d.ahead||[]).length]||"last";
-  const head=why==="third"?`The ${me.name} Party Came ${place.replace(/^./,x=>x.toUpperCase())}`:"Government Collapse";
+  const head=why==="third"?`The ${me.name} Party Came ${place.replace(/^./,x=>x.toUpperCase())}`:why==="declined"?"You Conceded":"Government Collapse";
   const body=why==="third"
     ? `Under a legislatively elected governor the Senate chooses the governor, and only one of the two largest parties can build a government. Your party holds <b>${d.my}</b> seats, behind ${d.ahead.slice(0,2).map(p=>`${prParty(p).name} with <b>${c[p]}</b>`).join(" and ")}. The Senate has chosen someone else, and your governorship ends.`
+    : why==="declined"
+    ? `You had a government of ${LEGIS.majH} within reach and chose not to form it. Under a legislatively elected governor the Senate needs someone who commands a majority, and with you out of the running it turns to the other parties. Your party keeps its <b>${d.my}</b> seats, in opposition.`
     : why==="collapse"
     ? `Under a legislatively elected governor you must command a majority of the Senate, and there is no majority left to build. Your party holds <b>${d.my}</b> of ${PR_SEATS}, and every party that might have joined you has refused or cannot bring enough seats:</div><div class="rsection" style="margin:10px 0">${prRefusals()}</div><div class="sectionsub">No government can command the Senate with you at its head. It elects another governor, and your governorship ends.`
     : `Under a legislatively elected governor you must command a majority of the Senate. Your party holds <b>${d.my}</b> seats and the government you could build fell short of ${LEGIS.majH}:</div><div class="rsection" style="margin:10px 0">${prRefusals()}</div><div class="sectionsub">The Senate elects another governor, and your governorship ends.`;
