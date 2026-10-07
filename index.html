@@ -15599,16 +15599,25 @@ function runElection(){
       else if(ctrPull>0.22+Math.random()*0.4){ thirdC+=t; bucket="c"; }                               // or to the middle
       else { no+=t; bucket="n"; }                                     // backs the challenger
     }
-    // THEIR NEXT CHOICE. A voter who put a minor party first still ranks one
-    // of the two majors next, at the rate they like you against the
-    // challenger (their approval of you already carries how far the nominee
-    // sits from them), tilted toward the major on their own side of the
-    // flank. Some rank nobody else, and the further out they sit the likelier.
+    // THEIR NEXT CHOICE. A flank voter ranks the major on their own side
+    // second, Democrats for Working Families and Republicans for the
+    // Constitution party, whatever the governor's record. Souring on that
+    // candidate sends them to no second choice far more than across the
+    // aisle: most who will not rank their own side's major rank nobody, and
+    // the further out they sit the likelier that is. A centre voter splits
+    // between the majors on how they rate you, and some rank nobody.
     if(rcv&&(bucket==="l"||bucket==="r"||bucket==="c")){
-      const ex=bucket==="c"?0.16:clamp(0.10+Math.max(0,pole-0.40)*0.55,0.08,0.42);
-      const tilt=bucket==="c"?0:((bucket==="l")===govLeft?0.25:-0.25);
-      const pYou=clamp(0.5+(app-50)/45+tilt,0.03,0.97);
-      const N=NEXT[bucket]; N.e+=t*ex; N.y+=t*(1-ex)*pYou; N.n+=t*(1-ex)*(1-pYou); }
+      const N=NEXT[bucket];
+      if(bucket==="c"){ const ex=0.16, pYou=clamp(0.5+(app-50)/45,0.05,0.95);
+        N.e+=t*ex; N.y+=t*(1-ex)*pYou; N.n+=t*(1-ex)*(1-pYou); }
+      else {
+        const ownIsYou=(bucket==="l")===(GAME.startId!=="conservative");
+        const r=ownIsYou?app:100-app;                                  // how they rate their own side's major
+        const ex=clamp(0.10+Math.max(0,pole-0.40)*0.45+Math.max(0,50-r)/110,0.06,0.55);
+        const cross=clamp(0.05+Math.max(0,50-r)/260,0.02,0.18);
+        const own=Math.max(0.2,1-ex-cross);
+        N.e+=t*ex;
+        if(ownIsYou){ N.y+=t*own; N.n+=t*cross; } else { N.n+=t*own; N.y+=t*cross; } } }
     // fan this voter's ballot out across the counties they belong to
     const cw=v.cw;
     if(cw)for(let ci=0;ci<cw.length;ci++){ const wq=cw[ci]; if(wq<=0)continue; const b=byC[ci]; b.elig+=wq; b.pl+=wq*partisanLean; const wt=wq*t; b.tot+=wt; b[bucket]+=wt;
@@ -15642,7 +15651,7 @@ function runElection(){
         if(live.has("you")){ v.you+=w*X.y/sum; moved+=w*X.y/sum; }
         if(live.has("opp")){ v.opp+=w*X.n/sum; moved+=w*X.n/sum; } }
       else { // a major out-polled by a minor: its voters go to the nearest minor or the other major
-        const near=(out==="you")===govLeft?"spL":"spR", other=out==="you"?"opp":"you";
+        const near=(out==="you")===(GAME.startId!=="conservative")?"spL":"spR", other=out==="you"?"opp":"you";
         for(const [k,f] of [[near,0.40],["spC",0.20],[other,0.10]])if(live.has(k)){ v[k]+=w*f; moved+=w*f; } }
       ex+=w-moved;
     }
