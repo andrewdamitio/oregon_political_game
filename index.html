@@ -635,6 +635,13 @@
 .pp-closed .emr,.pp-closed .cch,.pp-closed .prf-note{opacity:.4;pointer-events:none;filter:grayscale(1)}
 .pp-notice{font-size:13.5px;color:var(--ink);background:var(--paper);border-left:4px solid var(--gold);padding:7px 10px;margin:6px 0 8px}
 .pp-notice .ico{width:14px;height:14px;vertical-align:-2px}
+.coal-p.agreed{border-color:var(--moss)!important;box-shadow:inset 4px 0 0 var(--moss)}
+.coal-p.just-agreed{animation:coalFlash 1.2s ease}
+@keyframes coalFlash{0%{background:color-mix(in srgb,var(--moss) 30%,var(--paper))}100%{background:inherit}}
+.coal-dock{position:sticky;bottom:0;box-shadow:0 30px 0 0 var(--paper);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:14px -4px 0;padding:10px 12px;background:var(--paper-2);border:2px solid var(--line);z-index:2}
+.coal-dock.ready{border-color:var(--moss);background:color-mix(in srgb,var(--moss) 14%,var(--paper))}
+.coal-dock.just{animation:coalFlash 1.4s ease}
+.coal-dock .enactbtn{margin:0!important}
 .prf-key{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--ink);margin:6px 0 2px}
 .prf-key span{display:inline-flex;align-items:center;gap:6px}
 .pn-bst{max-width:640px;margin:14px auto 4px;padding:12px 16px;border:1px solid var(--moss);border-left-width:4px;background:color-mix(in srgb,var(--moss) 8%,transparent);text-align:left}
@@ -14797,7 +14804,7 @@ function drawCoalition(next){
   // There is nothing to negotiate until a chamber has actually been elected
   // under the new rules.
   if(!prOn()||!GAME.legis||!GAME.legis.prCounts){ GAME.pendingCoalition=null; if(next)next(); return; }
-  if(next!==undefined)GAME._coalNext=next;
+  if(next!==undefined){ GAME._coalNext=next; GAME._coalPrevAgree=null; GAME._coalPrevHave=null; }
   if(!GAME.coalPick)GAME.coalPick=[];
   const walkedOut=GAME._coalWalked||[];
   GAME.coalPick=GAME.coalPick.filter(p=>coalitionWillTalk(p)&&walkedOut.indexOf(p)<0);
@@ -14805,9 +14812,12 @@ function drawCoalition(next){
   const mine=prMyParty(), own=c[mine]||0;
   // only a party that has said yes brings its seats
   const agreeing=GAME.coalPick.filter(pid=>(GAME._coalReshuffle&&GAME._coalReshuffle.partners.indexOf(pid)>=0)||coalSupport(pid,coalOfferIds(pid),GAME.coalPick).agree);
+  // what this click changed: a party that has just said yes, a majority just reached
+  if(GAME._coalPrevAgree){ const fresh=agreeing.filter(p=>GAME._coalPrevAgree.indexOf(p)<0); if(fresh.length)GAME._coalJustAgreed=fresh[0]; }
   const holdouts=GAME.coalPick.filter(pid=>agreeing.indexOf(pid)<0);
   let seats=own; for(const pid of agreeing)seats+=(c[pid]||0);
   const have=seats>=LEGIS.majH;
+  if(have&&GAME._coalPrevHave===false)GAME._coalJustMajority=true;
   const bonus=agreeing.filter(pid=>coalOfferIds(pid).indexOf("bonus")>=0).length*COAL_BONUS_CAP;
   // never "−0": a party a fraction short reads as one short
   const sg=v=>v>=0?"+"+Math.round(v):"−"+Math.ceil(-v);
@@ -14858,7 +14868,7 @@ function drawCoalition(next){
         +'<em>'+st+'</em><span>'+d.why+'</span></li>';
     }).join("");
     const ask=coalAsk(p.id,S), sm=coalitionStartMood(p.id,S.total);
-    rows+='<div class="coal-p on">'+head+meter
+    rows+='<div class="coal-p on'+(S.agree?' agreed':'')+(GAME._coalJustAgreed===p.id?' just-agreed':'')+'">'+head+meter
       +'<div class="coal-ask'+(ask?'':' ok')+'">'+(ask||(sm>=COAL_GOOD?"They sign, and vote with you from the start."
         :"They sign, but will not vote with you until they see promises kept. Offer more to change that."))+'</div>'
       +'<div class="coal-price">Their terms<ul>'+items+'</ul></div></div>';
@@ -14883,7 +14893,11 @@ function drawCoalition(next){
     +'<div class="fnote" style="margin:12px 0 2px">Invite a party, then build its offer. Each promise adds support, and a party signs once support reaches zero with its red line included. '
     +'Every promise except a payment up front is a standing condition, checked each quarter for the rest of the term. Keep them and partners whip their benches and pay you capital. '
     +'Break them and the partnership sours until they leave, with no second negotiation before the next election. A pledged law has a deadline, and missing it counts double.</div>'
-    +rows;
+    +rows
+    +'<div class="coal-dock'+(have?' ready':'')+(GAME._coalJustMajority?' just':'')+'"><span><b>'+seats+' / '+PR_SEATS+'</b> '+(have?'a majority':'still '+(LEGIS.majH-seats)+' short of '+LEGIS.majH)+'</span>'
+      +'<button class="enactbtn" id="coalGo2">'+(have?(agreeing.length?'Form a government with '+agreeing.map(p=>prParty(p).short).join(" and ")+' ▸':'Govern alone with your majority ▸')
+        :(GAME._coalMust?'Concede: no government can be formed ▸':GAME._coalReshuffle&&agreeing.length?'Govern without a majority ▸':'Govern as a minority ▸'))+'</button></div>';
+  GAME._coalJustAgreed=null; GAME._coalJustMajority=false;
   modal.classList.remove("hidden");
   modal.scrollTop=keep[0]; card.scrollTop=keep[1];
   card.querySelectorAll('[data-coal]').forEach(el=>el.addEventListener('click',e=>{
@@ -14910,7 +14924,9 @@ function drawCoalition(next){
     }
     drawCoalition();
   }));
-  const go=document.getElementById("coalGo");
+  const go=document.getElementById("coalGo"), go2=document.getElementById("coalGo2");
+  if(go2)go2.onclick=()=>go&&go.onclick();
+  GAME._coalPrevAgree=agreeing.slice(); GAME._coalPrevHave=have;
   if(go)go.onclick=()=>{
     formCoalition((have||GAME._coalReshuffle)?agreeing:[], GAME.coalOffer, GAME._coalWalked);
     GAME.coalPick=null; GAME.coalOffer=null;
