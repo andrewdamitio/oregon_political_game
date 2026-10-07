@@ -815,6 +815,12 @@
   .pf-link{cursor:pointer;color:inherit;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px}
   .pf-link:hover{color:var(--moss)}
   .pf-under{margin:10px 0 0;font-size:13.5px}
+  .plog{display:flex;flex-direction:column;margin:2px 0 8px}
+  .plog-r{display:grid;grid-template-columns:70px 1fr auto;gap:10px;align-items:baseline;font-size:13px;padding:3px 0 3px 8px;border-bottom:1px dotted var(--line)}
+  .plog-t{font-family:var(--font-data);font-size:11.5px;color:var(--muted-2)}
+  .plog-r b{font-weight:600;white-space:nowrap;font-size:12.5px} .plog-r b.up{color:var(--moss)} .plog-r b.dn{color:var(--clay)}
+  .plog-none{font-size:13px;color:var(--muted-2);padding-left:8px;margin:2px 0 8px}
+  .ctr-qd{font-size:12.5px} .ctr-qd.up{color:var(--moss)} .ctr-qd.dn{color:var(--clay)}
   .pf-under .ico{width:14px;height:14px;vertical-align:-2px}
   #apptPanelCard button{margin-top:0;padding:7px 14px;font-size:13px}
   #apptPanelCard .apx{position:absolute;top:10px;right:12px;padding:2px 10px;font-size:20px;line-height:1;box-shadow:none}
@@ -9052,13 +9058,13 @@ const DILEMMAS={
          const pid=GAME.coalUlt; if(!pid)return;
          const p=prParty(pid);
          GAME.capital=clamp(GAME.capital-12,0,100);
-         if(GAME.coalition&&GAME.coalition.mood)GAME.coalition.mood[pid]=Math.max(coalitionMood(pid),74);
+         if(GAME.coalition&&GAME.coalition.mood){ const b=coalitionMood(pid); GAME.coalition.mood[pid]=Math.max(b,74); partyNote(pid,"Ultimatum: you gave them the win",coalitionMood(pid)-b,"event"); }
          // re-baseline what they are measuring you against: you have just
          // met them, so the clock starts again from here
          if(GAME.coalition&&GAME.coalition.snap&&GAME.coalition.snap[pid])
            for(const d of coalTerms(pid)){ try{ GAME.coalition.snap[pid][d.id]=d.snap(); }catch(e){} }
          for(const q of coalitionPartners())if(q!==pid&&GAME.coalition.mood)
-           GAME.coalition.mood[q]=clamp(coalitionMood(q)-7,0,100);
+           { GAME.coalition.mood[q]=clamp(coalitionMood(q)-7,0,100); partyNote(q,"Resented the win you gave "+prParty(pid).short,-7,"event"); }
          createGrudge("v_moderate",-3,0.9,"Gave in to a coalition ultimatum");
          GAME.mandateShock=(GAME.mandateShock||0)-2;
          GAME.log.push(ico('handshake')+" Met "+p.short+"'s ultimatum — ◈ 12, and the government holds");
@@ -9070,7 +9076,7 @@ const DILEMMAS={
          const p=prParty(pid);
          GAME.capital=clamp(GAME.capital-5,0,100);
          if(GAME.coalition&&GAME.coalition.mood)
-           GAME.coalition.mood[pid]=clamp(coalitionMood(pid)+16,0,100);
+           { GAME.coalition.mood[pid]=clamp(coalitionMood(pid)+16,0,100); partyNote(pid,"Ultimatum: you offered them something smaller",16,"event"); }
          GAME.log.push(ico('doc')+" Bought time from "+p.short+" — ◈ 5, and the commitments still stand");
        }},
       {label:"Tell them to go ahead",
@@ -9084,7 +9090,7 @@ const DILEMMAS={
          const foldOdds=(pid===flank)?0.62:(pid==="centre"?0.30:0.42);
          if(Math.random()<foldOdds){
            if(GAME.coalition&&GAME.coalition.mood)
-             GAME.coalition.mood[pid]=clamp(coalitionMood(pid)+21,0,100);
+             { GAME.coalition.mood[pid]=clamp(coalitionMood(pid)+21,0,100); partyNote(pid,"Ultimatum: you called their bluff and they stayed",21,"event"); }
            GAME.mandateShock=(GAME.mandateShock||0)+4;
            createGrudge("v_moderate",3,0.9,"Faced down a coalition threat");
            GAME.log.push(ico('shield')+" Called "+p.short+"'s bluff — they stayed, and everyone saw it");
@@ -20149,20 +20155,19 @@ function coalitionTrustHTML(){
     const cls=m>=COAL_GOOD?"good":m>=COAL_WALK+12?"warn":"bad";
     const state=m>=COAL_GOOD?"Voting with you":m>=COAL_WALK?"In government, not voting with you":"Leaving";
     const nm=id=>(CATALOG[id]||POLICIES[id]||{name:id}).name, d0=o.due[0];
-    const turn=d0&&o.settleAfter<t-1?` If ${nm(d0.id)} is not passed within ${d0.q} quarter${d0.q===1?"":"s"}${o.due.length>1?(o.due.length>2?" (or the other pledged laws by their deadlines)":" (or the other pledged law by its deadline)"):""}, it turns and falls toward ${o.settleAfter}.`:"";
+    const turn=d0&&o.settleAfter<t-1?` If ${nm(d0.id)} is not passed within ${d0.q} quarter${d0.q===1?"":"s"}${o.due.length>1?(o.due.length>2?" (or the other pledged laws by their deadlines)":" (or the other pledged law by its deadline)"):""}, their trust turns and falls toward ${o.settleAfter}.`:"";
     const risk=o.walk?`<b class="ctr-bad">${turn?"Then they leave":"At this rate they leave"} in about ${o.walk} quarter${o.walk===1?"":"s"}.</b>`
-      :Math.min(t,o.settleAfter)<COAL_GOOD?"They stay, but below 55 their members stop voting with you.":"Not at risk of leaving.";
+      :Math.min(t,o.settleAfter)<COAL_GOOD?"If nothing changes they stay, but below 55 their members stop voting with you.":"Not at risk of leaving.";
     const trust=Math.round(partyTrust(pid)), ms=prSeated().filter(x=>x.party===pid), ang=ms.filter(x=>x.L<prAngryAt(x)).length;
-    const cap=((m-50)/50)*2.4*Math.min(1.6,(c[pid]||0)/18);
+    const cap=((m-50)/50)*2.4*Math.min(1.6,(c[pid]||0)/18), qd=C.qDelta&&C.qDelta[pid];
     h+=`<div class="ctr-p"><div class="ctr-h"><span class="coal-sw" style="background:${p.col}"></span><b><a class="pf-link" data-pprof="${pid}">${p.name}</a></b><span class="coal-s">${c[pid]||0} seats</span>
-        <span class="coal-mood ${cls}">Trust ${Math.round(m)} · ${state}</span></div>
-      <div class="ctr-scale ctr-above"><span class="ctr-lab${t<30?" r":""}" style="left:${t}%">${t>m+1?"Rising to":t<m-1?"Falling to":"Holding at"} <b>${t>m+1||t<m-1?t:Math.round(m)}</b></span><span style="left:${t}%">▾</span></div>
+        <span class="coal-mood ${cls}">Trust ${Math.round(m)} · ${state}</span>${qd!=null&&Math.abs(qd)>=0.5?`<span class="ctr-qd ${qd>0?"up":"dn"}">${qd>0?"▲":"▼"} ${Math.abs(qd).toFixed(0)} last quarter</span>`:""}</div>
       <div class="ctr-bar"><i class="${cls}" style="width:${Math.round(m)}%"></i>
         <span class="ctr-mk walk" style="left:${COAL_WALK}%" title="Below ${COAL_WALK} they leave the government"></span>
         <span class="ctr-mk vote" style="left:${COAL_GOOD}%" title="At ${COAL_GOOD} or above their members vote with you"></span>
-        <span class="ctr-to" style="left:${t}%" title="Where their trust is heading: ${t}"></span></div>
+</div>
       <div class="ctr-scale"><span style="left:${COAL_WALK}%">${COAL_WALK} leave</span><span style="left:${COAL_GOOD}%">${COAL_GOOD} vote with you</span></div>
-      <div class="ctr-out">Trust moves toward the marked point by up to 11 a quarter.${turn} ${risk}</div>
+      <div class="ctr-out">${(turn+" "+risk).trim()}</div>
       <div class="ctr-why">
         <div class="ctr-k">The agreement: ${rows.filter(r=>r.ok).length} of ${rows.length} kept</div>
         ${rows.map(r=>{ const law=r.d.kind==="deadline"&&!r.ok||(r.d.kind==="deadline"&&r.d.note&&/due/.test(r.d.note(r.v)))?r.d.id.slice(5):null;
@@ -20170,10 +20175,52 @@ function coalitionTrustHTML(){
         <div class="ctr-k">Their voters' view of you: <b>${trust}</b> ${trust>=55?"(helps)":trust>=45?"(about even)":"(drags trust down)"}</div>
         ${ang?`<div class="ctr-k">${ang} of their ${ms.length} members at odds with their own leadership${ang/Math.max(1,ms.length)>=0.25?", costing trust each quarter":""}</div>`:""}
         <div class="ctr-k">Worth ${cap>=0?"+":"−"}◈${Math.abs(cap).toFixed(1)} a quarter in capital</div>
+        <div class="ctr-k">What moved them lately</div>${partyLogHTML(pid,5,true)}
       </div></div>`;
   }
   for(const pid of (C.walked||[]))h+=`<div class="coal-row gone"><b>${prParty(pid).name}</b> walked out of the government.</div>`;
-  return h+`<div class="lpr-note">Trust moves each quarter toward a target set by the agreement you signed and by how their voters rate you. A pledged law counts double, and breaks the quarter its deadline passes. Below ${COAL_WARN} a partner may issue an ultimatum; below ${COAL_WALK} it leaves.</div></div>`;
+  return h+`<div class="lpr-note">Each quarter trust moves up to 11 points toward what the agreement you signed and their voters' view of you justify, and an ultimatum or a bench in revolt moves it at once. A pledged law counts double, and breaks the quarter its deadline passes. Below ${COAL_WARN} a partner may issue an ultimatum; below ${COAL_WALK} it leaves.</div></div>`;
+}
+/* WHAT MOVED EACH PARTY. A short record per party, newest last: laws you
+   changed, scored by how far they moved that party's voters on you;
+   promises in the agreement broken or put right; and moments (an
+   ultimatum, a bench in revolt) that moved a partner's trust directly. */
+function partyNote(pid,txt,d,kind){
+  if(!prOn()||!pid||!isFinite(d))return;
+  const L=(GAME.partyLog=GAME.partyLog||{})[pid]=(GAME.partyLog[pid]||[]);
+  L.push({t:GAME.turn, txt, d:+(+d).toFixed(1), kind:kind||"event"}); if(L.length>16)L.splice(0,L.length-16);
+}
+/* How far a law sits on: 0 off, 1 fully on; a tier counts its steps. */
+function partyLawLevel(id){
+  const p=POLICIES[id]; if(!p||p.enabled===false)return 0;
+  if(p.mechanic==="tier"&&p.tiers)return ((p.tierIndex||0)+1)/p.tiers.length;
+  if(p.mechanic==="slider")return p.value!=null?p.value:0.5;
+  if(p.mechanic==="intensity")return p.intensity!=null?p.intensity:1;
+  return 1;
+}
+/* Once a quarter, before the coalition is judged: which laws moved, and what
+   each did to every party's voters. The same weighting partyTrust reads. */
+function partyLogTick(){
+  if(!prOn())return;
+  const prev=GAME._lawLv, now={};
+  for(const id in POLICIES)now[id]=partyLawLevel(id);
+  GAME._lawLv=now;
+  if(!prev)return;
+  const ids=new Set(Object.keys(prev).concat(Object.keys(now)));
+  const W={};
+  for(const p of PR_PARTIES){ const w={}; let t=0;
+    for(const b in SIMULANTS){ const d=Math.abs(p.z+apptBlocLean(b)*0.5)/0.35, x=(SIMULANTS[b].size||0.01)*Math.exp(-d*d); w[b]=x; t+=x; }
+    for(const b in w)w[b]/=t||1; W[p.id]=w; }
+  for(const id of ids){
+    const a=prev[id]||0, b=now[id]||0, dl=b-a; if(Math.abs(dl)<0.01)continue;
+    const p=POLICIES[id]||CATALOG[id]; if(!p)continue;
+    const be=p.blocEffect||{};
+    const what=!a?"Passed "+p.name:!b?"Repealed "+p.name
+      :p.mechanic==="tier"&&p.tiers?p.name+": now "+p.tiers[p.tierIndex||0]
+      :p.name+(dl>0?" raised":" lowered");
+    for(const pp of PR_PARTIES){ let v=0; for(const g in be)v+=(W[pp.id][g]||0)*be[g]*dl;
+      if(Math.abs(v)>=0.3)partyNote(pp.id, what, v, "law"); }
+  }
 }
 /* Every quarter: are they happy, and are they still here. */
 function tickCoalition(){
@@ -20181,9 +20228,15 @@ function tickCoalition(){
   if(!prOn()||!C||!C.partners.length)return;
   const gone=[];
   for(const pid of C.partners.slice()){
+    { const ok=C.okPrev=C.okPrev||{}, was=ok[pid]=ok[pid]||{};
+      for(const r of coalitionCheck(pid)){ if(was[r.d.id]!=null&&was[r.d.id]!==r.ok)
+          partyNote(pid,(r.ok?"Back in line: ":r.d.kind==="deadline"?"Missed the deadline: ":"Broke the agreement: ")+r.d.label,(r.ok?1:-1)*(r.d.weight||1)*84/Math.max(1,coalitionCheck(pid).reduce((a,x)=>a+(x.d.weight||1),0)),"term");
+        was[r.d.id]=r.ok; } }
     const target=coalitionTarget(pid);
     const cur=C.mood[pid]==null?68:C.mood[pid];
     C.mood[pid]=+clamp(cur+clamp(target-cur,-11,11),0,100).toFixed(1);
+    (C.qDelta=C.qDelta||{})[pid]=+(C.mood[pid]-(C.seen&&C.seen[pid]!=null?C.seen[pid]:cur)).toFixed(1);
+    (C.seen=C.seen||{})[pid]=C.mood[pid];
     if(C.mood[pid]<COAL_WALK)gone.push(pid);
   }
   for(const pid of gone){
@@ -22598,6 +22651,14 @@ function prLineLawsTip(pid,i){
     ${rows.length?rows.join(""):'<div class="bt-val">No law on the books or in the catalog.</div>'}
     <div class="bt-foot">${torn?"Each member votes their own view on these.":firm?"Members vote this way unless a flank or a conviction pulls them off it.":"A softer line: more of their members break from it."}</div>`;
 }
+/* The record, newest first, for a panel. */
+function partyLogHTML(pid,n,partner){
+  const L=((GAME.partyLog||{})[pid]||[]).filter(e=>GAME.turn-e.t<=8).slice(-(n||6)).reverse();
+  if(!L.length)return `<div class="plog-none">Nothing in the last two years has moved them much either way.</div>`;
+  return `<div class="plog">`+L.map(e=>{ const up=e.d>0;
+    const what=e.kind==="law"?"their voters' view of you ":e.kind==="term"?"pulls trust ":"trust ";
+    return `<div class="plog-r"><span class="plog-t">${caucusQ(e.t)}</span><span class="plog-x">${e.txt}</span><b class="${up?"up":"dn"}">${what}${up?"+":"−"}${Math.abs(e.d).toFixed(1)}</b></div>`; }).join("")+`</div>`;
+}
 /* The groups a party's vote comes from: the same weighting partyTrust uses. */
 function prPartyBlocs(pid,n){
   const p=prParty(pid), out=[];
@@ -22645,6 +22706,7 @@ function openPartyProfile(pid){
     </div>`;
   if(pid!==mine&&(PR_DEMANDS[pid]||[]).length)
     x+=`<div class="ebgroup-label">What they ask of a government</div><div class="pf-asks">${(PR_DEMANDS[pid]||[]).map(d=>`<div><b>${d.label}.</b>${d.why?` <span class="pf-dim">${d.why}</span>`:""}</div>`).join("")}</div>`;
+  x+=`<div class="ebgroup-label">What moved them lately</div>${partyLogHTML(pid,8,partners.indexOf(pid)>=0)}`;
   x+=`<div class="apanel-act">${seated.length?`<button class="fcard-btn" data-pfmembers="${pid}">See their members ▸</button>`:""}<button class="fcard-btn" data-pfclose>Close</button></div>`;
   card.innerHTML=x; modal.classList.remove("hidden");
   const close=()=>modal.classList.add("hidden");
@@ -22954,7 +23016,7 @@ function prTick(){
   if(GAME.coalition&&GAME.coalition.mood)for(const pid of coalitionPartners()){
     const ms=prSeated().filter(m=>m.party===pid); if(!ms.length)continue;
     const ang=ms.filter(m=>m.L<prAngryAt(m)).length/ms.length;
-    if(ang>=0.25){ GAME.coalition.mood[pid]=clamp(coalitionMood(pid)-ang*6,0,100);
+    if(ang>=0.25){ GAME.coalition.mood[pid]=clamp(coalitionMood(pid)-ang*6,0,100); partyNote(pid,Math.round(ang*100)+"% of their members in revolt against their leadership",-ang*6,"event");
       if(ang>=0.4){ const t="A third or more of the "+prPartyWord(pid)+" bench is in revolt against its leadership over the coalition."; GAME.log.push(ico('handshake')+" "+t); news.push(t); } } }
   // the livid may cross to the neighbouring party, taking the seat
   for(const m of prSeated()){ if(m.party==="ind"||m.L>=prLividAt(m))continue;
@@ -26703,6 +26765,7 @@ function _runTicks(){
 /* regular quarter advancement — called by the campaign popup "Next Quarter" button */
 function doEndTurn(){
   _runTicks();
+  partyLogTick();
   tickCoalition();
   _calcCapital();
   GAME.turn++; pushHistory();
