@@ -631,6 +631,10 @@
 .pl-lines td i{font-style:normal;color:var(--muted-3)}
 .pl-lines td.pl-torn{color:var(--muted-3);font-style:italic}
 .cv-star{color:var(--gold);cursor:help}
+.pp-panel{border:1px solid var(--line);padding:8px 12px 10px;margin:10px 0 14px;background:var(--paper-2)}
+.pp-closed .emr,.pp-closed .cch,.pp-closed .prf-note{opacity:.4;pointer-events:none;filter:grayscale(1)}
+.pp-notice{font-size:13.5px;color:var(--ink);background:var(--paper);border-left:4px solid var(--gold);padding:7px 10px;margin:6px 0 8px}
+.pp-notice .ico{width:14px;height:14px;vertical-align:-2px}
 .prf-key{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--ink);margin:6px 0 2px}
 .prf-key span{display:inline-flex;align-items:center;gap:6px}
 .pn-bst{max-width:640px;margin:14px auto 4px;padding:12px 16px;border:1px solid var(--moss);border-left-width:4px;background:color-mix(in srgb,var(--moss) 8%,transparent);text-align:left}
@@ -13459,7 +13463,7 @@ function challengerPointerHTML(){
   const C=GAME.challenger&&GAME.challenger.term===GAME.term?GAME.challenger:null, opp=oppPartyName();
   const who=C&&C.nominee!=null?`Your opponent is <b>${C.field[C.nominee].name}</b>, ${C.field[C.nominee].role} (${CHAL_STYLES[C.field[C.nominee].style].label.toLowerCase()}).`
     :C?`The ${opp} primary is under way.`:`The ${opp} field forms after the midterm.`;
-  return `<div class="opp-pointer">${ico('warning')} ${who} The full picture is on <b>The opposition</b> tab above.</div>`;
+  return `<div class="opp-pointer">${ico('warning')} ${who} The full picture is on <b>The Opposition</b> tab above.</div>`;
 }
 /* What is moving the opposition's momentum this quarter: tickOpposition's
    own terms, read without changing anything. A fresh crisis is a one-off
@@ -20344,21 +20348,21 @@ function prPushGain(pid,g){
 }
 function prPushHTML(fc){
   if(!prOn()||!GAME.legis||!GAME.legis.prCounts)return "";
-  let h=`<div class="prf-head" style="margin-top:14px"><span>${ico('ballot')} Campaigning for the Senate</span><span></span><span></span></div>`;
-  if(!prPushOpen()){ const q=prNextAssembly().quartersAway-CAUCUS_PRIMARY_LEAD;
-    return h+`<div class="prf-note">Pushes for your party's Senate campaign open once the party lists are locked, ${q<=1?"next quarter":"in "+q+" quarters"}, two quarters before the election. Until then, the lists are still being set.</div>`; }
+  const open=prPushOpen(), q=prNextAssembly().quartersAway-CAUCUS_PRIMARY_LEAD;
+  let h=`<div class="pp-panel${open?"":" pp-closed"}"><div class="prf-head" style="margin-top:4px"><span>${ico('ballot')} Campaigning for the Senate</span><span></span><span></span></div>`;
+  if(!open)h+=`<div class="pp-notice">${ico('lock')} Opens once the party lists are locked, ${q<=1?"next quarter":"in "+q+" quarters"}, two quarters before the Senate election. Until then the lists are still being set, so there is no campaign to push.</div>`;
   const gov=[prMyParty()].concat(coalitionPartners());
   const sel=gov.indexOf(window._prPushParty)>=0?window._prPushParty:gov[0];
   const groups=Object.keys(SIMULANTS).filter(g=>!SIMULANTS[g].static&&SIMULANTS[g].size).sort((a,b)=>SIMULANTS[b].size*(SIMULANTS[b].turnout||0.6)-SIMULANTS[a].size*(SIMULANTS[a].turnout||0.6)).slice(0,10);
-  const poor=!window.SANDBOX&&(GAME.campEnergy||0)<1, f=fc.parties[sel];
-  h+=`<div class="prf-note">The lists are locked, so the campaign is about the share itself. Spend campaign energy on a party's statewide campaign with one voter group: it moves that party's share among the voters who belong to it. Energy is shared with your own campaign, with one extra point a quarter until the election.${sel!==prMyParty()?" A push for a partner costs your own party a little with the same group, because some of their gain is your voters.":""}</div>`;
+  const poor=!open||(!window.SANDBOX&&(GAME.campEnergy||0)<1), f=fc.parties[sel];
+  h+=`<div class="prf-note">${open?"The lists are locked, so the campaign is about the share itself. Spend":"Once the lists are locked, the campaign is about the share itself: you will spend"} campaign energy on a party's statewide campaign with one voter group: it moves that party's share among the voters who belong to it. Energy is shared with your own campaign, with one extra point a quarter until the election.${sel!==prMyParty()?" A push for a partner costs your own party a little with the same group, because some of their gain is your voters.":""}</div>`;
   h+=`<div class="cch" style="margin:8px 0">`+gov.map(p=>`<button data-prpushp="${p}" class="${p===sel?"on":""}">${prParty(p).short}${p===prMyParty()?" · yours":" · partner"}</button>`).join("")+`</div>`;
   if(sel!==prMyParty()&&f&&f.pIn<0.995)h+=`<div class="prf-note" style="color:var(--clay)">${prParty(sel).short} has a <b>${Math.round((1-f.pIn)*100)}%</b> chance of missing the ${Math.round(PR_THRESHOLD*100)}% threshold, and with it every seat.</div>`;
-  h+=`<div class="emr">`+groups.map(g=>{ const n=prPushN(sel,g), full=n>=PR_PUSH_MAX, gain=full?0:prPushGain(sel,g);
+  h+=`<div class="emr">`+groups.map(g=>{ const n=prPushN(sel,g), full=n>=PR_PUSH_MAX, gain=(full||!open)?0:prPushGain(sel,g);
     return `<div class="emr-row"><span class="emr-n"><b>${SIMULANTS[g].name}</b> <i>${Math.round(SIMULANTS[g].size*100)}% of voters</i></span>
-      <span class="emr-p">${full?"max":"+"+gain.toFixed(2)}</span>
+      <span class="emr-p">${!open?"—":full?"max":"+"+gain.toFixed(2)}</span>
       <span class="emr-b"><span class="sb-done emr-done">${n?n+"× pushed":""}</span><button type="button" class="sb-btn" data-prpush="${sel}|${g}" ${poor||full?"disabled":""}>${ico('ballot')} Push · 1 energy</button></span></div>`; }).join("")+`</div>
-    <div class="prf-note">The middle column is what one more push adds to ${prParty(sel).short}'s statewide share, in points.</div>`;
+    <div class="prf-note">The middle column is what one more push adds to ${prParty(sel).short}'s statewide share, in points.</div></div>`;
   return h;
 }
 function seatBoostN(chamber,id){ const b=GAME.seatBoost; return (b&&b[(chamber==="senate"?"s":"h")+id])||0; }
@@ -25463,8 +25467,9 @@ function prForecastHTML(){
     +'<div class="sectionsub" style="margin-top:0">A running estimate, not a result. There are no districts to win anymore — every member is elected off the statewide share, so this forecasts the share itself. '
     +'The count is re-run '+FC_DRAWS.toLocaleString()+' times with two kinds of polling error: one correlated miss that moves your whole government at once, and an independent wobble on each party. '
     +'Every draw goes through the real allocation, including the <b>'+Math.round(PR_THRESHOLD*100)+'% threshold</b> — a party that misses it takes nothing and its votes are redistributed, which is why a small partner fights so hard for that first seat. '
-    +'Shares move when the groups behind them move, so working a bloc in <b>Your re-election</b> shows up here.</div>'
+    +'Shares move when the groups behind them move, so working a bloc in <b>Your Re-election</b> shows up here.</div>'
     +'<div class="fc-standing"><b>'+st.label+'.</b> '+st.note+'</div>'
+    +prPushHTML(fc)
     +prCurveHTML(fc)
     +'<div class="prf-key">'+PR_PARTIES.filter(p=>fc.parties[p.id].mean>=0.004).map(p=>{ const inCo=fc.coalIds.indexOf(p.id)>=0;
         return '<span><svg width="26" height="10" aria-hidden="true"><line x1="1" y1="5" x2="25" y2="5" style="stroke:'+p.col+'" stroke-width="'+(inCo?3:2)+'"'+(inCo?'':' stroke-opacity="0.55"')+'/></svg>'+p.short+(p.id===fc.mine?' (yours)':'')+'</span>'; }).join("")
@@ -25480,7 +25485,7 @@ function prForecastHTML(){
         : 'You are governing without partners, so this is your own party alone. Anything above the line has to be negotiated for after the count.')+'</div>'
     +'<div class="prf-head"><span>'+ico('columns')+' Outside it</span><span>share</span><span>seats</span></div>'
     +'<div class="prc-rows">'+outCo.map(row).join("")+'</div>'
-    +prListSummaryHTML(fc)+prPushHTML(fc);
+    +prListSummaryHTML(fc);
 }
 /* Campaign HQ under PR: where your sitting members stand on your list against
    this forecast, with the way to the list itself. */
@@ -25723,7 +25728,7 @@ function legForecastHTML(){
   window._FC={house:hf,senate:sf};
   const st=legisStanding();
   return `<div class="camp-sec" style="margin-top:6px">${ico('columns')} Where the chambers stand</div>
-    <div class="sectionsub" style="margin-top:0">A forecast of the next legislative election, from how the groups in each district feel about you today. The map is re-run ${FC_DRAWS.toLocaleString()} times with statewide and seat-by-seat polling error; the bar is the median outcome and the shaded span the middle 80%. Work in <b>Your re-election</b> moves these seats.</div>
+    <div class="sectionsub" style="margin-top:0">A forecast of the next legislative election, from how the groups in each district feel about you today. The map is re-run ${FC_DRAWS.toLocaleString()} times with statewide and seat-by-seat polling error; the bar is the median outcome and the shaded span the middle 80%. Work in <b>Your Re-election</b> moves these seats.</div>
     <div class="fc-standing"><b>${st.label}.</b> ${st.note}</div>
     <div class="fc-grid">${forecastCardHTML(hf)}${forecastCardHTML(sf)}</div>
     ${endangeredMembersHTML(hf,sf)}
@@ -27762,10 +27767,10 @@ function campHQBodyHTML(){
   const nPend=(GAME.ballot&&GAME.ballot.pending?GAME.ballot.pending.length:0);
   // the same folder tabs as Legislators, Voters and the Budget
   h+=`<div class="ctabs" role="tablist">
-    <button role="tab" aria-selected="${tab==="reelect"}" class="${tab==="reelect"?"on":""}" data-camptab="reelect"><b>${ico('people')} Your re-election</b><span>Energy, groups and counties</span></button>
-    <button role="tab" aria-selected="${tab==="ballot"}" class="${tab==="ballot"?"on":""}" data-camptab="ballot"><b>${ico('ballot')} Ballot measures</b><span>${nPend?nPend+" on the next ballot":"Measures you can back"}</span></button>
-    <button role="tab" aria-selected="${tab==="legis"}" class="${tab==="legis"?"on":""}" data-camptab="legis"><b>${ico('columns')} The legislature</b><span>Seats, boosts and primaries</span></button>
-    <button role="tab" aria-selected="${tab==="opp"}" class="${tab==="opp"?"on":""}" data-camptab="opp"><b>${ico('warning')} The opposition</b><span>Who is running against you</span></button>
+    <button role="tab" aria-selected="${tab==="reelect"}" class="${tab==="reelect"?"on":""}" data-camptab="reelect"><b>${ico('people')} Your Re-election</b><span>Energy, groups and counties</span></button>
+    <button role="tab" aria-selected="${tab==="ballot"}" class="${tab==="ballot"?"on":""}" data-camptab="ballot"><b>${ico('ballot')} Ballot Measures</b><span>${nPend?nPend+" on the next ballot":"Measures you can back"}</span></button>
+    <button role="tab" aria-selected="${tab==="legis"}" class="${tab==="legis"?"on":""}" data-camptab="legis"><b>${ico('columns')} The Legislature</b><span>Seats, boosts and primaries</span></button>
+    <button role="tab" aria-selected="${tab==="opp"}" class="${tab==="opp"?"on":""}" data-camptab="opp"><b>${ico('warning')} The Opposition</b><span>Who is running against you</span></button>
   </div>`;
   if(tab==="ballot")return h+ballotCampaignHTML();
   if(tab==="legis")return h+caucusSurrogatesHTML()+caucusCampaignHTML()+legForecastHTML();
@@ -27877,7 +27882,7 @@ function wireCampHQ(root){
    persist to GAME state and show up in the End-Quarter popup. */
 function renderCampaignHQ(){
   let h=`${BACK_BTN_HTML}<div class="sectionhdr">${ico('ballot')} Campaign HQ</div>
-    <div class="sectionsub">Your platform, your opponents, and this quarter's campaign. Campaign energy is spent on voter groups, the county map, or a measure on the ballot. Anything you do here carries into the campaign screen when you end the quarter.</div>${rulesBox(`Campaign energy refills each quarter. Spend it on voter groups or counties in <b>Your re-election</b>, or on a measure in <b>Ballot measures</b>. <b>The legislature</b> forecasts the next legislative election, and once the primaries have picked the nominees, campaign energy can boost your party's campaigns there, with one extra point of energy each quarter until the election. <b>The opposition</b> shows who is running against you.`)}`;
+    <div class="sectionsub">Your platform, your opponents, and this quarter's campaign. Campaign energy is spent on voter groups, the county map, or a measure on the ballot. Anything you do here carries into the campaign screen when you end the quarter.</div>${rulesBox(`Campaign energy refills each quarter. Spend it on voter groups or counties in <b>Your Re-election</b>, or on a measure in <b>Ballot Measures</b>. <b>The Legislature</b> forecasts the next legislative election, and once the primaries have picked the nominees, campaign energy can boost your party's campaigns there, with one extra point of energy each quarter until the election. <b>The Opposition</b> shows who is running against you.`)}`;
   h+=campHQBodyHTML();
   main.innerHTML=h;
   wireBackBtn();
