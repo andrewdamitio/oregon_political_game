@@ -14853,6 +14853,7 @@ function drawCoalExit(){
 /* The negotiation. You are shown every party that is not yours, what it
    would bring, and what it would charge, and you build 51 out of it. */
 function drawCoalition(next){
+  const must=!!GAME._coalMust||prParliament();
   const card=document.getElementById("coalitionCard"), modal=document.getElementById("coalitionModal");
   if(!card||!modal)return;
   // There is nothing to negotiate until a chamber has actually been elected
@@ -14938,10 +14939,10 @@ function drawCoalition(next){
     // The button sits with the tally it depends on, above the benches.
     +'<button class="enactbtn" id="coalGo" style="margin-top:10px">'
       +(have?(agreeing.length?'Form a government with '+agreeing.map(p=>prParty(p).short).join(" and ")+(bonus?' (◈'+bonus+')':'')+' ▸':'Govern alone with your majority ▸')
-           :(GAME._coalMust?'Concede: no government can be formed ▸':GAME._coalReshuffle&&agreeing.length?'Govern without a majority, with '+agreeing.map(p=>prParty(p).short).join(" and ")+' ▸':'Govern as a minority ▸'))+'</button>'
+           :(must?'Concede: no government can be formed ▸':GAME._coalReshuffle&&agreeing.length?'Govern without a majority, with '+agreeing.map(p=>prParty(p).short).join(" and ")+' ▸':'Govern as a minority ▸'))+'</button>'
     +(holdouts.length?'<div class="fnote" style="margin-top:6px;color:var(--clay)">'+holdouts.map(p=>prParty(p).short).join(" and ")
       +(holdouts.length===1?" has not agreed, so its seats do not count yet.":" have not agreed, so their seats do not count yet.")+'</div>':'')
-    +(have?'':(GAME._coalMust
+    +(have?'':(must
       ? '<div class="fnote" style="margin-top:6px;color:var(--clay)">The Senate chooses the governor. Without a government of '+LEGIS.majH+' your governorship ends.</div>'
       : '<div class="fnote" style="margin-top:6px;color:var(--clay)">You can refuse to deal. A minority governor keeps the veto and the executive order and passes almost nothing else.</div>'))
     +'<div class="fnote" style="margin:12px 0 2px">Invite a party, then build its offer. Each promise adds support, and a party signs once support reaches zero with its must-have included. A term marked in red is broken today: sign it and it counts against you until you put it right. '
@@ -14950,7 +14951,7 @@ function drawCoalition(next){
     +rows
     +'<div class="coal-dock'+(have?' ready':'')+(GAME._coalJustMajority?' just':'')+'"><span><b>'+seats+' / '+PR_SEATS+'</b> '+(have?'a majority':'still '+(LEGIS.majH-seats)+' short of '+LEGIS.majH)+'</span>'
       +'<button class="enactbtn" id="coalGo2">'+(have?(agreeing.length?'Form a government with '+agreeing.map(p=>prParty(p).short).join(" and ")+' ▸':'Govern alone with your majority ▸')
-        :(GAME._coalMust?'Concede: no government can be formed ▸':GAME._coalReshuffle&&agreeing.length?'Govern without a majority ▸':'Govern as a minority ▸'))+'</button></div>';
+        :(must?'Concede: no government can be formed ▸':GAME._coalReshuffle&&agreeing.length?'Govern without a majority ▸':'Govern as a minority ▸'))+'</button></div>';
   GAME._coalJustAgreed=null; GAME._coalJustMajority=false;
   modal.classList.remove("hidden");
   modal.scrollTop=keep[0]; card.scrollTop=keep[1];
@@ -14982,6 +14983,9 @@ function drawCoalition(next){
   if(go2)go2.onclick=()=>go&&go.onclick();
   GAME._coalPrevAgree=agreeing.slice(); GAME._coalPrevHave=have;
   if(go)go.onclick=()=>{
+    // the talks were opened from somewhere that does not handle the failure
+    if(must&&!have&&!GAME._coalMust){ GAME.coalPick=null; GAME.coalOffer=null; GAME._coalNext=null; modal.classList.add("hidden");
+      showNoGovernment("noMajority",{my:((GAME.legis&&GAME.legis.prCounts)||{})[prMyParty()]||0}); return; }
     formCoalition((have||GAME._coalReshuffle)?agreeing:[], GAME.coalOffer, GAME._coalWalked);
     GAME.coalPick=null; GAME.coalOffer=null;
     modal.classList.add("hidden");
