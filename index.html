@@ -18417,6 +18417,22 @@ function egBlocCharts(blocs){
   if(rest.length)h+=`<div class="eg-blk-cat">Other</div>`+rest.map(bar).join("");
   return h+`</div>`;
 }
+/* THE RACE: who you ran against and how hard the other side came at you,
+   each as what it did to your share. Momentum above 30 takes up to 5.5
+   points off and makes the night swing; likability moves it either way. */
+function egRaceHTML(r){
+  const m=r.oppMomentum||25, ch=r.challenger;
+  const lvl=m>=78?"Surging":m>=60?"High":m>=42?"Building":m>=24?"Present":"Dormant";
+  const col=m>=60?'var(--clay)':m>=42?'#8a7a3a':'var(--muted-1)';
+  const cost=clamp((m-30)/70,0,1)*5.5, sw=r.oppSwingPts||0;
+  const pts=x=>(x>=0?"+":"−")+Math.abs(x).toFixed(1)+" pts";
+  let rows="";
+  if(ch)rows+=`<div class="rrow"><span class="rlabel">Your opponent</span><span class="rval"><b>${ch.name}</b>, ${ch.role}, ${CHAL_STYLES[ch.style].label.toLowerCase()} · likability ${ch.like} · <span style="color:${ch.likePts>=0?'var(--good)':'var(--clay)'}">${pts(ch.likePts)} to you</span></span></div>`;
+  rows+=`<div class="rrow"><span class="rlabel">The opposition's momentum</span><span class="rval" style="color:${col}"><b>${lvl}</b> (${Math.round(m)} of 100) · ${cost>0.05?cost.toFixed(1)+" points off your share":"cost you nothing"}${Math.abs(sw)>0.5?`, and the night swung ${pts(sw)}`:""}</span></div>`;
+  return `<div class="eg-section"><div class="eg-h3">${ico('people')} The race</div>
+    <div class="eg-note">${m>=60?"A strong, well-funded challenge.":m<24?"No serious challenge.":"A real campaign against you, not an overwhelming one."} Momentum is how much the other side built over the term, from unpopular laws and unresolved crises.</div>
+    <div class="rsection" style="margin-top:6px">${rows}</div></div>`;
+}
 /* Ranked choice, round by round: each column is a count of the ballots still
    live, the last-placed candidate is struck out and their ballots move on. */
 function egRcvRoundsTable(r){
@@ -18763,15 +18779,7 @@ function showElection(r){
       return ""; })()}
     <div class="eg-legend"><span><i style="background:var(--moss)"></i>${who}</span><span><i style="background:var(--slate-blue)"></i>${splinterName("left")}</span><span><i style="background:var(--gold)"></i>${splinterName("right")}</span>${(r.thirdShareC||0)>0.0005?`<span><i style="background:#7d6f9c"></i>${centreName()}</span>`:``}<span><i style="background:var(--clay)"></i>${oppPartyName()}</span></div>
     <div class="eg-sub" style="font-size:14.5px">Turnout <b>${(r.turnout*100).toFixed(0)}%</b> · Final approval <b>${r.approval.toFixed(1)}%</b> · <span id="egReporting">0% reporting</span> · ${succ?'your successor':'you'} carried <b id="egCty">0</b> / 36 counties</div>
-    ${(()=>{ const m=r.oppMomentum||25;
-      const lvl=m>=78?"surging":m>=60?"high":m>=42?"building":m>=24?"present":"dormant";
-      const col=m>=60?'var(--clay)':m>=42?'#8a7a3a':'var(--muted-2)';
-      const sw=r.oppSwingPts||0;
-      const note = m>=60 ? ` — a strong, funded challenger${Math.abs(sw)>1.5?`; election-night swing ${sw>0?'+':''}${sw} pts`:''}` : m<24 ? ' — no serious challenge' : '';
-      const ch=r.challenger;
-      const who=ch?`<div class="eg-sub" style="font-size:13.5px">Against <b>${ch.name}</b>, ${ch.role} (${CHAL_STYLES[ch.style].label.toLowerCase()}), likability ${ch.like}: worth ${ch.likePts>=0?"+":"−"}${Math.abs(ch.likePts).toFixed(1)} points to you.</div>`:"";
-      return who+`<div class="eg-sub" style="font-size:13.5px;color:${col}">Opposition momentum: <b>${lvl}</b>${note}</div>`;
-    })()}
+
     ${(()=>{ const w=Object.keys(GAME.countyCamp||{}).filter(n=>(GAME.countyCamp[n].p||0)>0.15);
       if(!w.length)return"";
       const top=w.sort((a,b)=>(GAME.countyCamp[b].p||0)-(GAME.countyCamp[a].p||0)).slice(0,6);
@@ -18780,6 +18788,7 @@ function showElection(r){
     ${countyMapSVG(cRows)}
     <div class="eg-ctyread" id="egCtyRead">${hv("Hover","Tap")} a county for its result · scroll for the full breakdown ↓</div>
     <div class="eg-third">${thirdLine}</div>
+    ${egRaceHTML(r)}
     ${egRcvTable(r)}
     ${legislatureSectionHTML(r.legis)}
     ${measureResultMapsHTML(r.measures)}
