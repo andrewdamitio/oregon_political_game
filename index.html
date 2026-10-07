@@ -642,6 +642,25 @@
 .coal-dock.ready{border-color:var(--moss);background:color-mix(in srgb,var(--moss) 14%,var(--paper))}
 .coal-dock.just{animation:coalFlash 1.4s ease}
 .coal-dock .enactbtn{margin:0!important}
+.ctr{margin:14px 0;padding:10px 14px 8px;background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius)}
+.ctr-p{padding:10px 0;border-bottom:1px solid var(--rule)}
+.ctr-p:last-of-type{border-bottom:0}
+.ctr-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ctr-bar{position:relative;height:9px;border-radius:4px;background:var(--paper);border:1px solid var(--line);margin:8px 0 2px}
+.ctr-bar i{display:block;height:100%;border-radius:4px}
+.ctr-bar i.good{background:var(--moss)} .ctr-bar i.warn{background:var(--gold)} .ctr-bar i.bad{background:var(--clay)}
+.ctr-mk{position:absolute;top:-4px;bottom:-4px;width:2px}
+.ctr-mk.walk{background:var(--clay)} .ctr-mk.vote{background:var(--moss)}
+.ctr-to{position:absolute;top:50%;width:9px;height:9px;margin:-5px 0 0 -5px;border:2px solid var(--ink);border-radius:50%;background:var(--paper)}
+.ctr-scale{position:relative;height:15px;font-size:11.5px;color:var(--muted-2)}
+.ctr-scale span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.ctr-out{font-size:13.5px;margin:4px 0 6px}
+.ctr-bad{color:var(--clay)}
+.ctr-why{font-size:13px;display:flex;flex-direction:column;gap:3px}
+.ctr-k{color:var(--muted-1);margin-top:2px}
+.ctr-term{padding-left:8px} .ctr-term.ok{color:var(--muted-1)} .ctr-term.bad{color:var(--clay)}
+.ctr-term i{font-size:11.5px;color:var(--muted-2)}
+.ctr-term .cf-chbtn{margin-left:6px}
 .prf-key{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--ink);margin:6px 0 2px}
 .prf-key span{display:inline-flex;align-items:center;gap:6px}
 .pn-bst{max-width:640px;margin:14px auto 4px;padding:12px 16px;border:1px solid var(--moss);border-left-width:4px;background:color-mix(in srgb,var(--moss) 8%,transparent);text-align:left}
@@ -19523,8 +19542,9 @@ function coalitionBriefHTML(){
     const broken=rows.filter(r=>!r.ok);
     const col=m>=COAL_GOOD?"var(--good)":m>=COAL_WALK+12?"var(--gold)":"var(--clay)";
     const state=m>=COAL_GOOD?"with you":m>=COAL_WALK+12?"not helping":"leaving";
+    const o=coalitionOutlook(pid);
     h+=`<div class="rrow"><span class="rlabel">${ico('handshake')} ${p.short}</span>`
-      +`<span class="rval" style="color:${col}">${state} (${Math.round(m)})${broken.length?` · ${broken.length} broken`:""}</span></div>`;
+      +`<span class="rval" style="color:${col}">${state} (trust ${Math.round(m)})${broken.length?` · ${broken.length} broken`:""}${o.walk?` · leaves in ~${o.walk}q`:""}</span></div>`;
   }
   return h;
 }
@@ -19766,7 +19786,7 @@ function coalPass(id,value,why){
 // a law you promise not to pass
 function coalBlock(id,value,why,label){
   return {id:"block_"+id, kind:"standing", value, why,
-    get label(){ const p=CATALOG[id]; return label||"No "+(p?p.name:id)+" this term"; },
+    get label(){ const p=CATALOG[id]||POLICIES[id]; return label||"No "+(p?p.name:id)+" this term"; },
     avail:()=>!!CATALOG[id]&&!POLICIES[id],
     snap:()=>0, met:()=>!POLICIES[id]};
 }
@@ -20041,19 +20061,84 @@ function coalitionCheck(pid){
   const C=GAME.coalition; if(!C||!C.snap[pid])return [];
   return coalTerms(pid).map(d=>({d, v:C.snap[pid][d.id], ok:!!d.met(C.snap[pid][d.id])}));
 }
+/* Where a partner's trust is heading. A partnership where everything is
+   being honoured drifts up toward 92; one where nothing is drifts down
+   toward 8, and the walk-out is at 22. A pledged law carries weight 2, so
+   missing a deadline hurts twice as much. What their own voters think of
+   you pulls on it too. Pass the commitments' state to ask about a quarter
+   ahead. */
+function coalitionTarget(pid,rows){
+  rows=rows||coalitionCheck(pid);
+  const kept=rows.filter(r=>r.ok).reduce((a,r)=>a+(r.d.weight||1),0), tot=Math.max(1,rows.reduce((a,r)=>a+(r.d.weight||1),0));
+  return clamp(8+84*(kept/tot)+(partyTrust(pid)-50)*0.5, 4, 96);
+}
+/* If nothing changes: the trust a quarter at a time, with every pledged law
+   still unpassed breaking on its deadline. Returns the quarters until they
+   walk (null if they would not within three years) and where trust settles. */
+function coalitionOutlook(pid){
+  const C=GAME.coalition, rows=coalitionCheck(pid);
+  let m=coalitionMood(pid), walk=null;
+  // the pledged laws still to pass, soonest first: each breaks on its deadline
+  const due=rows.filter(r=>r.d.kind==="deadline"&&r.ok&&!POLICIES[r.d.id.slice(5)]&&!pendingMeasure(r.d.id.slice(5)))
+    .map(r=>({id:r.d.id.slice(5), q:(r.v||0)+COAL_DEADLINE-GAME.turn})).sort((a,b)=>a.q-b.q);
+  const after=rows.map(r=>due.some(x=>"pass_"+x.id===r.d.id)?{d:r.d, v:r.v, ok:false}:r);
+  for(let q=1;q<=12;q++){
+    const t=GAME.turn+q;
+    const at=rows.map(r=>{ if(r.d.kind!=="deadline"||!r.ok)return r;
+      const id=r.d.id.slice(5), done=!!POLICIES[id]||!!pendingMeasure(id);
+      return done||t<(r.v||0)+COAL_DEADLINE?r:{d:r.d, v:r.v, ok:false}; });
+    const tg=coalitionTarget(pid,at);
+    m=clamp(m+clamp(tg-m,-11,11),0,100);
+    if(m<COAL_WALK){ walk=q; break; }
+  }
+  return {walk, settle:Math.round(coalitionTarget(pid,rows)), due, settleAfter:Math.round(coalitionTarget(pid,after))};
+}
+/* YOUR PARTNERS, on the Legislators page: how far each trusts you, where it
+   is heading, what is moving it, and how long they stay at this rate. */
+function coalitionTrustHTML(){
+  if(!prOn())return "";
+  const C=GAME.coalition;
+  if(!C||(!C.partners.length&&!(C.walked||[]).length))return "";
+  const c=(GAME.legis&&GAME.legis.prCounts)||{};
+  let h=`<div class="ctr"><div class="lpr-h">${ico('handshake')} Your coalition partners</div>`;
+  for(const pid of C.partners){
+    const p=prParty(pid), m=coalitionMood(pid), rows=coalitionCheck(pid), o=coalitionOutlook(pid), t=o.settle;
+    const cls=m>=COAL_GOOD?"good":m>=COAL_WALK+12?"warn":"bad";
+    const state=m>=COAL_GOOD?"Voting with you":m>=COAL_WALK?"In government, not voting with you":"Leaving";
+    const dir=t>m+1?"rising toward "+t:t<m-1?"falling toward "+t:"holding at "+Math.round(m);
+    const nm=id=>(CATALOG[id]||POLICIES[id]||{name:id}).name, d0=o.due[0];
+    const turn=d0&&o.settleAfter<t-1?` If ${nm(d0.id)} is not passed within ${d0.q} quarter${d0.q===1?"":"s"}${o.due.length>1?(o.due.length>2?" (or the other pledged laws by their deadlines)":" (or the other pledged law by its deadline)"):""}, it turns and falls toward ${o.settleAfter}.`:"";
+    const risk=o.walk?`<b class="ctr-bad">${turn?"Then they leave":"At this rate they leave"} in about ${o.walk} quarter${o.walk===1?"":"s"}.</b>`
+      :Math.min(t,o.settleAfter)<COAL_GOOD?"They stay, but below 55 their members stop voting with you.":"Not at risk of leaving.";
+    const trust=Math.round(partyTrust(pid)), ms=prSeated().filter(x=>x.party===pid), ang=ms.filter(x=>x.L<prAngryAt(x)).length;
+    const cap=((m-50)/50)*2.4*Math.min(1.6,(c[pid]||0)/18);
+    h+=`<div class="ctr-p"><div class="ctr-h"><span class="coal-sw" style="background:${p.col}"></span><b>${p.name}</b><span class="coal-s">${c[pid]||0} seats</span>
+        <span class="coal-mood ${cls}">Trust ${Math.round(m)} · ${state}</span></div>
+      <div class="ctr-bar"><i class="${cls}" style="width:${Math.round(m)}%"></i>
+        <span class="ctr-mk walk" style="left:${COAL_WALK}%" title="Below ${COAL_WALK} they leave the government"></span>
+        <span class="ctr-mk vote" style="left:${COAL_GOOD}%" title="At ${COAL_GOOD} or above their members vote with you"></span>
+        <span class="ctr-to" style="left:${t}%" title="Where their trust is heading: ${t}"></span></div>
+      <div class="ctr-scale"><span style="left:${COAL_WALK}%">${COAL_WALK} leave</span><span style="left:${COAL_GOOD}%">${COAL_GOOD} vote with you</span></div>
+      <div class="ctr-out">Trust is ${dir}, up to 11 points a quarter.${turn} ${risk}</div>
+      <div class="ctr-why">
+        <div class="ctr-k">The agreement: ${rows.filter(r=>r.ok).length} of ${rows.length} kept</div>
+        ${rows.map(r=>{ const law=r.d.kind==="deadline"&&!r.ok||(r.d.kind==="deadline"&&r.d.note&&/due/.test(r.d.note(r.v)))?r.d.id.slice(5):null;
+          return `<div class="ctr-term ${r.ok?"ok":"bad"}">${r.ok?"✓":"✗"} ${r.d.label}${r.d.note?r.d.note(r.v):""}${(r.d.weight||1)>1?' <i>counts double</i>':""}${law&&(CATALOG[law]||POLICIES[law])?` <button class="cf-chbtn" data-coalgo="${law}">Go to the law</button>`:""}</div>`; }).join("")}
+        <div class="ctr-k">Their voters' view of you: <b>${trust}</b> ${trust>=55?"(helps)":trust>=45?"(about even)":"(drags trust down)"}</div>
+        ${ang?`<div class="ctr-k">${ang} of their ${ms.length} members at odds with their own leadership${ang/Math.max(1,ms.length)>=0.25?", costing trust each quarter":""}</div>`:""}
+        <div class="ctr-k">Worth ${cap>=0?"+":"−"}◈${Math.abs(cap).toFixed(1)} a quarter in capital</div>
+      </div></div>`;
+  }
+  for(const pid of (C.walked||[]))h+=`<div class="coal-row gone"><b>${prParty(pid).name}</b> walked out of the government.</div>`;
+  return h+`<div class="lpr-note">Trust moves each quarter toward a target set by the agreement you signed and by how their voters rate you. A pledged law counts double, and breaks the quarter its deadline passes. Below ${COAL_WARN} a partner may issue an ultimatum; below ${COAL_WALK} it leaves.</div></div>`;
+}
 /* Every quarter: are they happy, and are they still here. */
 function tickCoalition(){
   const C=GAME.coalition;
   if(!prOn()||!C||!C.partners.length)return;
   const gone=[];
   for(const pid of C.partners.slice()){
-    const rows=coalitionCheck(pid);
-    // a pledged law carries weight 2: missing a deadline hurts twice as much
-    const kept=rows.filter(r=>r.ok).reduce((a,r)=>a+(r.d.weight||1),0), tot=Math.max(1,rows.reduce((a,r)=>a+(r.d.weight||1),0));
-    // a partnership where everything is being honoured drifts up toward 92;
-    // one where nothing is drifts down toward 8, and the walk-out is at 22
-    // what their own voters think of you pulls on it too
-    const target=clamp(8+84*(kept/tot)+(partyTrust(pid)-50)*0.5, 4, 96);
+    const target=coalitionTarget(pid);
     const cur=C.mood[pid]==null?68:C.mood[pid];
     C.mood[pid]=+clamp(cur+clamp(target-cur,-11,11),0,100).toFixed(1);
     if(C.mood[pid]<COAL_WALK)gone.push(pid);
@@ -22870,7 +22955,7 @@ function renderPRLegislators(main,h){
     <div class="as-cell"><div class="as-k">Angry</div><div class="as-v" style="color:${angry?"var(--clay)":"inherit"}">${angry}<span> · ${Object.keys(P.facs||{}).length} wing${Object.keys(P.facs||{}).length===1?"":"s"} in revolt</span></div></div>
     <div class="as-cell"><div class="as-k">Independents</div><div class="as-v">${seated.filter(m=>m.party==="ind").length}</div></div>
   </div>`;
-  if(ptab==="gov")h+=lpListHTML(); else h+=walkoutWatchHTML();
+  if(ptab==="gov")h+=coalitionTrustHTML()+lpListHTML(); else h+=walkoutWatchHTML();
   // wings in revolt, this side's
   const fks=Object.keys(P.facs||{}).filter(fk=>ptabOf(fk.split(":")[0])===ptab);
   if(fks.length){ h+=`<div class="aarea">Wings in revolt</div><div class="cfacs">`;
@@ -22898,6 +22983,7 @@ function renderPRLegislators(main,h){
         <span class="cr-loy" style="color:${caucusColor({p:m.party===mineP?"mine":"opp",L:m.L})}">${Math.round(m.L)}</span></div>`; }).join("")+`</div>
     <div id="cmemFile">${pick?prMemberCard(P.m[pick]):""}</div></div>`;
   main.innerHTML=h;
+  main.querySelectorAll("[data-coalgo]").forEach(b=>b.addEventListener("click",()=>openDetail("p_"+b.dataset.coalgo)));
   main.querySelectorAll("[data-prp]").forEach(b=>b.addEventListener("click",()=>{ window._prParty=b.dataset.prp; window._prSel=null; render(); }));
   main.querySelectorAll("[data-ptab]").forEach(b=>b.addEventListener("click",()=>{ window._prTab=b.dataset.ptab; window._prSel=null; window._prParty=null; render(); }));
   main.querySelectorAll("[data-prm]").forEach(b=>b.addEventListener("click",()=>{ const m=P.m[b.dataset.prm]; if(!m)return; window._prSel=m.id; window._prParty=m.party; window._caucusScroll=true; render(); }));
