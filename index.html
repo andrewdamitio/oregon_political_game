@@ -3116,13 +3116,13 @@
       <div class="hud-termcap" id="hudTermCap"></div></div>
     <div class="stat stat-gauge"><div class="label">Approval</div><div class="val" id="hudApproval">50%</div><div class="apgauge" title="50% is the line that decides re-election"><i id="hudApprovalFill"></i></div></div>
     <div class="stat stat-cap"><div class="label">Pol. Capital</div><div class="val gold" id="hudCapital">40</div></div>
-    <div class="stat stat-ledger"><div class="label">Balance / Yr</div><div class="val ok" id="hudBudget">+0.0B</div></div>
+    <div class="stat stat-ledger"><div class="label">Quarterly Balance</div><div class="val ok" id="hudBudget">+0.00B</div></div>
     <div class="stat stat-ledger" id="hudFiscalStat"><div class="label" id="hudFiscalLabel">Reserves</div><div class="val" id="hudFiscal">$0.0B</div></div>
     <!-- one menu for everything that is not a reading or the next move -->
     <div class="hudmenu">
       <button class="hudmenu-btn" id="hudMenuBtn" aria-haspopup="true" aria-expanded="false">Menu ▾</button>
       <div class="hudmenu-list" id="hudMenuList" hidden>
-        <div class="hudmenu-figs"><div><span>Balance / yr</span><b id="hudMenuBal">—</b></div><div><span>Net reserves</span><b id="hudMenuRes">—</b></div></div>
+        <div class="hudmenu-figs"><div><span>Quarterly balance</span><b id="hudMenuBal">—</b></div><div><span>Net reserves</span><b id="hudMenuRes">—</b></div></div>
         <button id="reportBtn"><svg class="ico" aria-hidden="true"><use href="#ic-doc"/></svg><span>This quarter's report</span></button>
         <button id="saveBtn"><svg class="ico" aria-hidden="true"><use href="#ic-floppy"/></svg><span>Save game</span></button>
         <button id="newGameBtn"><svg class="ico" aria-hidden="true"><use href="#ic-sparkle"/></svg><span>New game</span></button>
@@ -17060,7 +17060,7 @@ function showQuarterReport(quiet,next){
         +(wo?`<div class="rrow"><span class="rlabel">Walkout pressure</span><span class="rval" style="color:${WALK_LEVEL[wo.level][1]}">${wo.on?"Walked out":wp+" of 100 · "+(wo.chance>0?Math.round(wo.chance*100)+"% a quarter":"possible at "+Math.round(WALK_HEAT_MIN*100))}${wq?` <span class="rdelta ${wq>0?"bad":"good"}" style="font-size:11.5px">${wq>0?"▲":"▼"}${Math.abs(wq)}</span>`:""}</span></div>`:""); })();
   const budgetBlock=`<div class="rsection">
     <div class="rsec-h">${ico('dollar')} Budget</div>
-    <div class="rrow"><span class="rlabel">Balance</span><span class="rdelta ${balClass}">${fmtB(b.balance,1,true)}</span></div>
+    <div class="rrow"><span class="rlabel">Balance this quarter</span><span class="rdelta ${balClass}">${fmtB(b.balance/4,2,true)} <span class="pf-dim" style="font-weight:400">(${fmtB(b.balance,1,true)} a year)</span></span></div>
     <div class="rrow"><span class="rlabel">Reserves (Rainy Day)</span><span class="rval">${fmtB(GAME.rainyDay,1)}</span></div>
     ${debtLine}
     <div class="rrow"><span class="rlabel">Capital income</span><span class="rval">◈ ${GAME.capitalPerTurn}/qtr${floorFrozen()?` <span style="color:var(--clay)">(${(GAME.floorFreeze||0)>0?"walkout — no floor for "+GAME.floorFreeze+"q":"Capitol occupied — no floor"})</span>`:''}</span></div>
@@ -33235,7 +33235,7 @@ function renderBudget(){
     h+=`<div class="mgrid" style="margin-bottom:22px;grid-template-columns:repeat(auto-fit,minmax(165px,1fr))">
       <div class="mcard"><div class="mname">Revenue / Yr</div><div class="mval" style="color:var(--good)">${fmtB(b.revenue,1)}</div></div>
       <div class="mcard"><div class="mname">Spending / Yr</div><div class="mval" style="color:var(--clay)">${fmtB(b.spend,1)}</div></div>
-      <div class="mcard"><div class="mname">Balance / Yr</div><div class="mval" style="color:${b.balance>=0?'var(--good)':'var(--bad)'}">${fmtB(b.balance,1,true)}</div></div>
+      <div class="mcard"><div class="mname">Balance / Yr</div><div class="mval" style="color:${b.balance>=0?'var(--good)':'var(--bad)'}">${fmtB(b.balance,1,true)}</div><div class="mreal">${fmtB(b.balance/4,2,true)} a quarter, as the top bar shows</div></div>
       <div class="mcard"><div class="mname">Net Reserves</div><div class="mval" style="color:var(--${netReserves().tone})">${fmtSignedB(netReserves().net)}</div></div>
     </div>`;
     // The discretionary half, stated plainly. The headline totals above carry
@@ -33512,11 +33512,11 @@ function renderHUD(){
     const rateEl=capEl.querySelector&&capEl.querySelector(".hudrate"); if(rateEl)rateEl.textContent=`+${GAME.capitalPerTurn}/qtr`;
   }
   const b=budgetBalance();
-  // the year's balance, as the Budget page shows it: every figure in the
-  // ledger is a year's worth, so the top bar reads the same number
-  const qBal=b.balance;
+  // the cash that settles this quarter: the year's balance over four, as
+  // settleFiscal moves it. A deficit reads as money leaving every turn.
+  const qBal=b.balance/4;
   const hbEl=document.getElementById("hudBudget");
-  tweenNum(hbEl,"hudBudget",qBal,{dp:1,fmt:v=>fmtB(v,1,true)});
+  tweenNum(hbEl,"hudBudget",qBal,{dp:2,fmt:v=>fmtB(v,2,true)});
   if(hbEl)hbEl.className="val "+(qBal>=0?"ok":"debt");
   // fiscal position: the accumulated shortfall if we're carrying one, otherwise total reserves
   {
@@ -33530,7 +33530,7 @@ function renderHUD(){
     }
     // the same two figures in the menu, where a phone shows them
     const mb=document.getElementById("hudMenuBal"), mr=document.getElementById("hudMenuRes");
-    if(mb){ mb.textContent=fmtB(qBal,1,true); mb.className=qBal>=0?"ok":"debt"; }
+    if(mb){ mb.textContent=fmtB(qBal,2,true); mb.className=qBal>=0?"ok":"debt"; }
     if(mr){ mr.textContent=fmtSignedB(N.net); mr.className=N.tone==="good"?"ok":N.tone==="warn"?"warn":"debt"; }
   }
   // term-progress bar under the Turn readout
