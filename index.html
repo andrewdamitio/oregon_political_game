@@ -791,6 +791,21 @@
   .ahow-body p{margin:6px 0}
   .atrait{display:flex;gap:10px;align-items:flex-start;padding:6px 0}
   #apptPanelCard{max-width:720px;position:relative}
+  #partyCard{max-width:760px;position:relative}
+  #partyCard .apx{position:absolute;top:10px;right:12px;padding:2px 10px;font-size:20px;line-height:1;box-shadow:none;margin:0}
+  #partyCard .fcard-btn{margin-top:0}
+  #partyCard .prop-who{display:flex;align-items:center;gap:10px}
+  .pf-tag{font-family:var(--font-data);font-size:12px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted-2);margin:-4px 0 8px}
+  .pf-dim{color:var(--muted-2);font-style:normal}
+  .pf-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px 18px;margin:4px 0 10px}
+  .pf-h{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted-2);margin:2px 0 4px}
+  .pf-st{display:flex;justify-content:space-between;gap:10px;font-size:13.5px;padding:3px 0;border-bottom:1px dotted var(--line)}
+  .pf-st span{color:var(--muted-1)} .pf-st b{font-weight:600;text-align:right}
+  .pf-asks{display:flex;flex-direction:column;gap:5px;font-size:13.5px;margin:4px 0 10px}
+  .pf-link{cursor:pointer;color:inherit;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px}
+  .pf-link:hover{color:var(--moss)}
+  .pf-under{margin:10px 0 0;font-size:13.5px}
+  .pf-under .ico{width:14px;height:14px;vertical-align:-2px}
   #apptPanelCard button{margin-top:0;padding:7px 14px;font-size:13px}
   #apptPanelCard .apx{position:absolute;top:10px;right:12px;padding:2px 10px;font-size:20px;line-height:1;box-shadow:none}
   .apanel-act{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px}
@@ -2331,6 +2346,7 @@
   /* hover card */
   .board-tip{position:fixed;z-index:60;pointer-events:none;background:var(--paper);border:var(--rule) solid var(--ink);
     box-shadow:none;padding:8px 12px;max-width:270px}
+  .board-tip.g-tip{z-index:9999;font-size:13.5px;line-height:1.45;color:var(--ink);max-width:300px}
   .board-tip .bt-name{font-family:var(--font-display);font-size:17px;font-weight:600;letter-spacing:.3px;display:flex;align-items:center;gap:7px}
   .board-tip .bt-name .ico{width:17px;height:17px}
   .board-tip .bt-meta{font-size:11.5px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted-2);margin-top:3px}
@@ -3147,6 +3163,7 @@
 <div id="dilemmaModal" class="modal hidden"><div class="card" id="dilemmaCard"></div></div>
 <div id="proposalModal" class="modal hidden"><div class="card" id="proposalCard"></div></div>
 <div id="apptPanelModal" class="modal hidden"><div class="card" id="apptPanelCard"></div></div>
+<div id="partyModal" class="modal hidden"><div class="card" id="partyCard"></div></div>
 <div id="reportModal" class="modal hidden"><div class="card reportcard" id="reportCard"></div></div>
 <div id="briefingModal" class="modal hidden"><div class="card reportcard" id="briefingCard"></div></div>
 <div id="seqPill" hidden></div>
@@ -15429,7 +15446,19 @@ function settleFiscal(){
    preferences can flow back), so they mostly cost you nothing if you're the
    lesser evil; WITHOUT RCV they spoiler — splitting your coalition and
    handing victory to the challenger. */
+/* WHO LEAVES THE TWO MAJORS IN THE GOVERNOR'S RACE. A voter who leans your
+   way but is lukewarm may defect to a purer party (ideo, past ideoAt); one
+   who leans against you may go to a third party rather than the challenger
+   (pull, past pullAt); a cool voter near the middle may go to the centre
+   (ctr). Ranked choice makes each of these cheaper, because a first
+   preference for a small party is no longer a wasted vote. In practice that
+   moves minor-party first preferences by a few points, not into a
+   multi-party race: about 5% of the vote in an ordinary year without it,
+   10 to 12% with it, and more when your own base has turned on you. */
+const GOV_THIRD={fptp:{ideo:1.1, ideoAt:0.20, pull:0.7, pullAt:0.30, ctr:1.0},
+                 rcv:{ideo:1.5, ideoAt:0.17, pull:0.95, pullAt:0.27, ctr:1.15}};
 function runElection(){
+  const GV=(POLICIES.rankedChoice&&POLICIES.rankedChoice.enabled)?GOV_THIRD.rcv:GOV_THIRD.fptp;
   const rcv=POLICIES.rankedChoice&&POLICIES.rankedChoice.enabled;
   let yes=0,no=0,thirdL=0,thirdR=0,thirdC=0,tot=0;
   // Oregon Forward is on the ballot only while the system that made it
@@ -15512,17 +15541,17 @@ function runElection(){
     if(leanGov){
       // Leans toward governor — strong ideologues may still defect to a purer party
       const lukewarm=clamp((70-app)/25,0,1);                          // 1 near 50, 0 above 70
-      const ideoDefect=Math.max(0,pole-0.42)*lukewarm*(rcv?2.4:1.1);
-      const ctrDefect=centrism*lukewarm*(rcv?1.5:1.0);
-      if(ideoDefect>(rcv?0.12:0.20)+Math.random()*0.5){ addThird(t); bucket=splinter==="R"?"r":"l"; } // defects to a purer party
+      const ideoDefect=Math.max(0,pole-0.42)*lukewarm*GV.ideo;
+      const ctrDefect=centrism*lukewarm*GV.ctr;
+      if(ideoDefect>GV.ideoAt+Math.random()*0.5){ addThird(t); bucket=splinter==="R"?"r":"l"; } // defects to a purer party
       else if(ctrDefect>0.20+Math.random()*0.5){ thirdC+=t; bucket="c"; }                              // or to the middle
       else{ yes+=t; bucket="y"; }
     } else {
       // Leans against — may defect to a third party or back the challenger
       const disaffection=clamp((50-app)/22,0,1);
-      const thirdPull=pole*disaffection*(rcv?2.0:0.7);                // RCV lets them vote conscience without spoiling
-      const ctrPull=centrism*disaffection*(rcv?1.4:1.0);
-      if(thirdPull>(rcv?0.18:0.30)+Math.random()*0.35){ addThird(t); bucket=splinter==="R"?"r":"l"; } // defects to a third party
+      const thirdPull=pole*disaffection*GV.pull;                      // RCV lets them vote conscience without spoiling
+      const ctrPull=centrism*disaffection*GV.ctr;
+      if(thirdPull>GV.pullAt+Math.random()*0.35){ addThird(t); bucket=splinter==="R"?"r":"l"; } // defects to a third party
       else if(ctrPull>0.22+Math.random()*0.4){ thirdC+=t; bucket="c"; }                               // or to the middle
       else { no+=t; bucket="n"; }                                     // backs the challenger
     }
@@ -19635,7 +19664,7 @@ function prChamberHTML(){
     bar+='<i style="width:'+nS+'%;background:'+p.col+'" title="'+p.name+' — '+nS+'"></i>';
     rows+='<div class="prp-row'+(p.id===mine?' me':'')+'">'
       +'<span class="prp-sw" style="background:'+p.col+'"></span>'
-      +'<span class="prp-name">'+p.name+(p.id===mine?' <b>(yours)</b>':'')+'</span>'
+      +'<span class="prp-name"><a class="pf-link" data-pprof="'+p.id+'">'+p.name+'</a>'+(p.id===mine?' <b>(yours)</b>':'')+'</span>'
       +'<span class="prp-share">'+((shares[p.id]||0)*100).toFixed(1)+'%</span>'
       +'<span class="prp-seats">'+nS+'</span></div>';
   }
@@ -20115,7 +20144,7 @@ function coalitionTrustHTML(){
       :Math.min(t,o.settleAfter)<COAL_GOOD?"They stay, but below 55 their members stop voting with you.":"Not at risk of leaving.";
     const trust=Math.round(partyTrust(pid)), ms=prSeated().filter(x=>x.party===pid), ang=ms.filter(x=>x.L<prAngryAt(x)).length;
     const cap=((m-50)/50)*2.4*Math.min(1.6,(c[pid]||0)/18);
-    h+=`<div class="ctr-p"><div class="ctr-h"><span class="coal-sw" style="background:${p.col}"></span><b>${p.name}</b><span class="coal-s">${c[pid]||0} seats</span>
+    h+=`<div class="ctr-p"><div class="ctr-h"><span class="coal-sw" style="background:${p.col}"></span><b><a class="pf-link" data-pprof="${pid}">${p.name}</a></b><span class="coal-s">${c[pid]||0} seats</span>
         <span class="coal-mood ${cls}">Trust ${Math.round(m)} · ${state}</span></div>
       <div class="ctr-scale ctr-above"><span class="ctr-lab${t<30?" r":""}" style="left:${t}%">${t>m+1?"Rising to":t<m-1?"Falling to":"Holding at"} <b>${t>m+1||t<m-1?t:Math.round(m)}</b></span><span style="left:${t}%">▾</span></div>
       <div class="ctr-bar"><i class="${cls}" style="width:${Math.round(m)}%"></i>
@@ -22515,10 +22544,74 @@ function prLinesHTML(){
     return `<td${Math.abs(L)>=0.9?' class="pl-firm"':''}>${caucusViewLabel(i,L)}${Math.abs(L)>=0.9?"":" <i>(leans)</i>"}</td>`; };
   return `<details class="ahow"><summary>Party lines on every issue</summary><div class="ahow-body">
     <p>Where each party's leadership stands. Its members vote this line unless they sit on a flank that pulls them off it or hold a conviction against it; the issues where a member breaks are marked on their file. Bold is a hard line; "leans" is a softer one; "torn" means the party leaves it to its members.</p>
-    <div class="pl-lines-wrap"><table class="pl-lines"><thead><tr><th>Issue</th>${parties.map(p=>`<th${p.id===mine?' class="pl-mine"':''}><span class="coal-sw" style="background:${p.col}"></span>${p.short}${p.id===mine?" (yours)":""}</th>`).join("")}</tr></thead>
+    <div class="pl-lines-wrap"><table class="pl-lines"><thead><tr><th>Issue</th>${parties.map(p=>`<th${p.id===mine?' class="pl-mine"':''}><span class="coal-sw" style="background:${p.col}"></span><a class="pf-link" data-pprof="${p.id}">${p.short}</a>${p.id===mine?" (yours)":""}</th>`).join("")}</tr></thead>
     <tbody>${ids.map(i=>`<tr><th>${ISSUES[i].name}</th>${parties.map(p=>cell(p.id,i)).join("")}</tr>`).join("")}</tbody></table></div></div></details>`;
 }
 function prPartyWord(pid){ return prParty(pid).short; }
+/* WHO EACH PARTY IS, for its profile. */
+const PR_PROFILE={
+  left:{tag:"The labour left", blurb:"Built from the Working Families Party and the democratic socialists who voted Democratic because nothing else counted. Strongest in inner Portland, Eugene and the campus towns. It wants the corporate tax kept, the schools funded and the unions protected, and it will not sit in a government that cuts any of them."},
+  dem:{tag:"The old governing party", blurb:"The party that ran Salem for most of a generation, now one bench among five. Its voters are public employees, suburban professionals and the Portland area's middle class. Under districts its majority came by default; on a list it has to be earned, and it has been split over crime and homelessness since the 2024 recriminalization fight."},
+  centre:{tag:"The new middle", blurb:"The reason nobody governs alone. Moderates, independents and small-business owners tired of both parties found one of their own when 5% of the vote became five seats. Pro-housing, pro-choice and careful with money. Its members carry no whip and vote the bill in front of them."},
+  gop:{tag:"The opposition of the district era", blurb:"Its rural seats are now pooled into one statewide list. The base is farm and timber country east of the Cascades and down the southern valleys, with small business in the suburbs. It wants taxes capped, PERS reformed and Portland's priorities kept out of its counties."},
+  right:{tag:"The hard right", blurb:"Gun-rights, anti-tax and Greater Idaho voters who used to fight it out in Republican primaries and now hold seats of their own. It holds every line it has, without exception, and any governor who brings it into government will hear about it from everyone else."}
+};
+/* The groups a party's vote comes from: the same weighting partyTrust uses. */
+function prPartyBlocs(pid,n){
+  const p=prParty(pid), out=[];
+  for(const b in SIMULANTS){ const S=SIMULANTS[b]; if(!S||S.approval==null)continue;
+    const d=Math.abs(p.z+apptBlocLean(b)*0.5)/0.35; out.push({b, w:(S.size||0.01)*Math.exp(-d*d), ap:S.approval}); }
+  const tot=out.reduce((a,x)=>a+x.w,0)||1;
+  return out.sort((a,b)=>b.w-a.w).slice(0,n||4).map(x=>({b:x.b, sh:x.w/tot, ap:x.ap}));
+}
+/* A PARTY'S PROFILE: who they are, who leads them, where they stand. */
+function openPartyProfile(pid){
+  if(!prOn())return;
+  const modal=document.getElementById("partyModal"), card=document.getElementById("partyCard"); if(!modal||!card)return;
+  prEnsure(); const P=GAME.pr, p=prParty(pid), mine=prMyParty(), c=(GAME.legis&&GAME.legis.prCounts)||{}, sh=(GAME.legis&&GAME.legis.prShares)||{};
+  const prof=PR_PROFILE[pid]||{tag:"",blurb:""}, partners=coalitionPartners(), walked=(GAME.coalition&&GAME.coalition.walked)||[];
+  const role=pid===mine?"Your party":partners.indexOf(pid)>=0?"In your government":walked.indexOf(pid)>=0?"Walked out of your government":"In opposition";
+  let fc=null; try{ fc=window._prFc||prForecast(); }catch(e){}
+  const f=fc&&fc.parties[pid];
+  const seated=prSeated().filter(m=>m.party===pid), lead=prLeaderOf(pid);
+  const fl={l:0,c:0,r:0}; seated.forEach(m=>{ const w=m.wing||0; if(w>0.34)fl.l++; else if(w<-0.34)fl.r++; else fl.c++; });
+  const avg=seated.length?Math.round(seated.reduce((a,m)=>a+m.L,0)/seated.length):0;
+  const facs=Object.keys(P.facs||{}).filter(fk=>fk.split(":")[0]===pid);
+  const ids=ISSUE_IDS.filter(i=>ISSUES[i].partisan!==false);
+  const firm=[], leans=[], torn=[];
+  ids.forEach(i=>{ const L=prLineOn(pid,i); if(Math.abs(L)<=0.2)torn.push(i); else (Math.abs(L)>=0.9?firm:leans).push(i); });
+  const stance=i=>`<div class="pf-st"><span>${ISSUES[i].name}</span><b>${caucusViewLabel(i,prLineOn(pid,i))}</b></div>`;
+  const blocs=prPartyBlocs(pid,4), trust=Math.round(partyTrust(pid));
+  let x=`<button class="apx" data-pfclose aria-label="Close">×</button>
+    <div class="prop-kicker">${ico('columns')} Party profile · ${role}</div>
+    <h2 class="prop-who"><span class="coal-sw" style="background:${p.col};width:16px;height:16px"></span> ${p.name}</h2>
+    <div class="pf-tag">${prof.tag}</div>
+    <div class="dilemma-text">${prof.blurb}</div>
+    <div class="ebgroup prop-facts">
+      <div class="prop-row"><span class="prop-k">Seats</span><span class="prop-v"><b>${c[pid]||0}</b> of ${PR_SEATS}${sh[pid]!=null?`, on ${(sh[pid]*100).toFixed(1)}% of the vote at the last election`:""}</span></div>
+      ${f?`<div class="prop-row"><span class="prop-k">Polling now</span><span class="prop-v">${(f.share*100).toFixed(1)}%, about ${f.seats} seats</span></div>`:""}
+      <div class="prop-row"><span class="prop-k">Leader</span><span class="prop-v">${pid===mine?"You, as Governor":lead?`<b>${lead.n}</b>, first on the list · ${prFlank(lead.wing||0)}`:"None seated"}</span></div>
+      <div class="prop-row"><span class="prop-k">The bench</span><span class="prop-v">${seated.length?`${fl.l} Left Flank, ${fl.c} Party Centre, ${fl.r} Right Flank · loyalty to their leadership ${avg}${facs.length?` · <b class="ctr-bad">${facs.length} wing${facs.length===1?"":"s"} in revolt</b>`:""}`:"No members seated"}</span></div>
+      <div class="prop-row"><span class="prop-k">Their voters</span><span class="prop-v">${blocs.map(x=>`${SIMULANTS[x.b].name} <i class="pf-dim">(${Math.round(x.ap)} on you)</i>`).join(", ")}</span></div>
+      ${pid!==mine?`<div class="prop-row"><span class="prop-k">View of you</span><span class="prop-v"><b>${trust}</b> among their voters${trust<COAL_REFUSE_TRUST?" · too low for them to talk to you about a government":""}${partners.indexOf(pid)>=0?` · trust in the coalition ${Math.round(coalitionMood(pid))}`:""}</span></div>`:""}
+    </div>
+    <div class="ebgroup-label">Where they stand</div>
+    <div class="pf-cols">
+      ${firm.length?`<div><div class="pf-h">Hard lines</div>${firm.map(stance).join("")}</div>`:""}
+      ${leans.length?`<div><div class="pf-h">Leanings</div>${leans.map(stance).join("")}</div>`:""}
+      ${torn.length?`<div><div class="pf-h">Left to members</div>${torn.map(i=>`<div class="pf-st"><span>${ISSUES[i].name}</span><b class="pf-dim">Torn</b></div>`).join("")}</div>`:""}
+    </div>`;
+  if(pid!==mine&&(PR_DEMANDS[pid]||[]).length)
+    x+=`<div class="ebgroup-label">What they ask of a government</div><div class="pf-asks">${(PR_DEMANDS[pid]||[]).map(d=>`<div><b>${d.label}.</b>${d.why?` <span class="pf-dim">${d.why}</span>`:""}</div>`).join("")}</div>`;
+  x+=`<div class="apanel-act">${seated.length?`<button class="fcard-btn" data-pfmembers="${pid}">See their members ▸</button>`:""}<button class="fcard-btn" data-pfclose>Close</button></div>`;
+  card.innerHTML=x; modal.classList.remove("hidden");
+  const close=()=>modal.classList.add("hidden");
+  card.querySelectorAll("[data-pfclose]").forEach(b=>b.onclick=close);
+  modal.onclick=ev=>{ if(ev.target===modal)close(); };
+  const mb=card.querySelector("[data-pfmembers]");
+  if(mb)mb.onclick=()=>{ close(); const gov=pid===mine||partners.indexOf(pid)>=0; window._prTab=gov?"gov":"opp"; window._prParty=pid; window._prSel=null; currentView="caucus"; detailKey=null; render(); };
+}
+document.addEventListener("click",ev=>{ const t=ev.target.closest&&ev.target.closest("[data-pprof]"); if(!t||!prOn())return; ev.stopPropagation(); ev.preventDefault(); openPartyProfile(t.dataset.pprof); },true);
 function prMemberAt(seat){ const P=GAME.pr; if(!P||!P.seatOf)return null; const id=P.seatOf[seat]; return id?P.m[id]:null; }
 function prNewName(){
   const P=GAME.pr, taken=new Set(); if(P)for(const id in P.m)taken.add(P.m[id].n);
@@ -22973,6 +23066,7 @@ function renderPRLegislators(main,h){
     h+=`</div>`; }
   // party chips
   h+=`<div class="cch" style="margin-top:14px">`+tabParties.map(p=>`<button data-prp="${p}" class="${p===sel?"on":""}">${p==="ind"?"Independents":prPartyWord(p)} ${(GAME.legis.prCounts||{})[p]}${p===mineP?" · yours":partners.includes(p)?" · partner":""}</button>`).join("")+`</div>`;
+  if(sel&&sel!=="ind")h+=`<div class="pf-under"><a class="pf-link" data-pprof="${sel}">${ico('columns')} About the ${prParty(sel).name} party: leader, voters and where it stands ▸</a></div>`;
   let list=!sel?[]:(sel==="ind"?seated.filter(m=>m.party==="ind"):(P.lists[sel]||[]).map(id=>P.m[id]).filter(m=>m&&m.seat));
   // your own bench is about who is with you now, so it reads least loyal
   // first; the order they stand in at the next election is the list tab's
@@ -25884,6 +25978,29 @@ function endangeredMembersHTML(hf,sf){
   return h;
 }
 /* hover readout on the forecast maps, and the zoom on them */
+/* EVERY HOVER NOTE IN THE BOARD'S STYLE. A title attribute anywhere in the
+   game is lifted into data-tip the first time the pointer reaches it, so
+   the browser's own grey box never shows, and the note is drawn in the same
+   paper-and-ink box as the board's tooltips. Places that draw their own
+   (the forecast curves, the board graph) are left alone. */
+(function(){
+  let tip=null, cur=null;
+  const box=()=>{ if(!tip){ tip=document.createElement("div"); tip.id="gTip"; tip.className="board-tip g-tip"; tip.style.display="none"; document.body.appendChild(tip); } return tip; };
+  const place=ev=>{ const t=box(); const x=Math.min(window.innerWidth-t.offsetWidth-12, ev.clientX+14);
+    const y=ev.clientY+18+t.offsetHeight>window.innerHeight-8?ev.clientY-t.offsetHeight-12:ev.clientY+18;
+    t.style.left=Math.max(8,x)+"px"; t.style.top=Math.max(8,y)+"px"; };
+  const hide=()=>{ cur=null; if(tip)tip.style.display="none"; };
+  document.addEventListener("mouseover",ev=>{
+    const el=ev.target.closest&&ev.target.closest("[title],[data-tip]");
+    if(!el||el.closest(".fc-curve,.boardgraph")){ if(cur&&(!el||el!==cur))hide(); return; }
+    if(el.hasAttribute("title")){ const t=el.getAttribute("title"); el.removeAttribute("title"); if(!t)return; el.dataset.tip=t; if(!el.hasAttribute("aria-label")&&!el.textContent.trim())el.setAttribute("aria-label",t); }
+    if(el===cur)return;
+    cur=el; const t=box(); t.textContent=el.dataset.tip; t.style.display="block"; place(ev);
+  },true);
+  document.addEventListener("mousemove",ev=>{ if(cur){ if(!document.contains(cur)||!cur.contains(ev.target)){ hide(); return; } place(ev); } },true);
+  document.addEventListener("mousedown",hide,true);
+  window.addEventListener("scroll",hide,true);
+})();
 /* The Senate forecast's curves: the board's tooltip, not the browser's. */
 /* A faction's name on a member opens that faction's card: chosen, lit and
    scrolled to, on the tab the member is on. */
