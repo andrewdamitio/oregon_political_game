@@ -804,6 +804,13 @@
   .pf-h{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted-2);margin:2px 0 4px}
   .pf-st{display:flex;justify-content:space-between;gap:10px;font-size:13.5px;padding:3px 0;border-bottom:1px dotted var(--line)}
   .pf-st span{color:var(--muted-1)} .pf-st b{font-weight:600;text-align:right}
+  .pf-st[data-tipk]{cursor:help} .pf-st[data-tipk]:hover{background:color-mix(in srgb,var(--ink) 6%,transparent)}
+  .pf-hint{font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted-2);font-size:12px;margin-left:6px}
+  .board-tip.g-tip.g-wide{max-width:min(92vw,400px);padding:10px 14px}
+  .board-tip .bt-law{display:flex;justify-content:space-between;align-items:baseline;gap:14px;font-size:13px;padding:4px 0;border-bottom:1px dotted var(--line)}
+  .board-tip .bt-law span i{display:block;font-style:normal;font-size:11.5px;color:var(--muted-2)}
+  .board-tip .bt-law b{white-space:nowrap;font-weight:600} .board-tip .bt-law b.up{color:var(--moss)} .board-tip .bt-law b.dn{color:var(--clay)}
+  .board-tip .bt-foot{font-size:12px;color:var(--muted-2);margin-top:6px}
   .pf-asks{display:flex;flex-direction:column;gap:5px;font-size:13.5px;margin:4px 0 10px}
   .pf-link{cursor:pointer;color:inherit;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px}
   .pf-link:hover{color:var(--moss)}
@@ -22559,6 +22566,38 @@ const PR_PROFILE={
   gop:{tag:"The opposition of the district era", blurb:"Its rural seats are now pooled into one statewide list. The base is farm and timber country east of the Cascades and down the southern valleys, with small business in the suburbs. It wants taxes capped, PERS reformed and Portland's priorities kept out of its counties."},
   right:{tag:"The hard right", blurb:"Gun-rights, anti-tax and Greater Idaho voters who used to fight it out in Republican primaries and now hold seats of their own. It holds every line it has, without exception, and any governor who brings it into government will hear about it from everyone else."}
 };
+/* A note built on hover. Keys are "kind:args". */
+function tipBuild(k){
+  const [kind,a,b]=k.split(":");
+  if(kind==="pfline")return prLineLawsTip(a,b);
+  return "";
+}
+/* WHAT A PARTY'S LINE MEANS, LAW BY LAW: every law tied to the issue, where
+   it stands now, and which way the party pushes it. A soft line pushes the
+   same way, less hard; a torn party leaves it to its members. */
+function prLineLawsTip(pid,i){
+  const I=ISSUES[i]; if(!I)return "";
+  const L=prLineOn(pid,i), torn=Math.abs(L)<=0.2, firm=Math.abs(L)>=0.9;
+  const rows=[];
+  for(const [lid,dir] of (I.pols||[])){
+    const p=POLICIES[lid]||CATALOG[lid]; if(!p)continue;
+    const on=!!POLICIES[lid], want=L*dir;
+    const tier=p.mechanic==="tier"&&p.tiers, dial=p.mechanic==="slider"||p.mechanic==="intensity";
+    const now=!on?"not law":tier?p.tiers[p.tierIndex||0]:dial?policyRealLabel(p):"in force";
+    let go, cls="";
+    if(torn)go="members split";
+    else if(!on){ go=want>0?"✓ pass it":"✕ keep it off"; cls=want>0?"up":"dn"; }
+    else if(tier){ const to=p.tiers[(p.tierIndex||0)+(want>0?1:-1)]; go=to?(want>0?"▲ ":"▼ ")+to:"✓ as far as it goes"; cls=to?(want>0?"up":"dn"):""; }
+    else if(dial){ go=want>0?"▲ higher":"▼ lower"; cls=want>0?"up":"dn"; }
+    else { go=want>0?"✓ keep it":"✕ repeal it"; cls=want>0?"up":"dn"; }
+    rows.push(`<div class="bt-law"><span>${p.name}<i>now ${now}</i></span><b class="${cls}">${go}</b></div>`);
+  }
+  if(i==="tolls")rows.push(`<div class="bt-law"><span>Tolling I-205 and I-5<i>now ${(GAME.caucus&&GAME.caucus.tolls)>0?"tolls imposed":"no tolls"}</i></span><b class="${torn?"":L>0?"dn":"up"}">${torn?"members split":L>0?"✕ no tolls":"✓ tolls"}</b></div>`);
+  return `<div class="bt-name">${I.name}</div>
+    <div class="bt-meta">${prPartyWord(pid)} · ${torn?"torn, left to members":(firm?"hard line: ":"leans: ")+caucusViewLabel(i,L)}</div>
+    ${rows.length?rows.join(""):'<div class="bt-val">No law on the books or in the catalog.</div>'}
+    <div class="bt-foot">${torn?"Each member votes their own view on these.":firm?"Members vote this way unless a flank or a conviction pulls them off it.":"A softer line: more of their members break from it."}</div>`;
+}
 /* The groups a party's vote comes from: the same weighting partyTrust uses. */
 function prPartyBlocs(pid,n){
   const p=prParty(pid), out=[];
@@ -22583,7 +22622,7 @@ function openPartyProfile(pid){
   const ids=ISSUE_IDS.filter(i=>ISSUES[i].partisan!==false);
   const firm=[], leans=[], torn=[];
   ids.forEach(i=>{ const L=prLineOn(pid,i); if(Math.abs(L)<=0.2)torn.push(i); else (Math.abs(L)>=0.9?firm:leans).push(i); });
-  const stance=i=>`<div class="pf-st"><span>${ISSUES[i].name}</span><b>${caucusViewLabel(i,prLineOn(pid,i))}</b></div>`;
+  const stance=i=>`<div class="pf-st" data-tipk="pfline:${pid}:${i}"><span>${ISSUES[i].name}</span><b>${caucusViewLabel(i,prLineOn(pid,i))}</b></div>`;
   const blocs=prPartyBlocs(pid,4), trust=Math.round(partyTrust(pid));
   let x=`<button class="apx" data-pfclose aria-label="Close">×</button>
     <div class="prop-kicker">${ico('columns')} Party profile · ${role}</div>
@@ -22598,11 +22637,11 @@ function openPartyProfile(pid){
       <div class="prop-row"><span class="prop-k">Their voters</span><span class="prop-v">${blocs.map(x=>`${SIMULANTS[x.b].name} <i class="pf-dim">(${Math.round(x.ap)} on you)</i>`).join(", ")}</span></div>
       ${pid!==mine?`<div class="prop-row"><span class="prop-k">View of you</span><span class="prop-v"><b>${trust}</b> among their voters${trust<COAL_REFUSE_TRUST?" · too low for them to talk to you about a government":""}${partners.indexOf(pid)>=0?` · trust in the coalition ${Math.round(coalitionMood(pid))}`:""}</span></div>`:""}
     </div>
-    <div class="ebgroup-label">Where they stand</div>
+    <div class="ebgroup-label">Where they stand <span class="pf-hint">hover an issue for the laws behind it</span></div>
     <div class="pf-cols">
       ${firm.length?`<div><div class="pf-h">Hard lines</div>${firm.map(stance).join("")}</div>`:""}
       ${leans.length?`<div><div class="pf-h">Leanings</div>${leans.map(stance).join("")}</div>`:""}
-      ${torn.length?`<div><div class="pf-h">Left to members</div>${torn.map(i=>`<div class="pf-st"><span>${ISSUES[i].name}</span><b class="pf-dim">Torn</b></div>`).join("")}</div>`:""}
+      ${torn.length?`<div><div class="pf-h">Left to members</div>${torn.map(i=>`<div class="pf-st" data-tipk="pfline:${pid}:${i}"><span>${ISSUES[i].name}</span><b class="pf-dim">Torn</b></div>`).join("")}</div>`:""}
     </div>`;
   if(pid!==mine&&(PR_DEMANDS[pid]||[]).length)
     x+=`<div class="ebgroup-label">What they ask of a government</div><div class="pf-asks">${(PR_DEMANDS[pid]||[]).map(d=>`<div><b>${d.label}.</b>${d.why?` <span class="pf-dim">${d.why}</span>`:""}</div>`).join("")}</div>`;
@@ -25997,11 +26036,14 @@ function endangeredMembersHTML(hf,sf){
     t.style.left=Math.max(8,x)+"px"; t.style.top=Math.max(8,y)+"px"; };
   const hide=()=>{ cur=null; if(tip)tip.style.display="none"; };
   document.addEventListener("mouseover",ev=>{
-    const el=ev.target.closest&&ev.target.closest("[title],[data-tip]");
+    const el=ev.target.closest&&ev.target.closest("[title],[data-tip],[data-tipk]");
     if(!el||el.closest(".fc-curve,.boardgraph")){ if(cur&&(!el||el!==cur))hide(); return; }
     if(el.hasAttribute("title")){ const t=el.getAttribute("title"); el.removeAttribute("title"); if(!t)return; el.dataset.tip=t; if(!el.hasAttribute("aria-label")&&!el.textContent.trim())el.setAttribute("aria-label",t); }
     if(el===cur)return;
-    cur=el; const t=box(); t.textContent=el.dataset.tip; t.style.display="block"; place(ev);
+    cur=el; const t=box();
+    if(el.dataset.tipk){ let h=""; try{ h=tipBuild(el.dataset.tipk); }catch(e){} if(!h){ cur=null; return; } t.innerHTML=h; t.classList.add("g-wide"); }
+    else { t.textContent=el.dataset.tip; t.classList.remove("g-wide"); }
+    t.style.display="block"; place(ev);
   },true);
   document.addEventListener("mousemove",ev=>{ if(cur){ if(!document.contains(cur)||!cur.contains(ev.target)){ hide(); return; } place(ev); } },true);
   document.addEventListener("mousedown",hide,true);
