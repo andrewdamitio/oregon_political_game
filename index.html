@@ -715,6 +715,10 @@
   .pn-map path.pn-inc,.pn-key i.pn-inc{fill:var(--moss);background:var(--moss)}
   .pn-map path.pn-new,.pn-key i.pn-new{fill:#7fa36b;background:#7fa36b}
   .pn-map path.pn-open,.pn-key i.pn-open{fill:var(--gold);background:var(--gold)}
+  .pn-map path.pn-flank,.pn-key i.pn-flank{fill:color-mix(in srgb,#6b5b95 45%,var(--paper));background:color-mix(in srgb,#6b5b95 45%,var(--paper))}
+  .pn-map path.pn-3p{stroke:var(--ink);stroke-width:1.1;stroke-dasharray:1.5 2.2;vector-effect:non-scaling-stroke}
+  .pn-map path.pn-raced.pn-3p{stroke-width:2.2;stroke-dasharray:5 2.5}
+  .pn-key i.pn-3p-key{background:transparent;border:1.5px dotted var(--ink)}
   .pn-map path.pn-chal,.pn-key i.pn-chal{fill:color-mix(in srgb,var(--clay) 45%,var(--paper));background:color-mix(in srgb,var(--clay) 45%,var(--paper))}
   .pn-map path.pn-sd,.pn-key i.pn-sd{fill:var(--muted-3);background:var(--muted-3)}
   .pn-key i.pn-raced-key{background:transparent;border:2px solid var(--ink)}
@@ -20529,8 +20533,11 @@ function districtVote(row, sf, align, th, ch){
   const homeL=1-FLANK_HOME+FLANK_HOME*clamp((lean-50)/50,0,1);
   const homeR=1-FLANK_HOME+FLANK_HOME*clamp((50-lean)/50,0,1);
   let spL=t.L*100*homeL, spR=t.R*100*homeR;
-  if(!flankFiles("L",row[0],t.L,homeL))spL=0;
-  if(!flankFiles("R",row[0],t.R,homeR))spR=0;
+  // a seat key per chamber, so House 4 and Senate 4 draw apart; a flank that
+  // holds the seat always defends it
+  const sk=(ch||(OR_SENATE_DISTRICTS.indexOf(row)>=0?"senate":"house"))[0]+row[0], holder=typeof seatFlankHolder==="function"?seatFlankHolder(sk):null;
+  if(holder!=="left"&&!flankFiles("L",sk,t.L,homeL))spL=0;
+  if(holder!=="right"&&!flankFiles("R",sk,t.R,homeR))spR=0;
   // WHOSE VOTE EACH ONE SPLITS. A flank takes most of its vote from the side
   // it is a flank of, and your coalition decides which side that is.
   const govLeft=a0>=0;
@@ -24249,6 +24256,13 @@ function caucusAnnounceRetirements(){
   }
   if(mine.length)GAME.log.push(ico('people')+" Not running again: "+mine.join(", ")+". "+(mine.length===1?"The seat is":"Their seats are")+" open at the next ballot.");
 }
+/* WHO RUNS FOR AN OPEN SEAT. Named once the retirement is known, and the
+   same person takes the seat if the party holds it. */
+function caucusOpenNominee(k){
+  const r=caucusRetiring(k); if(!r||!r.go)return null;
+  if(!r.succ)r.succ=caucusNewName();
+  return r.succ;
+}
 /* The note on a retiring member's box and card. */
 function caucusRetireNote(k){
   const r=caucusRetiring(k); if(!r||!r.go)return "";
@@ -24290,7 +24304,7 @@ function caucusRetirements(upSenate){
       C.primNews=C.primNews||[]; C.primNews.push({k, won:true, retired:true, old:p.name, n:p.n});
       GAME.log.push(ico('ballot')+" "+p.name+" ("+caucusCode(k)+") retired rather than face your challenger. "+p.n+" takes the nomination.");
     } else {
-      nm=caucusFreshMember(k,m);
+      nm=caucusFreshMember(k,m,ann&&ann.go&&ann.succ||undefined);
       if(m.p==="mine")C.retNews.push({k, old:m.n, n:nm.n, L:Math.round(m.L)});
     }
     C.m[k]=nm; nm.L=caucusTarget(nm,k);
@@ -24473,6 +24487,19 @@ function primaryNightRaces(P){
    primary you backed, an open seat, or a challenger to the other party's
    member. A district that had a contested primary, in either party, is
    outlined, and its readout tells the race. */
+/* Which flank party holds a seat, if one does: the seat's last result, or
+   the splinter bloc's list for seats it took before results were kept. */
+function seatFlankHolder(k){
+  const H=(GAME.seatHist||{})[k], e=H&&H[H.length-1];
+  if(e&&(e.win==="spL"||e.win==="spR"))return e.win==="spL"?"left":"right";
+  const S=GAME.splinter; if(!S)return null;
+  return ((k[0]==="s"?S.senate:S.house)||[]).includes(+k.slice(1))?S.side:null;
+}
+/* The flank parties on a seat's ballot this cycle: who filed. */
+function seatFlankField(k){
+  const row=caucusRow(k); if(!row)return [];
+  try{ const v=districtVote(row,null,null,null,k[0]==="s"?"senate":"house"); return [v.spL>0.05?splinterName("left"):null, v.spR>0.05?splinterName("right"):null].filter(Boolean); }catch(e){ return []; }
+}
 function primaryNomineeMap(P,fc){
   const C=GAME.caucus, text={}; if(prOn()||!C||!C.m)return {html:"",text};
   const race={}; primaryNightRaces(P).forEach(a=>race[a.x.k]=a.x);
@@ -24486,22 +24513,28 @@ function primaryNomineeMap(P,fc){
       const pr=(fc[ch]||{prob:{}}).prob[id], x=race[k], ret=caucusRetiring(k), nom=C.nom&&C.nom[k];
       let cls, say;
       if(m.p==="mine"){
-        if(nom&&nom.p!=="opp"){ cls="pn-new"; say=`${nom.n}, who beat ${caucusTitle(k)} in the primary you backed, is your nominee. ${pc(pr)} to hold.`; }
-        else if(ret&&ret.go){ cls="pn-open"; say=`${caucusTitle(k)} is retiring: an open seat for your party. ${pc(pr)} to hold.`; }
-        else { cls="pn-inc"; say=`${caucusTitle(k)} runs again${x&&!x.won?`, having held off your challenger ${x.n}`:""}. ${pc(pr)} to hold.`; }
-      } else if(caucusStandDownSeat(ch,id)){ cls="pn-sd"; say=`Your party stood down here: ${caucusTitle(k)} (${caucusPartyOf(m)}) has no opponent from it.`; }
-      else { cls="pn-chal"; const them=nom&&nom.p==="opp"?`${nom.n}, who beat ${caucusTitle(k)} in the ${oppPartyPlural()}' primary`:`${caucusTitle(k)} (${caucusPartyOf(m)})`;
-        say=`Held by the ${oppPartyPlural()}. Your party's nominee takes on ${them}${x&&!x.won?`, who survived a challenge from their own leadership`:""}. ${pc(pr)} to win.`; }
+        const hold=` ${pc(pr)} chance your party holds the seat.`;
+        if(nom&&nom.p!=="opp"){ cls="pn-new"; say=`${nom.n}, who beat ${caucusTitle(k)} in the primary you backed, is your nominee.${hold}`; }
+        else if(ret&&ret.go){ cls="pn-open"; say=`${caucusTitle(k)} is retiring. Your party's nominee for the open seat is <b>${caucusOpenNominee(k)}</b>.${hold}`; }
+        else { cls="pn-inc"; say=`${caucusTitle(k)} runs again${x&&!x.won?`, having held off your challenger ${x.n}`:""}.${hold}`; }
+      } else if(seatFlankHolder(k)){ const fl=splinterName(seatFlankHolder(k)); cls="pn-flank"; say=`Held by ${fl}, a third party. Your party's nominee, <b>${caucusChallenger(k).n}</b>, takes on ${caucusTitle(k)}. ${pc(pr)} chance your party wins the seat.`; }
+      else if(caucusStandDownSeat(ch,id)){ cls="pn-sd"; say=`Your party stood down here: ${caucusTitle(k)} (${caucusPartyOf(m)}) has no opponent from it.`; }
+      else { cls="pn-chal"; const them=nom&&nom.p==="opp"?`${nom.n}, who beat ${caucusTitle(k)} in the ${oppPartyPlural()}' primary`
+          :ret&&ret.go?`${caucusOpenNominee(k)}, their nominee for the seat ${caucusTitle(k)} is leaving`:`${caucusTitle(k)} (${caucusPartyOf(m)})`;
+        say=`Held by the ${oppPartyPlural()}. Your party's nominee, <b>${caucusChallenger(k).n}</b>, takes on ${them}${x&&!x.won?`, who survived a challenge from their own leadership`:""}. ${pc(pr)} chance your party wins the seat.`; }
       used.add(cls); n++;
+      // the third parties on this ballot: who filed
+      const fld=seatFlankField(k); if(fld.length)used.add("pn-3p");
+      say+=fld.length?` Also on the ballot: ${fld.join(" and ")}${rcvOn()?", so the seat may go to a ranked-choice count":", who could split the vote"}.`:" No third party filed here.";
       text[k]=`<b>${caucusCode(k)} ${caucusPlace(m.ch,m.id)}</b>: ${say}`;
-      return `<path class="${cls}${x?" pn-raced":""}" data-pnn="${k}" tabindex="0" d="${r[1]}"></path>`; }).join("");
+      return `<path class="${cls}${x?" pn-raced":""}${fld.length?" pn-3p":""}" data-pnn="${k}" tabindex="0" d="${r[1]}"></path>`; }).join("");
     if(!n)return "";
     return `<figure class="pn-map"><svg viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Your party's nominees for the ${nm}">`
       +paths+`</svg><figcaption>${nm} · ${n} seat${n===1?"":"s"} on the ballot</figcaption></figure>`; }).join("");
   if(!maps)return {html:"",text};
   if(maps.includes('class="pn-off"'))used.add("pn-off");
-  const KEY=[["pn-inc","Your member running again"],["pn-new","New nominee, from a primary you backed"],["pn-open","Open seat, your member retiring"],["pn-chal","Their seat, your nominee challenging"],["pn-off","Not on this ballot"],["pn-sd","Your party stood down"]];
-  const key=KEY.filter(([c])=>used.has(c)).map(([c,l])=>`<span><i class="${c}"></i>${l}</span>`).concat(Object.keys(race).length?[`<span><i class="pn-raced-key"></i>Outlined: a contested primary</span>`]:[]);
+  const KEY=[["pn-inc","Your member running again"],["pn-new","New nominee, from a primary you backed"],["pn-open","Open seat, your member retiring"],["pn-chal","Opposition seat, your nominee challenging"],["pn-flank","Third-party seat, your nominee challenging"],["pn-off","Not on this ballot"],["pn-sd","Your party stood down"]];
+  const key=KEY.filter(([c])=>used.has(c)).map(([c,l])=>`<span><i class="${c}"></i>${l}</span>`).concat(used.has("pn-3p")?[`<span><i class="pn-3p-key"></i>Dotted: a third party filed</span>`]:[]).concat(Object.keys(race).length?[`<span><i class="pn-raced-key"></i>Outlined: a contested primary</span>`]:[]);
   return {html:`<div class="eg-h3" style="margin-top:14px">Your party's nominees</div><div class="pn-maps">${maps}</div><div class="pn-key">${key.join("")}</div>`, text};
 }
 function primaryNightTitle(P){
@@ -24543,7 +24576,7 @@ function showPrimaryNight(P,next){
     <div class="pn-tally">${tally.join("")}</div>
     ${quiet?"":`<div class="eg-sub" style="font-size:14px;max-width:640px">Winners are their party's nominees, not yet members. They take office only if they win ${gen} in ${P.gen} quarters; until then the members they beat serve out their terms and still vote.</div>`}
     ${nmap.html}
-    <div class="eg-ctyread" id="pnRead">${hv("Hover","Tap")} a district for its nominee and your odds${quiet?"":" · scroll for every race ↓"}</div>
+    <div class="eg-ctyread" id="pnRead">${hv("Hover","Tap")} a district for its nominee, the third parties on its ballot and your odds${quiet?"":" · scroll for every race ↓"}</div>
     ${primaryBoostNoticeHTML(P,fc)}`;
   if(L.length)h+=`<div class="eg-section"><div class="eg-h3">Your challengers</div><div class="eg-note">Members of your party you backed a challenger against.</div>`
     +L.map(x=>`<div class="pn-row ${x.won?"won":"lost"}"><span class="cn-code">${caucusCode(x.k)}</span>
@@ -24603,7 +24636,7 @@ function primaryBoostNoticeHTML(P,fc){
   // every member of yours on this ballot, closest first; the safe ones too
   const inPlay=rows;
   const list=(inPlay.length?`<div class="pn-bst-h">Your seats on this ballot · ${inPlay.length}<span>your party's chance to hold</span></div><div class="pn-bst-list">${inPlay.map(r=>line(r,true)).join("")}</div>`:"")
-    +(theirs.length?`<div class="pn-bst-h">Their seats you could take · ${theirs.length}<span>your party's chance to win</span></div><div class="pn-bst-list">${theirs.map(r=>line(r,false)).join("")}</div>`:"");
+    +(theirs.length?`<div class="pn-bst-h">Opposition seats you could take · ${theirs.length}<span>your party's chance to win</span></div><div class="pn-bst-list">${theirs.map(r=>line(r,false)).join("")}</div>`:"");
   const sum=!rows.length?"None of your members is on this ballot."
     :risk?`${risk} of your ${rows.length} members on this ballot would lose if the vote were today${close?`, and ${close} seat${close===1?" is":"s are"} close enough for a push to matter`:""}.`
     :close?`All ${rows.length} of your members on this ballot are favoured, but ${close} seat${close===1?" is":"s are"} close enough for a push to matter.`
