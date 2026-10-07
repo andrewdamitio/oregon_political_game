@@ -819,6 +819,13 @@
   .pf-link{cursor:pointer;color:inherit;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px}
   .pf-link:hover{color:var(--moss)}
   .pf-under{margin:10px 0 0;font-size:13.5px}
+  .sc-wrap{margin-top:6px} .sc-h{font-size:12px;color:var(--muted-2);margin:2px 0 3px}
+  .sc-tab{border-collapse:collapse;font-size:12.5px;font-family:var(--font-data)}
+  .sc-tab th{font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-2);text-align:right;padding:2px 8px}
+  .sc-tab td{padding:2px 8px;text-align:right;border-top:1px dotted var(--line)} .sc-tab td:first-child{text-align:left;font-family:var(--font-body)}
+  .sc-tab tr.sc-w td{font-weight:700} .sc-tab tr.sc-ex td{color:var(--muted-2)}
+  .sc-line{font-size:13px} .sc-line .sc-w{font-weight:700}
+  .sc-past{margin:4px 0 8px;font-size:13px} details.sc-past summary{cursor:pointer;color:var(--muted-1)}
   .plog{display:flex;flex-direction:column;margin:2px 0 8px}
   .plog-r{display:grid;grid-template-columns:70px 1fr auto;gap:10px;align-items:baseline;font-size:13px;padding:3px 0 3px 8px;border-bottom:1px dotted var(--line)}
   .plog-t{font-family:var(--font-data);font-size:11.5px;color:var(--muted-2)}
@@ -20562,18 +20569,23 @@ function rcvLegXfer(fl){
   else { you=clamp(0.05+(a-30)*0.006,0.02,0.35); opp=clamp(0.75-(a-30)*0.006,0.40,0.85); }
   return C[k]={you, opp};
 }
-function legSeatWinner(you,opp,spL,spR){
-  const v={you,opp,spL,spR};
+function legSeatWinner(you,opp,spL,spR){ return legSeatCount(you,opp,spL,spR,false).win; }
+/* The same count, and with keep=true the rounds as they went: each round's
+   live ballots, who was struck out, and the ballots exhausted so far. */
+function legSeatCount(you,opp,spL,spR,keep){
+  const v={you,opp,spL,spR}, rounds=keep?[]:null; let ex=0;
   const top=()=>Object.keys(v).reduce((a,k)=>v[k]>v[a]?k:a, "you");
-  if(!rcvOn()||prOn())return top();
+  if(!rcvOn()||prOn())return {win:top(), rounds:null};
   // the major on each side: your party is the left one unless you started on the right
   const leftMajor=GAME.startId==="conservative"?"opp":"you", rightMajor=leftMajor==="you"?"opp":"you";
   const side={spL:leftMajor, spR:rightMajor, you:leftMajor==="you"?"spL":"spR", opp:leftMajor==="opp"?"spL":"spR"};
   const live=new Set(Object.keys(v).filter(k=>v[k]>0.01));
+  const snap=out=>{ if(!rounds)return; const r={v:{}, ex, out}; for(const k in v)r.v[k]=live.has(k)||k===out?v[k]:null; rounds.push(r); };
   for(let round=0;round<3&&live.size>2;round++){
     const tot=[...live].reduce((a,k)=>a+v[k],0), lead=[...live].reduce((a,k)=>v[k]>v[a]?k:a);
     if(v[lead]>tot/2)break;
-    const out=[...live].reduce((a,k)=>v[k]<v[a]?k:a); live.delete(out);
+    const out=[...live].reduce((a,k)=>v[k]<v[a]?k:a); snap(out); live.delete(out);
+    const before=v.you+v.opp+v.spL+v.spR;
     // a flank's ballots go to you or the other major at the rate its voters
     // prefer you; a major's go to its own flank, then across
     if(out==="spL"||out==="spR"){ const X=rcvLegXfer(out);
@@ -20581,9 +20593,10 @@ function legSeatWinner(you,opp,spL,spR){
     else { const own=live.has(side[out])?side[out]:null;
       const other=[...live].find(k=>k!==own&&(k==="you"||k==="opp"));
       if(own)v[own]+=v[out]*RCV_XFER_OWN; if(other)v[other]+=v[out]*RCV_XFER_OTHER; }
-    v[out]=0;
+    v[out]=0; ex+=before-(v.you+v.opp+v.spL+v.spR);
   }
-  return [...live].reduce((a,k)=>v[k]>v[a]?k:a);
+  if(rounds&&rounds.length)snap(null);
+  return {win:[...live].reduce((a,k)=>v[k]>v[a]?k:a), rounds:rounds&&rounds.length?rounds:null};
 }
 /* Every district in a chamber, scored four ways and ranked by your own share
    so callers that only want the ranking still get one. */
@@ -24713,6 +24726,11 @@ function caucusMemberCard(k){
     h+=`</div>`;
   }
   const tr=caucusTraitsOf(k);
+  { const past=((GAME.seatHist||{})[k]||[]).slice().reverse();
+    if(past.length){ h+=`<div class="cm-sec">Past elections in ${caucusCode(k)}</div>`;
+      past.forEach((e,i)=>{ const body=seatCountHTML(e);
+        h+=i===0?`<div class="sc-past"><div class="sc-h">${e.yr} ${e.kind==="midterm"?"midterm":"general election"}${e.rounds?", counted in "+e.rounds.length+" rounds":""}</div>${body}</div>`
+                :`<details class="sc-past"><summary>${e.yr} ${e.kind==="midterm"?"midterm":"general election"}</summary>${body}</details>`; }); } }
   h+=`<div class="cm-sec">The district</div>`;
   if(!m.ind){ const gs=caucusAnswerGroups(m,k,row), nm=g=>`<b>${SIMULANTS[g.b].name}</b> (${Math.round(SIMULANTS[g.b].approval??50)}% approve of you)`;
     const al=gs.find(g=>g.aligned), di=gs.find(g=>!g.aligned);
@@ -26330,6 +26348,19 @@ function legZoomTo(view,k2,px,py){
 /* The seat-by-seat readout under a result map. The forecast maps have had
    one since they were written; these did not, and a <title> alone means
    waiting for a browser tooltip. */
+/* A seat's result: the shares, the winner, and under ranked choice the count
+   round by round. Shares in each round are of the ballots still live. */
+function seatCountHTML(e){
+  const nm={you:myPartyPlural(), opp:oppPartyPlural(), spL:splinterName('left'), spR:splinterName('right')};
+  const ks=["you","opp","spL","spR"].filter(k=>(e[k]||0)>=0.05);
+  if(!e.rounds){
+    return `<div class="sc-line">${ks.sort((a,b)=>e[b]-e[a]).map(k=>`<span class="${k===e.win?"sc-w":""}">${nm[k]} ${(+e[k]).toFixed(1)}%</span>`).join(" · ")}${e.win&&Math.max(...ks.map(k=>e[k]))<50&&!e.rcv?' · <i>won on a plurality</i>':''}</div>`;
+  }
+  const R=e.rounds, pc=(r,k)=>{ const live=Object.values(r.v).reduce((a,x)=>a+(x||0),0)-(r.out?0:0); return r.v[k]==null?"—":(r.v[k]/Math.max(1e-9,live)*100).toFixed(1)+"%"; };
+  return `<table class="sc-tab"><thead><tr><th></th>${R.map((r,i)=>`<th>Round ${i+1}</th>`).join("")}</tr></thead><tbody>`
+    +ks.map(k=>`<tr class="${k===e.win?"sc-w":""}"><td>${nm[k]}</td>${R.map(r=>`<td>${pc(r,k)}${r.out===k?" ▼":""}</td>`).join("")}</tr>`).join("")
+    +`<tr class="sc-ex"><td>Exhausted</td>${R.map(r=>`<td>${r.ex>0.05?(+r.ex).toFixed(1)+" of 100":"—"}</td>`).join("")}</tr></tbody></table>`;
+}
 function wireLegReadout(root){
   root.querySelectorAll('[data-legread]').forEach(rd=>{
     if(rd._wired)return; rd._wired=true;      // a map may be wired by more than one caller
@@ -26347,7 +26378,7 @@ function wireLegReadout(root){
           const names=[myPartyPlural(),oppPartyPlural(),splinterName('left'),splinterName('right')];
           const top=Math.max.apply(null,v);
           out+=' \u00b7 '+v.map((x,i)=>`${names[i]} ${x===top?`<b>${x}%</b>`:`${x}%`}`).join(' \u00b7 ');
-          if(top<50)out+=` \u00b7 <i>won on a plurality</i>`;
+          if(top<50&&!rcvOn())out+=` \u00b7 <i>won on a plurality</i>`;
         } else if(sh!==''&&sh!=null){
           const you=+sh;
           out+=` \u00b7 ${myPartyPlural()} <b>${you}%</b> \u00b7 ${oppPartyPlural()} <b>${100-you}%</b>`;
@@ -26359,6 +26390,9 @@ function wireLegReadout(root){
         if(el.dataset.held)out+=` \u00b7 <i>held over, not on this ballot</i>`;
         // the candidates in the race
         if(el.dataset.ck&&typeof caucusCandidateLine==="function"){ const cl=caucusCandidateLine(el.dataset.ck); if(cl)out+=`<br>${cl}`; }
+        // on election night, the seat's own count round by round
+        if(el.dataset.ck&&rd.closest('.egrand')){ const N=GAME.legis&&GAME.legis.night, e=N&&N[el.dataset.ck[0]]&&N[el.dataset.ck[0]][el.dataset.ck.slice(1)];
+          if(e&&e.rounds&&!el.dataset.held)out+=`<div class="sc-wrap"><div class="sc-h">The count in ${id}: nobody had a majority of first choices</div>${seatCountHTML(e)}</div>`; }
         rd.innerHTML=out;
       };
       el.addEventListener('mouseenter',show);
@@ -26678,7 +26712,14 @@ function runLegislativeElection(approval){
   // after the election read this, not the projection, so a seat is never
   // shown going to the side that polled less.
   const night={turn:GAME.turn, h:{}, s:{}};
-  const rec=(t,id,you,v)=>{ const T=Math.max(0.001,you+v.opp+v.spL+v.spR); night[t][id]={you:you/T*100, opp:v.opp/T*100, spL:v.spL/T*100, spR:v.spR/T*100}; };
+  const into=GAME.turn-(GAME.term-1)*GAME.termLengthTurns, kind=into===GAME.midtermTurn?"midterm":"general", yr=GAME.startYear+Math.floor(GAME.turn/4);
+  const H=GAME.seatHist=GAME.seatHist||{};
+  const rec=(t,id,you,v)=>{ const T=Math.max(0.001,you+v.opp+v.spL+v.spR);
+    const e={you:you/T*100, opp:v.opp/T*100, spL:v.spL/T*100, spR:v.spR/T*100};
+    const c=legSeatCount(e.you,e.opp,e.spL,e.spR,true); e.win=c.win;
+    if(c.rounds)e.rounds=c.rounds.map(r=>({out:r.out, ex:+r.ex.toFixed(2), v:Object.fromEntries(Object.entries(r.v).map(([k,x])=>[k,x==null?null:+x.toFixed(2)]))}));
+    night[t][id]=e;
+    const L=H[t+id]=H[t+id]||[]; L.push(Object.assign({yr, kind, rcv:rcvOn()}, e)); if(L.length>4)L.splice(0,L.length-4); };
   const indKept=[], indLost=[];
   for(const r of hRank){
     if(caucusStandDownSeat("house",r.id))continue;       // you stood down: it is theirs
