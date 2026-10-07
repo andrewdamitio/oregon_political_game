@@ -644,8 +644,9 @@
 .coal-dock .enactbtn{margin:0!important}
 .coal-btns{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .coal-dock .coal-btns{gap:8px}
-#coalitionCard .enactbtn.coal-concede{background:var(--paper);color:var(--ink);border:2px solid var(--ink);box-shadow:none}
-#coalitionCard .enactbtn.coal-concede:hover{background:color-mix(in srgb,var(--clay) 12%,var(--paper));border-color:var(--clay);color:var(--clay)}
+#coalitionCard .enactbtn.coal-concede{background:var(--paper);color:var(--clay);border:2px solid var(--clay);box-shadow:none}
+#coalitionCard .enactbtn.coal-concede:hover{background:color-mix(in srgb,var(--clay) 14%,var(--paper))}
+#coalitionCard .enactbtn.coal-concede.armed{background:var(--clay);color:var(--paper)}
 .ctr{margin:14px 0;padding:10px 14px 8px;background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius)}
 .ctr-p{padding:10px 0;border-bottom:1px solid var(--rule)}
 .ctr-p:last-of-type{border-bottom:0}
@@ -13550,7 +13551,7 @@ function chalVoterPull(v,c){
 const CHAL_LIKE_PTS=0.04;   // share moved by likability at either extreme
 /* One line on Your re-election pointing at the full picture. */
 function challengerPointerHTML(){
-  if(prParliament())return `<div class="opp-pointer">${ico('columns')} There is no governor's race: the Senate elected at the general chooses the governor. Your party must finish in the top two and build a government of ${LEGIS.majH}.</div>`;
+  if(prParliament())return `<div class="opp-pointer">${ico('columns')} There is no governor's race: the Senate elected at the general chooses the governor, and your party must finish in the top two and build a government of ${LEGIS.majH}. Everything on this tab works for your party's list instead of for you by name. Persuading a group or campaigning in a county draws its voters to your party's list; mobilizing a group brings out more of those already voting for it. Your platform is still judged at the election, by the voters who decide the Senate.</div>`;
   const C=GAME.challenger&&GAME.challenger.term===GAME.term?GAME.challenger:null, opp=oppPartyName();
   const who=C&&C.nominee!=null?`Your opponent is <b>${C.field[C.nominee].name}</b>, ${C.field[C.nominee].role} (${CHAL_STYLES[C.field[C.nominee].style].label.toLowerCase()}).`
     :C?`The ${opp} primary is under way.`:`The ${opp} field forms after the midterm.`;
@@ -14967,7 +14968,7 @@ function drawCoalition(next){
       +'<b>'+seats+' / '+PR_SEATS+'</b>'
       +'<span>'+(have?("a majority, with "+(seats-LEGIS.majH)+" to spare"):("still "+(LEGIS.majH-seats)+" short of "+LEGIS.majH))+'</span></div>'
     // The button sits with the tally it depends on, above the benches.
-    +(must?'<div class="coal-btns"><button class="enactbtn coal-concede" id="coalConcede" style="margin-top:10px">Concede ▸</button>':'')
+    +(must?'<div class="coal-btns"><button class="enactbtn coal-concede" id="coalConcede" style="margin-top:10px" title="Ends the game: the Senate chooses another governor">Concede ▸</button>':'')
     +'<button class="enactbtn" id="coalGo" style="margin-top:10px"'+(must&&!have?' disabled':'')+'>'
       +(have?(agreeing.length?'Form a government with '+agreeing.map(p=>prParty(p).short).join(" and ")+(bonus?' (◈'+bonus+')':'')+' ▸':'Govern alone with your majority ▸')
            :(must?'Form a government: '+(LEGIS.majH-seats)+' more seats needed':GAME._coalReshuffle&&agreeing.length?'Govern without a majority, with '+agreeing.map(p=>prParty(p).short).join(" and ")+' ▸':'Govern as a minority ▸'))+'</button>'
@@ -14982,7 +14983,7 @@ function drawCoalition(next){
     +'Break them and the partnership sours until they leave, with no second negotiation before the next election. A pledged law has a deadline, and missing it counts double.</div>'
     +rows
     +'<div class="coal-dock'+(have?' ready':'')+(GAME._coalJustMajority?' just':'')+'"><span><b>'+seats+' / '+PR_SEATS+'</b> '+(have?'a majority':'still '+(LEGIS.majH-seats)+' short of '+LEGIS.majH)+'</span>'
-      +(must?'<span class="coal-btns"><button class="enactbtn coal-concede" id="coalConcede2">Concede</button>':'')
+      +(must?'<span class="coal-btns"><button class="enactbtn coal-concede" id="coalConcede2" title="Ends the game: the Senate chooses another governor">Concede</button>':'')
       +'<button class="enactbtn" id="coalGo2"'+(must&&!have?' disabled':'')+'>'+(have?(agreeing.length?'Form a government with '+agreeing.map(p=>prParty(p).short).join(" and ")+' ▸':'Govern alone with your majority ▸')
         :(must?'Form a government ▸':GAME._coalReshuffle&&agreeing.length?'Govern without a majority ▸':'Govern as a minority ▸'))+'</button>'+(must?'</span>':'')+'</div>';
   GAME._coalJustAgreed=null; GAME._coalJustMajority=false;
@@ -15015,7 +15016,8 @@ function drawCoalition(next){
   const go=document.getElementById("coalGo"), go2=document.getElementById("coalGo2");
   const concede=()=>{ GAME.coalPick=null; GAME.coalOffer=null; GAME._coalNext=null; GAME._coalMust=false; modal.classList.add("hidden");
     showNoGovernment(have?"declined":"noMajority",{my:((GAME.legis&&GAME.legis.prCounts)||{})[prMyParty()]||0}); };
-  ["coalConcede","coalConcede2"].forEach(id=>{ const b=document.getElementById(id); if(b)b.onclick=concede; });
+  ["coalConcede","coalConcede2"].forEach(id=>{ const b=document.getElementById(id); if(!b)return;
+    b.onclick=()=>{ if(!b.classList.contains("armed")){ b.classList.add("armed"); b.textContent="Click again to concede: this ends the game"; return; } concede(); }; });
   if(go2)go2.onclick=()=>go&&go.onclick();
   GAME._coalPrevAgree=agreeing.slice(); GAME._coalPrevHave=have;
   if(go)go.onclick=()=>{
@@ -19543,16 +19545,27 @@ function prVoteShares(){
      governor costs a party when nobody is trapped by a wasted vote. */
   const incumbent=clamp((ap-46)/26, -1, 1)*4.0;
   const pushBy=(typeof prPushes==="function")?prPushes():{}, pushed=Object.keys(pushBy).length>0;
+  // YOUR OWN CAMPAIGN. Persuasion and county work pull voters toward your
+  // party's list as they would toward you; mobilization brings out more of
+  // those already voting for it. Under a parliament this is the only race.
+  const Gd=GAME.ground||{}, per=Gd.perception||{}, trn=Gd.turnout||{}, CC=GAME.countyCamp||{};
+  const ccArr=OR_COUNTIES.map(c=>CC[c[0]]||null), ccAny=ccArr.some(x=>x);
+  const perAny=Object.keys(per).length>0, trnAny=Object.keys(trn).length>0;
   let tot=0;
   for(const v of VOTERS){
     const t=turnoutProb(v); if(t<=0.001)continue;
     const ln=prVoterLean(v);
+    let own=0;
+    if(perAny)for(const sid in per){ const w=(v.m&&v.m[sid])||0; if(w>0.2)own+=per[sid]*w*0.05; }
+    if(ccAny&&v.cw)for(let ci=0;ci<v.cw.length;ci++){ const cc=ccArr[ci]; if(!cc)continue; const wq=v.cw[ci]; if(wq>0.015)own+=((cc.p||0)+(cc.base||0))*wq*0.25; }
     let best=null, bd=1e9;
     for(const p of PR_PARTIES){
-      const d=Math.abs(ln-pos[p.id]) - p.pull - (p.id===mine?incumbent:0) - (pushed?prPushPull(v,p.id,pushBy):0);
+      const d=Math.abs(ln-pos[p.id]) - p.pull - (p.id===mine?incumbent+own:0) - (pushed?prPushPull(v,p.id,pushBy):0);
       if(d<bd){ bd=d; best=p.id; }
     }
-    tally[best]+=t; tot+=t;
+    let tw=t;
+    if(trnAny&&best===mine){ let mob=0; for(const sid in trn){ const w=(v.m&&v.m[sid])||0; if(w>0.2)mob+=trn[sid]*w; } tw=t*(1+clamp(mob*1.2,0,0.15)); }
+    tally[best]+=tw; tot+=tw;
   }
   const out={};
   for(const p of PR_PARTIES)out[p.id]= tot>0 ? tally[p.id]/tot : 0;
@@ -22773,7 +22786,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="6.5";
+const GAME_VERSION="6.6";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -22794,7 +22807,8 @@ const VERSION_HISTORY=[
   ["6.2","4 October 2026","Primaries and district seats rebuilt on each district's own voters, crisis clocks, and Campaign HQ's folder tabs."],
   ["6.3","4–6 October 2026","Party lists under proportional representation, coalition factions and reshuffles, party lines on every issue, and seeds that start under PR."],
   ["6.4","6 October 2026","Coalition partners' trust and what moves it, party profiles, and Parliament talks that require a majority."],
-  ["6.5","7 October 2026","Ranked choice counted round by round for governor and legislature, third parties filing district by district, every seat's results kept, the nominee map, a campaign section on every member's file, and this version history."]
+  ["6.5","7 October 2026","Ranked choice counted round by round for governor and legislature, third parties filing district by district, every seat's results kept, the nominee map, and this version history."],
+  ["6.6","7 October 2026","Your party's campaign under a parliament, where the ground game moves the Senate vote; a campaign section on every member's file; election night's race section; member files in a formal register; and a Concede that warns before it ends the game."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -28397,10 +28411,10 @@ function campHQBodyHTML(){
   const nPend=(GAME.ballot&&GAME.ballot.pending?GAME.ballot.pending.length:0);
   // the same folder tabs as Legislators, Voters and the Budget
   h+=`<div class="ctabs" role="tablist">
-    <button role="tab" aria-selected="${tab==="reelect"}" class="${tab==="reelect"?"on":""}" data-camptab="reelect"><b>${ico('people')} Your Re-election</b><span>Energy, groups and counties</span></button>
+    <button role="tab" aria-selected="${tab==="reelect"}" class="${tab==="reelect"?"on":""}" data-camptab="reelect"><b>${ico('people')} ${prParliament()?"Your Party's Campaign":"Your Re-election"}</b><span>Energy, groups and counties</span></button>
     <button role="tab" aria-selected="${tab==="ballot"}" class="${tab==="ballot"?"on":""}" data-camptab="ballot"><b>${ico('ballot')} Ballot Measures</b><span>${nPend?nPend+" on the next ballot":"Measures you can back"}</span></button>
     <button role="tab" aria-selected="${tab==="legis"}" class="${tab==="legis"?"on":""}" data-camptab="legis"><b>${ico('columns')} The Legislature</b><span>Seats, boosts and primaries</span></button>
-    <button role="tab" aria-selected="${tab==="opp"}" class="${tab==="opp"?"on":""}" data-camptab="opp"><b>${ico('warning')} The Opposition</b><span>Who is running against you</span></button>
+    <button role="tab" aria-selected="${tab==="opp"}" class="${tab==="opp"?"on":""}" data-camptab="opp"><b>${ico('warning')} The Opposition</b><span>${prOn()?"The parties against you":"Who is running against you"}</span></button>
   </div>`;
   if(tab==="ballot")return h+ballotCampaignHTML();
   if(tab==="legis")return h+caucusSurrogatesHTML()+caucusCampaignHTML()+legForecastHTML();
