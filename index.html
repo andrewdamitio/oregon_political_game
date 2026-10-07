@@ -22794,7 +22794,7 @@ const VERSION_HISTORY=[
   ["6.2","4 October 2026","Primaries and district seats rebuilt on each district's own voters, crisis clocks, and Campaign HQ's folder tabs."],
   ["6.3","4–6 October 2026","Party lists under proportional representation, coalition factions and reshuffles, party lines on every issue, and seeds that start under PR."],
   ["6.4","6 October 2026","Coalition partners' trust and what moves it, party profiles, and Parliament talks that require a majority."],
-  ["6.5","7 October 2026","Ranked choice counted round by round for governor and legislature, third parties filing district by district, every seat's results kept, the nominee map, and this version history."]
+  ["6.5","7 October 2026","Ranked choice counted round by round for governor and legislature, third parties filing district by district, every seat's results kept, the nominee map, a campaign section on every member's file, and this version history."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -24850,6 +24850,7 @@ function caucusMemberCard(k){
     h+=`</div>`;
   }
   const tr=caucusTraitsOf(k);
+  h+=seatCampaignHTML(k);
   { const past=((GAME.seatHist||{})[k]||[]).slice().reverse();
     if(past.length){ h+=`<div class="cm-sec">Past elections in ${caucusCode(k)}</div>`;
       past.forEach((e,i)=>{ const body=seatCountHTML(e);
@@ -26297,7 +26298,7 @@ function seatBoostCtlHTML(ch,id,pr){
   const done=n?`<span class="sb-done">${ico('ballot')} Boosted ${n}\u00d7 (+${(n*SEAT_BOOST_PTS).toFixed(1)} points)</span>`:"";
   if(!seatBoostable(ch,id))return done?`<div class="sb-row">${done}</div>`:"";
   if(caucusStandDownSeat(ch,id))return `<div class="sb-row"><span class="sb-why">You stood down in ${tag} ${id}: there is no campaign to boost.</span></div>`;
-  { const w=seatBoostWait(); if(w>0)return `<div class="sb-row">${done}<span class="sb-why">${ico('ballot')} Campaign boosts open after the primary picks your nominees, in ${w} quarter${w===1?"":"s"}.</span></div>`; }
+  { const w=seatBoostWait(); if(w>0)return `<div class="sb-row"><button type="button" class="sb-btn" disabled>${ico('ballot')} Boost the campaign · ${SEAT_BOOST_COST} energy</button>${done}<span class="sb-why">Opens after the primary picks your nominees, in ${w} quarter${w===1?"":"s"}. Each boost is +${SEAT_BOOST_PTS} points in this seat, up to ${SEAT_BOOST_MAX}.</span></div>`; }
   // what one more push is worth here, from the same spread the forecast uses
   const sd=Math.sqrt(FC_NAT*FC_NAT+FC_SEAT*FC_SEAT), z=x=>0.5*(1+Math.tanh(0.7978845608*(x+0.044715*x*x*x)));
   const zNow=sd>0?Math.max(-6,Math.min(6,(pr<=0.0005?-6:pr>=0.9995?6:Math.log(pr/(1-pr))/1.702))):0;
@@ -26306,6 +26307,24 @@ function seatBoostCtlHTML(ch,id,pr){
   return `<div class="sb-row"><button type="button" class="sb-btn" data-seatboost="1" ${full||poor?"disabled":""}>${ico('ballot')} Boost the campaign · ${SEAT_BOOST_COST} energy</button>${done}
     <span class="sb-why">${full?"At the limit of "+SEAT_BOOST_MAX+" pushes for this seat.":poor?"No campaign energy left this quarter.":"+"+SEAT_BOOST_PTS+" points here, about +"+Math.max(1,Math.round(gain*100))+" points of win chance"}</span></div>`;
 }
+/* A seat's odds for your party, from the forecast, worked out once a quarter. */
+function seatOdds(ch,id){
+  const C=seatOdds._c&&seatOdds._c.turn===GAME.turn?seatOdds._c:(seatOdds._c={turn:GAME.turn});
+  if(!C[ch]){ try{ C[ch]=seatForecast(ch); }catch(e){ C[ch]={prob:{}}; } }
+  return C[ch].prob[id];
+}
+/* The campaign for one seat, on its member's file: your party's odds and
+   the boost button, greyed with the date it opens until the primary. */
+function seatCampaignHTML(k){
+  if(prOn())return "";
+  const ch=k[0]==="s"?"senate":"house", id=+k.slice(1);
+  if(!seatBoostable(ch,id))return `<div class="cm-sec">Campaign for this seat</div><div class="cm-note">Not on the next ballot${ch==="senate"?": this Senate seat is up at the election after":""}. Boosts are for seats being contested.</div>`;
+  const pr=seatOdds(ch,id);
+  return `<div class="cm-sec">Campaign for this seat</div><div data-seatk="${k}">${pr!=null?`<div class="cm-note" style="margin:0 0 4px">Your party's chance of winning it: <b style="color:${pr>=0.5?'var(--good)':'var(--bad)'}">${Math.round(pr*100)}%</b></div>`:""}${seatBoostCtlHTML(ch,id,pr==null?0.5:pr)}</div>`;
+}
+document.addEventListener("click",ev=>{ const b=ev.target.closest&&ev.target.closest("[data-seatk] [data-seatboost]"); if(!b||b.disabled)return;
+  const k=b.closest("[data-seatk]").dataset.seatk; ev.stopPropagation();
+  if(seatBoost(k[0]==="s"?"senate":"house",+k.slice(1))){ seatOdds._c=null; render(); } });
 /* YOUR MEMBERS MOST AT RISK. Every member of your party whose seat is on the
    next ballot, lowest odds first, each with a boost, once the primary has
    settled the nominees. */
@@ -26329,7 +26348,7 @@ function endangeredMembersHTML(hf,sf){
     const ret=(typeof caucusRetireNote==="function"&&caucusRetireNote(r.k))?" · retiring, open seat":"";
     return `<div class="emr-row"><span class="emr-n"><b>${caucusTitle(r.k)}</b> <i>${tag} ${r.id} ${caucusPlace(r.m.ch,r.m.id)}${ret}</i></span>
       <span class="emr-p" style="color:${r.pr>=0.5?'var(--good)':'var(--bad)'}">${Math.round(r.pr*100)}%</span>
-      <span class="emr-b"><span class="sb-done emr-done">${n?`+${(n*SEAT_BOOST_PTS).toFixed(1)} pts`:""}</span>${w>0?"":`<button type="button" class="sb-btn" data-sbk="${r.ch}|${r.id}" ${poor||full?"disabled":""}>${ico('ballot')} Boost · ${SEAT_BOOST_COST} energy</button>`}</span></div>`; }).join("")+`</div>`;
+      <span class="emr-b"><span class="sb-done emr-done">${n?`+${(n*SEAT_BOOST_PTS).toFixed(1)} pts`:""}</span>${w>0?`<button type="button" class="sb-btn" disabled title="Opens after the primary, in ${w} quarter${w===1?"":"s"}">${ico('ballot')} Boost · ${SEAT_BOOST_COST} energy</button>`:`<button type="button" class="sb-btn" data-sbk="${r.ch}|${r.id}" ${poor||full?"disabled":""}>${ico('ballot')} Boost · ${SEAT_BOOST_COST} energy</button>`}</span></div>`; }).join("")+`</div>`;
   return h;
 }
 /* hover readout on the forecast maps, and the zoom on them */
