@@ -20319,7 +20319,7 @@ const SEAT_BOOST_PTS=1.3, SEAT_BOOST_MAX=8, SEAT_BOOST_COST=1;
 /* From primary day to the election: the nominees are set and the
    legislative campaigns are on, so the office has one more point of energy
    a quarter to spend on them (or anywhere else). */
-function campLegisWindow(){ if(prOn())return prPushOpen(); const nb=nextBallotInfo(); return nb.quartersAway<=CAUCUS_PRIMARY_LEAD; }
+function campLegisWindow(){ if(prOn())return prPushOpen(); const nb=legisBallotInfo(); return nb.quartersAway<=CAUCUS_PRIMARY_LEAD; }
 /* CAMPAIGNING FOR THE ASSEMBLY. Under PR there are no seats to boost, so a
    push is spent on a party's statewide campaign with one voter group: each
    adds PR_PUSH_PULL to that party's pull on every voter, in proportion to
@@ -20395,7 +20395,7 @@ function seatBoostable(chamber,id){
    and stay open until it. Returns 0 when open, or the quarters until they open. */
 function seatBoostWait(){
   if(prOn())return 99;
-  const nb=nextBallotInfo(), C=GAME.caucus;
+  const nb=legisBallotInfo(), C=GAME.caucus;
   if(nb.quartersAway<CAUCUS_PRIMARY_LEAD)return 0;
   if(nb.quartersAway===CAUCUS_PRIMARY_LEAD&&C&&C.primDay===GAME.turn)return 0;
   return Math.max(1,nb.quartersAway-CAUCUS_PRIMARY_LEAD);
@@ -20610,13 +20610,13 @@ function walkoutPressure(){
    itself: members are home campaigning, and a walkout would be a gift to
    whoever runs against them. */
 function walkoutElectionEve(){
-  const nb=(typeof nextBallotInfo==="function")?nextBallotInfo():null;
+  const nb=(typeof legisBallotInfo==="function")?legisBallotInfo():null;
   return !!(nb&&nb.quartersAway<=1);
 }
 /* How many quarters a running walkout has left: its own clock, or the
    election if that comes first. */
 function walkoutQuartersLeft(){
-  const q=Math.max(0,GAME.floorFreeze||0), nb=(typeof nextBallotInfo==="function")?nextBallotInfo():null;
+  const q=Math.max(0,GAME.floorFreeze||0), nb=(typeof legisBallotInfo==="function")?legisBallotInfo():null;
   return nb&&nb.quartersAway>=1?Math.min(q,nb.quartersAway):q;
 }
 /* AN ELECTION ENDS A WALKOUT. Called as the legislature is elected. */
@@ -23229,8 +23229,8 @@ function caucusVotesHTML(m,mine){
    you, the ones who have cooled against you, among the groups their
    districts are made of. */
 function caucusSurrogates(){
-  if(prOn()||!GAME.caucus||typeof nextBallotInfo!=="function")return;
-  const nb=nextBallotInfo(); const C=GAME.caucus;
+  if(prOn()||!GAME.caucus||typeof legisBallotInfo!=="function")return;
+  const nb=legisBallotInfo(); const C=GAME.caucus;
   if(!nb||nb.quartersAway>4){ C.surr=null; return; }
   const tot={};
   for(const k in C.m){ const m=C.m[k]; if(m.p!=="mine")continue; const row=caucusRow(k); if(!row)continue;
@@ -23665,7 +23665,7 @@ const CAUCUS_PRIMARY_LEAD=2;
 /* The next few legislative ballots, in quarters from now, and whether this
    seat is on each: the House every ballot, a Senate seat every other one. */
 function caucusBallotsAhead(k){
-  const nb=(typeof nextBallotInfo==="function")?nextBallotInfo():null; if(!nb)return [];
+  const nb=(typeof legisBallotInfo==="function")?legisBallotInfo():null; if(!nb)return [];
   const L=GAME.termLengthTurns, mt=GAME.midtermTurn, out=[];
   let q=nb.quartersAway, kind=nb.kind;
   const nextCls=GAME.senateClass?0:1, id=+k.slice(1), upFirst=k[0]==="h"||(id%2)===(nextCls?0:1);
@@ -23698,7 +23698,7 @@ function caucusPrimaryOddsWord(pct,chal,inc){
 /* When a seat is next on the ballot: the House every election, a Senate
    seat every other one. */
 function caucusNextUp(k){
-  const nb=(typeof nextBallotInfo==="function")?nextBallotInfo():null;
+  const nb=(typeof legisBallotInfo==="function")?legisBallotInfo():null;
   const when=nb?(nb.quartersAway<=1?"at this election":"in "+nb.quartersAway+" quarters"):"at the next election";
   if(k[0]==="h")return when;
   const nextCls=GAME.senateClass?0:1, id=+k.slice(1);
@@ -23712,7 +23712,7 @@ function caucusPrimaryHTML(k){
   const party=caucusPartyOf(m)==="D"?"Democratic":"Republican", open=caucusOwnPrimaryOpen(), can=open&&(window.SANDBOX||GAME.capital>=1);
   let h=`<div class="cm-sec">Primary challenge</div><div class="cm-prim">`;
   if(!open){
-    const nb=nextBallotInfo();
+    const nb=legisBallotInfo();
     return h+`<div>The primaries for ${nb.kind==="midterm"?"the midterm":"the general election"} are decided and the nominees are set${p?`. Your ◈${p.spent} behind ${p.n} carries over to the next primary`:""}. Challenges for the next ballot open once this one is counted, in ${nb.quartersAway} quarter${nb.quartersAway===1?"":"s"}.</div></div>`;
   }
   const why=caucusPrimaryFactorsLine(k,m.n);
@@ -23990,7 +23990,7 @@ function caucusRecordRaces(upSenate){
    beat serves out the term and the seat changes hands at the general. */
 function caucusPrimaryDay(){
   const C=GAME.caucus; if(prOn()||!C)return; C.prim=C.prim||{};
-  const nb=(typeof nextBallotInfo==="function")?nextBallotInfo():null;
+  const nb=(typeof legisBallotInfo==="function")?legisBallotInfo():null;
   if(!nb||nb.quartersAway!==CAUCUS_PRIMARY_LEAD||C.primDay===GAME.turn)return;
   C.primDay=GAME.turn; C.nom=C.nom||{}; const night=[];
   for(const k of Object.keys(C.prim)){ const p=C.prim[k];
@@ -26462,11 +26462,12 @@ function doEndTurn(){
     // every seat in the House and half the Senate are on this ballot too —
     // unless the districts are gone, in which case nothing is
     let legis=null;
-    // A chamber already elected on vote share is not on a midterm ballot.
-    // But the midterm that CONVERTS the legislature is an election like any
-    // other — it is the first one held under the new rules.
-    if(prOn() && !GAME.prPending){
-      GAME.log.push(ico('columns')+" The Senate is not on this ballot — under proportional representation it is elected whole, at the general");
+    // A chamber elected on vote share is not on a midterm ballot, and nor is
+    // one waiting to be converted: a Senate seated now would sit for two
+    // years, so the old members serve on until the general.
+    if(prOn() || GAME.prPending){
+      GAME.log.push(ico('columns')+(prOn()?" The Senate is not on this ballot — under proportional representation it is elected whole, at the general"
+        :" The legislature is not on this ballot — the first Senate elected on vote share is chosen at the general, and the current members serve until then"));
     }else{
       legis=runLegislativeElection(oa);
       GAME.log.push(ico('columns')+" Legislature: Senate "+legis.after.senate+"/30, House "+legis.after.house+"/60"
@@ -26731,6 +26732,18 @@ function nextBallotInfo(){
   if(into<GAME.midtermTurn)
     return {kind:"midterm", label:"the midterm ballot", quartersAway:GAME.midtermTurn-into};
   return {kind:"election", label:"your re-election ballot", quartersAway:Math.max(0,(L-1)-into)};
+}
+
+/* The next ballot that elects the legislature. Under proportional
+   representation, or once it is ratified and waiting, that is the general
+   election: the midterm carries ballot measures only, so the first Senate
+   elected on vote share serves a full term, and the old chamber sits until
+   it is seated. */
+function legisBallotInfo(){
+  const nb=nextBallotInfo();
+  if(!(prOn()||GAME.prPending)||nb.kind!=="midterm")return nb;
+  const L=GAME.termLengthTurns, into=GAME.turn-(GAME.term-1)*L;
+  return {kind:"election", label:"the general election", quartersAway:Math.max(0,(L-1)-into)};
 }
 
 /* HOW LATE YOU CAN STILL REFER ONE. Oregon refers amendments by joint
@@ -30844,7 +30857,7 @@ function _applyEnact(id, level, via){
   if(id==="propTaxReform")m5EndCountyPayments();     // the counties levy for themselves
   if(id==="propRep"){
     GAME.prPending=true;
-    GAME.log.push(ico('columns')+" Proportional representation is ratified — it governs the next legislative election, not tonight's");
+    GAME.log.push(ico('columns')+" Proportional representation is ratified — the first Senate elected on vote share is chosen at the next general election");
   }
   syncCannabisTab();
 }
