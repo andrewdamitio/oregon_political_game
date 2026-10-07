@@ -14421,6 +14421,8 @@ function spendingByArea(){
     if(id==="k12")amt=Math.max(0, amt-(GAME.csfPayout||0)-(GAME.corpKickerToK12||0));
     // district projects bought for members' loyalty
     if(id==="housing")amt+=caucusProjectSpend();
+    // a coalition partner's priorities fund, for as long as it governs with you
+    amt+=coalFundSpend(id);
     // prison population drives corrections costs (the Measure 11 chain:
     // mandatory minimums → incarceration growth → corrections crowd-out)
     if(id==="publicSafety")amt+=Math.max(0,(METRICS.incarcerationRate.value-50))*0.012;
@@ -14833,6 +14835,7 @@ function drawCoalition(next){
       let st, cls;
       if(d.kind==="seat"){ st="handed over when you sign"; cls="held"; }
       else if(d.kind==="upfront"){ st="◈"+d.cost+" when you sign, and nothing to keep afterwards"; cls="held"; }
+      else if(d.kind==="fund"){ st=fmtB(COAL_FUND,1)+" a year from the budget while they govern with you"; cls="held"; }
       else if(d.kind==="deadline"){ st="due "+COAL_DEADLINE+" quarters after you sign; missing it counts double"; cls="due"; }
       else { const ok=(()=>{ try{ return !!d.met(d.snap()); }catch(e){ return true; } })();
              st=ok?"true today":"not true today: you would be signing up to fix it"; cls=ok?"held":"owed"; }
@@ -19690,7 +19693,21 @@ function totalPolicySpend(){
 // party's opening asks alone leave it a little short, and you bargain
 const COAL_JOIN_COST=26;
 const COAL_DEADLINE=6;     // quarters to deliver a pledged law
-const COAL_BONUS_CAP=8;    // what an up-front payment costs you in capital
+const COAL_BONUS_CAP=0;    // the priorities fund is budget money, not capital (COAL_FUND)
+/* THEIR PRIORITIES, IN THE BUDGET. The concession a partner can be bought
+   with outright: a line for the programmes its voters sent it to win, paid
+   every year it stays in government. Each party's money goes where its
+   voters want it. */
+const COAL_FUND=0.3;
+const COAL_FUND_AREA={left:"social", dem:"social", centre:"economy", gop:"publicSafety", right:"publicSafety"};
+const COAL_FUND_WHAT={left:"tenant protections, childcare and workers' centres", dem:"childcare and schools",
+  centre:"workforce training and small business", gop:"sheriffs, roads and rural services", right:"rural sheriffs and county roads"};
+/* What the priorities funds of the partners in government cost, by area. */
+function coalFundSpend(area){
+  const C=GAME.coalition; if(!prOn()||!C||!C.partners)return 0;
+  let t=0; for(const pid of C.partners)if(COAL_FUND_AREA[pid]===area&&(C.terms&&C.terms[pid]||[]).indexOf("bonus")>=0)t+=COAL_FUND;
+  return t;
+}
 // one of the party's original four conditions, now priced
 function coalFrom(pid,id,value,red){
   const d=(PR_DEMANDS[pid]||[]).find(x=>x.id===id);
@@ -19732,9 +19749,10 @@ function coalKeep(id,value,why){
     met:v=>!!POLICIES[id]&&policyLevel(POLICIES[id])>=v-0.02};
 }
 // political capital spent on their priorities when you sign: support, and no condition to keep
-function coalBonus(){
-  return {id:"bonus", kind:"upfront", value:6, cost:COAL_BONUS_CAP,
-    label:"Back their caucus priorities now · ◈"+COAL_BONUS_CAP, why:"You spend "+COAL_BONUS_CAP+" political capital when you sign, putting your weight behind their bills this session. It costs no budget money, and there is nothing to keep afterwards.",
+function coalBonus(pid){
+  return {id:"bonus", kind:"fund", value:6, cost:0,
+    label:"Fund their priorities: "+fmtB(COAL_FUND,1)+" a year",
+    why:"A budget line for "+(COAL_FUND_WHAT[pid]||"their priorities")+", paid every year they stay in government. No capital, but real money, and it ends when they leave.",
     avail:()=>true, snap:()=>0, met:()=>true};
 }
 /* Each party's menu. The red line is the one it will not sign without. */
@@ -19745,21 +19763,21 @@ const COAL_MENU={
     coalPass("affordableHousing",9,"Bonds build the units nobody else will."),
     coalKeep("minWageTiers",5,"The minimum wage stays where the last fight left it."),
     coalBlock("rightToWork",4,"A union card is how our voters reached the middle class."),
-    coalBonus()],
+    coalBonus("left")],
   dem:[coalSeat("dem",false), coalSeat("dem",true),
     coalFrom("dem","schools",8,true), coalFrom("dem","safetyNet",6), coalFrom("dem","noTaxCut",6),
     coalPass("preschoolForAll",10,"Every child, not every child whose parents can pay."),
     coalKeep("collectiveBargaining",6,"Public workers bargain as they do today."),
     coalBlock("medicaidWork",5,"Paperwork is how you take coverage from people who work."),
     coalBlock("rightToWork",4,"Our members are the public workforce. Leave the unions alone."),
-    coalBonus()],
+    coalBonus("dem")],
   centre:[coalSeat("centre",false), coalSeat("centre",true),
     coalFrom("centre","balance",8,true), coalFrom("centre","overhead",6), coalFrom("centre","biz",6),
     coalPass("adminSimplification",9,"Fewer programs, run properly."),
     coalPass("occupationalLicensing",8,"Nobody should need a license to braid hair."),
     coalPass("kickerReform",8,"A surplus should build reserves, not mail checks."),
     coalPass("singleStair",7,"Build the housing and stop arguing about it."),
-    coalBonus()],
+    coalBonus("centre")],
   gop:[coalSeat("gop",false), coalSeat("gop",true),
     coalFrom("gop","taxCap",8,true), coalFrom("gop","noNew",6), coalFrom("gop","safety",6),
     coalPass("persReform",10,"The pension bill is eating the schools."),
@@ -19767,14 +19785,14 @@ const COAL_MENU={
     coalKeep("measure11",5,"Mandatory minimums stay."),
     coalBlock("carbonTax",5,"A carbon tax is a tax on driving to work."),
     coalBlock("salesTax",5,"Oregonians have voted a sales tax down nine times."),
-    coalBonus()],
+    coalBonus("gop")],
   right:[coalSeat("right",false), coalSeat("right",true),
     coalFrom("right","cutTax",8,true), coalFrom("right","overhead",6), coalFrom("right","noNew",6),
     coalPass("taxCut",10,"Across the board, this session."),
     coalPass("spendingCap",9,"Write the limit into the constitution, where it holds."),
     coalBlock("gunStorage",6,"Our voters read a storage mandate as the first step to registration."),
     coalBlock("vaccineMandate",5,"Parents decide.","Nonmedical vaccine exemptions stay"),
-    coalBonus()]
+    coalBonus("right")]
 };
 function coalMenu(pid){ return (COAL_MENU[pid]||[]).filter(d=>{ try{ return d.avail(); }catch(e){ return false; } }); }
 /* What a party asks for first: its department and its original conditions. */
