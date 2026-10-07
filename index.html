@@ -20602,7 +20602,7 @@ function legSeatCount(you,opp,spL,spR,keep){
       if(own)v[own]+=v[out]*RCV_XFER_OWN; if(other)v[other]+=v[out]*RCV_XFER_OTHER; }
     v[out]=0; ex+=before-(v.you+v.opp+v.spL+v.spR);
   }
-  if(rounds&&rounds.length)snap(null);
+  if(rounds)snap(null);
   return {win:[...live].reduce((a,k)=>v[k]>v[a]?k:a), rounds:rounds&&rounds.length?rounds:null};
 }
 /* Every district in a chamber, scored four ways and ranked by your own share
@@ -21304,7 +21304,9 @@ function legMapsHTML(R){
     ? legisSeatMap(OR_SENATE_DISTRICTS, after.senate, {held:sHeld, contested:sUp})
     : legisSeatMap(OR_SENATE_DISTRICTS, after.senate);
   const upN=sUp?sUp.size:LEGIS.senate;
-  return `<div class="legmap-grid">
+  const N=GAME.legis&&GAME.legis.night, cnt=t=>N&&N[t]?Object.values(N[t]).filter(e=>e.rounds&&e.rounds.length>1).length:0;
+  const rcvNote=rcvOn()&&N&&N.turn===GAME.turn?`<div class="eg-note" style="margin:4px 0 8px">Ranked choice: ${cnt("h")} House seat${cnt("h")===1?"":"s"} and ${cnt("s")} Senate seat${cnt("s")===1?"":"s"} went past the first count; every other seat on the ballot had a majority on first choices. Hover a district for its count.</div>`:"";
+  return rcvNote+`<div class="legmap-grid">
     <div class="legmap-card" data-legzoom role="button" tabindex="0" title="Click to enlarge">
       <div class="legmap-h">House — ${after.house} of ${LEGIS.house} <span class="legmap-zoomhint">⤢ click to enlarge</span></div>
       ${legMapFrame(legMapSVG(OR_HOUSE_DISTRICTS, hs), {noZoom:true})}
@@ -26389,10 +26391,12 @@ function seatCountHTML(e){
   if(!e.rounds){
     return `<div class="sc-line">${ks.sort((a,b)=>e[b]-e[a]).map(k=>`<span class="${k===e.win?"sc-w":""}">${nm[k]} ${(+e[k]).toFixed(1)}%</span>`).join(" · ")}${e.win&&Math.max(...ks.map(k=>e[k]))<50&&!e.rcv?' · <i>won on a plurality</i>':''}</div>`;
   }
+  if(e.rounds.length===1){ const r=e.rounds[0], live=Object.values(r.v).reduce((a,x)=>a+(x||0),0);
+    return `<div class="sc-line">${ks.sort((a,b)=>e[b]-e[a]).map(k=>`<span class="${k===e.win?"sc-w":""}">${nm[k]} ${(r.v[k]/Math.max(1e-9,live)*100).toFixed(1)}%</span>`).join(" · ")} · <i>a majority on first choices, no runoff needed</i></div>`; }
   const R=e.rounds, pc=(r,k)=>{ const live=Object.values(r.v).reduce((a,x)=>a+(x||0),0)-(r.out?0:0); return r.v[k]==null?"—":(r.v[k]/Math.max(1e-9,live)*100).toFixed(1)+"%"; };
   return `<table class="sc-tab"><thead><tr><th></th>${R.map((r,i)=>`<th>Round ${i+1}</th>`).join("")}</tr></thead><tbody>`
     +ks.map(k=>`<tr class="${k===e.win?"sc-w":""}"><td>${nm[k]}</td>${R.map(r=>`<td>${pc(r,k)}${r.out===k?" ▼":""}</td>`).join("")}</tr>`).join("")
-    +`<tr class="sc-ex"><td>Exhausted</td>${R.map(r=>`<td>${r.ex>0.05?(+r.ex).toFixed(1)+" of 100":"—"}</td>`).join("")}</tr></tbody></table>`;
+    +`<tr class="sc-ex"><td>Exhausted, of all ballots</td>${R.map(r=>`<td>${r.ex>0.05?(+r.ex).toFixed(1)+"%":"—"}</td>`).join("")}</tr></tbody></table>`;
 }
 function wireLegReadout(root){
   root.querySelectorAll('[data-legread]').forEach(rd=>{
@@ -26406,11 +26410,12 @@ function wireLegReadout(root){
         let out=`<b>${id}</b>`;
         const v=(el.dataset.v||'').split(',').filter(x=>x!=='').map(Number);
         if(v.length===4){
-          // ALL FOUR, INCLUDING THE ONES ON NOTHING. A flank polling 0 is
-          // information: it stood and nobody went with it.
+          // the majors always; a flank only where it filed (on nothing, it did not)
           const names=[myPartyPlural(),oppPartyPlural(),splinterName('left'),splinterName('right')];
           const top=Math.max.apply(null,v);
-          out+=' \u00b7 '+v.map((x,i)=>`${names[i]} ${x===top?`<b>${x}%</b>`:`${x}%`}`).join(' \u00b7 ');
+          out+=' \u00b7 '+v.map((x,i)=>i>=2&&x===0?null:`${names[i]} ${x===top?`<b>${x}%</b>`:`${x}%`}`).filter(Boolean).join(' \u00b7 ');
+          const nf=[2,3].filter(i=>v[i]===0).map(i=>names[i]);
+          if(nf.length)out+=` \u00b7 <i>no ${nf.join(" or ")} candidate</i>`;
           if(top<50&&!rcvOn())out+=` \u00b7 <i>won on a plurality</i>`;
         } else if(sh!==''&&sh!=null){
           const you=+sh;
@@ -26425,7 +26430,9 @@ function wireLegReadout(root){
         if(el.dataset.ck&&typeof caucusCandidateLine==="function"){ const cl=caucusCandidateLine(el.dataset.ck); if(cl)out+=`<br>${cl}`; }
         // on election night, the seat's own count round by round
         if(el.dataset.ck&&rd.closest('.egrand')){ const N=GAME.legis&&GAME.legis.night, e=N&&N[el.dataset.ck[0]]&&N[el.dataset.ck[0]][el.dataset.ck.slice(1)];
-          if(e&&e.rounds&&!el.dataset.held)out+=`<div class="sc-wrap"><div class="sc-h">The count in ${id}: nobody had a majority of first choices</div>${seatCountHTML(e)}</div>`; }
+          if(e&&e.rounds&&!el.dataset.held)out+=`<div class="sc-wrap"><div class="sc-h">The ranked-choice count in ${id}${e.rounds.length>1?": nobody had a majority of first choices":""}</div>${seatCountHTML(e)}</div>`; }
+        else if(el.dataset.ck){ const H=(GAME.seatHist||{})[el.dataset.ck], e=H&&H[H.length-1];
+          if(e)out+=`<div class="sc-wrap"><div class="sc-h">Last election here, ${e.yr} ${e.kind==="midterm"?"midterm":"general"}${e.rounds&&e.rounds.length>1?", counted in "+e.rounds.length+" rounds":""}</div>${seatCountHTML(e)}</div>`; }
         rd.innerHTML=out;
       };
       el.addEventListener('mouseenter',show);
