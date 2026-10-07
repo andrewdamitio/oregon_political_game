@@ -24866,14 +24866,17 @@ function showApptResult(o){
   document.addEventListener("keydown",onKey,true);
   setTimeout(()=>{try{document.getElementById("voteResOk").focus();}catch(e){}},30);
 }
+/* A chamber's name. Under proportional representation the one chamber is
+   the Senate, though the game keeps its count in the house slot. */
+function chamberWord(ch){ return prOn()||ch==="senate"?"Senate":"House"; }
 function showVoteResult(o){
   const card=document.getElementById("voteResultCard"), modal=document.getElementById("voteResultModal");
   if(!card||!modal)return;
   const row=(lab,r,total)=>`<div class="rrow"><span class="rlabel">${lab}</span>
     <span class="rval" style="color:${r.ok?'var(--good)':'var(--clay)'}"><b>${r.yes}</b>–${total-r.yes} · needed ${r.need}${r.ok?"":" ✗"}</span></div>`;
   const shortBy=[];
-  if(!o.res.house.ok)shortBy.push((o.res.house.need-o.res.house.yes)+" in the House");
-  if(!o.res.senate.ok)shortBy.push((o.res.senate.need-o.res.senate.yes)+" in the Senate");
+  if(!o.res.house.ok)shortBy.push((o.res.house.need-o.res.house.yes)+" in the "+chamberWord("house"));
+  if(!prOn()&&!o.res.senate.ok)shortBy.push((o.res.senate.need-o.res.senate.yes)+" in the Senate");
   card.innerHTML=`<div class="sectionhdr">${ico(o.ok?(o.referred?'ballot':'columns'):'ban')} ${o.ok?(o.referred?"Referred to the voters, not yet law":"Passed"):"Failed on the floor"} — ${o.name}</div>
     <div class="sectionsub">${o.ok&&o.referred
       ? "The legislature has done its part: it goes on "+(o.ballot||"the next ballot")+(o.late?", since it was too late for the one before":"")+". <b>It changes nothing until the voters approve it there.</b> "+(o.dir==="repeal"?"If they vote it down, the amendment stays in force.":"If they vote it down it returns to New Policies, and you can refer it again.")
@@ -24881,8 +24884,8 @@ function showVoteResult(o){
       ? "The clerk reads the roll and it carries."+((o.narrowed!=null&&o.narrowed<1)?" It goes on the books at "+Math.round(o.narrowed*100)+"% of what you asked for.":"")
       : "You were short "+shortBy.join(" and ")+". The whip count was a projection; on the day it did not hold."}</div>
     <div class="rsection" style="margin-top:10px">
-      ${row("House", o.res.house, o.w.house.total)}
-      ${row("Senate", o.res.senate, o.w.senate.total)}
+      ${row(chamberWord("house"), o.res.house, o.w.house.total)}
+      ${prOn()?"":row("Senate", o.res.senate, o.w.senate.total)}
       ${o.ok&&o.referred?(()=>{ const pm=pendingMeasure(o.id); if(!pm)return "";
         const y=Math.round(measureBreakdown(pm).yes*100);
         return `<div class="rrow"><span class="rlabel">Polling today</span><span class="rval" style="color:${y>=50?'var(--good)':'var(--clay)'}"><b>${y}%</b> yes · needs more than 50%</span></div>
@@ -25073,7 +25076,7 @@ function floorBlockLabel(w){
     const seg=(C,name)=>{ if(!C||C.short<=0)return null;
       const u=C.unbuyable||0;
       return C.short+" short in the "+name+(u>0?" ("+u+" won't vote for it at any price)":""); };
-    const parts=[seg(w.house,"House"),seg(w.senate,"Senate")].filter(Boolean);
+    const parts=[seg(w.house,chamberWord("house")),prOn()?null:seg(w.senate,"Senate")].filter(Boolean);
     return "No majority \u2014 "+(parts.join(", ")||"the votes are not there");
   }
   return "Needs \u25c8"+w.cost+" to whip \u2014 you hold \u25c8"+Math.floor(GAME.capital);
@@ -31696,8 +31699,8 @@ function resolvePendingVote(key, origSnap, curSnap, cushion, quiet){
   if(!res.passed){
     restoreFrom(key,origSnap);
     const lost=[];
-    for(const ch of ["house","senate"])if(!res[ch].ok)
-      lost.push("the "+(ch==="house"?"House":"Senate")+" "+res[ch].yes+"/"+res[ch].need);
+    for(const ch of (prOn()?["house"]:["house","senate"]))if(!res[ch].ok)
+      lost.push("the "+chamberWord(ch)+" "+res[ch].yes+"/"+res[ch].need);
     GAME.log.push(ico('ban')+" "+nm+" — "+(isRev
         ? "a revenue rise needs three-fifths of both chambers (Art. IV §25) and fell short in "
         : "the floor would not carry it; short in ")
