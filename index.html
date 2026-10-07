@@ -3178,7 +3178,13 @@
   window.RUN_SEED=seed;
   // "sandbox" typed into the seed box. A normal, reproducible run in every
   // respect except that nothing is allowed to stop you.
-  window.SANDBOX=(seed==="SANDBOX");
+  window.SANDBOX=(seed==="SANDBOX"||seed==="SANDBOXPR");
+  // A one-chamber Senate elected by proportional representation, already in
+  // force on day one, instead of a constitutional amendment won at the
+  // ballot first. SENATE keeps the governor elected separately; PARLIAMENT
+  // has the Senate choose the governor; SANDBOXPR is SENATE under sandbox
+  // rules.
+  window.PR_SEED=(seed==="SENATE"||seed==="SANDBOXPR")?"independent":(seed==="PARLIAMENT")?"parliament":null;
   // A full-margin rupture is a 0.23% roll a quarter — about one run in a
   // hundred ever sees it. This seed exists to look at it: same reproducible
   // world as any other, except the Big One lands in the second quarter.
@@ -16700,6 +16706,8 @@ function showPlatformModal(opts){
     GAME._platformDraft=[];
     modal.classList.add("hidden");
     document.removeEventListener("keydown",onKey,true);
+    // a game that opens under PR negotiates its government the moment you take office
+    if(GAME.pendingCoalition&&prOn()&&!rev){ GAME.pendingCoalition=null; render(); drawCoalition(()=>render()); return; }
     // a new term opens with a briefing if anything is waiting from the election quarter
     if(GAME.pendingDilemma||GAME.pendingProposal||GAME.pendingOppBill||GAME.pendingAusterity||(GAME.pendingEoEvents||[]).length){ GAME._briefPending=false; startQuarterSequence(); }
     render();
@@ -34328,6 +34336,15 @@ function bootWorld(startId){
   GAME.makeupShift={};
   // the laws as inherited: a referendum petition can only be against what YOU changed
   GAME.ballot=GAME.ballot||{pending:[], history:[]}; GAME.ballot.lawSnap=lawSnapshot();
+  // the PR seeds: the one-chamber Senate elected before you take office, and
+  // coalition talks the first thing on your desk
+  if(window.PR_SEED&&!GAME.prMode){
+    POLICIES.propRep=CATALOG.propRep; POLICIES.propRep.enacted=true; delete CATALOG.propRep;
+    GAME.prGovMode=window.PR_SEED;
+    enterPRMode(); runPRElection(false); prEnsure();
+    GAME.pendingCoalition=true;
+    GAME.log.push(ico('columns')+" This Oregon elects its legislature as one Senate, by party vote share. Form a government before the first quarter ends.");
+  }
   pushHistory(); // seed turn 0
   // hand gameplay its own stream, so the run plays the same however many times
   // the opening screen rebuilt the world
