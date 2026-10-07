@@ -716,9 +716,10 @@
   .pn-map path.pn-new,.pn-key i.pn-new{fill:#7fa36b;background:#7fa36b}
   .pn-map path.pn-open,.pn-key i.pn-open{fill:var(--gold);background:var(--gold)}
   .pn-map path.pn-flank,.pn-key i.pn-flank{fill:color-mix(in srgb,#6b5b95 45%,var(--paper));background:color-mix(in srgb,#6b5b95 45%,var(--paper))}
-  .pn-map path.pn-3p{stroke:var(--ink);stroke-width:1.1;stroke-dasharray:1.5 2.2;vector-effect:non-scaling-stroke}
-  .pn-map path.pn-raced.pn-3p{stroke-width:2.2;stroke-dasharray:5 2.5}
-  .pn-key i.pn-3p-key{background:transparent;border:1.5px dotted var(--ink)}
+  .pn-map .pn-hatch{pointer-events:none}
+  .pn-map .pn-hatch path{stroke:none}
+  .pn-map .pn-hatch-ln{stroke:var(--ink);stroke-width:0.7;stroke-opacity:.38}
+  .pn-key i.pn-3p-key{background:repeating-linear-gradient(45deg,color-mix(in srgb,var(--ink) 40%,transparent) 0 1px,transparent 1px 4px);border:1px solid var(--line)}
   .pn-map path.pn-chal,.pn-key i.pn-chal{fill:color-mix(in srgb,var(--clay) 45%,var(--paper));background:color-mix(in srgb,var(--clay) 45%,var(--paper))}
   .pn-map path.pn-sd,.pn-key i.pn-sd{fill:var(--muted-3);background:var(--muted-3)}
   .pn-key i.pn-raced-key{background:transparent;border:2px solid var(--ink)}
@@ -17006,7 +17007,13 @@ function startQuarterSequence(){
    screens: going there at once left every screen still queued behind it, the
    quarterly report included, to be skipped. Outside the sequence it goes now. */
 function goCampHQAfter(tab,next){
-  const go=()=>{ GAME.campTab=tab; currentView="camphq"; detailKey=null; };
+  // opened inside a sequence that did not pass its own next: still wait for it
+  const B=GAME.briefing;
+  if(!next&&B&&B.steps&&B.turn===GAME.turn&&B.pos>=0&&B.pos<B.steps.length)next=seqNext;
+  const go=()=>{ GAME.campTab=tab; currentView="camphq"; detailKey=null;
+    // and the quarter's report is never skipped on the way there
+    const b=GAME.briefing;
+    if(!GAME.skipReport&&b&&b.turn===GAME.turn&&GAME._reportSeen!==GAME.turn)setTimeout(()=>{ try{ render(); }catch(e){} reopenQuarterReport(); },0); };
   if(next){ window._afterSeq=go; next(); }
   else { go(); render(); }
 }
@@ -17198,6 +17205,7 @@ function showQuarterReport(quiet,next){
   const modal=document.getElementById("reportModal");
   modal.classList.remove("hidden");
   card.scrollTop=0;                       // always open at the top of the digest
+  GAME._reportSeen=GAME.turn;
   const dismiss=()=>{
     if(document.getElementById("rskipChk").checked)GAME.skipReport=true;
     modal.classList.add("hidden");
@@ -24509,6 +24517,7 @@ function primaryNomineeMap(P,fc){
   const maps=[["h","house","House",OR_HOUSE_DISTRICTS],["s","senate","Senate",OR_SENATE_DISTRICTS]].map(([t,ch,nm,rows])=>{
     let n=0;
     let off=0;
+    const hatch=[];
     const paths=rows.map(r=>{ const id=r[0], k=t+id, m=C.m[k];
       // a seat not on this ballot: drawn as its district, shaded, not as the counties under it
       if(!m||!seatBoostable(ch,id)){ off++; return `<path class="pn-off" d="${r[1]}"></path>`; }
@@ -24529,14 +24538,18 @@ function primaryNomineeMap(P,fc){
       const fld=seatFlankField(k); if(fld.length)used.add("pn-3p");
       say+=fld.length?` Also on the ballot: ${fld.join(" and ")}${rcvOn()?", so the seat may go to a ranked-choice count":", who could split the vote"}.`:" No third party filed here.";
       text[k]=`<b>${caucusCode(k)} ${caucusPlace(m.ch,m.id)}</b>: ${say}`;
-      return `<path class="${cls}${x?" pn-raced":""}${fld.length?" pn-3p":""}" data-pnn="${k}" tabindex="0" d="${r[1]}"></path>`; }).join("");
+      if(fld.length)hatch.push(r[1]);
+      return `<path class="${cls}${x?" pn-raced":""}" data-pnn="${k}" tabindex="0" d="${r[1]}"></path>`; }).join("");
     if(!n)return "";
+    // a third party on the ballot: light diagonal hatching over the fill
+    const hid="pnHatch"+t;
+    const defs=`<defs><pattern id="${hid}" patternUnits="userSpaceOnUse" width="3.2" height="3.2" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="3.2" class="pn-hatch-ln"/></pattern></defs>`;
     return `<figure class="pn-map"><svg viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="Your party's nominees for the ${nm}">`
-      +paths+`</svg><figcaption>${nm} · ${n} seat${n===1?"":"s"} on the ballot</figcaption></figure>`; }).join("");
+      +defs+paths+(hatch.length?`<g class="pn-hatch" aria-hidden="true">${hatch.map(d=>`<path d="${d}" fill="url(#${hid})"></path>`).join("")}</g>`:"")+`</svg><figcaption>${nm} · ${n} seat${n===1?"":"s"} on the ballot</figcaption></figure>`; }).join("");
   if(!maps)return {html:"",text};
   if(maps.includes('class="pn-off"'))used.add("pn-off");
   const KEY=[["pn-inc","Your member running again"],["pn-new","New nominee, from a primary you backed"],["pn-open","Open seat, your member retiring"],["pn-chal","Opposition seat, your nominee challenging"],["pn-flank","Third-party seat, your nominee challenging"],["pn-off","Not on this ballot"],["pn-sd","Your party stood down"]];
-  const key=KEY.filter(([c])=>used.has(c)).map(([c,l])=>`<span><i class="${c}"></i>${l}</span>`).concat(used.has("pn-3p")?[`<span><i class="pn-3p-key"></i>Dotted: a third party filed</span>`]:[]).concat(Object.keys(race).length?[`<span><i class="pn-raced-key"></i>Outlined: a contested primary</span>`]:[]);
+  const key=KEY.filter(([c])=>used.has(c)).map(([c,l])=>`<span><i class="${c}"></i>${l}</span>`).concat(used.has("pn-3p")?[`<span><i class="pn-3p-key"></i>Hatched: a third party filed</span>`]:[]).concat(Object.keys(race).length?[`<span><i class="pn-raced-key"></i>Outlined: a contested primary</span>`]:[]);
   return {html:`<div class="eg-h3" style="margin-top:14px">Your party's nominees</div><div class="pn-maps">${maps}</div><div class="pn-key">${key.join("")}</div>`, text};
 }
 function primaryNightTitle(P){
