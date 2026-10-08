@@ -5223,7 +5223,7 @@ const SECTION_OF={
   paidLeave:"welfare", minWageTiers:"welfare", universalMeals:"welfare", middleHousing:"welfare", rentStabilization:"welfare",
   officeConversion:"welfare", dhs:"welfare", downtownRevitalization:"welfare", singleStair:"welfare", housingPackage:"welfare", outcomeContracting:"pubservices",
   // economy & jobs
-  rndTaxCredit:"economy", deregulation:"economy", adminSimplification:"economy", revenueMajority:"taxes", stateLottery:"economy", casinos:"economy", csfLandSale:"economy", rightToWork:"economy", collectiveBargaining:"economy", rightToRepair:"economy", schoolChoice:"pubservices",
+  portRecruitment:"economy", rndTaxCredit:"economy", deregulation:"economy", adminSimplification:"economy", revenueMajority:"taxes", stateLottery:"economy", casinos:"economy", csfLandSale:"economy", rightToWork:"economy", collectiveBargaining:"economy", rightToRepair:"economy", schoolChoice:"pubservices",
   nuclearRepeal:"economy", tortReform:"economy", jordanCoveLNG:"environment",
   smrSiting:"environment", reactorManufacturing:"economy", publicNuclear:"environment",
   safeConsumption:"health", ohpBlockGrant:"health", cascadiaPrep:"environment",
@@ -6364,6 +6364,11 @@ const CATALOG={
       {},
       {motorists:3, libertarian:3, collegeEducated:2, urban:1, businessClass:-3, rural:-2}],
     tierIdeology:[{economic:-0.2, govSize:-0.2}, {}, {economic:0.3, govSize:0.3}]},
+  portRecruitment:{name:"Terminal 6 Carrier Recruitment", domain:"economy", icon:"truck", binary:true, mechanic:"law",
+    desc:"Pay shipping lines to call at the Port of Portland: a per-container incentive for carriers that sign a regular service, and a guarantee of the terminal's crane hours. While it is in force, the chance that carriers leave falls by more than half; if they have already left, a year of it, with the business climate back above 45, brings a regular service back.",
+    enabled:true, costFull:0.04, capital:4, enactCapital:6,
+    effects:{gdp:0.02}, indicatorEffects:{businessClimate:1},
+    blocEffect:{rural:2, timber:2, blueCollar:2, businessClass:2, socialist:-2, liberal:-1}, ideology:{economic:0.2}},
   rightToRepair:{name:"Right to Repair", domain:"economy", icon:"wrench", binary:true, mechanic:"law",
     desc:"Require manufacturers to provide parts and manuals (Oregon's 2024 law bans parts-pairing). Consumer win; mild business friction.",
     enabled:true, costFull:0.05, capital:5, enactCapital:7,
@@ -9066,6 +9071,35 @@ const DILEMMAS={
       }
     }))},
   /* ---- COALITION: the ultimatum ---- */
+  /* ---- THE PORT: a dispute on the docks. One game in two or so; how you
+     answer it decides how likely the carriers are to leave afterwards ---- */
+  portDispute:{title:"A Slowdown on the Docks", icon:"truck", cooldown:99, once:true,
+    text:()=>"The dockworkers' union and the company that runs the container terminal at the Port of Portland are fighting over who does two jobs on the cranes. The union says the work is theirs by contract; the operator says the federal labor board gave it to another union. The cranes are running at half speed, ships wait in the river for days, and the shipping lines have started asking whether Portland is worth the call.\n\nOregon's farmers and manufacturers ship through this terminal. If the carriers leave, their containers go by truck to Seattle and Tacoma.",
+    influence:()=>{
+      if(GAME.turn<3||GAME.portExodusDone)return -1;
+      // not every game has a dispute brewing: one seeded roll a game
+      if(caucusRng("portDispute|game")()>=0.45)return -1;
+      return 0.2;
+    },
+    options:[
+      {label:"Back the dockworkers",
+       text:"You stand with the union in public and lean on the operator. Labor and the left are grateful; the operator digs in, the slowdown drags on, and for the next two years the carriers are far more likely to leave.",
+       apply:()=>{ GAME.portStrain={until:GAME.turn+8, add:0.09};
+         createGrudge("v_blueCollar",4,0.88,"Stood with the dockworkers"); createGrudge("v_publicUnions",2,0.88,"Stood with the dockworkers");
+         createGrudge("v_socialist",2,0.88,"Stood with the dockworkers"); createGrudge("v_businessClass",-4,0.88,"Took a side against the terminal");
+         createGrudge("v_rural",-2,0.88,"Farm exports stuck at the port");
+         GAME.log.push(ico('truck')+" You backed the dockworkers. The slowdown at Terminal 6 goes on"); }},
+      {label:"Bring both sides to the table",
+       text:"Costs ◈3. You send a mediator and keep both sides in the room until the cranes run at speed. Neither side thanks you, but the risk that the carriers leave stays small.",
+       apply:()=>{ GAME.capital=clamp(GAME.capital-3,0,100); GAME.portStrain={until:GAME.turn+6, add:0.02};
+         createGrudge("v_moderate",2,0.88,"Settled the dock dispute"); createGrudge("v_businessClass",1,0.88,"Settled the dock dispute");
+         GAME.log.push(ico('truck')+" Mediation at Terminal 6: the cranes are back to speed"); }},
+      {label:"Stay out of it",
+       text:"It is a private dispute under federal labor law, and you say so. Nobody is angry with you today, but nothing settles it either, and for the next two years the carriers are more likely to leave.",
+       apply:()=>{ GAME.portStrain={until:GAME.turn+8, add:0.06};
+         createGrudge("v_rural",-2,0.88,"Farm exports stuck at the port");
+         GAME.log.push(ico('truck')+" You stayed out of the dock dispute. The slowdown goes on"); }}
+    ]},
   coalUltimatum:{title:"An Ultimatum from Your Own Government", icon:"handshake", cooldown:6,
     text:()=>{
       const pid=GAME.coalUlt||coalitionAngriest(); if(!pid)return "";
@@ -10747,6 +10781,23 @@ function overlapsOf(sid){
      onTrigger: {capital, metrics:{}} one-time shock when it begins
      minTurns: minimum quarters it stays before it can clear
    ============================================================ */
+/* THE CHANCE THE CARRIERS LEAVE THIS QUARTER. A dock dispute left unsettled
+   is the main cause; a poor business climate, a recession, a congested
+   freight network and an underfunded transportation system add to it. A
+   recruitment incentive in force cuts it by more than half. */
+function portRisk(){
+  let r=0; const S=GAME.portStrain;
+  if(S&&GAME.turn<S.until)r+=S.add;
+  const bc=INDICATORS.businessClimate?INDICATORS.businessClimate.value:50;
+  if(bc<40)r+=(40-bc)*0.004;
+  if((GAME.econCycle||0)<-0.15)r+=0.02;
+  if(INDICATORS.infraStrain&&INDICATORS.infraStrain.value>65)r+=0.015;
+  if(INDICATORS.transportFunding&&INDICATORS.transportFunding.value<35)r+=0.01;
+  if(POLICIES.portRecruitment&&POLICIES.portRecruitment.enabled!==false)r*=0.4;
+  return clamp(r,0,0.3);
+}
+/* Quarters the recruitment incentive has been in force, or null. */
+function portRecruitQuarters(){ const t=(GAME.enactedAt||{}).portRecruitment; return POLICIES.portRecruitment&&t!=null?GAME.turn-t:null; }
 const SITUATIONS={
   // ============================================================
   // CHRONIC CONDITIONS — Oregon's standing structural problems.
@@ -10755,6 +10806,16 @@ const SITUATIONS={
   // metric past a "fixed" threshold through sustained policy. They are
   // listed as ongoing crises on the Governing Board.
   // ============================================================
+  portExodus:{name:"Shippers Leave the Port of Portland", kind:"bad", category:"condition",
+    desc:"The container lines have stopped calling at Terminal 6. Oregon's farmers, timber mills and manufacturers now truck their containers up I-5 to Seattle and Tacoma, paying more and waiting longer, and the trucks fill the freeway. It ends when the business climate is back above 45 and either a Terminal 6 recruitment incentive has been in force for a year, or a carrier returns on its own after four and a half years.",
+    trigger:()=>GAME.turn>4 && !GAME.portExodusDone && caucusRng("port|"+GAME.turn)()<portRisk(),
+    onStart:()=>{ GAME.portExodusDone=true; },
+    clear:()=>INDICATORS.businessClimate.value>=45 && ((portRecruitQuarters()!=null&&portRecruitQuarters()>=4) || (GAME.situationAge.portExodus||0)>=18),
+    minTurns:6, onTrigger:{capital:-3}, onClear:{capital:2},
+    watch:{indicator:"businessClimate", clearAt:45},
+    metricEffect:{gdp:-0.12}, indicatorEffect:{businessClimate:-5, infraStrain:4},
+    moodMag:1, moodAxes:{economic:0.1},
+    groupMood:{rural:-6, timber:-4, blueCollar:-4, businessClass:-4, motorists:-2, moderate:-1}},
   homelessEmergency:{name:"Homelessness Emergency", kind:"bad", category:"condition",
     desc:"Oregon has among the highest unsheltered rates in the nation. Encampments are a visible humanitarian and political crisis. Activates when homelessness becomes severe; resolves only after sustained improvement.",
     trigger:()=>METRICS.homelessness.value>60, clear:()=>METRICS.homelessness.value<50, onClear:{capital:3},
@@ -22790,7 +22851,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="6.6";
+const GAME_VERSION="6.7";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -22812,7 +22873,8 @@ const VERSION_HISTORY=[
   ["6.3","4–6 October 2026","Party lists under proportional representation, coalition factions and reshuffles, party lines on every issue, and seeds that start under PR."],
   ["6.4","6 October 2026","Coalition partners' trust and what moves it, party profiles, and Parliament talks that require a majority."],
   ["6.5","7 October 2026","Ranked choice counted round by round for governor and legislature, third parties filing district by district, every seat's results kept, the nominee map, and this version history."],
-  ["6.6","7 October 2026","Your party's campaign under a parliament, where the ground game moves the Senate vote; a campaign section on every member's file; election night's race section; member files in a formal register; a Concede that warns before it ends the game, ranked choice from the start (the RCV seed), full-width boards, and every page's description and How this works brought up to date."]
+  ["6.6","7 October 2026","Your party's campaign under a parliament, where the ground game moves the Senate vote; a campaign section on every member's file; election night's race section; member files in a formal register; a Concede that warns before it ends the game, ranked choice from the start (the RCV seed), full-width boards, and every page's description and How this works brought up to date."],
+  ["6.7","7 October 2026","The Port of Portland: a dispute on the docks in about half of games, a risk that carriers leave shaped by how you answer it and by the economy, the crisis when they do, and a Terminal 6 recruitment law that brings them back."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -31241,6 +31303,11 @@ function crisisWatchRows(sid){
     {k:"homelessness", clear:48, down:true, cond:"and below 48"},
     {or:true},
     {icon:"scales", name:"State control of contracts", val:Math.round(nonprofitControl()*100)+"%", cond:"above 78%"}];
+  if(sid==="portExodus"){ const q=portRecruitQuarters(), age=(GAME.situationAge&&GAME.situationAge.portExodus)||0;
+    return [{k:"businessClimate", clear:45, down:false, cond:"clears above 45"},
+      {icon:"truck", name:"Terminal 6 recruitment", val:q==null?"not law":q+"q in force", cond:"with a year in force"},
+      {or:true},
+      {icon:"refresh", name:"A carrier returns on its own", val:age+" of 18q", cond:"after 18 quarters"}]; }
   // a crisis watches a statistic (metric) or an indicator; both read the same way
   const W=s&&s.watch, k0=W&&(W.metric||W.indicator); if(!k0)return [];
   const rows=[{k:k0, clear:W.clearAt, down:!!W.badHigh}];
