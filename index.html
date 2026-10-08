@@ -6364,11 +6364,6 @@ const CATALOG={
       {},
       {motorists:3, libertarian:3, collegeEducated:2, urban:1, businessClass:-3, rural:-2}],
     tierIdeology:[{economic:-0.2, govSize:-0.2}, {}, {economic:0.3, govSize:0.3}]},
-  portRecruitment:{name:"Terminal 6 Carrier Recruitment", domain:"economy", icon:"truck", binary:true, mechanic:"law",
-    desc:"Pay shipping lines to call at the Port of Portland: a per-container incentive for carriers that sign a regular service, and a guarantee of the terminal's crane hours. While it is in force, the chance that carriers leave falls by more than half; if they have already left, a year of it, with the business climate back above 45, brings a regular service back.",
-    enabled:true, costFull:0.04, capital:4, enactCapital:6,
-    effects:{gdp:0.02}, indicatorEffects:{businessClimate:1},
-    blocEffect:{rural:2, timber:2, blueCollar:2, businessClass:2, socialist:-2, liberal:-1}, ideology:{economic:0.2}},
   rightToRepair:{name:"Right to Repair", domain:"economy", icon:"wrench", binary:true, mechanic:"law",
     desc:"Require manufacturers to provide parts and manuals (Oregon's 2024 law bans parts-pairing). Consumer win; mild business friction.",
     enabled:true, costFull:0.05, capital:5, enactCapital:7,
@@ -10783,8 +10778,7 @@ function overlapsOf(sid){
    ============================================================ */
 /* THE CHANCE THE CARRIERS LEAVE THIS QUARTER. A dock dispute left unsettled
    is the main cause; a poor business climate, a recession, a congested
-   freight network and an underfunded transportation system add to it. A
-   recruitment incentive in force cuts it by more than half. */
+   freight network and an underfunded transportation system add to it. */
 function portRisk(){
   let r=0; const S=GAME.portStrain;
   if(S&&GAME.turn<S.until)r+=S.add;
@@ -10793,8 +10787,25 @@ function portRisk(){
   if((GAME.econCycle||0)<-0.15)r+=0.02;
   if(INDICATORS.infraStrain&&INDICATORS.infraStrain.value>65)r+=0.015;
   if(INDICATORS.transportFunding&&INDICATORS.transportFunding.value<35)r+=0.01;
-  if(POLICIES.portRecruitment&&POLICIES.portRecruitment.enabled!==false)r*=0.4;
   return clamp(r,0,0.3);
+}
+/* TERMINAL 6 CARRIER RECRUITMENT. A temporary law: it appears in New
+   Policies when the carriers leave and expires when a regular service is
+   back, with no repeal and no backlash, because a sunset is not a U-turn. */
+const PORT_RECRUIT_DEF={name:"Terminal 6 Carrier Recruitment", domain:"economy", icon:"truck", binary:true, mechanic:"law",
+  desc:"Temporary, for as long as the container lines are gone. Pay shipping lines to call at the Port of Portland: a per-container incentive for carriers that sign a regular service, and a guarantee of the terminal's crane hours. A year of it in force, with the business climate back above 45, brings a regular service back and ends the crisis; the law then expires on its own.",
+  enabled:true, costFull:0.04, capital:4, enactCapital:6,
+  effects:{gdp:0.02}, indicatorEffects:{businessClimate:1},
+  blocEffect:{rural:2, timber:2, blueCollar:2, businessClass:2, socialist:-2, liberal:-1}, ideology:{economic:0.2}};
+function portRecruitOffer(){
+  if(POLICIES.portRecruitment||CATALOG.portRecruitment)return;
+  const p=JSON.parse(JSON.stringify(PORT_RECRUIT_DEF)); p._id="portRecruitment"; CATALOG.portRecruitment=p;
+}
+function portRecruitExpire(){
+  const was=!!POLICIES.portRecruitment;
+  delete POLICIES.portRecruitment; delete CATALOG.portRecruitment;
+  if(GAME.enactedAt)delete GAME.enactedAt.portRecruitment;
+  return was;
 }
 /* Quarters the recruitment incentive has been in force, or null. */
 function portRecruitQuarters(){ const t=(GAME.enactedAt||{}).portRecruitment; return POLICIES.portRecruitment&&t!=null?GAME.turn-t:null; }
@@ -10807,9 +10818,12 @@ const SITUATIONS={
   // listed as ongoing crises on the Governing Board.
   // ============================================================
   portExodus:{name:"Shippers Leave the Port of Portland", kind:"bad", category:"condition",
-    desc:"The container lines have stopped calling at Terminal 6. Oregon's farmers, timber mills and manufacturers now truck their containers up I-5 to Seattle and Tacoma, paying more and waiting longer, and the trucks fill the freeway. It ends when the business climate is back above 45 and either a Terminal 6 recruitment incentive has been in force for a year, or a carrier returns on its own after four and a half years.",
+    desc:"The container lines have stopped calling at Terminal 6. Oregon's farmers, timber mills and manufacturers now truck their containers up I-5 to Seattle and Tacoma, paying more and waiting longer, and the trucks fill the freeway. A temporary law, Terminal 6 Carrier Recruitment, is now on offer in New Policies. The crisis ends when the business climate is back above 45 and either that law has been in force for a year, or a carrier returns on its own after four and a half years. The law expires when the crisis does.",
     trigger:()=>GAME.turn>4 && !GAME.portExodusDone && caucusRng("port|"+GAME.turn)()<portRisk(),
-    onStart:()=>{ GAME.portExodusDone=true; },
+    onStart:()=>{ GAME.portExodusDone=true; portRecruitOffer();
+      GAME.log.push(ico('truck')+" A new option in New Policies: Terminal 6 Carrier Recruitment, a temporary incentive to bring a container line back"); },
+    onEnd:()=>{ const was=portRecruitExpire();
+      GAME.log.push(ico('truck')+" A container line signs at Terminal 6"+(was?". Terminal 6 Carrier Recruitment expires with the crisis":"")); },
     clear:()=>INDICATORS.businessClimate.value>=45 && ((portRecruitQuarters()!=null&&portRecruitQuarters()>=4) || (GAME.situationAge.portExodus||0)>=18),
     minTurns:6, onTrigger:{capital:-3}, onClear:{capital:2},
     watch:{indicator:"businessClimate", clearAt:45},
@@ -22874,7 +22888,7 @@ const VERSION_HISTORY=[
   ["6.4","6 October 2026","Coalition partners' trust and what moves it, party profiles, and Parliament talks that require a majority."],
   ["6.5","7 October 2026","Ranked choice counted round by round for governor and legislature, third parties filing district by district, every seat's results kept, the nominee map, and this version history."],
   ["6.6","7 October 2026","Your party's campaign under a parliament, where the ground game moves the Senate vote; a campaign section on every member's file; election night's race section; member files in a formal register; a Concede that warns before it ends the game, ranked choice from the start (the RCV seed), full-width boards, and every page's description and How this works brought up to date."],
-  ["6.7","7 October 2026","The Port of Portland: a dispute on the docks in about half of games, a risk that carriers leave shaped by how you answer it and by the economy, the crisis when they do, and a Terminal 6 recruitment law that brings them back."]
+  ["6.7","7 October 2026","The Port of Portland: a dispute on the docks in about half of games, a risk that carriers leave shaped by how you answer it and by the economy, the crisis when they do, and a temporary Terminal 6 recruitment law, offered only while they are gone, that brings them back and then expires."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -31305,7 +31319,7 @@ function crisisWatchRows(sid){
     {icon:"scales", name:"State control of contracts", val:Math.round(nonprofitControl()*100)+"%", cond:"above 78%"}];
   if(sid==="portExodus"){ const q=portRecruitQuarters(), age=(GAME.situationAge&&GAME.situationAge.portExodus)||0;
     return [{k:"businessClimate", clear:45, down:false, cond:"clears above 45"},
-      {icon:"truck", name:"Terminal 6 recruitment", val:q==null?"not law":q+"q in force", cond:"with a year in force"},
+      {icon:"truck", name:"Terminal 6 recruitment", val:q==null?(CATALOG.portRecruitment?"in New Policies":"not law"):q+"q in force", cond:"with a year in force"},
       {or:true},
       {icon:"refresh", name:"A carrier returns on its own", val:age+" of 18q", cond:"after 18 quarters"}]; }
   // a crisis watches a statistic (metric) or an indicator; both read the same way
@@ -31369,6 +31383,9 @@ function renderPolicies(){
     <div class="sectionsub">What your staff have drafted, by area. Each law shows its cost, the groups it pleases and angers, and the legislature's odds of passing it. Most go to the floor and need the votes; a constitutional amendment goes on to the voters.</div>${rulesBox("Open an area, then enact a policy. It costs capital and goes to the floor; if it passes it joins your Governing Board.")}
     <div class="websearch"><svg class="sbico" aria-hidden="true"><use href="#ic-search"/></svg>
       <input type="text" id="polSearch" placeholder="Search policies by name, effect or area…" value="${(GAME.polSearch||"").replace(/"/g,'&quot;')}" autocomplete="off"></div>`;
+  // a temporary law on offer because of a crisis: said at the top, not left in a folded section
+  if(CATALOG.portRecruitment&&GAME.activeSituations&&GAME.activeSituations.portExodus)
+    h+=`<div class="pendbanner">${ico('truck')} <span>While the container lines are gone from the Port of Portland, <b>Terminal 6 Carrier Recruitment</b> is on offer: a temporary law that brings a regular service back and expires when it does.</span> <button class="fcard-btn" data-polsec-open="portRecruitment">Show it</button></div>`;
   if(!avail.length){ main.innerHTML=h+`<div class="empty">No new policies available — all enacted.</div>`; wireBackBtn(); wirePolSearch(); return; }
   const renderCard=(id)=>{
     const p=CATALOG[id], net=policyNetCost(p);
@@ -31420,7 +31437,12 @@ function renderPolicies(){
     main.innerHTML=h;
     wireBackBtn(); wirePolSearch();
     main.querySelectorAll('[data-enact]').forEach(el=>el.addEventListener('click',()=>enactPolicy(el.dataset.enact)));
-    main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
+    main.querySelectorAll('[data-polsec-open]').forEach(b=>b.addEventListener('click',()=>{ const id=b.dataset.polsecOpen;
+    // open every section, find the card, and bring it into view
+    GAME.openPolSections=GAME.openPolSections||{}; main.querySelectorAll('[data-polsec]').forEach(x=>GAME.openPolSections[x.dataset.polsec]=true); render();
+    const c=[...document.querySelectorAll('#main .catcard')].find(x=>x.innerHTML.includes(CATALOG[id]?CATALOG[id].name:"\u0000"));
+    if(c){ c.scrollIntoView({block:"center"}); c.classList.add("cfac-flash"); setTimeout(()=>c.classList.remove("cfac-flash"),1600); } }));
+  main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
     main.querySelectorAll('[data-eb]').forEach(el=>el.addEventListener('click',e=>{
       const box=document.getElementById("eb_"+el.dataset.eb);
       const open=box.classList.toggle("hidden")===false;
