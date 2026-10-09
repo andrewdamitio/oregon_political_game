@@ -15779,7 +15779,12 @@ function runElection(){
   const oppSwing = (Math.random()-0.5) * clamp(oppM/100,0,1) * 0.09;  // up to ±4.5 pts, random
   // how well the nominee goes down: up to CHAL_LIKE_PTS either way
   const chalLike=(50-chal.like)/50*CHAL_LIKE_PTS;
-  share=clamp(share*0.66 + anchor*0.34 + oppShift + oppSwing + chalLike, 0.03, 0.97);
+  // The anchor and the swings are tuned on your share of every ballot. Under
+  // ranked choice the headline is a final-round share instead, so the same
+  // number of points is moved there rather than blending two scales.
+  if(rcv){ const rawAll=tot>0?yes/tot:0.5;
+    share=clamp(share+(rawAll*0.66+anchor*0.34+oppShift+oppSwing+chalLike-rawAll), 0.03, 0.97); }
+  else share=clamp(share*0.66 + anchor*0.34 + oppShift + oppSwing + chalLike, 0.03, 0.97);
   const turnoutPct=tot/VOTERS.length;
   // Every graph on election night reconciles to the headline. The headline is
   // the raw tally blended with the realism anchor and the challenger's
@@ -15880,7 +15885,18 @@ function runElection(){
     rcvRounds={rival:rv, rounds:R.map(r=>{ const v={}; for(const k in r.v)v[k]=r.v[k]==null?null:Math.max(0,(r.v[k]+(k==="you"?d:k===rv?-d:0))/T0);
       return {v, ex:r.ex/T0, live:r.T/T0, out:r.out||null}; })};
   }
-  return {won:share>=0.5, share, approval:overallApproval(), intention:votingIntention(),
+  // WHO WINS. Without ranked choice Oregon elects its governor by plurality:
+  // the most votes wins, majority or not (Kotek won in 2022 with about 47%).
+  // Under ranked choice the count runs until someone holds a majority of the
+  // ballots still live, so the headline share is the final round's.
+  // margin: your lead over the nearest rival, as a fraction of the vote.
+  let won, margin;
+  if(rcv){ won=share>=0.5; margin=2*share-1; }
+  else {
+    const T=tot||1, rivals=[Math.max(0,1-share-third/T), thirdL/T, thirdR/T, thirdC/T];
+    const best=Math.max(...rivals); won=share>best; margin=share-best;
+  }
+  return {won, margin, share, approval:overallApproval(), intention:votingIntention(),
           turnout:turnoutPct, rcv, counties, blocs, rcvRounds, oppMomentum:oppM, oppSwingPts:+(oppSwing*100).toFixed(1),
           challenger:{name:chal.name, role:chal.role, style:chal.style, like:Math.round(chal.like), likePts:+(chalLike*100).toFixed(1)},
           thirdShare:tot>0?third/tot:0,
@@ -18580,7 +18596,7 @@ function recordLegacy(r){
     const arr=JSON.parse(localStorage.getItem("sc_legacy")||"[]")||[];
     arr.push({ ts:Date.now(), seed:window.RUN_SEED||"",
       year:GAME.startYear+GAME.term*4, term:GAME.term, won:!!r.won,
-      share:+(r.share*100).toFixed(1), margin:Math.round((r.share-0.5)*200),
+      share:+(r.share*100).toFixed(1), margin:Math.round((r.margin!=null?r.margin:2*r.share-1)*100),
       approval:+(r.approval||0).toFixed(1), ec:+v.ec.toFixed(2), so:+v.so.toFixed(2) });
     localStorage.setItem("sc_legacy", JSON.stringify(arr.slice(-40)));
   }catch(e){}
@@ -18841,17 +18857,17 @@ function showElection(r){
         : ` Without ranked choice they split both coalitions and helped no one.`)
       +`</div>`;
   }
-  const marginPts=(r.share-0.5)*200;
+  const marginPts=(r.margin!=null?r.margin:2*r.share-1)*100;
   const won=r.won;
   const who = succ ? "Your successor" : "You";
   const bigWord = succ ? (won?"HELD":"LOST") : (won ? "RE-ELECTED" : "DEFEATED");
   const flavour = succ
     ? (won
-        ? (marginPts>=22?"Your chosen successor held the office comfortably" : marginPts>=8?"Your successor held the office" : "Your successor scraped in")
-        : (marginPts<=-14?"Your successor was turned out decisively" : "Your successor lost the office by a hair"))
+        ? (marginPts>=15?"Your chosen successor held the office comfortably" : marginPts>=5?"Your successor held the office" : "Your successor scraped in")
+        : (marginPts<=-10?"Your successor was turned out decisively" : marginPts<=-3?"Your successor lost the office" : "Your successor lost the office by a hair"))
     : won
-    ? (marginPts>=22?"A commanding win" : marginPts>=8?"A solid win" : "Held on by a whisker")
-    : (marginPts<=-14?"A decisive loss" : "Lost by a hair");
+    ? (marginPts>=15?"A commanding win" : marginPts>=5?"A solid win" : "Held on by a whisker")
+    : (marginPts<=-10?"A decisive loss" : marginPts<=-3?"A clear loss" : "Lost by a hair");
   const third=r.thirdShare||0, oppTotal=clamp(1-r.share-third,0,1);
   // under ranked choice the headline is the final round; the bar is first choices
   const F=r.rcv&&r.first?r.first:null, barYou=F?F.you:r.share, barOpp=F?F.opp:oppTotal;
@@ -18862,7 +18878,7 @@ function showElection(r){
     <div class="eg-kicker">${succ?'OPEN-SEAT ELECTION':'GENERAL ELECTION'} · ${yr} · STATE OF OREGON</div>
     <div class="eg-result ${won?'win':'lose'}">${bigWord}</div>
     <div class="wm-rule"></div>
-    <div class="eg-sub" style="font-size:19px">${flavour} — <b>${(r.share*100).toFixed(1)}%</b> to <b>${((F?1-r.share:oppTotal)*100).toFixed(1)}%</b>${F?` <span style="font-size:14px;color:var(--muted-2)">in the final round of the count</span>`:""}</div>
+    <div class="eg-sub" style="font-size:19px">${flavour} — <b>${(r.share*100).toFixed(1)}%</b> to <b>${((F?1-r.share:oppTotal)*100).toFixed(1)}%</b>${F?` <span style="font-size:14px;color:var(--muted-2)">in the final round of the count</span>`:(won&&r.share<0.5?` <span style="font-size:14px;color:var(--muted-2)">won on a plurality, short of half the vote</span>`:"")}</div>
     ${succ?(r.flippedByMeasure
       ? `<div class="eg-sub" style="font-size:13.5px;color:var(--muted-2)">A measure on this same ballot just reinstated Oregon's two-term limit — you were running for a third term, but the seat turns out not to have been yours to seek. Tonight counts as your successor's election.</div>`
       : `<div class="eg-sub" style="font-size:13.5px;color:var(--muted-2)">You are term-limited and not on the ballot. The vote is a referendum on the record you leave behind.</div>`
@@ -18963,7 +18979,7 @@ function showElection(r){
   const proceed=()=>{
     if(window._elecKey){document.removeEventListener("keydown",window._elecKey,true);window._elecKey=null;}
     modal.classList.add("hidden"); modal.classList.remove("grand");
-    GAME.lastMargin=clamp((r.share-0.5)*2,-1,1);
+    GAME.lastMargin=clamp(r.margin!=null?r.margin:(r.share-0.5)*2,-1,1);
     fptpOppCheck(r);   // under ranked choice a third party may now be the opposition
     // Sandbox: nothing here ends the run, so an election that would have
     // ended it does not reload the page either — it keeps going exactly as
@@ -27279,7 +27295,7 @@ function doElectionTurn(){
   GAME.lastGovRace={year:GAME.startYear+Math.floor(GAME.turn/4), share:res.share, won:!!res.won,
     counties:(res.counties||[]).map(c=>({name:c.name, you:c.share, opp:c.opp, win:c.win}))};
   // re-elected: the party rallies, the more so the bigger the margin
-  if(res.won&&!flippedByMeasure){ const m=(res.share-0.5)*200;
+  if(res.won&&!flippedByMeasure){ const m=(res.margin!=null?res.margin:2*res.share-1)*100;
     partyElectionRally(clamp(3+m*0.35+((legis&&(legis.hSwing||0)+(legis.sSwing||0))||0)*0.2,3,12), "Re-elected by "+Math.abs(m).toFixed(0)+" points"); }
   if(flippedByMeasure){
     res.successor=true; res.flippedByMeasure=true;
