@@ -19525,10 +19525,10 @@ const PR_VARIANTS={
    one before it. */
 const INIT_VARIANTS={
   noAmend:{label:"No citizen-initiated amendments",
-    note:"Citizens can still petition laws onto the ballot, but only the legislature can propose a change to the constitution.",
+    note:"Citizens can still petition laws onto the ballot, and referendums against laws you change, but only the legislature can propose a change to the constitution.",
     bloc:{libertarian:-2, socialist:-1, moderate:-1, businessClass:2}},
   signatures:{label:"Higher signature requirements",
-    note:"No citizen amendments, and a statute needs far more signatures, spread across the counties, to qualify. One or two a cycle make it instead of three or four.",
+    note:"No citizen amendments, and every petition, a statute or a referendum on one of your laws, needs far more signatures spread across the counties. One or two a cycle make it instead of three or four.",
     bloc:{libertarian:-3, socialist:-2, moderate:-2, conservative:-1, rural:-1, businessClass:3}},
   noInitiatives:{label:"No citizen initiatives",
     note:"Citizens can no longer put anything on the ballot. Only what the legislature refers goes to the voters, and the extra campaign energy citizen measures bring goes with them.",
@@ -27898,6 +27898,10 @@ function resolveBallot(kind){
     else if(m.stance==="oppose") createGrudge("capital", passed?-1.2:1.2);
   }
   GAME.ballot.pending=kept;
+  // abolished: nothing citizens put on a later ballot still stands
+  if(initiativeLimit()==="noInitiatives"){ const gone=GAME.ballot.pending.filter(m=>m.source==="citizen");
+    if(gone.length){ GAME.ballot.pending=GAME.ballot.pending.filter(m=>m.source!=="citizen");
+      GAME.log.push(ico('ballot')+" With citizen initiatives abolished, "+gone.length+" petition"+(gone.length===1?"":"s")+" bound for a later ballot "+(gone.length===1?"is":"are")+" void"); } }
   return results;
 }
 /* ============================================================
@@ -28154,6 +28158,10 @@ function refreshCitizenBallot(){
   if(initiativeLimit()==="noInitiatives")return [];   // only the legislature refers now
   let list=generateCitizenMeasures().filter(c=>!refs.some(r=>r.id===c.id));
   if(refs.length)list=list.slice(0,Math.max(1,list.length-refs.length));   // the referendums displace initiatives
+  // a higher signature bar applies to every petition, referendum or
+  // initiative: one or two make it in all
+  if(initiativeLimit()==="signatures"){ const cap=1+Math.floor(Math.random()*2);
+    if(refs.length>cap)refs.length=cap; list=list.slice(0,Math.max(0,cap-refs.length)); }
   const created=[];
   const nb=nextBallotInfo();
   for(const c of refs.concat(list)){
@@ -28375,7 +28383,7 @@ function ballotCampaignHTML(){
   const pend=GAME.ballot.pending||[], hist=GAME.ballot.history||[];
   const nb=nextBallotInfo();
   let h=`<div class="camp-sec" style="margin-top:6px">${ico('ballot')} Measures on the ballot</div>
-    <div class="sectionsub" style="margin-top:0"><b>Amendments you referred</b> cost capital to put on the ballot, and only the voters can pass them. <b>Citizen initiatives</b> come from outside groups' petitions; they cost you nothing, and you can stay out of any of them. ${initiativeLimit()==="noInitiatives"?"Citizen initiatives have been abolished, so only what the legislature refers reaches the ballot.":initiativeLimit()?"Citizens can petition laws but not amendments"+(initiativeLimit()==="signatures"?", and only one or two a cycle clear the signature bar.":"."):"Citizens can petition amendments as well as laws, one amendment a ballot at most."} Both go to the next statewide ballot, the midterm or your re-election, never a special election. Campaign energy here comes from the same pool as county and group work.</div>`;
+    <div class="sectionsub" style="margin-top:0"><b>Amendments you referred</b> cost capital to put on the ballot, and only the voters can pass them. <b>Citizen initiatives</b> come from outside groups' petitions; they cost you nothing, and you can stay out of any of them. ${initiativeLimit()==="noInitiatives"?"Citizen initiatives have been abolished, so only what the legislature refers reaches the ballot.":initiativeLimit()?"Your restriction bars citizen amendments, but citizens can still petition ordinary laws, and referendums against laws you changed, onto the ballot"+(initiativeLimit()==="signatures"?"; only one or two petitions a cycle, referendums included, clear the signature bar.":". Only abolishing citizen initiatives stops those."):"Citizens can petition amendments as well as laws, one amendment a ballot at most."} Both go to the next statewide ballot, the midterm or your re-election, never a special election. Campaign energy here comes from the same pool as county and group work.</div>`;
   h+=energyBarHTML();
   if(!pend.length){
     h+=`<div class="ebnote" style="margin-top:14px">No measure is currently before the voters. Refer one from <b>New Policies → Constitutional Reforms</b>, or by repealing an amendment already in force. Citizen initiatives, when any qualify, appear here on their own about four quarters before a ballot.
