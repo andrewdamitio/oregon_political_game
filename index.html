@@ -4391,6 +4391,10 @@ function sitIndicatorPush(indId){
     const s=SITUATIONS[sid];
     if(s&&s.indicatorEffect&&s.indicatorEffect[indId]!==undefined)b+=s.indicatorEffect[indId]*sitSeverity(sid);
   }
+  // THE AFTERMATH: what a situation with fadeOut did to an indicator lingers
+  // after it ends, a share less each quarter
+  for(const sid in (GAME.sitAfter||{})){ const s=SITUATIONS[sid], A=GAME.sitAfter[sid];
+    if(s&&s.indicatorEffect&&s.indicatorEffect[indId]!==undefined&&!GAME.activeSituations[sid])b+=s.indicatorEffect[indId]*A.left; }
   return b;
 }
 /* Auto-generate driver rows for an indicator from all indPolicyBoost/sitIndicatorPush
@@ -11435,6 +11439,8 @@ const SITUATIONS={
     // for something no governor causes and none can prevent.
     metricEffect:{health:-3, gdp:-0.18, electricRate:0.5}, moodMag:0, minTurns:1,
     indicatorEffect:{tourism:-8, infraStrain:6},
+    // the summer bookings and the buckled roads take a while to come back
+    fadeOut:0.6,
     groupMood:{}},
   cyberattack:{name:"State Systems Cyberattack", kind:"bad", category:"event",
     desc:"Ransomware cripples state IT systems — benefits portals, DMV, payroll. Oregon's aging infrastructure makes it an easy target. Every department is working off paper and phone calls while IT scrambles.",
@@ -11641,6 +11647,8 @@ const SITUATIONS={
     desc:"Oregon teachers walk out over pay that's lagged inflation — echoing the 2023 Portland strike that kept 45,000 students out of class for three weeks. Schools close, parents scramble for childcare, and the walkout dominates local news. Disputes like this usually settle within weeks, but the political fallout lingers.",
     metricEffect:{eduOutcomes:-2}, moodMag:2, minTurns:1,
     onTrigger:{capital:-3, metrics:{eduOutcomes:-3}},
+    // parents remember the weeks their children were out of school
+    moodFade:0.6,
     groupMood:{publicUnions:4, parents:-7, suburban:-4, blueCollar:2, moderate:-3, students:-3}},
   gridEmergency:{name:"Rolling Blackouts", kind:"bad", category:"event",
     desc:"The grid ran out of room. A demand spike on a system already stretched by data-center load, an electrifying vehicle fleet and years of transmission that never got built \u2014 and the utilities are shedding load in rotating outages across the Willamette Valley. Traffic signals dark, cold-storage warehouses scrambling for generators, hospitals on backup, and a business-press narrative that Oregon courted the server farms and then couldn't keep the lights on. The lights come back within days. What voters remember is that they went out.",
@@ -11648,6 +11656,8 @@ const SITUATIONS={
     moodMag:3, minTurns:1, mandateShock:-5,
     onTrigger:{capital:-5, metrics:{gdp:-0.6}},
     indicatorEffect:{businessClimate:-6, inMigration:-3, downtown:-3},
+    // a grid that failed once is priced in by employers, and remembered at home
+    moodFade:0.6, fadeOut:0.6,
     groupMood:{businessClass:-9, suburban:-6, moderate:-5, motorists:-4, wealthy:-4, retirees:-4,
                homeowners:-3, urban:-3, blueCollar:-3}},
   // national political mood is handled specially (see NATIONAL_MOOD), not here
@@ -13198,6 +13208,8 @@ function tickIndicators(){
   }
 }
 function tickSituations(){
+  for(const sid in (GAME.sitAfter||{})){ const A=GAME.sitAfter[sid], s=SITUATIONS[sid];
+    A.left*= (s&&s.fadeOut)||0.6; if(A.left<0.08||GAME.activeSituations[sid])delete GAME.sitAfter[sid]; }
   // condition-triggered situations
   for(const sid in SITUATIONS){
     const s=SITUATIONS[sid];
@@ -13346,6 +13358,8 @@ function sitGroupMood(sid,gid){
    ends, fading by that factor each quarter, instead of vanishing the
    quarter it clears. Measured before the situation is removed. */
 function sitLeaveAftermath(sid){
+  const st0=SITUATIONS[sid];
+  if(st0&&st0.fadeOut&&GAME.activeSituations[sid])(GAME.sitAfter=GAME.sitAfter||{})[sid]={left:st0.fadeOut};
   const st=SITUATIONS[sid]; if(!st||!st.moodFade||!GAME.activeSituations[sid])return;
   for(const gid in SIMULANTS){ const v=sitGroupMood(sid,gid); if(Math.abs(v)>=0.3)createGrudge("v_"+gid, v*st.moodFade, st.moodFade, "The aftermath of the "+st.name.toLowerCase()); }
 }
@@ -14939,7 +14953,7 @@ function drawCoalExit(){
     +(coalReshuffleOpen()&&!(prParliament()&&now<LEGIS.majH)
       ?'<div class="fnote" style="margin-top:10px">You can reopen talks now: your remaining partners stay on the terms they signed, and you can bring in any party still willing to talk. '+p.short+' will not come back this Senate.</div>'
        +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px"><button class="enactbtn" id="coalReopen">Reopen talks \u25b8</button><button class="enactbtn ghost" id="coalExitOk">Carry on with who is left \u25b8</button></div>'
-      :'<button class="enactbtn" id="coalExitOk" style="margin-top:12px">Continue \u25b8</button>');
+      :'<button class="enactbtn" id="coalExitOk" style="margin-top:12px">'+(prParliament()&&now<LEGIS.majH?'Rebuild the government':'Continue')+' \u25b8</button>');
   modal.classList.remove("hidden");
   const ro=document.getElementById("coalReopen");
   if(ro)ro.onclick=()=>{ GAME.pendingCoalExit=null; modal.classList.add("hidden"); coalReshuffle(()=>{ try{render();}catch(e){} if(GAME._exitFromBrief){ GAME._exitFromBrief=false; briefReturn(); } }); };
