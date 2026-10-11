@@ -7031,13 +7031,13 @@ const APPT_TRAITS={
 const APPT_POSTS={
   oha:{title:"Director, Oregon Health Authority", name:"Oregon Health Authority", icon:"hospital", agency:"oha", body:"department",
     seat:"the Health Authority", metrics:["behavioralHealth","psychBeds","drugUse","alcoholUse"],
-    pool:["publicUnions","parents","poor","collegeEducated"], foes:["libertarian","conservative"]},
+    pool:["publicUnions","parents","poor","collegeEducated","minorities"], foes:["libertarian","conservative"]},
   dhs:{title:"Director, Department of Human Services", name:"Dept. of Human Services", icon:"people", agency:"dhs", body:"department",
     seat:"Human Services", metrics:["povertyRate","inequality"],
-    pool:["poor","socialist","publicUnions","parents"], foes:["conservative","libertarian"]},
+    pool:["poor","socialist","publicUnions","parents","minorities"], foes:["conservative","libertarian"]},
   ode:{title:"Deputy Superintendent of Public Instruction", name:"Dept. of Education", icon:"cap", agency:null, body:"department",
     seat:"Education", metrics:["education","eduOutcomes","attainAll","publicEnrollment"],
-    pool:["publicUnions","parents","collegeEducated","students"], foes:["conservative","rural"]},
+    pool:["publicUnions","parents","collegeEducated","students","minorities"], foes:["conservative","rural"]},
   odot:{title:"Director, Department of Transportation", name:"Dept. of Transportation", icon:"road", agency:"odot", body:"department",
     seat:"Transportation", metrics:["transitShare"],
     pool:["motorists","suburban","blueCollar","transitCommuters"], foes:["rural","urban"]},
@@ -10730,12 +10730,20 @@ function turnoutProb(v){
   // consensus one doesn't.
   const d=Math.abs(v.approval-50)/50;
   let t=clamp(base+0.30*d+0.26*d*d+v.age*0.18,0.05,0.97);
+  // ethnic minority voters turn out below the state, beyond what their age
+  // explains: fewer of them are registered, and more have moved recently.
+  // Measured against the group's average share, so the state's overall
+  // turnout is left where it was.
+  const minEx=(v.m.minorities||0)-(SIMULANTS.minorities?SIMULANTS.minorities.size:0.19);
+  t=clamp(t-0.30*minEx,0.03,0.97);
   // election-access regime — strict ID / opt-in registration suppress turnout,
   // and the hit is regressive: least-partisan, least-attached voters feel it most
   const acc=electionAccessFactor();
   if(acc!==1){
     const part=clamp(Math.max(Math.abs(v.econ||0),Math.abs(v.social||0)),0,1);
-    const exposure=1.5-part;                    // ~1.5 for a pure independent, ~0.5 for a hard partisan
+    // ~1.5 for a pure independent, ~0.5 for a hard partisan; ID and
+    // registration rules also fall hardest on ethnic minority voters
+    const exposure=1.5-part+1.2*Math.max(0,minEx);
     t=clamp(t*(1+(acc-1)*exposure),0.03,0.97);
   }
   // cynicism keeps people home: the most disillusioned group a voter really
@@ -12758,7 +12766,7 @@ const PROTEST_SIDES={
     forceText:"Oregon State Police move into downtown Portland and clear the square and the park within 48 hours. The city reopens and the news cycle turns — but the footage of troopers hauling demonstrators off Broadway does not, and the left will remember which governor sent them. Each time you do this the base comes back angrier.",
     forceCynics:["liberal","socialist","urban","students","collegeEducated","publicUnions"],
     forceUp:[["conservative",10,"Restored order"],["suburban",7,"Cleared the streets"],["moderate",5,"Ended the disruption"],["wealthy",5,"Order restored"],["businessClass",5,"Downtown reopened"],["rural",4,"Cracked down on Portland"],["retirees",3,"Law and order"]],
-    forceDown:[["liberal",-12,"Sent police against demonstrators"],["socialist",-16,"State violence against the left"],["urban",-9,"Troopers on Broadway"],["students",-9,"Crackdown on protest"],["collegeEducated",-6,"Civil-liberties alarm"],["publicUnions",-5,"Ordered the crackdown"]],
+    forceDown:[["liberal",-12,"Sent police against demonstrators"],["socialist",-16,"State violence against the left"],["urban",-9,"Troopers on Broadway"],["students",-9,"Crackdown on protest"],["collegeEducated",-6,"Civil-liberties alarm"],["minorities",-6,"Police sent against demonstrators"],["publicUnions",-5,"Ordered the crackdown"]],
     forceInds:[["i_ruralAlienation",-4,"Cracked down on Portland protests"],["i_downtown",-4,"Police action in downtown Portland"]],
     forceCompass:[0.15,0.8],
     forceLog:"Sent Oregon State Police to clear downtown Portland",
@@ -13998,7 +14006,7 @@ function metricMood(sim, sid){
   // the power bill: universally felt, worst for fixed incomes, rural electric heat
   // and anyone already stretched — the most visible price in politics after petrol
   { const eb=-(METRICS.electricRate.value-13.5)*0.42;
-    const w=(sid==="poor"||sid==="retirees"||sid==="rural"||sid==="blueCollar"||sid==="renters")?1.55:1.0;
+    const w=(sid==="poor"||sid==="retirees"||sid==="rural"||sid==="blueCollar"||sid==="renters"||sid==="minorities")?1.55:1.0;
     mood+=eb*w; }
   if(s.govSpend!==undefined){
     const spd=budgetBalance().spend;
@@ -14070,7 +14078,7 @@ function blocMoodContributors(sid){
   if(ss.taxes!==undefined){let tx=(52-METRICS.taxBurden.value)*0.32*ss.taxes;if(ss.taxes>1.2)tx-=(INDICATORS.taxGrievance.value-42)*0.06*(ss.taxes-0.6);add("Tax Burden",tx,'m_taxBurden');}
   {const rawGas=-(METRICS.gasPrice.value-3.6)*4.0*blunt*gw; add("Gas Prices",rawGas,'m_gasPrice'); const evBase2=clamp(METRICS.evAdoption.value/100,0,1); const evFactor=sid==="motorists"?0.55:0.25; const evBenefit=-rawGas*evBase2*evFactor; if(Math.abs(evBenefit)>0.08)add(ico('plug')+" EV Adoption (cushions gas-price pain)",evBenefit,'m_evAdoption');}
   { const eb=-(METRICS.electricRate.value-13.5)*0.42;
-    const ew=(sid==="poor"||sid==="retirees"||sid==="rural"||sid==="blueCollar"||sid==="renters")?1.55:1.0;
+    const ew=(sid==="poor"||sid==="retirees"||sid==="rural"||sid==="blueCollar"||sid==="renters"||sid==="minorities")?1.55:1.0;
     add("Electricity Price",eb*ew,"m_electricRate"); }
   {let bc=(INDICATORS.businessClimate.value-50)*0.06;if(ss.gdp!==undefined&&ss.gdp>1.0)bc+=(INDICATORS.businessClimate.value-50)*0.03*(ss.gdp-0.5);add("Business Climate",bc,'i_businessClimate');}
   add("Downtown Vitality",(INDICATORS.downtown.value-50)*0.04,'i_downtown');
@@ -16042,7 +16050,7 @@ const PROMISES={
       {label:"The Addiction & Overdose Crisis is over", check:()=>!GAME.activeSituations.addictionCrisis}
     ],
     check:()=>METRICS.drugUse.value<=50 && !GAME.activeSituations.addictionCrisis},
-  growEconomy:{label:"Grow good-paying jobs", bloc:["blueCollar","businessClass","middleIncome"],
+  growEconomy:{label:"Grow good-paying jobs", bloc:["blueCollar","businessClass","middleIncome","minorities"],
     criteria:[
       {label:"Unemployment ≤ 4.5%", check:()=>METRICS.unemployment.value<=4.5},
       {label:"GDP index ≥ 60", check:()=>effective("gdp")>=60}
@@ -16060,7 +16068,7 @@ const PROMISES={
       {label:"No active wildfire emergency this term", check:()=>!GAME.activeSituations.wildfireSeason}
     ],
     check:()=>METRICS.environment.value>=60 && !GAME.activeSituations.wildfireSeason},
-  reduceInequality:{label:"Lift working Oregonians out of poverty", bloc:["socialist","poor","liberal","blueCollar"],
+  reduceInequality:{label:"Lift working Oregonians out of poverty", bloc:["socialist","poor","liberal","blueCollar","minorities"],
     criteria:[
       {label:"Inequality index ≤ 48", check:()=>METRICS.inequality.value<=48},
       {label:"Unemployment ≤ 5.0%", check:()=>METRICS.unemployment.value<=5.0}
@@ -16134,7 +16142,7 @@ const PROMISES={
       {label:"Dept. of Forestry funded ≥ 55%", check:()=>!!(AGENCIES.forestry&&AGENCIES.forestry.funding>=0.55)}
     ],
     check:()=>policyLevel(POLICIES.wildfireResilience||{})>=0.55 && !!(AGENCIES.forestry&&AGENCIES.forestry.funding>=0.55)},
-  smallBusiness:{label:"A fair shot for small business", bloc:["businessClass","moderate","blueCollar"],
+  smallBusiness:{label:"A fair shot for small business", bloc:["businessClass","moderate","blueCollar","minorities"],
     criteria:[
       {label:"Business Climate index ≥ 46", check:()=>INDICATORS.businessClimate.value>=46},
       {label:"Unemployment ≤ 5.3%", check:()=>METRICS.unemployment.value<=5.3}
@@ -16160,7 +16168,7 @@ const PROMISES={
       {label:"Deregulation package enacted and Business Climate ≥ 56", check:()=>!!(POLICIES.deregulation&&POLICIES.deregulation.enacted) && INDICATORS.businessClimate.value>=56}
     ],
     check:()=>!!(POLICIES.deregulation&&POLICIES.deregulation.enacted) && INDICATORS.businessClimate.value>=56},
-  schoolChoicePledge:{label:"School choice for every family", bloc:["conservative","rural","parents","moderate"],
+  schoolChoicePledge:{label:"School choice for every family", bloc:["conservative","rural","parents","moderate","minorities"],
     criteria:[
       {label:"Charter schools expanded (latitude ≥ 60)", check:()=>policyLevel(POLICIES.charterSchools||{})>=0.6},
       {label:"School Choice Vouchers enacted and funded ≥ 50%", check:()=>!!(POLICIES.schoolChoice&&POLICIES.schoolChoice.enacted) && policyLevel(POLICIES.schoolChoice||{})>=0.5}
@@ -21779,7 +21787,8 @@ function caucusClackamas(ch,id){
 function caucusCode(k){ return (k[0]==="h"?"HD ":"SD ")+k.slice(1); }
 const _CB=k=>LEG_BLOCS.indexOf(k);
 const CB_URB=_CB("urban"), CB_SUB=_CB("suburban"), CB_RUR=_CB("rural"), CB_TIM=_CB("timber"),
-      CB_BC=_CB("blueCollar"), CB_PU=_CB("publicUnions"), CB_WEA=_CB("wealthy"), CB_BUS=_CB("businessClass"), CB_REN=_CB("renters");
+      CB_BC=_CB("blueCollar"), CB_PU=_CB("publicUnions"), CB_WEA=_CB("wealthy"), CB_BUS=_CB("businessClass"), CB_REN=_CB("renters"),
+      CB_MIN=_CB("minorities");
 /* THE ISSUES. Each lists the laws it covers and which way is the
    progressive direction for each (1: stronger or enacted, -1: weaker or
    gone). A member's view is a position on that axis from -1 (conservative)
@@ -21915,7 +21924,7 @@ function caucusDistrictTraits(ch,id,comp,lean){
   const rur=comp[CB_RUR]>=0.4, tim=comp[CB_TIM]>=0.3, sub=(comp[CB_SUB]>=0.45||clack)&&lean<80,
         mod=lean>=45&&lean<68, core=comp[CB_URB]>=0.6&&lean>=60&&!clack, deep=lean>=80, red=lean<30,
         union=comp[CB_BC]+comp[CB_PU]*2>=0.42, rich=comp[CB_WEA]>=0.5, biz=comp[CB_BUS]+comp[CB_WEA]>=0.62,
-        rent=comp[CB_REN]>=0.4;
+        rent=comp[CB_REN]>=0.4, minor=comp[CB_MIN]>=0.28;
   if(rur)t.push({id:"rural", label:"Rural", issues:["guns","climate","transit","rural"]});
   if(tim)t.push({id:"timber", label:"Timber country", issues:["forests","climate","rural"]});
   if(caucusAg(ch,id)&&lean<75)t.push({id:"ag", label:"Farm country", issues:["water"]});
@@ -21926,6 +21935,7 @@ function caucusDistrictTraits(ch,id,comp,lean){
   if(core)t.push({id:"core", label:"Urban core", issues:deep?["transit","homeless"]:["transit"]});
   if(deep)t.push({id:"deep", label:"Deep blue", issues:["crime","forests","abortion"]});
   if(deep&&rent)t.push({id:"renters", label:"Renters", issues:["rent"]});
+  if(minor)t.push({id:"minor", label:"Minority community", issues:["immigration"]});
   if(red)t.push({id:"red", label:"Deep red", issues:["abortion"]});
   if(biz&&!deep)t.push({id:"biz", label:"Business", issues:["business"]});
   // about two in five urban-core and deep-blue seats have a member tied to the service nonprofits
@@ -21956,7 +21966,7 @@ function caucusDistrictPull(ch,id,comp,lean){
   set("schools", s);
   set("business", has("biz")?-0.6:s);
   set("transit", has("core")?1:(rur?-1:s));
-  set("immigration", s);
+  set("immigration", has("minor")?1:s);
   set("rural", (rur||tim)?1:0);
   set("tolls", has("clack")?1:0);
   set("nonprofits", has("npc")?1:0);
@@ -21967,7 +21977,7 @@ function caucusDistrictPull(ch,id,comp,lean){
 }
 function caucusTraitsOf(k){ const row=caucusRow(k), m=GAME.caucus&&GAME.caucus.m[k]; return (row&&m)?caucusDistrictTraits(m.ch,m.id,row[1],row[3]!=null?row[3]:50):[]; }
 // views are rebuilt when the way they are derived changes
-const CAUCUS_VIEWS_V=6;
+const CAUCUS_VIEWS_V=7;
 /* A member's views: the party line, pulled toward the district where the
    district cares, pulled hard where the seat leans the other way, and one
    personal conviction for about a quarter of them. */
@@ -22123,7 +22133,7 @@ const TOPGROUP_COLD=40, TOPGROUP_WARM=60;
 /* THE GROUP A MEMBER IS ALIGNED WITH: their most specific tie, in this
    order, from the traits their district gives them; with none, their
    party's base. Nonprofit ties have no voter group of their own. */
-const ALIGN_TRAIT=[["pu","publicUnions"],["ag","rural"],["timber","timber"],["union","blueCollar"],["biz","businessClass"],["renters","renters"],
+const ALIGN_TRAIT=[["pu","publicUnions"],["ag","rural"],["timber","timber"],["minor","minorities"],["union","blueCollar"],["biz","businessClass"],["renters","renters"],
   ["core","urban"],["rural","rural"],["red","conservative"],["deep","liberal"],["wealthy","wealthy"],["suburb","suburban"],["clack","motorists"]];
 /* The two groups a member answers to, with the most each can move them:
    aligned 8, the district's biggest 5, one entry if they are the same. */
@@ -32030,7 +32040,7 @@ function agencyBloc(a, id){
   const add=(b,v)=>out[b]=(out[b]||0)+v;
   if(id==="corrections"||id==="judiciary"){ add("socialist",-2); add("liberal",-1.5); add("conservative",1.5); }
   if(id==="ohcs"||id==="dhs"){ add("poor",2.5); add("renters",1); }
-  if(id==="oha"){ add("poor",2); add("retirees",1.5); }
+  if(id==="oha"){ add("poor",2); add("retirees",1.5); add("minorities",1); }
   if(id==="odot"){ add("motorists",2); add("rural",1.5); }
   // the groups an agency names as stakeholders, in the floor's bloc units
   for(const b in (a.fundBloc||{}))add(b,a.fundBloc[b]*3);
