@@ -3810,7 +3810,12 @@ const INDICATORS={
       {name:"⊕ a normal year",v:50,base:true},
       {name:ico('log')+" Federal timber sales drifting (Forest Service and BLM)",v:(GAME.fedHarvest||0)*50}];
       const ev=sitIndicatorPush("federalHarvest"); if(Math.abs(ev)>0.05)d.push({name:ico('log')+" Federal decisions: a big sale or a halt to sales",v:ev});
-      return d; }},
+      return d; },
+    // each point off 50 moves the logging rate's target FED_HARVEST_PTS/50;
+    // feedback is divided by the metric's inertia, so it is scaled up by it here
+    feedback:{loggingRate:FED_HARVEST_PTS/50*METRICS.loggingRate.inertia},
+    // its line in the logging rate's breakdown shows even at 50
+    feedbackAlways:true},
   inMigration:{name:"In-Migration Rate", icon:"truck", value:40,
     desc:"Net flow of people and talent into Oregon. Driven by jobs, affordability, environment, and downtown vitality — a downtown that feels unsafe is one of the strongest things that turns people away. Feeds the labor force and growth, and pushes on homelessness in return: every arrival needs somewhere to live, and a tight housing market squeezes out the people at the bottom of it first.",
     derive:()=>{
@@ -13010,7 +13015,6 @@ function metricTarget(k, noRecovery){
   }
   if(LANDUSE.effects[k]!==undefined)t+=LANDUSE.effects[k][LANDUSE.index];
   // the federal forests: Washington's harvest level, -1 to +1
-  if(k==="loggingRate")t+=fedHarvestPush();
   // Local control cuts both ways on measured outcomes. Statewide standards lift
   // the floor — a common reading curriculum is why centralisation raises tested
   // proficiency — while local latitude lets districts fit their own students and
@@ -13227,7 +13231,6 @@ function metricContributors(k){
     if(Math.abs(e)>0.03)out.push({name:ico(LANDUSE.icon)+' '+LANDUSE.name, v:e, link:"landuse"});
   }
   if(k==="electricRate"){ const d=elecDemandPush(); if(d>0.03)out.push({name:ico('plug')+" Rising demand: data centers, electrification and wildfire hardening", v:d}); }
-  if(k==="loggingRate")out.push({name:ico('log')+" Federal Timber Harvest", v:fedHarvestPush(), link:"i_federalHarvest"});
   for(const L of METRIC_LINKS)if(L.to===k){
     const e=(METRICS[L.from].value-L.ref)*L.coef*0.25/m.inertia;
     if(Math.abs(e)>0.05)out.push({name:'↪ '+(METRICS[L.from]?METRICS[L.from].name:L.from), v:e, link:"m_"+L.from});
@@ -13243,7 +13246,7 @@ function metricContributors(k){
     const ind=INDICATORS[iid];
     if(ind.feedback&&ind.feedback[k]!==undefined){
       const e=(ind.value-(ind.base0!==undefined?ind.base0:50))*ind.feedback[k]/m.inertia;
-      if(Math.abs(e)>0.05)out.push({name:ico(ind.icon)+' '+ind.name, v:e, link:"i_"+iid});
+      if(Math.abs(e)>0.05||ind.feedbackAlways)out.push({name:ico(ind.icon)+' '+ind.name, v:e, link:"i_"+iid});
     }
   }
   {
@@ -13311,8 +13314,6 @@ function tickIndicators(){
    level for a while and pulled back toward normal over the years, and it
    feeds the logging rate. GAME.fedHarvest runs from -1 to +1. The big federal
    decisions are events (fedTimberSale, fedTimberHalt) on top of this drift. */
-/* What the Federal Timber Harvest statistic adds to the logging rate's target. */
-function fedHarvestPush(){ return ((INDICATORS.federalHarvest?INDICATORS.federalHarvest.value:50)-50)/50*FED_HARVEST_PTS; }
 function fedHarvestTick(){
   const h=GAME.fedHarvest||0, was=h;
   GAME.fedHarvest=+clamp(h*0.88+(Math.random()-0.5)*0.36,-1,1).toFixed(3);
@@ -23078,7 +23079,7 @@ const VERSION_HISTORY=[
   ["6.7","7 October 2026","The Port of Portland: a dispute on the docks in about half of games, a risk that carriers leave shaped by how you answer it and by the economy, the crisis when they do, and a temporary Terminal 6 recruitment law, offered only while they are gone, that brings them back and then expires."],
   ["6.8","11 October 2026","Washington: a federal forest harvest that drifts on its own and feeds the logging rate, and a federal Medicaid cut you backfill or absorb. Also plurality elections without ranked choice, crises that ease off faster, and heat domes, strikes and blackouts that fade."],
   ["6.9","11 October 2026","Ethnic Minorities: a new voter group, about a fifth of the electorate, placed in every county and legislative district from the census and moved by immigration enforcement, policing, sentencing, health coverage, wages and voting rules, and by jobs above all. They also back school choice, police funding, a misdemeanor drug law, licensing reform and cheaper fuel, so either party can compete for them. The federal Medicaid cut can no longer be taken to court. A college or grant you underfund still counts in your favor with the people who want it, and repealing one costs you their support."],
-  ["7.0","11 October 2026","Federal Timber Harvest: a statistic set in Washington that feeds the logging rate, moved by its own drift and by two federal events, a big timber sale and a court-ordered halt, either of which can tip Oregon into the Timber Wars or a timber-county fiscal crisis. Ethnic Minorities turn out below the state, carry legislators in the seats where they live, and fill appointments. No program is better repealed than kept: backers credit an underfunded program, and the Health Plan, Measure 11 and Middle Housing are lowered rather than repealed."]
+  ["7.0","11 October 2026","Federal Timber Harvest: a statistic set in Washington that feeds the logging rate, moved by its own drift and by two federal events, a big timber sale and a court-ordered halt, either of which can tip Oregon into the Timber Wars or a timber-county fiscal crisis; its link to the logging rate shows on the Issue Web, the board and the Focus Chart. Ethnic Minorities turn out below the state, carry legislators in the seats where they live, and fill appointments. No program is better repealed than kept: backers credit an underfunded program, and the Health Plan, Measure 11 and Middle Housing are lowered rather than repealed."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -29849,7 +29850,9 @@ function fwDefault(){
 }
 /* One link list, strongest first, the top eight until you ask for all. */
 function fwList(rows, key, dir){
-  if(!rows.length)return `<div class="fw-none">${dir==="in"?"Nothing in the model pushes this directly.":"This does not push anything else directly."}</div>`;
+  // a statistic set from outside the model (Washington's timber sales) says so
+  const _org=dir==="in"&&key.startsWith("i_")&&INDICATORS[key.slice(2).split(":")[0]]&&INDICATORS[key.slice(2).split(":")[0]].origin;
+  if(!rows.length)return `<div class="fw-none">${_org?_org:dir==="in"?"Nothing in the model pushes this directly.":"This does not push anything else directly."}</div>`;
   const max=Math.max(...rows.map(r=>r.w)), open=window._fw.all[key];
   const shown=open?rows:rows.slice(0,8);
   let h=shown.map(r=>{ const inf=fwInfo(r.id); if(!inf)return "";
