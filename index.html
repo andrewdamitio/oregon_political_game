@@ -3751,6 +3751,9 @@ const METRICS={
    how the state is perceived, and they have real downstream consequences.
    value 0..100, higher = better.
    ============================================================ */
+/* How far the federal harvest moves the logging rate's target at its limit
+   (fedHarvest at +1 or -1). It sits near 0 most of the time. */
+const FED_HARVEST_PTS=14;
 const INDICATORS={
   downtown:{name:"Downtown Perception", icon:"city", value:30,
     desc:"How safe, clean, and vibrant Oregon's downtown cores (esp. Portland) are perceived to be. Battered by homelessness, crime, and addiction; lifted as those recover.",
@@ -3799,6 +3802,12 @@ const INDICATORS={
       ...(GAME.activeSituations.cascadiaQuake?[{name:ico('warning')+" Cascadia Earthquake",v:-8,link:"sit_cascadiaQuake"}]:[]),
     ],
     feedback:{gdp:0.018}}, // at starting downtown~18: GDP drag reduced (was 0.030 — too strong). Downtown's lift to business climate lives in that indicator's own derive.
+  federalHarvest:{name:"Federal Timber Harvest", icon:"log", value:50,
+    desc:"How much timber the U.S. Forest Service and the Bureau of Land Management are selling off Oregon's national forests and O&C lands, against a normal year at 50. Most of Oregon's timberland is federal, and its harvest is set in Washington and in the courts, not in Salem: it drifts from quarter to quarter, holds for a while and settles back toward normal over the years. No governor's decision moves it. It feeds the logging rate: at 100 it adds "+FED_HARVEST_PTS+" points to where the logging rate is heading, at 0 it takes "+FED_HARVEST_PTS+" away.",
+    derive:()=>clamp(50+(GAME.fedHarvest||0)*50,0,100),
+    drivers:()=>[
+      {name:"⊕ a normal year",v:50,base:true},
+      {name:ico('log')+" Federal timber sales (Forest Service and BLM)",v:(GAME.fedHarvest||0)*50}]},
   inMigration:{name:"In-Migration Rate", icon:"truck", value:40,
     desc:"Net flow of people and talent into Oregon. Driven by jobs, affordability, environment, and downtown vitality — a downtown that feels unsafe is one of the strongest things that turns people away. Feeds the labor force and growth, and pushes on homelessness in return: every arrival needs somewhere to live, and a tight housing market squeezes out the people at the bottom of it first.",
     derive:()=>{
@@ -5204,7 +5213,7 @@ const SECTION_OF={
   countyPayments:"taxes",   // it is a transfer programme, and it is argued about as one
   // statistics
   taxBurden:"taxes", disposableIncome:"taxes",
-  gdp:"economy", unemployment:"economy", inequality:"economy", businessClimate:"economy", inMigration:"economy",
+  gdp:"economy", unemployment:"economy", inequality:"economy", businessClimate:"economy", inMigration:"economy", federalHarvest:"environment",
   education:"pubservices", digitization:"pubservices", eduOutcomes:"pubservices",
   violentCrime:"laworder", propertyCrime:"laworder", incarcerationRate:"laworder", drugUse:"laworder", psychBeds:"laworder",
   homelessness:"welfare", housingAffordability:"welfare",
@@ -12962,9 +12971,6 @@ const _CRIME_FLOOR_GIVEBACK={};
    over five years. New supply and transmission are what push back. Zero at
    the start, so it does not move the calibration. */
 const ELEC_DEMAND_STEP=0.12, ELEC_DEMAND_MAX=2.4;
-/* How far the federal harvest moves the logging rate's target at its limit
-   (fedHarvest at +1 or -1). It sits near 0 most of the time. */
-const FED_HARVEST_PTS=14;
 /* What a Medicaid cut of a given share of the federal match costs Oregon a year. */
 function fedMedicaidCutAmount(f){ try{ return ohpFiscal().fedShare*f; }catch(e){ return 0.6; } }
 function elecDemandPush(){ return Math.min(ELEC_DEMAND_MAX, ELEC_DEMAND_STEP*Math.max(0,GAME.turn||0)); }
@@ -12982,7 +12988,7 @@ function metricTarget(k, noRecovery){
   }
   if(LANDUSE.effects[k]!==undefined)t+=LANDUSE.effects[k][LANDUSE.index];
   // the federal forests: Washington's harvest level, -1 to +1
-  if(k==="loggingRate")t+=(GAME.fedHarvest||0)*FED_HARVEST_PTS;
+  if(k==="loggingRate")t+=fedHarvestPush();
   // Local control cuts both ways on measured outcomes. Statewide standards lift
   // the floor — a common reading curriculum is why centralisation raises tested
   // proficiency — while local latitude lets districts fit their own students and
@@ -13199,7 +13205,7 @@ function metricContributors(k){
     if(Math.abs(e)>0.03)out.push({name:ico(LANDUSE.icon)+' '+LANDUSE.name, v:e, link:"landuse"});
   }
   if(k==="electricRate"){ const d=elecDemandPush(); if(d>0.03)out.push({name:ico('plug')+" Rising demand: data centers, electrification and wildfire hardening", v:d}); }
-  if(k==="loggingRate"&&Math.abs(GAME.fedHarvest||0)>0.01)out.push({name:ico('log')+" Federal forest harvest", v:(GAME.fedHarvest||0)*FED_HARVEST_PTS});
+  if(k==="loggingRate")out.push({name:ico('log')+" Federal Timber Harvest", v:fedHarvestPush(), link:"i_federalHarvest"});
   for(const L of METRIC_LINKS)if(L.to===k){
     const e=(METRICS[L.from].value-L.ref)*L.coef*0.25/m.inertia;
     if(Math.abs(e)>0.05)out.push({name:'↪ '+(METRICS[L.from]?METRICS[L.from].name:L.from), v:e, link:"m_"+L.from});
@@ -13282,6 +13288,8 @@ function tickIndicators(){
    the courts, not in Salem. It drifts from quarter to quarter, holding its
    level for a while and pulled back toward normal over the years, and it
    feeds the logging rate. GAME.fedHarvest runs from -1 to +1. */
+/* What the Federal Timber Harvest statistic adds to the logging rate's target. */
+function fedHarvestPush(){ return ((INDICATORS.federalHarvest?INDICATORS.federalHarvest.value:50)-50)/50*FED_HARVEST_PTS; }
 function fedHarvestTick(){
   const h=GAME.fedHarvest||0, was=h;
   GAME.fedHarvest=+clamp(h*0.88+(Math.random()-0.5)*0.36,-1,1).toFixed(3);
