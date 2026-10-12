@@ -3804,10 +3804,13 @@ const INDICATORS={
     feedback:{gdp:0.018}}, // at starting downtown~18: GDP drag reduced (was 0.030 — too strong). Downtown's lift to business climate lives in that indicator's own derive.
   federalHarvest:{name:"Federal Timber Harvest", icon:"log", value:50,
     desc:"How much timber the U.S. Forest Service and the Bureau of Land Management are selling off Oregon's national forests and O&C lands, against a normal year at 50. Most of Oregon's timberland is federal, and its harvest is set in Washington and in the courts, not in Salem: it drifts from quarter to quarter, holds for a while and settles back toward normal over the years. No governor's decision moves it. It feeds the logging rate: at 100 it adds "+FED_HARVEST_PTS+" points to where the logging rate is heading, at 0 it takes "+FED_HARVEST_PTS+" away.",
-    derive:()=>clamp(50+(GAME.fedHarvest||0)*50,0,100),
-    drivers:()=>[
+    origin:"Set in Washington, D.C., not computed from Oregon's own statistics: it drifts at random, and a big federal timber sale or a halt to sales can move it sharply. No state policy reaches it.",
+    derive:()=>clamp(50+(GAME.fedHarvest||0)*50+sitIndicatorPush("federalHarvest"),0,100),
+    drivers:()=>{ const d=[
       {name:"⊕ a normal year",v:50,base:true},
-      {name:ico('log')+" Federal timber sales (Forest Service and BLM)",v:(GAME.fedHarvest||0)*50}]},
+      {name:ico('log')+" Federal timber sales drifting (Forest Service and BLM)",v:(GAME.fedHarvest||0)*50}];
+      const ev=sitIndicatorPush("federalHarvest"); if(Math.abs(ev)>0.05)d.push({name:ico('log')+" Federal decisions: a big sale or a halt to sales",v:ev});
+      return d; }},
   inMigration:{name:"In-Migration Rate", icon:"truck", value:40,
     desc:"Net flow of people and talent into Oregon. Driven by jobs, affordability, environment, and downtown vitality — a downtown that feels unsafe is one of the strongest things that turns people away. Feeds the labor force and growth, and pushes on homelessness in return: every arrival needs somewhere to live, and a tight housing market squeezes out the people at the bottom of it first.",
     derive:()=>{
@@ -11502,6 +11505,19 @@ const SITUATIONS={
     desc:"Global crude prices spike — every gas station marquee in Oregon becomes a referendum on your administration.",
     metricEffect:{gasPrice:0.25,gdp:-0.15,inequality:0.4}, moodMag:1, minTurns:2,
     groupMood:{rural:-6,blueCollar:-6,timber:-5,suburban:-3,motorists:-7}},
+  /* ---- WASHINGTON'S TIMBER DECISIONS. The federal harvest drifts on its
+     own; these are the big moves, decided in Washington or a federal court,
+     that throw it well off normal for a couple of years and then fade. Like
+     weather, they dock statistics, not constituencies: the timber towns feel
+     them through the logging rate. ---- */
+  fedTimberSale:{name:"Washington Opens a Big Federal Timber Sale", kind:"good", category:"event", noChoice:true, cooldown:10,
+    desc:"The Forest Service and the Bureau of Land Management have put a large block of timber on Oregon's national forests and O&C lands up for sale at once: a backlog of thinning projects cleared, and a push from Congress to raise the cut. Mills that were short of logs are bidding, and the timber counties will get their share of the receipts. Environmental groups have already gone to court over parts of it.\n\nNothing the state does started it, and nothing the state does stops it. It runs its course as the sale is logged.",
+    indicatorEffect:{federalHarvest:30}, moodMag:0, minTurns:4, endChance:0.4, fadeOut:0.75,
+    groupMood:{}},
+  fedTimberHalt:{name:"Washington Halts Federal Timber Sales", kind:"bad", category:"event", noChoice:true, cooldown:10,
+    desc:"A federal court has stopped a large share of the timber sales on Oregon's national forests and O&C lands, over the northern spotted owl and the marbled murrelet, and the agencies have pulled the rest back for review. Mills that depended on federal logs are cutting shifts, and the timber counties' receipts will fall.\n\nNothing the state does started it, and nothing the state does lifts it. It ends as the courts and the agencies work through it.",
+    indicatorEffect:{federalHarvest:-30}, moodMag:0, minTurns:4, endChance:0.4, fadeOut:0.75,
+    groupMood:{}},
   heatDome:{name:"Heat Dome", kind:"bad", category:"event",
     desc:"A record heat dome bakes the Willamette Valley, echoing the deadly 2021 event that killed ninety-six Oregonians in a week. Cooling centers are overwhelmed, outdoor work halts, and the grid strains under air conditioning in a housing stock largely built without it.\n\nThis is weather, and Oregonians know it: nobody is blaming you for the sky. What it costs you is not popularity but the state of the state — a heat dome breaks things, and you govern the wreckage afterward.",
     // A heat dome is weather. It docks statistics, not constituencies: this
@@ -12089,6 +12105,12 @@ const EVENT_POOL=[
    mult:()=>{ const gs=growthResourceStrain();
      return [{name:"Growth pressing on water and power ("+Math.round(gs*100)+"%) — more load, more people, less slack when it hits", x:1+gs*0.5, link:plink("dataCenterEnergy")}]; }},
   {id:"oilShock", prob:0.05, gate:()=>true},
+  // Washington's timber decisions: one at a time, and a sale is likelier when
+  // the federal cut has been running low, a halt when it has been running high
+  {id:"fedTimberSale", prob:0.035, gate:()=>GAME.turn>2&&!GAME.activeSituations.fedTimberHalt,
+   mult:()=>[{name:"Federal Timber Harvest "+_sn(INDICATORS.federalHarvest.value)+": a low cut builds pressure in Congress to raise it", x:1+clamp((50-INDICATORS.federalHarvest.value)/40,-0.4,0.6), link:"i_federalHarvest"}]},
+  {id:"fedTimberHalt", prob:0.035, gate:()=>GAME.turn>2&&!GAME.activeSituations.fedTimberSale,
+   mult:()=>[{name:"Federal Timber Harvest "+_sn(INDICATORS.federalHarvest.value)+": a heavy cut draws more lawsuits", x:1+clamp((INDICATORS.federalHarvest.value-50)/40,-0.4,0.6), link:"i_federalHarvest"}]},
   {id:"klamathCrisis", prob:0.05, seasonal:[2,3],
    gate:()=>!POLICIES.waterRights||policyLevel(POLICIES.waterRights)<0.5,
    why:()=>[[ fc("Water still allocated first-in-time — no critical areas, no adjudication", plevelTxt("waterRights"), !POLICIES.waterRights||policyLevel(POLICIES.waterRights)<0.5, plink("waterRights")) ]],
@@ -13287,7 +13309,8 @@ function tickIndicators(){
    of it the Forest Service and the BLM sell is decided in Washington and in
    the courts, not in Salem. It drifts from quarter to quarter, holding its
    level for a while and pulled back toward normal over the years, and it
-   feeds the logging rate. GAME.fedHarvest runs from -1 to +1. */
+   feeds the logging rate. GAME.fedHarvest runs from -1 to +1. The big federal
+   decisions are events (fedTimberSale, fedTimberHalt) on top of this drift. */
 /* What the Federal Timber Harvest statistic adds to the logging rate's target. */
 function fedHarvestPush(){ return ((INDICATORS.federalHarvest?INDICATORS.federalHarvest.value:50)-50)/50*FED_HARVEST_PTS; }
 function fedHarvestTick(){
@@ -31342,7 +31365,7 @@ function renderDetail(){
       ? (ind.value<=40?'var(--good)':ind.value<=58?'var(--warn)':'var(--bad)')
       : (ind.value>=60?'var(--good)':ind.value>=42?'var(--warn)':'var(--bad)');
     h+=`<div class="sectionhdr">${ico(ind.icon)} ${ind.name}</div><div class="sectionsub">${descHTML(ind.desc)}</div>`;
-    h+=`<div class="detailrow"><span class="pill dom">State statistic</span><span class="pill">Computed from other statistics &amp; policies — reflects conditions, not a direct policy target</span></div>`;
+    h+=`<div class="detailrow"><span class="pill dom">State statistic</span><span class="pill">${ind.origin||"Computed from other statistics &amp; policies — reflects conditions, not a direct policy target"}</span></div>`;
     h+=`<div class="detailval" style="color:${col}">${Math.round(ind.value)}<span style="font-size:17px;color:var(--muted-3)">/100</span></div>`;
     h+=`<div class="chartbox"><div class="charttitle">${ind.name} over time</div>
       ${sparkline(GAME.history["i_"+id],{axis:true,color:'var(--slate-blue)',min:0,max:100,fmt:v=>Math.round(v)})}</div>`;
