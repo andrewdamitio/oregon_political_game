@@ -8686,7 +8686,7 @@ const SIMULANTS={
   timber:{category:"sector", name:"Timber & Resource Workers", size:0.04, turnout:0.63,
     ideology:{economic:0.4,social:0.4,environment:0.7,govSize:0.3}, approval:41,
     sensitivities:{logging:1.6, unemployment:1.6, gdp:1.4, environment:-0.6, gasprice:1.7, income:1.2},
-    instPref:{communityCollege:1.3, stateCollege:0.5}},
+    instPref:{communityCollege:1.3, stateCollege:0.5, aid:0.6}},
   motorists:{category:"sector", name:"Motorists", size:0.68, turnout:0.66,
     ideology:{economic:0.15,social:0.1,environment:0.25,govSize:0.15}, approval:47,
     sensitivities:{gdp:1.0, taxes:1.3, crime:0.9, gasprice:2.0, income:1.1},
@@ -14097,6 +14097,7 @@ function blocMoodContributors(sid){
   }
   for(const id in AGENCIES){const r=blocReaction("agency",AGENCIES[id],s);if(r!==null&&Math.abs(r)>0.05)mc.push({lbl:ico(AGENCIES[id].icon)+' '+AGENCIES[id].name,v:r,lnk:"a_"+id});}
   {const r=blocReaction("landuse",LANDUSE,s);if(r!==null&&Math.abs(r)>0.05)mc.push({lbl:ico(LANDUSE.icon)+' '+LANDUSE.name,v:r,lnk:"landuse"});}
+  { const eb=expectationBaseline(sid); if(Math.abs(eb)>0.05)mc.push({lbl:ico('columns')+" Expectations of colleges, student aid and forestry",v:eb,lnk:null}); }
   for(const row of apptMoodRows(sid))mc.push({lbl:row.lbl,v:row.v,lnk:null});
   mc.sort((a,b)=>Math.abs(b.v)-Math.abs(a.v));
   return mc;
@@ -14230,7 +14231,7 @@ function approvalTarget(sid, raw){
     for(const id in AGENCIES){
       const a=AGENCIES[id];
       if(a.ideology)policyMood+=dot(a.ideology,sim.ideology)*((a.funding??0.5)-0.5)*6;
-      if(a.fundBloc&&a.fundBloc[sid]!==undefined)policyMood+=a.fundBloc[sid]*((a.funding??0.5)-0.5)*2;   // a direct stake
+      if(a.fundBloc&&a.fundBloc[sid]!==undefined)policyMood+=a.fundBloc[sid]*(a.funding??0.5)*2;   // a direct stake
       if(a.loggingIdeology)policyMood+=dot(a.loggingIdeology,sim.ideology)*((a.logging??0.5)-0.5)*6;
     }
     // land use posture
@@ -14242,10 +14243,12 @@ function approvalTarget(sid, raw){
         if(!p.instTier||!p.enacted)continue;
         const pref=sim.instPref[p.instTier];
         if(pref===undefined)continue;
-        // funding above the neutral 0.5 mark, weighted by preference
-        policyMood+=pref*(policyLevel(p)-0.5)*6;
+        // credit for the funding, weighted by preference
+        policyMood+=pref*policyLevel(p)*6;
       }
     }
+    // what the group expects of the colleges, aid and agencies it values
+    policyMood+=expectationBaseline(sid);
     // A strained apparatus doesn't deliver: when Administrative Overhead is high
     // (or an acute disruption is running), voters give less credit for the
     // programs you're funding — the benefit isn't reaching them. Only the
@@ -23040,7 +23043,7 @@ const VERSION_HISTORY=[
   ["6.6","7 October 2026","Your party's campaign under a parliament, where the ground game moves the Senate vote; a campaign section on every member's file; election night's race section; member files in a formal register; a Concede that warns before it ends the game, ranked choice from the start (the RCV seed), full-width boards, and every page's description and How this works brought up to date."],
   ["6.7","7 October 2026","The Port of Portland: a dispute on the docks in about half of games, a risk that carriers leave shaped by how you answer it and by the economy, the crisis when they do, and a temporary Terminal 6 recruitment law, offered only while they are gone, that brings them back and then expires."],
   ["6.8","11 October 2026","Washington: a federal forest harvest that drifts on its own and feeds the logging rate, and a federal Medicaid cut you backfill or absorb. Also plurality elections without ranked choice, crises that ease off faster, and heat domes, strikes and blackouts that fade."],
-  ["6.9","11 October 2026","Ethnic Minorities: a new voter group, about a fifth of the electorate, placed in every county and legislative district from the census and moved by immigration enforcement, policing, sentencing, health coverage, wages and voting rules, and by jobs above all. They also back school choice, police funding, a misdemeanor drug law, licensing reform and cheaper fuel, so either party can compete for them. The federal Medicaid cut can no longer be taken to court."]
+  ["6.9","11 October 2026","Ethnic Minorities: a new voter group, about a fifth of the electorate, placed in every county and legislative district from the census and moved by immigration enforcement, policing, sentencing, health coverage, wages and voting rules, and by jobs above all. They also back school choice, police funding, a misdemeanor drug law, licensing reform and cheaper fuel, so either party can compete for them. The federal Medicaid cut can no longer be taken to court. A college or grant you underfund still counts in your favor with the people who want it, and repealing one costs you their support."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -29295,6 +29298,28 @@ function getSizeEffects(kind,obj){
   return out.sort((a,b)=>b.delta-a.delta);
 }
 
+/* WHAT A GROUP EXPECTS FROM THE STATE. The colleges, the Opportunity Grant
+   and Oregon Promise are all in force when the game opens, and the Board of
+   Forestry is funded. Groups that value them carry a standing expectation:
+   a fixed amount off their approval, whatever you do. Each program then earns
+   back credit in proportion to how far it is funded, from nothing at zero to
+   more than the expectation above half. So a program underfunded still reads
+   as a plus with the people who want it, just a small one, and repealing it
+   costs them the whole expectation rather than sparing them a shortfall.
+   (Measured this way the mood is exactly what it was for any program in
+   force; only repeal is newly, and rightly, a loss.) */
+const INST_INHERITED=["higherEd","universities","stateColleges","communityColleges","oregonPromise"];
+function expectationBaseline(sid){
+  const sim=SIMULANTS[sid]; if(!sim)return 0;
+  let b=0;
+  for(const id of INST_INHERITED){
+    const p=POLICIES[id]||CATALOG[id]; if(!p||!p.instTier)continue;
+    const pref=sim.instPref&&sim.instPref[p.instTier];
+    if(pref!==undefined)b-=pref*3;
+  }
+  for(const id in AGENCIES){ const a=AGENCIES[id]; if(a.fundBloc&&a.fundBloc[sid]!==undefined)b-=a.fundBloc[sid]; }
+  return b;
+}
 /* The institution-preference term measures a bloc against the adequacy line
    (0.5), not against the policy. A group with a POSITIVE instPref whose reaction
    reads negative is saying "this tier is funded below what I think it needs" —
@@ -29309,12 +29334,11 @@ function instPrefShortfall(kind,obj,sim){
   if(lvl>=0.5)return 0;
   return pref*(lvl-0.5)*6;              // negative by construction
 }
-/* True when the ONLY thing making this bloc negative is the funding shortfall —
-   strip that term out and they are neutral-or-better on the policy itself. */
+/* True when a group that backs this program would back it more at a higher
+   level: it reads as a plus, and the level is under half. */
 function wantsMoreFunding(kind,obj,sim,r){
-  if(r===null||r>=0)return false;
-  const sf=instPrefShortfall(kind,obj,sim);
-  return sf<0 && (r-sf)>=-0.05;
+  if(r===null||r<=0)return false;
+  return instPrefShortfall(kind,obj,sim)<0;
 }
 /* A reaction that switches on at "from" along the slider and grows to "max" at full. */
 function blocRampMood(p,sid){
@@ -29386,7 +29410,7 @@ function blocReaction(kind,obj,sim){
     }
     // institution preference engagement
     if(obj.instTier&&sim.instPref&&sim.instPref[obj.instTier]!==undefined){
-      const instM=sim.instPref[obj.instTier]*(lvl-0.5)*6;
+      const instM=sim.instPref[obj.instTier]*lvl*6;
       m+=instM;
       if(Math.abs(sim.instPref[obj.instTier])>=0.5)engaged=true;
     }
@@ -29396,7 +29420,7 @@ function blocReaction(kind,obj,sim){
     }
   } else if(kind==="agency"){
     if(obj.ideology)m+=dot(obj.ideology,sim.ideology)*((obj.funding??0.5)-0.5)*6;
-    if(obj.fundBloc&&obj.fundBloc[sim.id]!==undefined){ m+=obj.fundBloc[sim.id]*((obj.funding??0.5)-0.5)*2; engaged=true; }
+    if(obj.fundBloc&&obj.fundBloc[sim.id]!==undefined){ m+=obj.fundBloc[sim.id]*(obj.funding??0.5)*2; engaged=true; }
     if(obj.loggingIdeology)m+=dot(obj.loggingIdeology,sim.ideology)*((obj.logging??0.5)-0.5)*6;
     // an agency that names its stakeholders is judged by them, not by every
     // group that cares about a metric it happens to move
@@ -29717,11 +29741,11 @@ function effectsBreakdownHTML(kind,obj){
     const scale=Math.max(1,...reactions.map(x=>Math.abs(x.r)));
     for(const x of reactions)
       h+=effectBar(x.name+(x.want?` <span class="eb-want">wants more funding</span>`:``), x.r, scale,
-        {color:x.r>=0?`var(--good)`:(x.want?`var(--warn)`:`var(--clay)`),
+        {color:x.r>=0?`var(--good)`:`var(--clay)`,
         link:"v_"+x.sid, fmt:v=>(v>=0?`+`:``)+v.toFixed(1)});
     h+=`</div>`;
     if(reactions.some(x=>x.want))
-      h+=`<div class="ebnote">Groups marked <b>wants more funding</b> are not against this — they back it, and are marking it down because the level sits below what they consider adequate. Raise it and they turn positive.</div>`;
+      h+=`<div class="ebnote">Groups marked <b>wants more funding</b> back this and give you credit for it now. They would give more if it were funded past the halfway mark, and repealing it would cost you their support.</div>`;
   } else {
     h+=`<div class="ebgroup-label">Effect on voter blocs</div><div class="ebnote">No voter group is significantly affected by this on its own.</div>`;
   }
