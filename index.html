@@ -23053,7 +23053,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="7.0";
+const GAME_VERSION="7.1";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -23079,7 +23079,8 @@ const VERSION_HISTORY=[
   ["6.7","7 October 2026","The Port of Portland: a dispute on the docks in about half of games, a risk that carriers leave shaped by how you answer it and by the economy, the crisis when they do, and a temporary Terminal 6 recruitment law, offered only while they are gone, that brings them back and then expires."],
   ["6.8","11 October 2026","Washington: a federal forest harvest that drifts on its own and feeds the logging rate, and a federal Medicaid cut you backfill or absorb. Also plurality elections without ranked choice, crises that ease off faster, and heat domes, strikes and blackouts that fade."],
   ["6.9","11 October 2026","Ethnic Minorities: a new voter group, about a fifth of the electorate, placed in every county and legislative district from the census and moved by immigration enforcement, policing, sentencing, health coverage, wages and voting rules, and by jobs above all. They also back school choice, police funding, a misdemeanor drug law, licensing reform and cheaper fuel, so either party can compete for them. The federal Medicaid cut can no longer be taken to court. A college or grant you underfund still counts in your favor with the people who want it, and repealing one costs you their support."],
-  ["7.0","11 October 2026","Federal Timber Harvest: a statistic set in Washington that feeds the logging rate, moved by its own drift and by two federal events, a big timber sale and a court-ordered halt, either of which can tip Oregon into the Timber Wars or a timber-county fiscal crisis; its link to the logging rate shows on the Issue Web, the board and the Focus Chart. Ethnic Minorities turn out below the state, carry legislators in the seats where they live, and fill appointments. No program is better repealed than kept: backers credit an underfunded program, and the Health Plan, Measure 11 and Middle Housing are lowered rather than repealed."]
+  ["7.0","11 October 2026","Federal Timber Harvest: a statistic set in Washington that feeds the logging rate, moved by its own drift and by two federal events, a big timber sale and a court-ordered halt, either of which can tip Oregon into the Timber Wars or a timber-county fiscal crisis; its link to the logging rate shows on the Issue Web, the board and the Focus Chart. Ethnic Minorities turn out below the state, carry legislators in the seats where they live, and fill appointments. No program is better repealed than kept: backers credit an underfunded program, and the Health Plan, Measure 11 and Middle Housing are lowered rather than repealed."],
+  ["7.1","25 October 2026","Potential Taxes on the State Budget page: the taxes you have not passed and the reforms that keep or unlock revenue, each with the range it could raise, who it falls on, and how it passes."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -33826,6 +33827,53 @@ function renderExecOrders(){
     if(renewExecOrder(e.currentTarget.dataset.eorenew))renderInPlace();
   }));
 }
+/* REVENUE NOT YET ON THE BOOKS. Players kept missing that the money they
+   need sits in laws they have not passed: the ledger above only lists what
+   Oregon already collects. Built from the catalog, so anything that raises
+   money and is not enacted shows here, and leaves when it is. Reforms that
+   keep or unlock revenue without being a tax get their own short list. */
+const REVENUE_REFORM_NOTE={
+  revenueMajority:"Raises nothing itself. Lets a tax bill pass with a simple majority instead of three-fifths of each chamber.",
+  kickerReform:"Keeps the surplus the kicker would refund to taxpayers, in the years there is one.",
+  propTaxReform:"Lifts the Measure 5 and 50 caps, so local property taxes can grow with values again."};
+function untappedRevenueHTML(){
+  const firstSentence=t=>{ const x=String(t||"").replace(/<[^>]+>/g,"").split("\n")[0]; const m=x.match(/^.*?[.!?](\s|$)/); return (m?m[0]:x).trim(); };
+  const hardest=c=>Object.keys(c.blocEffect||{}).filter(k=>SIMULANTS[k]&&c.blocEffect[k]<0)
+    .sort((a,b)=>c.blocEffect[a]-c.blocEffect[b]).slice(0,2).map(k=>SIMULANTS[k].name);
+  const route=(id,c)=>{ const ec=policyEnactCost(c);
+    if(c.reform)return "A floor vote to refer it, then the voters decide";
+    return goesToFloor(c,"enact")?"A floor vote":"Goes to the voters, ◈ "+ec+" to refer"; };
+  const taxes=[], reforms=[];
+  for(const id in CATALOG){
+    const c=CATALOG[id]; if(!c||c.oneTime)continue;
+    const yr=(c.revenueFull||0)>0?c.revenueFull:(c.revenue||0)>0?c.revenue:0;
+    if(REVENUE_REFORM_NOTE[id])reforms.push({id,c,yr});
+    else if(yr>0)taxes.push({id,c,yr});
+  }
+  if(!taxes.length&&!reforms.length)return "";
+  taxes.sort((a,b)=>b.yr-a.yr); reforms.sort((a,b)=>b.yr-a.yr);
+  // a dial runs from its lowest step (the sliders move in 0.05s) to full; a
+  // law raises one amount
+  const SLIDER_LOW=0.05;
+  const row=(x,note)=>{ const c=x.c, who=hardest(c), slider=c.mechanic==="slider";
+    const lo=Math.max(SLIDER_LOW,c.sliderFloor||0);
+    // small sums read in millions, not as "$0.0B"
+    const money=v=>v<0.1?"$"+Math.round(v*1000)+"M":fmtB(v,1);
+    const amt=x.yr<=0?"no revenue itself"
+      :slider?money(x.yr*lo)+" to "+money(x.yr)+" a year"
+      :"about "+money(x.yr)+" a year";
+    const R=c.real, rv=v=>{ const n=(R.min+(R.max-R.min)*v).toFixed(R.decimals||0);
+      return R.unit==="%"?n+"%":/^\$\//.test(R.unit)?"$"+n+" a "+R.unit.slice(2):n+" "+R.unit; };
+    const scale=slider&&R&&x.yr>0?`<div class="lnote">From ${/^\$\//.test(R.unit)?"":"a "+R.label+" of "}${rv(lo)} at its lowest to ${rv(1)} at its highest.</div>`:"";
+    return `<div class="ledger" data-detail="p_${x.id}" style="cursor:pointer"><div class="lrow"><span class="lname">${ico(c.icon)} ${c.name}</span><span class="lamt good">${amt}</span></div>
+      <div class="lnote">${note||firstSentence(c.desc)}</div>${scale}
+      <div class="lnote" style="opacity:.8">${route(x.id,c)}${who.length?" · hardest on "+who.join(" and "):""} · open it to see every effect →</div></div>`; };
+  let h=`<div class="fiscal-panel" style="margin-top:22px"><div class="fiscal-title">Potential Taxes</div>
+    <div class="fnote" style="margin:-2px 0 12px">The ledger above lists only what Oregon already collects. These are the taxes and reforms you have not passed, with what each could raise from its lowest setting to its highest. Each one opens its own page with the full effects and how to pass it.</div>`;
+  if(taxes.length)h+=`<div class="ebgroup-label">Taxes Oregon does not levy</div>`+taxes.map(x=>row(x)).join("");
+  if(reforms.length)h+=`<div class="ebgroup-label" style="margin-top:14px">Reforms that keep or unlock revenue</div>`+reforms.map(x=>row(x,REVENUE_REFORM_NOTE[x.id])).join("");
+  return h+`</div>`;
+}
 function renderBudget(){
   const b=budgetBalance(), rev=revenueBySource(), spd=spendingByArea();
   const revRows=Object.keys(REVENUE).sort((a,c)=>rev[c]-rev[a]);
@@ -34001,6 +34049,7 @@ function renderBudget(){
   h+=`<div class="ltotal"><span>Total Spending</span><span class="spend">${fmtB(b.spend,2)}</span></div></div>`;
   h+=`</div>`;
   h+=`<div class="sectionsub" data-tidy="1" style="margin-top:20px">Oregon's constitution requires a balanced budget. A surplus more than 2% over forecast triggers the <b>kicker</b>, which refunds all of it to taxpayers unless you have passed Kicker Reform. A deficit draws on the <b>Rainy Day Fund</b> automatically. Once that is empty the gap becomes structural debt, and forced cuts hit education, health and your political capital. The <b>Education Stability Fund</b> is a separate school reserve: it cannot close the general gap, only soften the school cut a forced deficit brings. You can <b>draw on the Rainy Day Fund</b> in the panel above to pay down structural debt or cover a gap without raising taxes, for ◈${RESERVE_DRAW_CAPITAL} and some goodwill among fiscal hawks.</div>`;
+  h+=untappedRevenueHTML();
   }
   main.innerHTML=h;
   main.querySelectorAll('[data-btab]').forEach(b=>b.addEventListener('click',()=>{ window._budgetTab=b.dataset.btab; render(); }));
