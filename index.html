@@ -17381,6 +17381,7 @@ function showQuarterReport(quiet,next){
     <div class="rrow"><span class="rlabel">Balance this quarter</span><span class="rdelta ${balClass}">${fmtB(b.balance/4,2,true)} <span class="pf-dim" style="font-weight:400">(${fmtB(b.balance,1,true)} a year)</span></span></div>
     <div class="rrow"><span class="rlabel">Reserves (Rainy Day)</span><span class="rval">${fmtB(GAME.rainyDay,1)}</span></div>
     ${debtLine}
+    ${b.balance<0&&potentialTaxesLine()?`<div class="rrow rvac" data-rpot="1" tabindex="0" title="Open Potential Taxes on the State Budget page"><span class="rlabel" style="color:var(--slate-blue)">${ico('receipt')} ${potentialTaxesLine()}</span><span class="rval"><b class="rvac-go" style="color:var(--slate-blue)">See them ▸</b></span></div>`:''}
     <div class="rrow"><span class="rlabel">Capital income</span><span class="rval">◈ ${GAME.capitalPerTurn}/qtr${floorFrozen()?` <span style="color:var(--clay)">(${(GAME.floorFreeze||0)>0?"walkout — no floor for "+GAME.floorFreeze+"q":"Capitol occupied — no floor"})</span>`:''}</span></div>
   </div>`;
   // EMPTY CHAIRS, ON THE PAGE YOU ACTUALLY READ. A vacancy is a standing
@@ -17489,10 +17490,15 @@ function showQuarterReport(quiet,next){
    the board, where the quarter's sequence carries on from it. */
 function reportVacWire(card,hide,reopen){
   card.querySelectorAll("[data-rvac]").forEach(el=>{
-    const go=()=>{ hide(); window._reportReturn=reopen;
+    const go=()=>{ hide(); window._reportReturn=reopen; window._reportReturnView="appointments";
       currentView="appointments"; detailKey=null;
       document.querySelectorAll("nav.rail button").forEach(b=>b.classList.toggle("active",b.dataset.view==="appointments"));
       render(); openApptPanel(el.dataset.rvac); };
+    el.addEventListener("click",go);
+    el.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); go(); } });
+  });
+  card.querySelectorAll("[data-rpot]").forEach(el=>{
+    const go=()=>{ hide(); window._reportReturn=reopen; window._reportReturnView="budget"; openPotentialTaxes(); };
     el.addEventListener("click",go);
     el.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); go(); } });
   });
@@ -17500,8 +17506,8 @@ function reportVacWire(card,hide,reopen){
 /* Leaving the Appointments page with a report waiting: back to the board
    and the report. Returns true when it has taken over the render. */
 function reportReturnCheck(){
-  if(!window._reportReturn||currentView==="appointments")return false;
-  const f=window._reportReturn; window._reportReturn=null;
+  if(!window._reportReturn||currentView===(window._reportReturnView||"appointments"))return false;
+  const f=window._reportReturn; window._reportReturn=null; window._reportReturnView=null;
   currentView="board"; detailKey=null;
   document.querySelectorAll("nav.rail button").forEach(b=>b.classList.toggle("active",b.dataset.view==="board"));
   setTimeout(f,0);
@@ -18155,6 +18161,7 @@ function showShortfallChoice(next){
   };
   card.innerHTML=`<h2>${ico('warning')} Shortfall Building</h2>
     <div class="sectionsub">Oregon carries <b>−$${debt.toFixed(2)}B</b> of accumulated shortfall${ds>=2?` after <b>${ds}</b> straight deficit quarters`:''}. A <b>Structural Deficit Crisis</b> starts past <b>−$${fiscalCrisisThreshold().toFixed(2)}B</b> or after four deficit quarters in a row, and deepens every quarter it runs. The Rainy Day Fund still holds <b>${fmtB(bal,2)}</b>. Drawing on it pays the shortfall down, for <b>◈${RESERVE_DRAW_CAPITAL}</b> political capital, and fiscal conservatives will call it raiding the savings account.</div>
+    ${potentialTaxesLine()?`<div class="fnote" style="margin-top:8px">A draw buys time. The gap closes for good with revenue or cuts: <span class="sf-l" data-potgo="1" style="cursor:pointer">${potentialTaxesLine()} →</span></div>`:""}
     <div class="dilemma-opts" style="margin-top:14px">
       ${opt(0.5,"Draw half")}
       ${opt(RESERVE_DRAW_CAP,"Draw two-thirds")}
@@ -18172,6 +18179,8 @@ function showShortfallChoice(next){
   const onKey=(e)=>{ if(modal.classList.contains("hidden"))return;
     if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(0); } };
   card.querySelectorAll('[data-amt]').forEach(b=>b.addEventListener('click',()=>done(+b.dataset.amt)));
+  // looking at the list is the same as riding it out this quarter
+  card.querySelectorAll('[data-potgo]').forEach(el=>el.addEventListener('click',()=>{ done(0); openPotentialTaxes(); }));
   document.addEventListener("keydown",onKey,true);
 }
 
@@ -23080,7 +23089,7 @@ const VERSION_HISTORY=[
   ["6.8","11 October 2026","Washington: a federal forest harvest that drifts on its own and feeds the logging rate, and a federal Medicaid cut you backfill or absorb. Also plurality elections without ranked choice, crises that ease off faster, and heat domes, strikes and blackouts that fade."],
   ["6.9","11 October 2026","Ethnic Minorities: a new voter group, about a fifth of the electorate, placed in every county and legislative district from the census and moved by immigration enforcement, policing, sentencing, health coverage, wages and voting rules, and by jobs above all. They also back school choice, police funding, a misdemeanor drug law, licensing reform and cheaper fuel, so either party can compete for them. The federal Medicaid cut can no longer be taken to court. A college or grant you underfund still counts in your favor with the people who want it, and repealing one costs you their support."],
   ["7.0","11 October 2026","Federal Timber Harvest: a statistic set in Washington that feeds the logging rate, moved by its own drift and by two federal events, a big timber sale and a court-ordered halt, either of which can tip Oregon into the Timber Wars or a timber-county fiscal crisis; its link to the logging rate shows on the Issue Web, the board and the Focus Chart. Ethnic Minorities turn out below the state, carry legislators in the seats where they live, and fill appointments. No program is better repealed than kept: backers credit an underfunded program, and the Health Plan, Measure 11 and Middle Housing are lowered rather than repealed."],
-  ["7.1","25 October 2026","Potential Taxes on the State Budget page: the taxes you have not passed and the reforms that keep or unlock revenue, each with the range it could raise, who it falls on, and how it passes."]
+  ["7.1","25 October 2026","Potential Taxes on the State Budget page: the taxes you have not passed and the reforms that keep or unlock revenue, each with the range it could raise, who it falls on, and how it passes. It sits under Total Revenue, and every deficit warning points to it."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -30571,6 +30580,7 @@ const DETAIL_HOME={
 function detailHome(){ return DETAIL_HOME[detailFrom]||DETAIL_HOME.board; }
 function openDetail(key){
   if(key==="budget"){settlePending();currentView="budget";detailKey=null;render();return;}
+  if(key==="potentialTaxes"){openPotentialTaxes();return;}
   // approval lives on the Voters page now, on its Approval tab
   if(key==="approval"){settlePending();window._vTab="standing";currentView="voters";detailKey=null;render();return;}
   if(key.startsWith("sit_"))key="s_"+key.slice(4);
@@ -30953,6 +30963,7 @@ function renderDetail(){
     const b=budgetBalance();
     h+=`<div class="sectionhdr">Budget Balance</div><div class="sectionsub">Annual General Fund + Lottery surplus/deficit.</div>`;
     h+=`<div class="detailval" style="color:${b.balance>=0?'var(--good)':'var(--bad)'}">${fmtB(b.balance,2,true)}/yr</div>`;
+    if(b.balance<0&&potentialTaxesLine())h+=`<div class="whip-prev" style="margin:0 0 10px">${ico('receipt')} <span class="sf-l" data-detail="potentialTaxes">${potentialTaxesLine()} →</span></div>`;
     h+=`<div class="chartbox"><div class="charttitle">Balance over time ($B/yr)</div>
       ${sparkline(GAME.history["balance"],{color:'var(--gold)',fmt:v=>(v>=0?'+':'')+'$'+v.toFixed(1)+'B'})}</div>`;
   } else if(key.startsWith("v_")){
@@ -31052,6 +31063,7 @@ function renderDetail(){
     const sHoldsHdr=sGood?"Active effects while this bright spot holds":"Active effects while this crisis persists";
     h+=`<div class="sectionhdr">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div><div class="sectionsub">${descHTML(sitStory(s))}</div>`;
     { const r=sitRules(s); if(r)h+=`<div class="sit-rules"><div class="sit-rules-h">${s.kind==="good"?"How it holds":"How it ends"}</div>${descHTML(r)}</div>`; }
+    if(sid==="fiscalCrisis"&&potentialTaxesLine())h+=`<div class="whip-prev" style="margin:0 0 10px">${ico('receipt')} <span class="sf-l" data-detail="potentialTaxes">${potentialTaxesLine()} →</span></div>`;
     h+=`<div class="detailrow">
       <span class="pill ${s.kind==='good'?'rev':'spend'}">${sitTag(s)}</span>
       <span class="pill dom">${catLabel}</span>
@@ -33836,6 +33848,24 @@ const REVENUE_REFORM_NOTE={
   revenueMajority:"Raises nothing itself. Lets a tax bill pass with a simple majority instead of three-fifths of each chamber.",
   kickerReform:"Keeps the surplus the kicker would refund to taxpayers, in the years there is one.",
   propTaxReform:"Lifts the Measure 5 and 50 caps, so local property taxes can grow with values again."};
+/* The pointer: what is untapped, in a line, for the deficit warnings. */
+function potentialTaxesLine(){
+  let tot=0; const names=[];
+  for(const id in CATALOG){ const c=CATALOG[id]; if(!c||c.oneTime)continue;
+    const yr=(c.revenueFull||0)>0?c.revenueFull:(c.revenue||0)>0?c.revenue:0;
+    if(yr>0||REVENUE_REFORM_NOTE[id]){ tot+=yr; names.push({n:c.name,yr}); } }
+  if(!names.length)return "";
+  names.sort((a,b)=>b.yr-a.yr);
+  const lead=names.slice(0,2).map(x=>x.n).join(", "), more=names.length-2;
+  return "Potential Taxes: "+lead+(more>0?" and "+more+" more":"")+", up to "+fmtB(tot,1)+" a year";
+}
+/* Open the State Budget on the Potential Taxes list. */
+function openPotentialTaxes(){
+  settlePending(); currentView="budget"; detailKey=null; window._budgetTab="budget";
+  document.querySelectorAll("nav.rail button").forEach(b=>b.classList.toggle("active",b.dataset.view==="budget"));
+  render();
+  const el=document.getElementById("potentialTaxes"); if(el)el.scrollIntoView({block:"start"});
+}
 function untappedRevenueHTML(){
   const firstSentence=t=>{ const x=String(t||"").replace(/<[^>]+>/g,"").split("\n")[0]; const m=x.match(/^.*?[.!?](\s|$)/); return (m?m[0]:x).trim(); };
   const hardest=c=>Object.keys(c.blocEffect||{}).filter(k=>SIMULANTS[k]&&c.blocEffect[k]<0)
@@ -33865,11 +33895,11 @@ function untappedRevenueHTML(){
     const R=c.real, rv=v=>{ const n=(R.min+(R.max-R.min)*v).toFixed(R.decimals||0);
       return R.unit==="%"?n+"%":/^\$\//.test(R.unit)?"$"+n+" a "+R.unit.slice(2):n+" "+R.unit; };
     const scale=slider&&R&&x.yr>0?`<div class="lnote">From ${/^\$\//.test(R.unit)?"":"a "+R.label+" of "}${rv(lo)} at its lowest to ${rv(1)} at its highest.</div>`:"";
-    return `<div class="ledger" data-detail="p_${x.id}" style="cursor:pointer"><div class="lrow"><span class="lname">${ico(c.icon)} ${c.name}</span><span class="lamt good">${amt}</span></div>
+    return `<div class="ledger" data-detail="p_${x.id}" style="cursor:pointer"><div class="lrow"><span class="lname">${ico(c.icon)} ${c.name}</span><span class="lamt" style="color:var(--muted-2)">${amt}</span></div>
       <div class="lnote">${note||firstSentence(c.desc)}</div>${scale}
       <div class="lnote" style="opacity:.8">${route(x.id,c)}${who.length?" · hardest on "+who.join(" and "):""} · open it to see every effect →</div></div>`; };
-  let h=`<div class="fiscal-panel" style="margin-top:22px"><div class="fiscal-title">Potential Taxes</div>
-    <div class="fnote" style="margin:-2px 0 12px">The ledger above lists only what Oregon already collects. These are the taxes and reforms you have not passed, with what each could raise from its lowest setting to its highest. Each one opens its own page with the full effects and how to pass it.</div>`;
+  let h=`<div id="potentialTaxes" style="margin-top:26px"><h3 style="font-family:var(--font-display);font-size:17px;border-bottom:2px dashed var(--muted-3);padding-bottom:5px;margin-bottom:10px">Potential Taxes</h3>
+    <div class="fnote" style="margin:0 0 12px">The ledger above lists only what Oregon already collects. These are the taxes and reforms you have not passed, with what each could raise from its lowest setting to its highest. Each one opens its own page with the full effects and how to pass it.</div>`;
   if(taxes.length)h+=`<div class="ebgroup-label">Taxes Oregon does not levy</div>`+taxes.map(x=>row(x)).join("");
   if(reforms.length)h+=`<div class="ebgroup-label" style="margin-top:14px">Reforms that keep or unlock revenue</div>`+reforms.map(x=>row(x,REVENUE_REFORM_NOTE[x.id])).join("");
   return h+`</div>`;
@@ -34035,7 +34065,8 @@ function renderBudget(){
       <div class="lbar"><i style="width:${pct}%;background:var(--good)"></i></div>
       <div class="lnote">${r.note}</div></div>`;
   }
-  h+=`<div class="ltotal"><span>Total Revenue</span><span class="good">${fmtB(b.revenue,2)}</span></div></div>`;
+  h+=`<div class="ltotal"><span>Total Revenue</span><span class="good">${fmtB(b.revenue,2)}</span></div>`;
+  h+=untappedRevenueHTML()+`</div>`;
   // spending column
   h+=`<div><h3 style="font-family:var(--font-display);font-size:17px;border-bottom:2px solid var(--clay);padding-bottom:5px;margin-bottom:10px">Spending by Program Area</h3>`;
   for(const id of spdRows){
@@ -34049,7 +34080,6 @@ function renderBudget(){
   h+=`<div class="ltotal"><span>Total Spending</span><span class="spend">${fmtB(b.spend,2)}</span></div></div>`;
   h+=`</div>`;
   h+=`<div class="sectionsub" data-tidy="1" style="margin-top:20px">Oregon's constitution requires a balanced budget. A surplus more than 2% over forecast triggers the <b>kicker</b>, which refunds all of it to taxpayers unless you have passed Kicker Reform. A deficit draws on the <b>Rainy Day Fund</b> automatically. Once that is empty the gap becomes structural debt, and forced cuts hit education, health and your political capital. The <b>Education Stability Fund</b> is a separate school reserve: it cannot close the general gap, only soften the school cut a forced deficit brings. You can <b>draw on the Rainy Day Fund</b> in the panel above to pay down structural debt or cover a gap without raising taxes, for ◈${RESERVE_DRAW_CAPITAL} and some goodwill among fiscal hawks.</div>`;
-  h+=untappedRevenueHTML();
   }
   main.innerHTML=h;
   main.querySelectorAll('[data-btab]').forEach(b=>b.addEventListener('click',()=>{ window._budgetTab=b.dataset.btab; render(); }));
