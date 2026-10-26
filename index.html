@@ -3405,7 +3405,8 @@ function saveGame(btn){
     const aSnap={}; for(const id in AGENCIES)aSnap[id]={f:AGENCIES[id].funding,l:AGENCIES[id].logging,fb:AGENCIES[id].fundingBase};
     const sSnap={}; for(const id in SIMULANTS)sSnap[id]={a:SIMULANTS[id].approval,c:SIMULANTS[id].calib,s:SIMULANTS[id].size,cy:SIMULANTS[id].cynicism||0};
     const pSnap={};
-    for(const id in POLICIES)pSnap[id]={on:1,v:POLICIES[id].value,eff:POLICIES[id].eff,ti:POLICIES[id].tierIndex,en:POLICIES[id].enabled,it:POLICIES[id].intensity,nw:POLICIES[id].narrowed};
+    for(const id in POLICIES)pSnap[id]={on:1,v:POLICIES[id].value,eff:POLICIES[id].eff,ti:POLICIES[id].tierIndex,en:POLICIES[id].enabled,it:POLICIES[id].intensity,nw:POLICIES[id].narrowed,
+      pr:POLICIES[id].prov||undefined,cd:POLICIES[id].courtDelayUntil||undefined,ce:POLICIES[id].courtEnjoined||undefined,cc:POLICIES[id].courtCost||undefined,cu:POLICIES[id].courtCostUntil||undefined};
     for(const id in CATALOG)pSnap[id]={on:0,v:CATALOG[id].value,ti:CATALOG[id].tierIndex,en:CATALOG[id].enabled};
     // every voter has the same trait keys, so they are written once and each
     // voter is a flat string in that order, then approval, then income
@@ -3459,10 +3460,11 @@ function applySave(sv){
         if(CATALOG[id]){ POLICIES[id]=CATALOG[id]; delete CATALOG[id]; }
         const p=POLICIES[id]; if(p){ p.enacted=true; if(st.v!=null)p.value=st.v; if(st.eff!=null)p.eff=st.eff; if(st.ti!=null)p.tierIndex=st.ti; if(st.en!=null)p.enabled=st.en;
           if(st.it!=null)p.intensity=st.it; if(st.nw!=null)p.narrowed=st.nw;
+          if(st.pr){ p.prov=st.pr; p._courtId=id; } if(st.cd)p.courtDelayUntil=st.cd; if(st.ce)p.courtEnjoined=true; if(st.cc){ p.courtCost=st.cc; p.courtCostUntil=st.cu; }
           // a tier policy that was saved when it was still a law: its strength
           // becomes the matching rung, and a full-strength law the top one
           if(p.mechanic==="tier"&&st.ti==null&&Array.isArray(p.tiers))
-            p.tierIndex=Math.max(1,Math.round((st.nw!=null?st.nw:1)*(p.tiers.length-1)));
+            p.tierIndex=p.legacyTier!=null?p.legacyTier:Math.max(1,Math.round((st.nw!=null?st.nw:1)*(p.tiers.length-1)));
           // an unrepealable programme has no off switch: one saved switched off
           // comes back on at zero, which is the same thing
           if(p.mechanic==="intensity"&&p.noRepeal&&p.enabled===false){ p.enabled=true; p.intensity=0; } }
@@ -4383,11 +4385,12 @@ function indPolicyBoost(indId){
   }
   for(const pid in POLICIES){
     const p=POLICIES[pid];
+    if(courtOff(p))continue;
     if(p.indicatorEffects&&p.indicatorEffects[indId]!==undefined)
       b+=p.indicatorEffects[indId]*effLevelOf(p);
     // tier policies carry per-tier indicator effects
     if(p.mechanic==="tier"&&p.tierIndicatorEffects&&p.tierIndicatorEffects[p.tierIndex]&&p.tierIndicatorEffects[p.tierIndex][indId]!==undefined)
-      b+=p.tierIndicatorEffects[p.tierIndex][indId]*(p.landScaled?landUseIndustrialMult():1);
+      b+=p.tierIndicatorEffects[p.tierIndex][indId]*(p.landScaled?landUseIndustrialMult():1)*(p.prov?courtIndMult(p,indId):1);
   }
   for(const aid in AGENCIES){
     const a=AGENCIES[aid];
@@ -4656,7 +4659,7 @@ function lotteryEsfDeposit(){
   const gross=(REVENUE.lottery?REVENUE.lottery.base:0.9)*(policyLevel(p)/0.62);
   return +(gross*LOTTERY_ESF_SHARE).toFixed(4);          // $B/yr
 }
-function csfLandsSold(){ return !!(POLICIES.csfLandSale && POLICIES.csfLandSale.enacted); }
+function csfLandsSold(){ return !!(POLICIES.csfLandSale && POLICIES.csfLandSale.enacted && !courtOff(POLICIES.csfLandSale)); }
 const EXEC_ORDERS={
   eoFentanyl:{area:"safety", name:"State Police: Fentanyl Trafficking Priority", icon:"siren", capital:4, phaseIn:4,
     reach:"The Oregon State Police report to you. Setting their investigative priorities is within executive authority.",
@@ -5021,6 +5024,227 @@ function tickExecOrders(){
     }
   }
 }
+/* ============================================================
+   LAWS IN COURT. Five laws draw a real lawsuit, and only at the settings that
+   provoke one: gas in new buildings, the stricter gun laws, the Climate
+   Protection Program's market tiers, PERS reform, and selling the Common
+   School trust lands. Each is drawn from a real Oregon fight.
+
+   Provisions are the trade. Each one written into the bill weakens it in a
+   stated way and makes it likelier to survive a suit. They are chosen on the
+   floor (GAME.provDraft), adopted when the vote carries (p.prov), and can be
+   adopted later as a settlement.
+
+   How a case runs: a quarter after the law takes this form, the people it
+   hurts may sue (file[tier]). You defend it, settle by adopting a provision,
+   or concede. A trial ruling comes two or three quarters later; the losing
+   side may appeal, and the appeal decides it. A struck law falls back to the
+   strongest setting no one sues over (strikeTo), or off the books.
+   ============================================================ */
+const COURT_LAWS={
+  gasHookups:{who:"Home builders, NW Natural and the state restaurant association",
+    where:"in federal court, under the federal appliance-efficiency law the Ninth Circuit applied to Berkeley's ban in 2023",
+    file:[0,0.30,0.90,0.95], win:[1,0.75,0.25,0.15], strikeTo:t=>t>=2?1:0, injunction:false,
+    provisions:{
+      perfStd:{label:"Written as a performance standard with a gas path", tiers:[2,3], odds:0.35, fx:{environment:0.6}, note:"Environment gain ×0.6"},
+      restaurants:{label:"Exempt restaurants and commercial kitchens", tiers:[3], odds:0.05, fx:{environment:0.85}, anger:{businessClass:0.5}, note:"Environment gain ×0.85, business anger halved"},
+      affordable:{label:"Exempt affordable housing", tiers:[1,2,3], odds:0, fx:{environment:0.9}, ind:{housingAffordability:0}, note:"No housing-cost hit, environment gain ×0.9"},
+      phaseIn:{label:"Three-year phase-in", tiers:[2,3], odds:0, delay:8, anger:{blueCollar:0.67, businessClass:0.67}, note:"Effects start 8 quarters later, builder and blue-collar anger down a third"}}},
+  gunControl:{who:"Gun-rights groups",
+    where:"in a rural circuit court, as Measure 114 was in Harney County in 2022",
+    file:[0,0,0.85,0.90], win:[1,1,0.45,0.30], strikeTo:()=>1, injunction:true,
+    provisions:{
+      grandfather:{label:"Grandfather magazines already owned", tiers:[2,3], odds:0.15, fx:{violentCrime:0.8}, anger:{conservative:0.75, rural:0.75}, note:"Crime reduction ×0.8, rural and conservative anger down a quarter"},
+      permitsFirst:{label:"Start permits only once the permit system exists", tiers:[2], odds:0.10, delay:4, note:"Effects start 4 quarters later"},
+      salesOnly:{label:"Ban future sales only, not possession", tiers:[3], odds:0.15, fx:{violentCrime:0.75}, note:"Crime reduction ×0.75"}}},
+  carbonProgram:{who:"Gas utilities and fuel distributors",
+    where:"in the Court of Appeals, which voided the program on procedural grounds in 2023",
+    file:[0,0,0,0.70,0.70], win:[1,1,1,0.40,0.40], strikeTo:()=>2, injunction:false,
+    provisions:{
+      redoRules:{label:"Redo the rulemaking with full disclosure", tiers:[3,4], odds:0.25, delay:2, note:"No loss of effect, 2 quarters' delay"},
+      exemptGas:{label:"Exempt gas utilities from the cap", tiers:[3,4], odds:0.15, fx:{environment:0.7}, anger:{businessClass:0.6}, note:"Environment gain ×0.7, business anger reduced"},
+      slowCap:{label:"Slower cap decline", tiers:[3,4], odds:0.05, fx:{environment:0.8, gdp:0.7}, note:"Environment gain ×0.8, GDP cost ×0.7"}}},
+  persReform:{who:"The public-employee unions",
+    where:"in the Oregon Supreme Court, which struck cuts to earned benefits in Moro (2015) and upheld forward-looking ones in James (2022)",
+    file:[0,0.80,0.90], win:[1,0.70,0.45], strikeTo:()=>0, injunction:false, refund:true,
+    provisions:{
+      forwardOnly:{label:"Forward-only: nothing already earned or funded changes", tiers:[1,2], odds:0.30, savings:0.7, note:"Savings ×0.7"},
+      lowPaid:{label:"Protect lower-paid workers", tiers:[1,2], odds:0.10, savings:0.85, anger:{publicUnions:0.7}, note:"Savings ×0.85, union anger ×0.7"},
+      dcFloor:{label:"Keep a guaranteed floor under the new plan", tiers:[2], odds:0.10, savings:0.8, note:"Savings ×0.8"}}},
+  csfLandSale:{who:"School districts, as the trust's beneficiaries",
+    where:"in circuit court, over the Land Board's constitutional duty to the schools",
+    file:[0.75], win:[0.45], strikeTo:null, injunction:true,
+    provisions:{
+      appraisal:{label:"Sell only at independent full appraisal", tiers:[0], odds:0.30, delay:2, note:"Proceeds unchanged, 2 quarters' delay"},
+      conservation:{label:"Keep the parcels with conservation or recreation value", tiers:[0], odds:0.10, fx:{environment:0.5}, proceeds:0.8, note:"Environment hit halved, proceeds ×0.8"},
+      guarantee:{label:"Guarantee school payments during the transition", tiers:[0], odds:0.15, cost:0.05, costQ:8, note:"About $0.05B a year for two years"}}}
+};
+const COURT_DEFEND_COST=4;
+function courtTier(p){ return (p&&p.mechanic==="tier")?(p.tierIndex||0):0; }
+function courtCoveredAt(id,t){ const L=COURT_LAWS[id]; return !!(L&&(L.file[t]||0)>0); }
+function courtCovered(id,p){ return !!(p&&courtCoveredAt(id,courtTier(p))); }
+/* The provisions that apply at a setting, from a set of chosen ids. */
+function courtProvList(id,t,set){ const L=COURT_LAWS[id]; if(!L||!set)return [];
+  return Object.keys(set).filter(k=>set[k]&&L.provisions[k]&&L.provisions[k].tiers.indexOf(t)>=0).map(k=>Object.assign({id:k},L.provisions[k])); }
+function courtOddsAt(id,t,set){ const L=COURT_LAWS[id]; if(!L)return 1;
+  return clamp((L.win[t]!=null?L.win[t]:1)+courtProvList(id,t,set).reduce((a,v)=>a+(v.odds||0),0),0.05,0.95); }
+/* Is the law doing nothing yet: enjoined by a court, or waiting on a phase-in? */
+function courtOff(p){ return !!(p&&(p.courtEnjoined||(p.courtDelayUntil||0)>GAME.turn)); }
+function courtActive(p){ return (p&&p.prov&&p._courtId)?courtProvList(p._courtId,courtTier(p),p.prov):[]; }
+function courtFxMult(p,k){ let m=1; for(const v of courtActive(p))if(v.fx&&v.fx[k]!=null)m*=v.fx[k]; return m; }
+function courtIndMult(p,k){ let m=1; for(const v of courtActive(p))if(v.ind&&v.ind[k]!=null)m*=v.ind[k]; return m; }
+/* A provision can soften one side's anger. Only anger: a supporter's pleasure is untouched. */
+function courtAnger(p,sid,v){ if(!(v<0)||!p||!p.prov)return v; let m=1; for(const x of courtActive(p))if(x.anger&&x.anger[sid]!=null)m*=x.anger[sid]; return v*m; }
+function courtSavingsMult(){ let m=1; for(const v of courtActive(POLICIES.persReform))if(v.savings!=null)m*=v.savings; return m; }
+function courtProceedsMult(){ let m=1; for(const v of courtActive(POLICIES.csfLandSale))if(v.proceeds!=null)m*=v.proceeds; return m; }
+function courtExtraCost(p){ return (p&&p.courtCost&&GAME.turn<(p.courtCostUntil||0))?p.courtCost:0; }
+/* What the floor chose becomes the law's provisions when the vote carries. */
+function courtAdoptDraft(id){
+  const p=POLICIES[id]; if(!p||!COURT_LAWS[id])return;
+  const d=(GAME.provDraft||{})[id]; if(GAME.provDraft)delete GAME.provDraft[id];
+  if(!courtCovered(id,p))return;
+  courtSetProvisions(id,p,d||{});
+}
+function courtSetProvisions(id,p,set){
+  p._courtId=id; p.prov={};
+  const list=courtProvList(id,courtTier(p),set);
+  for(const v of list)p.prov[v.id]=true;
+  let delay=0, cost=0, costQ=0; for(const v of list){ delay=Math.max(delay,v.delay||0); if(v.cost){ cost+=v.cost; costQ=Math.max(costQ,v.costQ||0); } }
+  if(delay>0)p.courtDelayUntil=GAME.turn+delay;
+  if(cost>0){ p.courtCost=cost; p.courtCostUntil=GAME.turn+costQ; }
+}
+/* The floor's provisions block, for a law about to take a form someone sues over. */
+function courtFloorHTML(id,t){
+  const L=COURT_LAWS[id]; if(!L||!courtCoveredAt(id,t))return "";
+  const set=(GAME.provDraft||{})[id]||{};
+  const avail=Object.keys(L.provisions).filter(k=>L.provisions[k].tiers.indexOf(t)>=0);
+  const odds=courtOddsAt(id,t,set), base=courtOddsAt(id,t,{});
+  let h=`<div class="conc-h">${ico('gavel')} Provisions — this will be challenged in court</div>
+    <div class="fnote" style="margin:0 0 8px">${L.who} are likely to sue (${Math.round(L.file[t]*100)}% chance), ${L.where}. Each provision weakens the law and makes it likelier to survive.${L.injunction?" While the case runs, the law is blocked.":" The law stays in force while the case runs."}</div>
+    <div class="conc-row" style="flex-wrap:wrap">`;
+  for(const k of avail){ const v=L.provisions[k], on=!!set[k];
+    h+=`<button class="conc${on?" on":""}" data-prov="${id}:${k}" title="${v.note}">${on?"✓ ":""}${v.label}<span style="display:block;font-size:11.5px;opacity:.8">${v.note}${v.odds?" · court odds +"+Math.round(v.odds*100):""}</span></button>`; }
+  h+=`</div><div class="fnote" style="margin:6px 0 10px"><b>Survives in court: ${Math.round(base*100)}%${odds!==base?" → "+Math.round(odds*100)+"%":""}</b></div>`;
+  return h;
+}
+function courtWireFloor(card,redraw){
+  card.querySelectorAll("[data-prov]").forEach(el=>el.addEventListener("click",()=>{
+    const [id,k]=el.dataset.prov.split(":"); GAME.provDraft=GAME.provDraft||{};
+    const d=GAME.provDraft[id]=GAME.provDraft[id]||{}; d[k]=!d[k]; redraw(); }));
+}
+/* The law's own page: what is written into it and where it stands in court. */
+function courtStatusHTML(id){
+  const p=POLICIES[id], L=COURT_LAWS[id]; if(!p||!L)return "";
+  const C=(GAME.courtCases||{})[id], act=courtActive(p);
+  if(!C&&!act.length&&!courtCovered(id,p))return "";
+  let h=`<div class="whip-prev" style="margin:0 0 12px">${ico('gavel')} `;
+  if(C)h+=`<b>Before the courts.</b> ${L.who} sued ${L.where}. ${C.stage==="appeal"?"On appeal":"At trial"}, a ruling is expected ${turnLabel(C.ruling)}, with ${Math.round(C.odds*100)}% odds it survives.${p.courtEnjoined?" The law is blocked until then.":""}`;
+  else if(courtCovered(id,p))h+=`In this form it can be challenged in court: ${Math.round(courtOddsAt(id,courtTier(p),p.prov||{})*100)}% odds it would survive.`;
+  if(act.length)h+=`<br>Written into it: `+act.map(v=>`<b>${v.label}</b> (${v.note})`).join("; ")+".";
+  if(courtOff(p)&&!p.courtEnjoined)h+=`<br>Its effects begin ${turnLabel(p.courtDelayUntil)}.`;
+  return h+`</div>`;
+}
+/* Every quarter: new suits, rulings, appeals. */
+function tickCourtCases(){
+  if(window.SANDBOX)return;                       // the sandbox keeps its laws
+  GAME.courtCases=GAME.courtCases||{}; GAME.courtWatch=GAME.courtWatch||{};
+  for(const id in COURT_LAWS){
+    const L=COURT_LAWS[id], p=POLICIES[id], C=GAME.courtCases[id];
+    if(!p||p.enacted===false){ if(C)delete GAME.courtCases[id]; delete GAME.courtWatch[id]; if(GAME.courtDecision===id)GAME.courtDecision=null; continue; }
+    const t=courtTier(p), key=t+"|"+Object.keys(p.prov||{}).sort().join(",");
+    if(!courtCovered(id,p)){
+      // moved down out of reach of the suit: the case is moot
+      if(C){ delete GAME.courtCases[id]; p.courtEnjoined=false; GAME.log.push(ico('gavel')+" The suit against "+p.name+" is moot: the law no longer does what was challenged"); }
+      if(GAME.courtDecision===id)GAME.courtDecision=null;
+      delete GAME.courtWatch[id]; continue;
+    }
+    if(C){ if(GAME.courtDecision!==id&&GAME.turn>=C.ruling)courtRule(id); continue; }
+    const W=GAME.courtWatch[id];
+    if(!W||W.key!==key){ GAME.courtWatch[id]={key, since:GAME.turn}; continue; }
+    if(W.rolled||GAME.turn<W.since+1)continue;
+    W.rolled=true;
+    if(Math.random()<(L.file[t]||0))courtFile(id);
+  }
+  // a suit waits for the desk to be clear of another decision
+  if(GAME.courtDecision&&!GAME.pendingDilemma&&GAME.courtCases[GAME.courtDecision])GAME.pendingDilemma="courtCase";
+}
+function courtFile(id){
+  const L=COURT_LAWS[id], p=POLICIES[id], t=courtTier(p);
+  GAME.courtCases[id]={tier:t, filed:GAME.turn, ruling:GAME.turn+2+Math.floor(Math.random()*2), stage:"trial", odds:courtOddsAt(id,t,p.prov||{})};
+  if(L.injunction)p.courtEnjoined=true;
+  GAME.courtDecision=id;
+  GAME.log.push(ico('gavel')+" "+L.who+" sued to stop "+p.name+(L.injunction?". The court has blocked it while the case runs":""));
+}
+function courtRule(id){
+  const L=COURT_LAWS[id], p=POLICIES[id], C=GAME.courtCases[id];
+  const won=Math.random()<C.odds, wasAppeal=C.stage==="appeal";
+  // the side that loses the trial appeals about half the time; an appeal is final
+  if(!wasAppeal&&Math.random()<0.5){
+    C.stage="appeal"; C.ruling=GAME.turn+2+Math.floor(Math.random()*2);
+    (GAME.pendingCourtNews=GAME.pendingCourtNews||[]).push({id, kind:"trial", won});
+    GAME.log.push(ico('gavel')+" "+p.name+(won?" survives at trial; the challengers appeal":" loses at trial; the state appeals"));
+    return;
+  }
+  delete GAME.courtCases[id];
+  (GAME.pendingCourtNews=GAME.pendingCourtNews||[]).push({id, kind:"final", won, appeal:wasAppeal});
+  if(won){
+    p.courtEnjoined=false;
+    GAME.mandateShock=(GAME.mandateShock||0)+2;
+    if(GAME.opposition)GAME.opposition.momentum=clamp(GAME.opposition.momentum-3,0,100);
+    GAME.log.push(ico('scales')+" Upheld"+(wasAppeal?" on appeal":"")+" — "+p.name);
+  } else courtStrike(id,"court");
+}
+/* The law falls: to the strongest setting no one sues over, or off the books. */
+function courtStrike(id,how){
+  const L=COURT_LAWS[id], p=POLICIES[id]; if(!p)return;
+  const be=Object.assign({},p.blocEffect||{}, (p.mechanic==="tier"&&p.tierBlocEffects)?p.tierBlocEffects[courtTier(p)]||{}:{});
+  const nm=p.name, yrs=Math.max(0,(GAME.turn-((GAME.courtWatch[id]||{}).since||GAME.turn))/4);
+  p.courtEnjoined=false; p.prov=null; p.courtDelayUntil=0; p.courtCost=0;
+  delete GAME.courtWatch[id];
+  if(L.refund){   // savings taken under a law the court voids are owed back
+    const r=+Math.min(1.2,0.3*yrs).toFixed(2);
+    if(r>0.005){ const fromRd=Math.min(r,Math.max(0,GAME.rainyDay||0));
+      GAME.rainyDay=+((GAME.rainyDay||0)-fromRd).toFixed(3); GAME.structuralDebt=+((GAME.structuralDebt||0)+r-fromRd).toFixed(3);
+      GAME.log.push(ico('bank')+" The court ordered $"+r.toFixed(2)+"B in pension savings paid back"); }
+  }
+  if(L.strikeTo){ p.tierIndex=L.strikeTo(courtTier(p)); }
+  else {           // off the books; a sale already booked is unwound
+    if(id==="csfLandSale"&&GAME.csfSaleBooked){ GAME.csfCorpus=+Math.max(0.3,(GAME.csfCorpus||0)-(GAME.csfSaleAmt||1.3)).toFixed(3); GAME.csfSaleBooked=false; }
+    CATALOG[id]=p; delete p.enacted; delete POLICIES[id];
+  }
+  GAME.mandateShock=(GAME.mandateShock||0)-(how==="concede"?2:3);
+  if(GAME.opposition)GAME.opposition.momentum=clamp(GAME.opposition.momentum+(how==="concede"?3:5),0,100);
+  // its backers are let down; its opponents have won and stop being angry about it
+  for(const b in be){ if(be[b]>0)createGrudge("v_"+b,-be[b]*0.5,0.88,nm+(how==="concede"?" given up in court":" struck down")); }
+  GAME.log.push(ico('ban')+(how==="concede"?" Conceded the suit — ":" Struck down — ")+nm);
+}
+/* The ruling, as news. */
+function showCourtEvent(ev,next){
+  const L=COURT_LAWS[ev.id], p=POLICIES[ev.id]||CATALOG[ev.id];
+  const card=document.getElementById("eoEventCard"), modal=document.getElementById("eoEventModal");
+  if(!L||!p||!card||!modal){ if(next)next(); return; }
+  let h;
+  if(ev.kind==="trial")
+    h=`<div class="sectionhdr">${ico('gavel')} ${ev.won?"Upheld at trial":"Lost at trial"}</div>
+      <div class="sectionsub"><b>${p.name}</b> ${ev.won?"survived its first ruling, and the challengers have appealed.":"lost its first ruling, and the state has appealed."} The appeal decides it.</div>
+      <div class="rrow"><span class="rlabel">Status</span><span class="rval">${(POLICIES[ev.id]||{}).courtEnjoined?"Blocked while the appeal runs":"In force while the appeal runs"}</span></div>`;
+  else if(ev.won)
+    h=`<div class="sectionhdr">${ico('scales')} Upheld${ev.appeal?" on appeal":""}</div>
+      <div class="sectionsub">The court has upheld <b>${p.name}</b>. It stands, and the question is settled.</div>
+      <div class="rrow"><span class="rlabel">Political mandate</span><span class="rval" style="color:var(--good)">+2</span></div>
+      <div class="rrow"><span class="rlabel">Opposition momentum</span><span class="rval" style="color:var(--good)">−3</span></div>`;
+  else
+    h=`<div class="sectionhdr">${ico('ban')} Struck down${ev.appeal?" on appeal":""}</div>
+      <div class="sectionsub">The court has struck down <b>${p.name}</b> in the form you passed. ${POLICIES[ev.id]?"It falls back to "+p.tiers[p.tierIndex]+".":"It is off the books."} You can pass it again, with provisions that make it likelier to survive.</div>
+      <div class="rrow"><span class="rlabel">Political mandate</span><span class="rval" style="color:var(--clay)">−3</span></div>
+      <div class="rrow"><span class="rlabel">Opposition momentum</span><span class="rval" style="color:var(--clay)">+5</span></div>`;
+  card.innerHTML=h+`<button id="eoEventOk" class="enactbtn">Continue ▸</button>`;
+  modal.classList.remove("hidden");
+  const done=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); render(); if(next)next(); };
+  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
+  document.getElementById("eoEventOk").onclick=done;
+  document.addEventListener("keydown",onKey,true);
+}
 // not officeConversion: its money goes to developers, not service nonprofits
 const NONPROFIT_DRAG_POLICIES=new Set(["homelessServices","childcareSubsidy","preschoolForAll",
   "affordableHousing","behavioralHealth","downtownRevitalization",
@@ -5231,7 +5455,7 @@ const SECTION_OF={
   govOps:"pubservices",
   // policies & agencies — taxes
   incomeTax:"taxes", cannabisTax:"taxes", corpTax:"taxes", salesTax:"taxes", gasTax:"taxes", vehicleReg:"taxes", evFee:"taxes", estateTax:"taxes", eitc:"taxes",
-  carbonTax:"taxes", taxCut:"taxes", kickerReform:"taxes", propTaxReform:"taxes", persReform:"taxes",
+  gasHookups:"environment", carbonTax:"taxes", taxCut:"taxes", kickerReform:"taxes", propTaxReform:"taxes", persReform:"taxes",
   // public services
   stateSchoolFund:"pubservices", preschoolForAll:"pubservices", universities:"pubservices", stateColleges:"pubservices", communityColleges:"pubservices",
   higherEd:"pubservices", oregonPromise:"pubservices", phoneBanSchools:"pubservices", digitalGov:"pubservices", odot:"pubservices", motorVoter:"pubservices",
@@ -6375,6 +6599,8 @@ const CATALOG={
     tierIndex:1, costByTier:[0,0,0,-0.08], capital:6, enactCapital:9,
     // what an opposition legislature sends a governor who did not ask for it
     oppTier:1,
+    // a save from when this was a single law loads at Measure 109, not the top tier
+    legacyTier:1,
     effects:{},
     tierEffects:[
       {behavioralHealth:1, health:0.5},
@@ -6552,6 +6778,26 @@ const CATALOG={
     indicatorEffects:{adminOverhead:-24, digitization:5},
     blocEffect:{businessClass:4, libertarian:5, conservative:4, moderate:2, publicUnions:-10, socialist:-4, liberal:-3},
     ideology:{govSize:0.35, economic:0.15}},
+  // GAS IN NEW BUILDINGS. Set through the statewide building code, so it
+  // touches only what is built from now on and its effects grow slowly. The
+  // two all-electric settings draw a suit (COURT_LAWS.gasHookups).
+  gasHookups:{name:"Gas in New Buildings", domain:"envInfra", icon:"fire", mechanic:"tier", phaseIn:12,
+    desc:"Whether new buildings in Oregon may burn natural gas, set through the statewide building code. It applies only to what is built from now on, so its effects grow slowly as new buildings go up.\n\nElectric-Ready: new buildings must be wired for a heat pump, an electric range and an EV charger. Gas is still allowed.\n\nPerformance Code: new buildings must meet an energy and carbon standard. Gas can meet it, at a cost. This is the route cities and states turned to after a federal court struck down Berkeley's ban in 2023.\n\nNew Homes All-Electric: no gas piping in new homes, as in the ordinance Eugene passed in February 2023 and repealed that July.\n\nAll New Buildings All-Electric: new homes, offices, stores and restaurants alike, as in Berkeley's 2019 ban.",
+    tiers:["Electric-Ready","Performance Code","New Homes All-Electric","All New Buildings All-Electric"],
+    tierIndex:1, costByTier:[0,0,0,0], capital:9, enactCapital:12,
+    effects:{},
+    tierEffects:[
+      {environment:1, electricRate:0.1},
+      {environment:3, electricRate:0.3},
+      {environment:5, electricRate:0.5, gdp:-0.05},
+      {environment:7, electricRate:0.7, gdp:-0.12}],
+    tierIndicatorEffects:[{},{housingAffordability:-1},{housingAffordability:-1},{housingAffordability:-1, businessClimate:-3}],
+    tierBlocEffects:[
+      {liberal:1},
+      {liberal:3, socialist:2, students:1, businessClass:-2, homeowners:-1, suburban:-1},
+      {liberal:5, socialist:4, students:2, blueCollar:-3, suburban:-3, homeowners:-2, businessClass:-3, conservative:-4, libertarian:-4},
+      {liberal:6, socialist:5, students:3, blueCollar:-4, suburban:-4, homeowners:-3, businessClass:-7, conservative:-5, libertarian:-5, rural:-2}],
+    tierIdeology:[{environment:-0.3},{environment:-0.8, govSize:-0.2},{environment:-1.2, govSize:-0.4},{environment:-1.5, govSize:-0.6, economic:-0.2}]},
   carbonTax:{name:"Carbon Tax", domain:"envInfra", icon:"factory", mechanic:"slider",
     desc:"A direct per-ton tax on carbon emissions — more transparent than cap-and-trade, raising real revenue while pushing fuel and energy prices up across the economy.",
     value:0.5, revenueFull:1.5, capital:9, enactCapital:13, taxDir:"burden",
@@ -7427,7 +7673,7 @@ function apptEffFor(id){
    is delivered by whoever delivers the programmes underneath it. */
 const POLICY_DEPT={
   // environmental quality and the vehicle rules
-  carbonTax:"deq", carbonProgram:"deq", cleanFuels:"deq", forestCarbon:"deq",
+  gasHookups:"deq", carbonTax:"deq", carbonProgram:"deq", cleanFuels:"deq", forestCarbon:"deq",
   // the forests. The Common School Trust lands are deliberately absent:
   // they are the Land Board's, through State Lands, not the Board of
   // Forestry's.
@@ -9670,6 +9916,40 @@ const DILEMMAS={
          shiftCompass(0.5,0);
        }},
     ]},
+  /* ---- A LAW YOU PASSED HAS BEEN SUED. Set by tickCourtCases, never drawn at
+     random: defend it, settle by writing in a provision, or let it go. ---- */
+  courtCase:{icon:"gavel", cooldown:0,
+    get title(){ const p=POLICIES[GAME.courtDecision]; return p?"Sued: "+p.name:"A lawsuit"; },
+    influence:()=>-1,
+    text:()=>{
+      const id=GAME.courtDecision, p=POLICIES[id], L=COURT_LAWS[id], C=(GAME.courtCases||{})[id];
+      if(!p||!L||!C)return "";
+      return L.who+" have sued to stop "+p.name+", "+L.where+"."+(L.injunction?" The court has blocked the law while the case runs.":" The law stays in force while the case runs.")
+        +"\n\nAs written, it has about a "+Math.round(C.odds*100)+"% chance of surviving. A ruling is expected "+turnLabel(C.ruling)+", and the losing side may appeal.";
+    },
+    get options(){
+      const id=GAME.courtDecision, p=POLICIES[id], L=COURT_LAWS[id], C=(GAME.courtCases||{})[id];
+      if(!p||!L||!C)return [{label:"Continue", text:"", apply:()=>{ GAME.courtDecision=null; }}];
+      const t=courtTier(p), out=[];
+      out.push({label:"Defend it in court",
+        text:"Costs ◈"+COURT_DEFEND_COST+". The Attorney General defends the law as written, with about a "+Math.round(C.odds*100)+"% chance it survives.",
+        apply:()=>{ GAME.capital=clamp(GAME.capital-COURT_DEFEND_COST,0,100); C.defended=true; GAME.courtDecision=null;
+          GAME.log.push(ico('gavel')+" Defending "+p.name+" in court"); }});
+      // the settlement the challengers would take: the open provision that most improves the odds
+      const open=Object.keys(L.provisions).filter(k=>L.provisions[k].tiers.indexOf(t)>=0&&!(p.prov||{})[k]);
+      const best=open.sort((a,b)=>(L.provisions[b].odds||0)-(L.provisions[a].odds||0))[0];
+      if(best){ const v=L.provisions[best];
+        out.push({label:"Settle: "+v.label.charAt(0).toLowerCase()+v.label.slice(1),
+          text:"The suit is dropped and the law stays, with this written in: "+v.note.charAt(0).toLowerCase()+v.note.slice(1)+".",
+          apply:()=>{ const set=Object.assign({},p.prov||{}); set[best]=true; courtSetProvisions(id,p,set);
+            delete GAME.courtCases[id]; p.courtEnjoined=false; GAME.courtDecision=null;
+            GAME.courtWatch[id]={key:courtTier(p)+"|"+Object.keys(p.prov).sort().join(","), since:GAME.turn, rolled:true};
+            GAME.log.push(ico('handshake')+" Settled the suit against "+p.name+": "+v.label); }}); }
+      out.push({label:"Concede",
+        text:(L.strikeTo?"The law falls back to "+p.tiers[L.strikeTo(t)]+".":"The law comes off the books.")+" Its supporters are let down, and it costs you less than losing in court would.",
+        apply:()=>{ delete GAME.courtCases[id]; GAME.courtDecision=null; courtStrike(id,"concede"); }});
+      return out;
+    }},
   walkoutConcessions:{
     title:"Walkout: The Caucus Is Gone",
     icon:"columns",
@@ -10329,7 +10609,10 @@ function resolveDilemma(optIndex){
   const grudgeBefore=GAME.grudges.length;
   const capBefore=GAME.capital;
   const ceBefore={ec:(GAME.compassEvents&&GAME.compassEvents.ec)||0, so:(GAME.compassEvents&&GAME.compassEvents.so)||0};
-  d.options[optIndex].apply();
+  // hold the chosen option: some dilemmas build their options from live state
+  // (a lawsuit), and choosing one changes that state
+  const _opt=d.options[optIndex];
+  _opt.apply();
   // collect the effects this choice just created
   const newGrudges=GAME.grudges.slice(grudgeBefore);
   const capDelta=GAME.capital-capBefore;
@@ -10360,8 +10643,8 @@ function resolveDilemma(optIndex){
     if(Math.abs(ceDelta.so)>0.01)parts.push(`${ceDelta.so>0?'toward authority':'toward liberty'} ${Math.abs(ceDelta.so).toFixed(1)}`);
     fx.push({who:"Political compass — "+parts.join(", "), val:ceDelta.ec+ceDelta.so, kind:"compass"});
   }
-  const _lab=(typeof d.options[optIndex].label==="function")
-    ? d.options[optIndex].label() : d.options[optIndex].label;
+  const _lab=(typeof _opt.label==="function")
+    ? _opt.label() : _opt.label;
   GAME.log.push("❖ "+d.title+" — chose: "+_lab);
   GAME.lastDilemmaResult={title:d.title, icon:d.icon, choice:_lab, fx};
   GAME.pendingDilemma=null;
@@ -12465,7 +12748,7 @@ function persAmortFactor(){ return persAmortFactorFor(persAmortLeft()); }
 function persBase(){ return GAME.persBase!=null?GAME.persBase:Math.max(0,GAME.persUAL||0); }
 /* What reform takes off the normal cost, $B a year: the cheaper benefit new
    service earns under each setting, at the pace service is being earned now. */
-function persNCcut(){ const w=(GAME.persWave!=null?GAME.persWave:1); return (PERS_ACCRUAL[0]-PERS_ACCRUAL[persReformLevel()])*w*4; }
+function persNCcut(){ const w=(GAME.persWave!=null?GAME.persWave:1); return (PERS_ACCRUAL[0]-PERS_ACCRUAL[persReformLevel()])*w*4*courtSavingsMult(); }
 function persNormalCost(){ return Math.max(0, PERS_NC0-persNCcut()); }
 function persPaydown(){
   const ual=Math.max(0,GAME.persUAL||0), base=Math.min(persBase(),ual), rest=ual-base;
@@ -12484,7 +12767,7 @@ function policyNetCost(p){
   }
   if(p.mechanic==="slider")return (p.costFull||0)*p.value;
   if(p.mechanic==="intensity")return p.enabled?(p.costFull||0)*p.intensity:0;
-  if(p.mechanic==="law")return (p.costFull||0);
+  if(p.mechanic==="law")return (p.costFull||0)+courtExtraCost(p);
   if(p.mechanic==="toggle")return p.enabled?(p.costFull||0):0;
   if(p.mechanic==="tier")return p.costByTier?p.costByTier[p.tierIndex]:0;
   return 0;
@@ -12628,6 +12911,7 @@ function landUseIndustrialMult(){ return LAND_IND_MULT[LANDUSE.index]??1; }
 function industrialLandLevel(){ const p=POLICIES.industrialLand; return p?effLevelOf(p):0; }
 const LAND_CREDIT_LIFT=0.25;
 function policyEffect(p,k){
+  if(courtOff(p))return 0;                 // blocked by a court, or not started yet
   let raw;
   const eff=effLevelOf(p);
   if(p.mechanic==="tier"&&p.tierEffects){
@@ -12641,7 +12925,7 @@ function policyEffect(p,k){
   if(p.landScaled)raw*=landUseIndustrialMult();
   // the credits that bring manufacturers are worth more with sites to put them on
   if(p===POLICIES.rndTaxCredit||p===POLICIES.reactorManufacturing)raw*=1+LAND_CREDIT_LIFT*industrialLandLevel()*landUseIndustrialMult();
-  return raw*efficacy()*apptPolicyMult(p,k)*(p.revenueFull||p.noOverhead?1:serviceStrainMult())*nonprofitDragMult(p,k);
+  return raw*efficacy()*apptPolicyMult(p,k)*(p.revenueFull||p.noOverhead?1:serviceStrainMult())*nonprofitDragMult(p,k)*(p.prov?courtFxMult(p,k):1);
 }
 function tickPhase(){
   // Large public unions slow implementation: institutional resistance and bargaining requirements
@@ -14267,10 +14551,10 @@ function approvalTarget(sid, raw){
       // explicit per-bloc reactions — previously shown in the UI but never applied
       if(p.blocRamp&&p.blocRamp[sid])policyMood+=blocRampMood(p,sid);
       if(p.blocEffect&&p.blocEffect[sid]!==undefined)
-        policyMood+=p.blocEffect[sid]*((p.mechanic==="slider"||p.mechanic==="toggle")?lvl:1)
-                   *(p.narrowed==null?1:p.narrowed);
+        policyMood+=courtAnger(p,sid,p.blocEffect[sid]*((p.mechanic==="slider"||p.mechanic==="toggle")?lvl:1)
+                   *(p.narrowed==null?1:p.narrowed));
       if(p.mechanic==="tier"&&p.tierBlocEffects&&p.tierBlocEffects[p.tierIndex]&&p.tierBlocEffects[p.tierIndex][sid]!==undefined)
-        policyMood+=p.tierBlocEffects[p.tierIndex][sid];
+        policyMood+=courtAnger(p,sid,p.tierBlocEffects[p.tierIndex][sid]);
     }
     // executive orders carry their own bloc reaction while they stand
     for(const _eid of eoLiveList()){
@@ -14626,9 +14910,10 @@ function tickEconomy(){
   {
     const sold = csfLandsSold();
     if(sold && !GAME.csfSaleBooked){                       // the one-time proceeds, booked once
-      GAME.csfCorpus=+(GAME.csfCorpus+1.30).toFixed(3);
-      GAME.csfSaleBooked=true;
-      GAME.log.push(ico('bank')+" Trust lands sold — $1.30B into the Common School Fund");
+      const amt=+(1.30*courtProceedsMult()).toFixed(3);   // keeping the best parcels sells less
+      GAME.csfCorpus=+(GAME.csfCorpus+amt).toFixed(3);
+      GAME.csfSaleBooked=true; GAME.csfSaleAmt=amt;
+      GAME.log.push(ico('bank')+" Trust lands sold — $"+amt.toFixed(2)+"B into the Common School Fund");
     }
     const retQ = csfReturnQ(sold);
     // deposits are grazing leases and what harvest there is on school-fund land,
@@ -17135,7 +17420,7 @@ function showPlatformModal(opts){
     // a game that opens under PR negotiates its government the moment you take office
     if(GAME.pendingCoalition&&prOn()&&!rev){ GAME.pendingCoalition=null; render(); drawCoalition(()=>render()); return; }
     // a new term opens with a briefing if anything is waiting from the election quarter
-    if(GAME.pendingDilemma||GAME.pendingProposal||GAME.pendingOppBill||GAME.pendingAusterity||(GAME.pendingEoEvents||[]).length){ GAME._briefPending=false; startQuarterSequence(); }
+    if(GAME.pendingDilemma||GAME.pendingProposal||GAME.pendingOppBill||GAME.pendingAusterity||(GAME.pendingEoEvents||[]).length||(GAME.pendingCourtNews||[]).length){ GAME._briefPending=false; startQuarterSequence(); }
     render();
   };
   const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); commit(); } };
@@ -17227,6 +17512,9 @@ function briefCollect(){
     items.push({kind:"eo", ev, icon:"gavel", title:ev.kind==="ruling"?(ev.upheld?"A court upheld ":"A court struck down ")+E.name:"A lawsuit was filed against "+E.name});
   }
   GAME.pendingEoEvents=[];
+  for(const ev of (GAME.pendingCourtNews||[])){ const p=POLICIES[ev.id]||CATALOG[ev.id]; if(!p)continue;
+    items.push({kind:"court", ev, icon:"gavel", title:ev.kind==="trial"?p.name+(ev.won?" survives at trial":" loses at trial"):(ev.won?"A court upheld ":"A court struck down ")+p.name}); }
+  GAME.pendingCourtNews=[];
   if(GAME.pendingCoalExit)items.push({kind:"coalExit", decision:true, icon:"ban", title:prParty(GAME.pendingCoalExit.pid).name+" has left your government"});
   if(GAME.pendingAusterity)items.push({kind:"austerity", decision:true, icon:"warning", title:"A budget emergency: sign a package that balances the books"});
   if(GAME.pendingOppBill)items.push({kind:"oppBill", decision:true, icon:"doc", title:"The legislature sent you "+(nm(CATALOG[GAME.pendingOppBill.id])||"a bill")+": sign it or veto it"});
@@ -17271,7 +17559,7 @@ function startQuarterSequence(){
   const dec=items.filter(i=>i.decision).sort((a,b)=>SEQ_ORDER.indexOf(a.kind)-SEQ_ORDER.indexOf(b.kind));
   const news=items.filter(i=>!i.decision);
   // news last, each its own screen: the nominee, the ballot, the term limit, then the courts
-  const NEWS_ORDER=["prlist","primaries","caucus","nominee","ballot","termlimit","eo"];
+  const NEWS_ORDER=["prlist","primaries","caucus","nominee","ballot","termlimit","eo","court"];
   news.sort((a,b)=>NEWS_ORDER.indexOf(a.kind)-NEWS_ORDER.indexOf(b.kind));
   const steps=[].concat(GAME.skipReport?[]:[{kind:"report"}], dec, news);
   GAME.briefing={turn:GAME.turn, items, steps, pos:-1};
@@ -17321,6 +17609,7 @@ function seqOpen(st){
     case "primaries": showPrimaryNight(st.pp, seqNext); break;
     case "prlist":    showPrListNight(st.pl, seqNext); break;
     case "eo":        showExecOrderEvent(st.ev, seqNext); break;
+    case "court":     showCourtEvent(st.ev, seqNext); break;
     case "coalExit":  GAME._exitFromBrief=true; drawCoalExit(); break;
     case "austerity": GAME._ausFromBrief=true; drawAusterity(); break;
     case "oppBill":   showOppBill(seqNext); break;
@@ -21866,7 +22155,7 @@ const ISSUES={
     view:["Local control of zoning","Build more housing"], fac:["Local Control Caucus","Abundant Housing Caucus"], want:["Middle housing rolled back","More housing allowed"]},
   rent:{name:"Rent", pols:[["rentStabilization",1]],
     view:["Landlords' side","Tenants' side"], fac:["Small Landlords Caucus","Tenants' Caucus"], want:["Looser rent caps","Tighter rent caps"]},
-  climate:{name:"Climate", pols:[["carbonProgram",1],["cleanFuels",1],["carbonTax",1]],
+  climate:{name:"Climate", pols:[["carbonProgram",1],["cleanFuels",1],["carbonTax",1],["gasHookups",1]],
     view:["Cheap energy first","Climate action"], fac:["Affordable Energy Caucus","Climate Caucus"], want:["Climate rules eased","Climate rules strengthened"]},
   forests:{name:"Forests", pols:[["forestPractices",1],["predatorControl",-1]],
     view:["Working forests","Conservation"], fac:["Working Forests Caucus","Old Growth Caucus"], want:["Forest rules eased","Forests protected"]},
@@ -23079,7 +23368,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="7.1";
+const GAME_VERSION="7.2";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -23106,7 +23395,8 @@ const VERSION_HISTORY=[
   ["6.8","11 October 2026","Washington: a federal forest harvest that drifts on its own and feeds the logging rate, and a federal Medicaid cut you backfill or absorb. Also plurality elections without ranked choice, crises that ease off faster, and heat domes, strikes and blackouts that fade."],
   ["6.9","11 October 2026","Ethnic Minorities: a new voter group, about a fifth of the electorate, placed in every county and legislative district from the census and moved by immigration enforcement, policing, sentencing, health coverage, wages and voting rules, and by jobs above all. They also back school choice, police funding, a misdemeanor drug law, licensing reform and cheaper fuel, so either party can compete for them. The federal Medicaid cut can no longer be taken to court. A college or grant you underfund still counts in your favor with the people who want it, and repealing one costs you their support."],
   ["7.0","11 October 2026","Federal Timber Harvest: a statistic set in Washington that feeds the logging rate, moved by its own drift and by two federal events, a big timber sale and a court-ordered halt, either of which can tip Oregon into the Timber Wars or a timber-county fiscal crisis; its link to the logging rate shows on the Issue Web, the board and the Focus Chart. Ethnic Minorities turn out below the state, carry legislators in the seats where they live, and fill appointments. No program is better repealed than kept: backers credit an underfunded program, and the Health Plan, Measure 11 and Middle Housing are lowered rather than repealed."],
-  ["7.1","25 October 2026","Potential Taxes on the State Budget page: the taxes you have not passed and the reforms that keep or unlock revenue, each with the range it could raise, who it falls on, and how it passes. It sits under Total Revenue, and every deficit warning points to it."]
+  ["7.1","25 October 2026","Potential Taxes on the State Budget page: the taxes you have not passed and the reforms that keep or unlock revenue, each with the range it could raise, who it falls on, and how it passes. It sits under Total Revenue, and every deficit warning points to it."],
+  ["7.2","25 October 2026","Laws in court: gas in new buildings, the stricter gun laws, the Climate Protection Program's market tiers, PERS reform and selling the trust lands can be sued once they pass. You defend, settle or concede, and the losing side may appeal. Provisions written in on the floor weaken each law in a stated way and make it likelier to survive. A new law, Gas in New Buildings, runs from Electric-Ready to all-electric. The Psilocybin Program runs in four tiers, and only dispensary sales are taxed."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -26016,6 +26306,7 @@ function drawFloor(){
       ? "Where it starts — you are voting the dial, and a lower one is an easier vote"
       : "How strong a bill — a narrower one is not just cheaper, it stops being a party-line vote"}</div>
     <div class="conc-row">${opts}</div>`}
+    ${courtFloorHTML(F.id,(()=>{ const c=CATALOG[F.id]||POLICIES[F.id]; if(!c||F.dir==="repeal")return -1; return (c.mechanic==="tier"&&c.tiers)?Math.max(c.tierMin||0,Math.round((F.narrowed==null?1:F.narrowed)*(c.tiers.length-1))):0; })())}
     <div class="odds-box ${w.odds>=0.8?'good':w.odds>=0.5?'mid':'bad'}">
       <span class="odds-n">${Math.round(w.odds*100)}%</span>
       <span class="odds-t">to pass ${floorPlace()} — <b>${oddsWord}</b>. The whip count is what members <i>say</i>; on the day they are absent, vote their conscience, or take a deal you never heard about. A member who took yours is committed, not owned.</span>
@@ -26055,6 +26346,7 @@ function drawFloor(){
   modal.classList.remove("hidden");
   card.querySelectorAll('[data-conc]').forEach(el=>el.addEventListener('click',()=>{
     GAME.pendingFloor.narrowed=+el.dataset.conc; drawFloor(); }));
+  courtWireFloor(card,()=>drawFloor());
   card.querySelectorAll('[data-cush]').forEach(el=>el.addEventListener('click',()=>{
     GAME.pendingFloor.cushion=+el.dataset.cush; drawFloor(); }));
   floorHoldoutWire(card,"b:"+F.dir+":"+F.id,()=>drawFloor());
@@ -27339,6 +27631,7 @@ function _runTicks(){
   METRICS.evAdoption.eq = Math.min(75, 13 + GAME.turn * 0.5);
   tickMetrics();
   tickExecOrders();
+  tickCourtCases();
   if(GAME.consolidation)consolidationShare();   // a signed plan lands its next share
   GAME.lastBalance=budgetBalance().balance;
   GAME.surplusStreak=(GAME.lastBalance>0.5)?Math.min(9,(GAME.surplusStreak||0)+1)
@@ -29297,7 +29590,7 @@ function directEffects(kind,obj){
       for(const k in METRICS){
         const a=(obj.tierEffects[lo]&&obj.tierEffects[lo][k])||0, b=(obj.tierEffects[hi]&&obj.tierEffects[hi][k])||0;
         const raw=a+(b-a)*f;
-        const e=raw*efficacy()*(obj.revenueFull||obj.noOverhead?1:govOverheadMult());
+        const e=raw*efficacy()*(obj.revenueFull||obj.noOverhead?1:govOverheadMult())*(obj.prov?courtFxMult(obj,k):1)*(courtOff(obj)?0:1);
         if(Math.abs(e)>1e-6)out[k]=e;
       }
     } else {
@@ -29438,7 +29731,7 @@ function blocReaction(kind,obj,sim){
     // explicit per-bloc reaction: some policies hit specific groups directly,
     // scaled by how far the slider is set (a gas tax stings commuters/rural)
     if(obj.blocEffect&&obj.blocEffect[sim.id]!==undefined){
-      m+=obj.blocEffect[sim.id]*(obj.mechanic==="slider"||obj.mechanic==="toggle"?lvl:1);
+      m+=courtAnger(obj,sim.id,obj.blocEffect[sim.id]*(obj.mechanic==="slider"||obj.mechanic==="toggle"?lvl:1));
       engaged=true;
     }
     // a reaction that switches on partway along the slider
@@ -29448,7 +29741,7 @@ function blocReaction(kind,obj,sim){
     // per-tier bloc reaction: tier policies can hit specific groups differently
     // at each setting (e.g. minimum wage — rural workers react to the structure)
     if(obj.mechanic==="tier"&&obj.tierBlocEffects&&obj.tierBlocEffects[obj.tierIndex]&&obj.tierBlocEffects[obj.tierIndex][sim.id]!==undefined){
-      m+=obj.tierBlocEffects[obj.tierIndex][sim.id];
+      m+=courtAnger(obj,sim.id,obj.tierBlocEffects[obj.tierIndex][sim.id]);
       engaged=true;
     }
     // institution preference engagement
@@ -30676,6 +30969,7 @@ function renderDetail(){
   let h=`<div class="detailtop"><button class="backbtn" id="backBtn">${detailHome().label}</button>`;
   h+=`</div>`;
   if(key&&key.startsWith("p_"))h+=lpPolicyBanner(key.slice(2));
+  if(key&&key.startsWith("p_"))h+=courtStatusHTML(key.slice(2));
   if(pendActive)h+=(GAME.capital<pendCost
     ? `<div class="pendbanner cantafford">${ico('warning')} <b>You cannot afford this change.</b> Moving this costs <b>◈ ${pendCost}</b> and you have <b>◈ ${Math.floor(GAME.capital)}</b>. It will snap back to where it was the moment you leave this page or end the quarter — the numbers below are a preview you have not paid for.</div>`
     : `<div class="pendbanner">Unsaved change — returning to the board spends <b>◈ ${pendCost}</b> to make it official. Use <b>Undo</b> below to discard it for free.</div>`);
@@ -31905,6 +32199,7 @@ function passBill(id, dir, narrowed, cushion){
       else if(nw<1)q.narrowed=nw;
     }
   }
+  if(dir!=="repeal")courtAdoptDraft(id);
   caucusBillShock(id,caucusLevel(id)-_lv0,nm);
   showVoteResult({ok:true, name:nm, res, w, narrowed});
   GAME.log.push(ico('columns')+" "+nm+" cleared the floor "
@@ -32472,6 +32767,7 @@ function resolvePendingVote(key, origSnap, curSnap, cushion, quiet){
     +res.house.yes+"/"+res.house.need+" and "+res.senate.yes+"/"+res.senate.need
     +(whipped.length?", "+whipped.length+" vote"+(whipped.length===1?"":"s")+" whipped":"")
     +(isRev&&w.spec.cover>0.4?" — the shortfall carried it":"")+")");
+  if(key&&key.startsWith("p_"))courtAdoptDraft(key.slice(2));
   if(!quiet)showVoteResult({ok:true, name:nm, pending:true, res, w});
   return true;
 }
@@ -32635,6 +32931,7 @@ function paintPendingFloor(){
     // buttons sit above the seat-by-seat count, so nothing you have to click
     // is below the fold.
     body.innerHTML=`<div class="sectionsub">${lede}</div>
+      ${(key.startsWith("p_")&&pol)?courtFloorHTML(key.slice(2),courtTier(pol)):""}
       <div class="odds-box ${w.odds>=0.8?'good':w.odds>=0.5?'mid':'bad'}">
         <span class="odds-n">${Math.round(w.odds*100)}%</span>
         <span class="odds-t">to carry ${floorPlace()} — <b>${oddsWord}</b>. The whip count is what members <i>say</i>; on the day they are absent, vote their conscience, or take a deal you never heard about.</span>
@@ -32680,6 +32977,7 @@ function paintPendingFloor(){
     const k=F.key,o=F.origSnap; if(GAME.floorDeals)delete GAME.floorDeals["c:"+k]; if(close)close(); restoreFrom(k,o);
     GAME.log.push("You pulled the change to "+nameFor(k)+" before it reached the floor. No capital spent.");
     render(); if(done)done(); };
+  courtWireFloor(body,()=>paintPendingFloor());
   const go=document.getElementById("pfGo");
   if(go)go.onclick=()=>{
     const k=F.key,o=F.origSnap,c=snapshotFor(F.key),cu=F.cushion||0;
