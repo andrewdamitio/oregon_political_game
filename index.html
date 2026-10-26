@@ -6367,12 +6367,27 @@ const CATALOG={
       {libertarian:3, moderate:1, liberal:1, conservative:-3, parents:-2, retirees:-1},
       {socialist:4, libertarian:4, liberal:2, conservative:-5, rural:-3, parents:-3, retirees:-2}],
     tierIdeology:[{},{social:-0.2},{social:-0.4,govSize:-0.1},{social:-0.8,govSize:-0.4}]},
-  psilocybin:{name:"Psilocybin Therapy Program", domain:"eduHealth", icon:"mushroom", binary:true, mechanic:"law", niche:true,
-    desc:"Build out Measure 109 supervised psilocybin therapy — a national first. Mental-health upside; licensing revenue; culturally divisive.",
-    enabled:true, revenue:0.05, capital:6, enactCapital:9,
-    effects:{behavioralHealth:{b:1,c:5,i:4},health:{b:1,c:3,i:4}}, indicatorEffects:{tourism:3,businessClimate:1},
-    blocEffect:{liberal:3, socialist:2, libertarian:2, conservative:-3, rural:-2, retirees:-2},
-    ideology:{social:-0.6,govSize:-0.2}},
+  // Four settings from strictest to most open. Licensing fees pay for the
+  // first three and no more; only retail sale is taxed, so only it raises money.
+  psilocybin:{name:"Psilocybin Program", domain:"eduHealth", icon:"mushroom", mechanic:"tier", niche:true, phaseIn:4,
+    desc:"How Oregon allows psilocybin, the compound in so-called magic mushrooms.\n\nClinical Trials Only: psilocybin is given only in approved medical research, under a doctor.\n\nLicensed Service Centers: Measure 109 as voters passed it in 2020, the first program of its kind in the country. Any adult can take psilocybin at a licensed center with a trained facilitator, without a prescription, and cannot take it home. Licensing fees pay for the program.\n\nCenters and Personal Use: the service centers, and adults may also grow and possess it for themselves, as Colorado's Proposition 122 allows.\n\nDispensary Sales: licensed shops sell it to adults over the counter and the state taxes the sales, as it does cannabis. No state does this yet. It is the only setting that raises money.\n\nThe more open the setting, the more people it reaches. That helps those it treats and brings visitors, and it also brings more casual use.",
+    tiers:["Clinical Trials Only","Licensed Service Centers","Centers and Personal Use","Dispensary Sales"],
+    tierIndex:1, costByTier:[0,0,0,-0.08], capital:6, enactCapital:9,
+    // what an opposition legislature sends a governor who did not ask for it
+    oppTier:1,
+    effects:{},
+    tierEffects:[
+      {behavioralHealth:1, health:0.5},
+      {behavioralHealth:4, health:2.5},
+      {behavioralHealth:5, health:2.5, drugUse:1},
+      {behavioralHealth:5, health:2, drugUse:3}],
+    tierIndicatorEffects:[{},{tourism:2},{tourism:3},{tourism:4, businessClimate:1}],
+    tierBlocEffects:[
+      {liberal:1, retirees:1},
+      {liberal:3, socialist:2, libertarian:2, conservative:-3, rural:-2, retirees:-2},
+      {libertarian:4, liberal:3, socialist:3, students:2, conservative:-5, rural:-3, retirees:-3, parents:-2},
+      {libertarian:5, liberal:2, socialist:2, students:3, businessClass:1, conservative:-7, rural:-4, retirees:-4, parents:-4, moderate:-2}],
+    tierIdeology:[{social:-0.2},{social:-0.6,govSize:-0.2},{social:-0.8,govSize:-0.2},{social:-1.0,economic:0.2}]},
   /* Car sales are set by franchise law, written to protect dealers from the
      carmakers that supply them. Oregon is in the most open group of
      states: a maker with no franchise agreements here (Tesla, Rivian, Lucid)
@@ -17606,7 +17621,9 @@ function maybeSendOppBill(){
 function _oppEnact(id, level){
   if(!CATALOG[id])return;
   mootCitizenMeasure(id,"enacted");
+  const _src=CATALOG[id];
   _applyEnact(id, 1);                     // the legislature passed it whole
+  if(_src&&_src.oppTier!=null&&POLICIES[id])POLICIES[id].tierIndex=_src.oppTier;
   if(level!=null && level<1){             // ...and then you struck the money out
     const p=POLICIES[id]; if(!p)return;
     if(p.mechanic==="slider")p.value=level;
@@ -33845,14 +33862,14 @@ function renderExecOrders(){
    money and is not enacted shows here, and leaves when it is. Reforms that
    keep or unlock revenue without being a tax get their own short list. */
 const REVENUE_REFORM_NOTE={
-  revenueMajority:"Raises nothing itself. Lets a tax bill pass with a simple majority instead of three-fifths of each chamber.",
   kickerReform:"Keeps the surplus the kicker would refund to taxpayers, in the years there is one.",
   propTaxReform:"Lifts the Measure 5 and 50 caps, so local property taxes can grow with values again."};
 /* The pointer: what is untapped, in a line, for the deficit warnings. */
 function potentialTaxesLine(){
   let tot=0; const names=[];
   for(const id in CATALOG){ const c=CATALOG[id]; if(!c||c.oneTime)continue;
-    const yr=(c.revenueFull||0)>0?c.revenueFull:(c.revenue||0)>0?c.revenue:0;
+    let yr=(c.revenueFull||0)>0?c.revenueFull:(c.revenue||0)>0?c.revenue:0;
+    if(!yr&&c.mechanic==="tier"&&Array.isArray(c.costByTier))yr=Math.max(0,-Math.min(...c.costByTier));
     if(yr>0||REVENUE_REFORM_NOTE[id]){ tot+=yr; names.push({n:c.name,yr}); } }
   if(!names.length)return "";
   names.sort((a,b)=>b.yr-a.yr);
@@ -33876,8 +33893,12 @@ function untappedRevenueHTML(){
   const taxes=[], reforms=[];
   for(const id in CATALOG){
     const c=CATALOG[id]; if(!c||c.oneTime)continue;
-    const yr=(c.revenueFull||0)>0?c.revenueFull:(c.revenue||0)>0?c.revenue:0;
+    let yr=(c.revenueFull||0)>0?c.revenueFull:(c.revenue||0)>0?c.revenue:0, atTier=null;
+    if(!yr&&c.mechanic==="tier"&&Array.isArray(c.costByTier)){
+      const k=c.costByTier.reduce((b,v,i)=>v<c.costByTier[b]?i:b,0);
+      if(c.costByTier[k]<0){ yr=-c.costByTier[k]; atTier=c.tiers[k]; } }
     if(REVENUE_REFORM_NOTE[id])reforms.push({id,c,yr});
+    else if(yr>0&&atTier)taxes.push({id,c,yr,atTier});
     else if(yr>0)taxes.push({id,c,yr});
   }
   if(!taxes.length&&!reforms.length)return "";
@@ -33891,7 +33912,7 @@ function untappedRevenueHTML(){
     const money=v=>v<0.1?"$"+Math.round(v*1000)+"M":fmtB(v,1);
     const amt=x.yr<=0?"no revenue itself"
       :slider?money(x.yr*lo)+" to "+money(x.yr)+" a year"
-      :"about "+money(x.yr)+" a year";
+      :"about "+money(x.yr)+" a year"+(x.atTier?" at "+x.atTier:"");
     const R=c.real, rv=v=>{ const n=(R.min+(R.max-R.min)*v).toFixed(R.decimals||0);
       return R.unit==="%"?n+"%":/^\$\//.test(R.unit)?"$"+n+" a "+R.unit.slice(2):n+" "+R.unit; };
     const scale=slider&&R&&x.yr>0?`<div class="lnote">From ${/^\$\//.test(R.unit)?"":"a "+R.label+" of "}${rv(lo)} at its lowest to ${rv(1)} at its highest.</div>`:"";
