@@ -5356,6 +5356,14 @@ function courtStepCost(id,p,t,t2){
   const f=v=>(v>0?"+":v<0?"−":"")+Math.abs(+v.toFixed(2));
   return "its effect on "+METRICS[k].name+" falls from "+f(e1[k])+" to "+f(e2[k]||0);
 }
+/* Where a suable law stands now, for the screens after a court choice. */
+function courtStandsNow(id){
+  const p=POLICIES[id];
+  if(!p)return "It is off the books.";
+  const act=courtActive(p).map(v=>(COURT_SETTLE[v.id]||{}).act||v.label.toLowerCase());
+  return "It now stands at "+(p.tiers?"<b>"+p.tiers[p.tierIndex]+"</b>":"full force")+(act.length?", written so that you "+act.join(" and "):"")
+    +"."+(courtOff(p)&&!p.courtEnjoined?" Its effects begin "+turnLabel(p.courtDelayUntil)+".":"");
+}
 /* The ruling, as news. */
 function showCourtEvent(ev,next){
   const L=COURT_LAWS[ev.id], p=POLICIES[ev.id]||CATALOG[ev.id];
@@ -10106,12 +10114,14 @@ const DILEMMAS={
       if(lost)out.push({label:"Appeal",
         text:"Costs ◈"+COURT_APPEAL_COST+". "+(L.injunction?"The law stays blocked":"The law stays in force")+" until the appeals court rules. It has about a "+Math.round(C.odds*100)+"% chance of overturning the trial court's ruling, which would save the law.",
         apply:()=>{ GAME.capital=clamp(GAME.capital-COURT_APPEAL_COST,0,100); C.stage="appeal"; C.stateAppealed=true; C.ruling=GAME.turn+2+Math.floor(Math.random()*2); courtDecided(id);
-          GAME.log.push(ico('gavel')+" Appealing the ruling against "+p.name); }});
+          GAME.log.push(ico('gavel')+" Appealing the ruling against "+p.name); },
+        after:()=>"<b>"+p.name+"</b> goes to the appeals court, which rules "+turnLabel(C.ruling)+". It has about a "+Math.round(C.odds*100)+"% chance of overturning the trial court's ruling. "+(L.injunction?"The law stays blocked until then.":"The law stays in force until then.")});
       else out.push({label:"Defend it in court",
         text:"Costs ◈"+COURT_DEFEND_COST+". The Attorney General defends the law as written. The trial court rules "+turnLabel(C.ruling)+", "+Math.max(1,C.ruling-GAME.turn)+" quarter"+(Math.max(1,C.ruling-GAME.turn)===1?"":"s")+" from now, with about a "+Math.round(C.odds*100)+"% chance the law survives. Whoever loses can appeal, which adds two or three quarters."
           +(L.injunction?" The law stays blocked until it is over.":" The law stays in force until it is over."),
         apply:()=>{ GAME.capital=clamp(GAME.capital-COURT_DEFEND_COST,0,100); C.defended=true; courtDecided(id);
-          GAME.log.push(ico('gavel')+" Defending "+p.name+" in court"); }});
+          GAME.log.push(ico('gavel')+" Defending "+p.name+" in court"); },
+        after:()=>"<b>"+p.name+"</b> goes to trial, "+L.where+". The trial court rules "+turnLabel(C.ruling)+", with about a "+Math.round(C.odds*100)+"% chance the law survives, and whoever loses can appeal. "+(L.injunction?"The law stays blocked until then.":"The law stays in force until then.")});
       // A settlement, before any ruling. After a loss at trial there is none:
       // accepting it simply undoes your change. The one exception is a law that
       // was already at this setting when you took office, which has nothing to undo.
@@ -10122,10 +10132,12 @@ const DILEMMAS={
           S.apply(); delete GAME.courtCases[id]; p.courtEnjoined=false; courtDecided(id);
           const W0=GAME.courtWatch[id]||{};
           GAME.courtWatch[id]={key:courtTier(p)+"|"+Object.keys(p.prov||{}).sort().join(","), since:GAME.turn, rolled:true, from:W0.from};
-          GAME.log.push(ico('handshake')+" Settled the suit against "+p.name+": "+S.short); }});
+          GAME.log.push(ico('handshake')+" Settled the suit against "+p.name+": "+S.short); },
+        after:()=>"The case against <b>"+p.name+"</b> is closed. "+courtStandsNow(id)});
       out.push({label:lost?"Accept the ruling":"Concede",
         text:courtRevertPhrase(id).charAt(0).toUpperCase()+courtRevertPhrase(id).slice(1)+"."+(lost?" Its supporters are let down.":" Its supporters are let down, and it costs you less than losing in court would."),
-        apply:()=>{ delete GAME.courtCases[id]; courtDecided(id); courtStrike(id,lost?"court":"concede"); }});
+        apply:()=>{ delete GAME.courtCases[id]; courtDecided(id); courtStrike(id,lost?"court":"concede"); },
+        after:()=>"The case against <b>"+p.name+"</b> is over. "+courtStandsNow(id)});
       return out;
     }},
   walkoutConcessions:{
@@ -10784,10 +10796,11 @@ function resolveDilemma(optIndex){
   const grudgeBefore=GAME.grudges.length;
   const capBefore=GAME.capital;
   const ceBefore={ec:(GAME.compassEvents&&GAME.compassEvents.ec)||0, so:(GAME.compassEvents&&GAME.compassEvents.so)||0};
-  // hold the chosen option: some dilemmas build their options from live state
-  // (a lawsuit), and choosing one changes that state
-  const _opt=d.options[optIndex];
+  // hold the chosen option and the title: some dilemmas build both from live
+  // state (a lawsuit), and choosing changes that state
+  const _opt=d.options[optIndex], _title=d.title;
   _opt.apply();
+  let _after=null; try{ if(typeof _opt.after==="function")_after=_opt.after(); }catch(e){ _after=null; }
   // collect the effects this choice just created
   const newGrudges=GAME.grudges.slice(grudgeBefore);
   const capDelta=GAME.capital-capBefore;
@@ -10821,7 +10834,7 @@ function resolveDilemma(optIndex){
   const _lab=(typeof _opt.label==="function")
     ? _opt.label() : _opt.label;
   GAME.log.push("❖ "+d.title+" — chose: "+_lab);
-  GAME.lastDilemmaResult={title:d.title, icon:d.icon, choice:_lab, fx};
+  GAME.lastDilemmaResult={title:_title, icon:d.icon, choice:_lab, fx, desc:_after||undefined};
   GAME.pendingDilemma=null;
   GAME.dilemmaCtx={};
   render();
