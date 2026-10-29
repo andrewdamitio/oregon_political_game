@@ -5084,6 +5084,28 @@ const COURT_LAWS={
       guarantee:{label:"Guarantee school payments during the transition", tiers:[0], odds:0.15, cost:0.05, costQ:8, note:"About $0.05B a year for two years"}}}
 };
 const COURT_DEFEND_COST=4, COURT_APPEAL_COST=3;
+/* A settlement in plain words: what the challengers want you to do, and what
+   it costs the law. Keyed by provision; the numbers are the provisions' own. */
+/* Who the challengers are, short enough to start a sentence. */
+const COURT_PARTY={gasHookups:"The builders and the gas utility", gunControl:"The gun-rights groups",
+  carbonProgram:"The gas utilities and fuel distributors", persReform:"The unions", csfLandSale:"The school districts"};
+const COURT_SETTLE={
+  perfStd:{act:"rewrite it as a performance standard that gas can meet", cost:"its environmental gain falls by 40%"},
+  restaurants:{act:"exempt restaurants and commercial kitchens", cost:"its environmental gain falls by 15%, and business anger is halved"},
+  affordable:{act:"exempt affordable housing", cost:"its environmental gain falls by 10%, and it no longer raises housing costs"},
+  phaseIn:{act:"phase it in over three years", cost:"its effects start two years later, and builders and blue-collar workers are a third less angry"},
+  grandfather:{act:"let owners keep the magazines they already have", cost:"its crime reduction falls by 20%, and rural and conservative anger eases by a quarter"},
+  permitsFirst:{act:"hold off the permit requirement until the permit system is running", cost:"its effects start a year later"},
+  salesOnly:{act:"ban only future sales, not weapons people already own", cost:"its crime reduction falls by 25%"},
+  redoRules:{act:"redo the rulemaking with full disclosure", cost:"it takes effect two quarters later, at full strength"},
+  exemptGas:{act:"exempt gas utilities from the cap", cost:"its environmental gain falls by 30%, and business anger eases"},
+  slowCap:{act:"slow how fast the cap tightens", cost:"its environmental gain falls by 20%, and its drag on the economy by 30%"},
+  forwardOnly:{act:"change only benefits earned from now on", cost:"its savings fall by 30%"},
+  lowPaid:{act:"protect lower-paid workers", cost:"its savings fall by 15%, and union anger eases by 30%"},
+  dcFloor:{act:"keep a guaranteed floor under the new plan", cost:"its savings fall by 20%"},
+  appraisal:{act:"sell only at an independent full appraisal", cost:"the sale waits two quarters, for the same proceeds"},
+  conservation:{act:"keep the parcels with conservation or recreation value", cost:"the sale raises 20% less, and does half the environmental harm"},
+  guarantee:{act:"guarantee school payments during the transition", cost:"it costs about $0.05B a year for two years"}};
 /* Court decisions wait in line: one on the desk at a time, the rest behind it. */
 function courtQueue(id){ GAME.courtQueue=GAME.courtQueue||[]; if(GAME.courtQueue.indexOf(id)<0)GAME.courtQueue.push(id); }
 function courtDecided(id){ if(GAME.courtDecision===id)GAME.courtDecision=null; GAME.courtQueue=(GAME.courtQueue||[]).filter(x=>x!==id); }
@@ -10011,15 +10033,22 @@ const DILEMMAS={
         apply:()=>{ GAME.capital=clamp(GAME.capital-COURT_APPEAL_COST,0,100); C.stage="appeal"; C.ruling=GAME.turn+2+Math.floor(Math.random()*2); courtDecided(id);
           GAME.log.push(ico('gavel')+" Appealing the ruling against "+p.name); }});
       else out.push({label:"Defend it in court",
-        text:"Costs ◈"+COURT_DEFEND_COST+". The Attorney General defends the law as written, with about a "+Math.round(C.odds*100)+"% chance it survives.",
+        text:"Costs ◈"+COURT_DEFEND_COST+". The Attorney General defends the law as written. The trial court rules "+turnLabel(C.ruling)+", "+Math.max(1,C.ruling-GAME.turn)+" quarter"+(Math.max(1,C.ruling-GAME.turn)===1?"":"s")+" from now, with about a "+Math.round(C.odds*100)+"% chance the law survives. Whoever loses can appeal, which adds two or three quarters."
+          +(L.injunction?" The law stays blocked until it is over.":" The law stays in force until it is over."),
         apply:()=>{ GAME.capital=clamp(GAME.capital-COURT_DEFEND_COST,0,100); C.defended=true; courtDecided(id);
           GAME.log.push(ico('gavel')+" Defending "+p.name+" in court"); }});
       // the settlement the challengers would take: the open provision that most improves the odds
       const open=Object.keys(L.provisions).filter(k=>L.provisions[k].tiers.indexOf(t)>=0&&!(p.prov||{})[k]);
       const best=open.sort((a,b)=>(L.provisions[b].odds||0)-(L.provisions[a].odds||0))[0];
       if(best){ const v=L.provisions[best];
-        out.push({label:"Settle: "+v.label,
-          text:(lost?"The challengers drop the case and the law stands"+(L.injunction?" again, from now,":"")+" with this written in: ":"The suit is dropped and the law stays, with this written in: ")+v.note.charAt(0).toLowerCase()+v.note.slice(1)+".",
+        const ST=COURT_SETTLE[best]||{act:v.label.charAt(0).toLowerCase()+v.label.slice(1), cost:v.note.charAt(0).toLowerCase()+v.note.slice(1)};
+        out.push({label:"Settle: "+ST.act.charAt(0).toUpperCase()+ST.act.slice(1),
+          // what happens to the law: a provision that delays it says so in its cost
+          text:(COURT_PARTY[id]||L.who)+" drop "+(lost?"the case":"the suit")+" if you "+ST.act+". "
+            +(v.delay?(lost?"The ruling is set aside.":"The case ends now.")
+              :lost?(L.injunction?"The ruling is set aside and the law takes effect.":"The ruling is set aside and the law stays in force.")
+              :(L.injunction?"The case ends now, the court lifts its block, and the law takes effect.":"The case ends now and the law stays in force."))
+            +" In exchange, "+ST.cost+".",
           apply:()=>{ const set=Object.assign({},p.prov||{}); set[best]=true; courtSetProvisions(id,p,set);
             delete GAME.courtCases[id]; p.courtEnjoined=false; courtDecided(id);
             GAME.courtWatch[id]={key:courtTier(p)+"|"+Object.keys(p.prov).sort().join(","), since:GAME.turn, rolled:true};
