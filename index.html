@@ -5311,11 +5311,15 @@ function courtRevertPhrase(id){
   return R.kind==="tier"?"the law goes back to "+nm+", where it was before you changed it":"the law falls back to "+nm;
 }
 /* Descriptions of the settled versions that are a step down the same law. */
-const COURT_SETTLED_DESC={
-  gasHookups:{2:"no gas piping in new homes, while offices, stores and restaurants keep it"},
-  gunControl:{2:"a permit and safety training to buy a gun, and magazines limited to ten rounds, without the ban on the weapons themselves"},
-  carbonProgram:{3:"California's economy-wide cap with auctioned allowances, without Washington's higher price and reinvestment"},
-  persReform:{1:"a cap on the salary that counts toward a pension, and part of each member's contribution redirected to the fund, which the Oregon Supreme Court upheld in 2022"}};
+const COURT_STEP={
+  gasHookups:{2:{label:"Limit it to new homes", act:"limit the requirement to new homes",
+    keep:"Offices, stores and restaurants could still be built with gas."}},
+  gunControl:{2:{label:"Drop the assault weapons ban", act:"give up the ban on assault weapons",
+    keep:"The permit to purchase, the safety training and the ten-round magazine limit all stay."}},
+  carbonProgram:{3:{label:"Scale it back to Cap-and-Trade", act:"scale the program back to Cap-and-Trade",
+    keep:"The economy-wide cap and its auctioned allowances stay, at California's lower price and without Washington's reinvestment of the proceeds."}},
+  persReform:{1:{label:"Drop the 401(k)-style plan for new hires", act:"give up the 401(k)-style plan for new hires",
+    keep:"The Contribution Redirect stays: the cap on the salary that counts toward a pension, and part of each member's contribution going to the fund, as the Oregon Supreme Court allowed in 2022."}}};
 /* What the challengers will settle for: the law a step down, when that step is
    still more than a loss would leave; otherwise this setting with the provision
    that most improves its odds. Each comes with its cost to the law. */
@@ -5323,11 +5327,13 @@ function courtSettlement(id){
   const L=COURT_LAWS[id], p=POLICIES[id]; if(!L||!p)return null;
   const t=courtTier(p), R=courtRevertTarget(id), floor=R.kind==="off"?-1:R.t;
   const party=COURT_PARTY[id]||L.who;
-  const tail=lost=>" The case ends now"+(L.injunction?", the court lifts its block,":"")+" and they will not sue the settled law.";
+  const tail=lost=>lost
+    ? " The ruling is set aside"+(L.injunction?", the law takes effect,":",")+" and they agree not to sue over it again."
+    : " The case ends now"+(L.injunction?", the court lifts its block,":",")+" and they agree not to sue over it again.";
   if(p.tiers&&t-1>floor&&t-1>=0){
-    const t2=t-1, nm=p.tiers[t2], d=(COURT_SETTLED_DESC[id]||{})[t2];
-    return {label:"Settle for "+nm, short:"scaled back to "+nm,
-      text:lost=>party+" drop "+(lost?"the case":"the suit")+" if you scale the law back to "+nm+(d?": "+d:"")+"."+tail(lost)+" "+courtStepCost(id,p,t,t2),
+    const t2=t-1, nm=p.tiers[t2], X=(COURT_STEP[id]||{})[t2]||{label:"Scale it back to "+nm, act:"scale the law back to "+nm, keep:""};
+    return {label:"Settle: "+X.label, short:X.act,
+      text:lost=>party+" will drop "+(lost?"the case":"the suit")+" if you "+X.act+"."+(X.keep?" "+X.keep:"")+tail(lost)+" In exchange, "+courtStepCost(id,p,t,t2)+".",
       apply:()=>{ p.tierIndex=t2; courtSetProvisions(id,p,p.prov||{}); }};
   }
   const open=Object.keys(L.provisions).filter(k=>L.provisions[k].tiers.indexOf(t)>=0&&!(p.prov||{})[k]);
@@ -5335,20 +5341,20 @@ function courtSettlement(id){
   if(!best)return null;
   const v=L.provisions[best], ST=COURT_SETTLE[best]||{act:v.label.charAt(0).toLowerCase()+v.label.slice(1), cost:v.note.charAt(0).toLowerCase()+v.note.slice(1)};
   return {label:"Settle: "+ST.act.charAt(0).toUpperCase()+ST.act.slice(1), short:ST.act,
-    text:lost=>party+" drop "+(lost?"the case":"the suit")+" if you "+ST.act+"."+tail(lost)+" In exchange, "+ST.cost+".",
+    text:lost=>party+" will drop "+(lost?"the case":"the suit")+" if you "+ST.act+"."+tail(lost)+" In exchange, "+ST.cost+".",
     apply:()=>{ const set=Object.assign({},p.prov||{}); set[best]=true; courtSetProvisions(id,p,set); }};
 }
 /* What a step down costs the law, in its own biggest number. */
 function courtStepCost(id,p,t,t2){
   if(id==="persReform"&&typeof PERS_ACCRUAL!=="undefined"){
     const a=PERS_ACCRUAL[0]-PERS_ACCRUAL[t], b=PERS_ACCRUAL[0]-PERS_ACCRUAL[t2];
-    return a>0?"Its pension savings fall by about "+Math.round((1-b/a)*100)+"%.":"";
+    return a>0?"its pension savings fall by about "+Math.round((1-b/a)*100)+"%":"it saves less";
   }
   const e1=(p.tierEffects||[])[t]||{}, e2=(p.tierEffects||[])[t2]||{};
   const k=Object.keys(e1).filter(x=>METRICS[x]).sort((a,b)=>Math.abs(e1[b])-Math.abs(e1[a]))[0];
-  if(!k)return "";
+  if(!k)return "it does less";
   const f=v=>(v>0?"+":v<0?"−":"")+Math.abs(+v.toFixed(2));
-  return METRICS[k].name+": "+f(e1[k])+" → "+f(e2[k]||0)+".";
+  return "its effect on "+METRICS[k].name+" falls from "+f(e1[k])+" to "+f(e2[k]||0);
 }
 /* The ruling, as news. */
 function showCourtEvent(ev,next){
