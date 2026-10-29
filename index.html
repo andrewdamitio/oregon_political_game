@@ -10563,23 +10563,20 @@ function resolveProposal(accept,after){
     else pol.value=a.target;
     GAME.log.push(ico('doc')+" "+c.pname+" moved "+pol.name+" to "+a.label+" — ◈ "+cost.now);
   } else {
-    // APPROVED MEANS VOTED ON, NOW. Whipped at their discount, with a vote to
-    // spare when you can afford one, and the result comes straight back.
-    GAME.apptDiscount=GAME.apptDiscount||{};
-    GAME.apptDiscount[c.ppolicy]=APPT_PROPOSAL_DISCOUNT;
-    const w1=whipCount(c.ppolicy,"enact",null,1,true), w0=whipCount(c.ppolicy,"enact",null,0,true);
-    const cu=(w1&&w1.possible&&(window.SANDBOX||GAME.capital>=w1.cost))?1:0, w=cu?w1:w0;
-    if(!w||(!w.possible&&!window.SANDBOX)||(!window.SANDBOX&&GAME.capital<w.cost)||floorFrozen()){
-      delete GAME.apptDiscount[c.ppolicy];
-      GAME.log.push(ico('doc')+" "+c.pname+"'s "+pol.name+" could not be brought to a vote: "
-        +(floorFrozen()?floorShutWhy():(!w||!w.possible)?"the votes are not there at any price":"you cannot afford the whip"));
+    // APPROVED MEANS THE FLOOR, NOW. The same floor screen as any bill of
+    // yours, with the director's discount in the price for as long as it is
+    // open: the count, how strong a bill to ask for, any court provisions,
+    // and what it does. Calling the vote or pulling the bill closes it.
+    if(floorFrozen()){
+      GAME.log.push(ico('doc')+" "+c.pname+"'s "+pol.name+" could not be brought to a vote: "+floorShutWhy());
       render(); done(); return;
     }
-    GAME.log.push(ico('doc')+" "+c.pname+" brought you "+pol.name+"; it goes to the floor now at ◈ "+w.cost);
-    window._voteDone=done;
-    passBill(c.ppolicy,"enact",null,cu);
-    delete GAME.apptDiscount[c.ppolicy];
-    if(window._voteDone===done){ window._voteDone=null; done(); }    // no result screen came up
+    GAME.apptDiscount=GAME.apptDiscount||{};
+    GAME.apptDiscount[c.ppolicy]=APPT_PROPOSAL_DISCOUNT;
+    GAME.floorProposal={id:c.ppolicy, pname:c.pname, post:c.ppost, done};
+    showFloor(c.ppolicy,"enact");
+    if(!GAME.pendingFloor){ delete GAME.apptDiscount[c.ppolicy]; GAME.floorProposal=null; render(); done(); }
+    return;
   }
   render();
   if(c.pkind==="adjust")done();
@@ -23467,7 +23464,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="7.5";
+const GAME_VERSION="7.6";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -23498,7 +23495,8 @@ const VERSION_HISTORY=[
   ["7.2","25 October 2026","Laws in court: gas in new buildings, the stricter gun laws, the Climate Protection Program's market tiers, PERS reform and selling the trust lands can be sued once they pass. You defend, settle or concede, and the losing side may appeal. Provisions written in on the floor weaken each law in a stated way and make it likelier to survive. A new law, Gas in New Buildings, runs from Electric-Ready to all-electric. The Psilocybin Program runs in four tiers, and only dispensary sales are taxed."],
   ["7.3","25 October 2026","Fixes from a bug sweep: provisions keep their clocks when a suit is settled and survive a change of setting; a law struck in court is not sued again at its fallback; the floor's effect preview follows the provisions you tick; a repealed law leaves its provisions behind; the Potential Taxes page keeps your place when opened from the quarterly report; conceding a Parliament you could have governed says so; the Port crisis page lists every condition for how it starts and both ways it ends; and a smaller fix to the RCV start."],
   ["7.4","25 October 2026","Police Pursuits: when an officer may chase a fleeing car, from banned through Washington's 2021 and 2023 limits to Oregon's patchwork of agency rules and a statewide permissive standard. Tighter rules mean fewer crashes and more drivers who get away; looser ones the reverse. A COURT seed starts with Gas in New Buildings already law, and the suit against it filed as the first quarter ends."],
-  ["7.5","28 October 2026","Appeals are yours to decide: a law that loses at trial waits on you to appeal, settle or accept the ruling, and it stays in force while you do unless it is one the courts block outright. Two suits at once each get their own decision in turn."]
+  ["7.5","28 October 2026","Appeals are yours to decide: a law that loses at trial waits on you to appeal, settle or accept the ruling, and it stays in force while you do unless it is one the courts block outright. Two suits at once each get their own decision in turn."],
+  ["7.6","28 October 2026","A bill a director brings you goes to the floor screen like any of yours, with their discount in the price: the count, the odds, how strong a bill to ask for, any court provisions and what it would do, before you call the vote. Pulling it leaves it in the drawer."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -26447,6 +26445,13 @@ function drawFloor(){
     <div class="whip-legend"><span><i class="wp y own"></i>your members, yes</span><span><i class="wp y cross"></i>crossover yes</span><span><i class="wp y own dealt"></i>yes by your deal</span><span><i class="wp buy"></i>the whip would buy</span><span><i class="wp n"></i>no</span><span><i class="wp n hard"></i>not for sale</span></div>
     ${floorHoldoutsHTML(w,"b:"+F.dir+":"+F.id,F.id)}`;
   modal.classList.remove("hidden");
+  // a director's bill: whose it is, and that their discount is in the price
+  const fp=(GAME.floorProposal&&GAME.floorProposal.id===F.id&&F.dir==="enact")?GAME.floorProposal:null;
+  if(fp)card.insertAdjacentHTML("afterbegin",`<div class="whip-prev" style="margin:0 0 10px">${ico('doc')} <b>${fp.pname}'s bill</b>, from ${(APPT_POSTS[fp.post]||{}).name||"your department"}. Their discount is already in the price below. Pulling it leaves it in the drawer.</div>`);
+  const endProposal=declined=>{ if(!fp)return;
+    if(GAME.apptDiscount)delete GAME.apptDiscount[fp.id]; GAME.floorProposal=null;
+    if(declined){ const h=apptHolder(fp.post); if(h)h.rebuffed=(h.rebuffed||0)+1;
+      GAME.log.push(ico('doc')+" Left "+((CATALOG[fp.id]||POLICIES[fp.id]||{}).name||"the bill")+" in the drawer"); } };
   card.querySelectorAll('[data-conc]').forEach(el=>el.addEventListener('click',()=>{
     GAME.pendingFloor.narrowed=+el.dataset.conc; drawFloor(); }));
   courtWireFloor(card,()=>drawFloor());
@@ -26461,12 +26466,20 @@ function drawFloor(){
   const close=()=>{ modal.classList.add("hidden"); GAME.pendingFloor=null;
     document.removeEventListener("keydown",onKey,true); };
   const onKey=e=>{ if(modal.classList.contains("hidden"))return;
-    if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); render(); } };
-  document.getElementById("floorNo").onclick=()=>{ if(GAME.floorDeals)delete GAME.floorDeals["b:"+F.dir+":"+F.id]; close(); render(); };
+    if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); endProposal(true); render(); if(fp)fp.done(); } };
+  document.getElementById("floorNo").onclick=()=>{ if(GAME.floorDeals)delete GAME.floorDeals["b:"+F.dir+":"+F.id]; close(); endProposal(true); render(); if(fp)fp.done(); };
   const go=document.getElementById("floorGo");
   if(go)go.onclick=()=>{
     const {id,dir,narrowed,cushion}=GAME.pendingFloor;
     close();
+    if(fp){
+      // the vote result hands back to the quarter's sequence; without one, go on now
+      window._voteDone=fp.done;
+      passBill(id,dir,narrowed,cushion);
+      endProposal(false); render();
+      if(window._voteDone===fp.done){ window._voteDone=null; fp.done(); }
+      return;
+    }
     if(passBill(id,dir,narrowed,cushion)&&dir==="enact")openDetail("p_"+id);
     else render();
   };
