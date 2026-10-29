@@ -23555,7 +23555,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="7.7";
+const GAME_VERSION="7.8";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -23588,7 +23588,8 @@ const VERSION_HISTORY=[
   ["7.4","25 October 2026","Police Pursuits: when an officer may chase a fleeing car, from banned through Washington's 2021 and 2023 limits to Oregon's patchwork of agency rules and a statewide permissive standard. Tighter rules mean fewer crashes and more drivers who get away; looser ones the reverse. A COURT seed starts with Gas in New Buildings already law, and the suit against it filed as the first quarter ends."],
   ["7.5","28 October 2026","Appeals are yours to decide: a law that loses at trial waits on you to appeal, settle or accept the ruling, and it stays in force while you do unless it is one the courts block outright. Two suits at once each get their own decision in turn."],
   ["7.6","28 October 2026","A bill a director brings you goes to the floor screen like any of yours, with their discount in the price: the count, the odds, how strong a bill to ask for, any court provisions and what it would do, before you call the vote. Pulling it leaves it in the drawer."],
-  ["7.7","29 October 2026","Settling a lawsuit means settling for a version of the law: usually a step down the same law, named and described, with what it costs. Losing in court, or conceding, undoes your change, putting the law back where it was before you moved it, or off the books if you passed it new. After a loss at trial you appeal or accept; there is no settlement unless the law was already in that form when you took office."]
+  ["7.7","29 October 2026","Settling a lawsuit means settling for a version of the law: usually a step down the same law, named and described, with what it costs. Losing in court, or conceding, undoes your change, putting the law back where it was before you moved it, or off the books if you passed it new. After a loss at trial you appeal or accept; there is no settlement unless the law was already in that form when you took office."],
+  ["7.8","29 October 2026","A law's page no longer lists phantom side effects: what a law does through the rest of the simulation is now measured against what it actually does today, so a law still phasing in, or one scaled by the state's capacity, no longer shows the gap as a second effect. A tiered law that is phasing in shows its effects at their current strength, with ticks at full strength. Gun Control's third tier is renamed for what it does."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -30060,10 +30061,13 @@ function effectBar(label,value,scale,opts={}){
    already lists. For a proposal, as if enacted at its starting level. Pure:
    the law is put back exactly where it was, in the same order. */
 function policyDeclaredFx(p){
-  const dm=directEffects("policy",p)||{}, di={}, lvl=policyLevel(p);
-  for(const k in (p.indicatorEffects||{}))di[k]=(di[k]||0)+p.indicatorEffects[k]*lvl;
-  if(p.mechanic==="tier"&&p.tierIndicatorEffects&&p.tierIndicatorEffects[p.tierIndex])
-    for(const k in p.tierIndicatorEffects[p.tierIndex])di[k]=(di[k]||0)+p.tierIndicatorEffects[p.tierIndex][k];
+  const dm={}, di={};
+  for(const k in METRICS){ const e=policyEffect(p,k); if(Math.abs(e)>1e-6)dm[k]=e; }
+  if(!courtOff(p)){
+    for(const k in (p.indicatorEffects||{}))di[k]=(di[k]||0)+p.indicatorEffects[k]*effLevelOf(p);
+    if(p.mechanic==="tier"&&p.tierIndicatorEffects&&p.tierIndicatorEffects[p.tierIndex])
+      for(const k in p.tierIndicatorEffects[p.tierIndex])di[k]=(di[k]||0)+p.tierIndicatorEffects[p.tierIndex][k]*(p.landScaled?landUseIndustrialMult():1)*(p.prov?courtIndMult(p,k):1);
+  }
   if(p===POLICIES.civilCommitment&&typeof civilCommitmentBurden==="function"){ const cb=civilCommitmentBurden(); di.digitization=(di.digitization||0)+cb.total; }
   return {m:dm, i:di};
 }
@@ -30102,14 +30106,21 @@ function hiddenFxWhy(id,k){
   return null;
 }
 function effectsBreakdownHTML(kind,obj){
-  const direct=directEffects(kind,obj);
+  let direct=directEffects(kind,obj);
   // For non-tier policies phasing in, compute the ratio of target→current so we can
   // show a tick mark on metric bars at the full-strength end point.
   // Budget / bloc reactions / indicators already use policyLevel (target), so no tick needed there.
-  let phaseRatio=null;
+  let phaseRatio=null, targetMap=null;
   if(kind==="policy"&&obj.mechanic!=="tier"){
     const e=effLevelOf(obj),t=policyLevel(obj);
     if(Math.abs(e-t)>0.02&&e>0.001)phaseRatio=t/e;
+  }
+  // a tier moves between settings rather than scaling up, so each statistic
+  // gets its own tick: where it is now, and where it is heading
+  if(kind==="policy"&&obj.mechanic==="tier"&&Math.abs(effLevelOf(obj)-policyLevel(obj))>0.02){
+    targetMap=direct;
+    const now={}; for(const k in METRICS){ const e=policyEffect(obj,k); if(Math.abs(e)>1e-6||Math.abs(targetMap[k]||0)>1e-6)now[k]=e; }
+    direct=now;
   }
   let h=`<div class="ebsection"><div class="charttitle">Effects</div>`;
   // PERS reform has no budget line of its own: it works through the pension
@@ -30147,7 +30158,7 @@ function effectsBreakdownHTML(kind,obj){
         h+=effectBar(m?m.name:k, direct[k], scale, {color: good?'var(--good)':'var(--clay)',
           link:m?("m_"+k):null,
           fmt:v=>(v>=0?'+':'')+v.toFixed(1)+(m&&m.fmt==='pctRaw'?' pts':''),
-          target:phaseRatio!=null ? direct[k]*phaseRatio : undefined});
+          target:phaseRatio!=null ? direct[k]*phaseRatio : targetMap ? (targetMap[k]||0) : undefined});
       }
       for(const k of ik){const ind=INDICATORS[k];const val=indMap[k];
         h+=effectBar(ind?ind.name:k, val, scale, {color:indDeltaGood(k,val)?'var(--good)':'var(--clay)', link:"i_"+k, fmt:v=>(v>=0?'+':'')+v.toFixed(1)+(indHigherIsBad(k)&&val>0?' pts — worsens':indHigherIsBad(k)?' pts — eases':' pts')});}
