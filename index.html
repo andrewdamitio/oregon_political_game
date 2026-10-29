@@ -5048,7 +5048,7 @@ function tickExecOrders(){
 const COURT_LAWS={
   gasHookups:{who:"Home builders, NW Natural and the state restaurant association",
     where:"in federal court, under the federal appliance-efficiency law the Ninth Circuit applied to Berkeley's ban in 2023",
-    file:[0,0.30,0.90,0.95], win:[1,0.75,0.25,0.15], strikeTo:t=>t>=2?1:0, injunction:false,
+    file:[0,0.30,0.90,0.95], win:[1,0.75,0.25,0.15], strikeTo:null, injunction:false,
     provisions:{
       perfStd:{label:"Make it a performance standard with a gas path", tiers:[2,3], odds:0.35, fx:{environment:0.6}, note:"Environment gain ×0.6"},
       restaurants:{label:"Exempt restaurants and commercial kitchens", tiers:[3], odds:0.05, fx:{environment:0.85}, anger:{businessClass:0.5}, note:"Environment gain ×0.85, business anger halved"},
@@ -5083,7 +5083,7 @@ const COURT_LAWS={
       conservation:{label:"Keep the parcels with conservation or recreation value", tiers:[0], odds:0.10, fx:{environment:0.5}, proceeds:0.8, note:"Environment hit halved, proceeds ×0.8"},
       guarantee:{label:"Guarantee school payments during the transition", tiers:[0], odds:0.15, cost:0.05, costQ:8, note:"About $0.05B a year for two years"}}}
 };
-const COURT_DEFEND_COST=4, COURT_APPEAL_COST=3;
+const COURT_DEFEND_COST=4, COURT_APPEAL_COST=3, COURT_SETTLE_COST=2;
 /* A settlement in plain words: what the challengers want you to do, and what
    it costs the law. Keyed by provision; the numbers are the provisions' own. */
 /* Who the challengers are, short enough to start a sentence. */
@@ -10110,8 +10110,10 @@ const DILEMMAS={
       // accepting it simply undoes your change. The one exception is a law that
       // was already at this setting when you took office, which has nothing to undo.
       const S=(!lost||courtStartedThere(id))?courtSettlement(id):null;
-      if(S)out.push({label:S.label, text:S.text(lost),
-        apply:()=>{ S.apply(); delete GAME.courtCases[id]; p.courtEnjoined=false; courtDecided(id);
+      if(S)out.push({label:S.label, text:"Costs ◈"+COURT_SETTLE_COST+". "+S.text(lost),
+        disabled:()=>!window.SANDBOX&&GAME.capital<COURT_SETTLE_COST,
+        apply:()=>{ GAME.capital=clamp(GAME.capital-COURT_SETTLE_COST,0,100);
+          S.apply(); delete GAME.courtCases[id]; p.courtEnjoined=false; courtDecided(id);
           const W0=GAME.courtWatch[id]||{};
           GAME.courtWatch[id]={key:courtTier(p)+"|"+Object.keys(p.prov||{}).sort().join(","), since:GAME.turn, rolled:true, from:W0.from};
           GAME.log.push(ico('handshake')+" Settled the suit against "+p.name+": "+S.short); }});
@@ -23555,7 +23557,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="7.8";
+const GAME_VERSION="7.9";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -23589,7 +23591,8 @@ const VERSION_HISTORY=[
   ["7.5","28 October 2026","Appeals are yours to decide: a law that loses at trial waits on you to appeal, settle or accept the ruling, and it stays in force while you do unless it is one the courts block outright. Two suits at once each get their own decision in turn."],
   ["7.6","28 October 2026","A bill a director brings you goes to the floor screen like any of yours, with their discount in the price: the count, the odds, how strong a bill to ask for, any court provisions and what it would do, before you call the vote. Pulling it leaves it in the drawer."],
   ["7.7","29 October 2026","Settling a lawsuit means settling for a version of the law: usually a step down the same law, named and described, with what it costs. Losing in court, or conceding, undoes your change, putting the law back where it was before you moved it, or off the books if you passed it new. After a loss at trial you appeal or accept; there is no settlement unless the law was already in that form when you took office."],
-  ["7.8","29 October 2026","A law's page no longer lists phantom side effects: what a law does through the rest of the simulation is now measured against what it actually does today, so a law still phasing in, or one scaled by the state's capacity, no longer shows the gap as a second effect. A tiered law that is phasing in shows its effects at their current strength, with ticks at full strength. Gun Control's third tier is renamed for what it does."]
+  ["7.8","29 October 2026","A law's page no longer lists phantom side effects: what a law does through the rest of the simulation is now measured against what it actually does today, so a law still phasing in, or one scaled by the state's capacity, no longer shows the gap as a second effect. A tiered law that is phasing in shows its effects at their current strength, with ticks at full strength. Gun Control's third tier is renamed for what it does."],
+  ["7.9","29 October 2026","Settling a lawsuit costs a little political capital, far less than taking the change to the floor. A gas-in-buildings rule struck in court is void rather than turned into a performance code, and the COURT seed's law is treated as one you have just passed."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -35253,7 +35256,10 @@ function renderDilemma(){
     const olabel=(typeof o.label==="function")?o.label():o.label;
     // an option with nothing to say belongs to an event that did not fire
     if(!olabel)return;
-    h+=`<button class="dilemma-opt" data-opt="${i}"><span class="do-label">${olabel}</span><span class="do-sub">${otext}</span></button>`;
+    const off=(typeof o.disabled==="function")?o.disabled():!!o.disabled;
+    h+=off
+      ? `<button class="dilemma-opt opt-disabled" disabled><span class="do-label">${olabel}</span><span class="do-sub">${otext}</span></button>`
+      : `<button class="dilemma-opt" data-opt="${i}"><span class="do-label">${olabel}</span><span class="do-sub">${otext}</span></button>`;
   });
   h+=`</div><div class="dilemma-foot">Decide it before the quarter's work begins. There is no clean choice, and both sides will remember.</div>`;
   card.innerHTML=h;
@@ -35989,7 +35995,7 @@ function bootWorld(startId){
   if(window.COURT_SEED&&CATALOG.gasHookups&&!POLICIES.gasHookups){
     _applyEnact("gasHookups"); POLICIES.gasHookups.tierIndex=3;
     // watched from before the first quarter, and the first roll is certain
-    GAME.courtWatch={gasHookups:{key:"3|", since:-1}}; GAME.courtForce={gasHookups:true};
+    GAME.courtWatch={gasHookups:{key:"3|", since:-1, from:"off"}}; GAME.courtForce={gasHookups:true};
     GAME.log.push(ico('gavel')+" This Oregon has just passed Gas in New Buildings at its strictest: All New Buildings All-Electric. The home builders and the gas utility are preparing a suit.");
   }
   if(window.PR_SEED&&!GAME.prMode){
