@@ -3302,6 +3302,10 @@
   // And a walkout takes a partisan agenda and a year to earn. This seed is
   // for looking at one: the other party walks out as the first quarter ends.
   window.WALKOUT_SEED=(seed==="WALKOUT");
+  // And a lawsuit takes a law that draws one. This seed is for looking at
+  // one: Gas in New Buildings is already law at its strictest, and the suit
+  // is filed as the first quarter ends.
+  window.COURT_SEED=(seed==="COURT");
   /* Re-point Math.random at a named stream derived from the same seed. The
      world can be built more than once — switching coalitions on the opening
      screen rebuilds it — and every build must draw the same numbers, so the
@@ -5180,7 +5184,9 @@ function tickCourtCases(){
     if(!W||W.key!==key){ GAME.courtWatch[id]={key, since:GAME.turn}; continue; }
     if(W.rolled||GAME.turn<W.since+1)continue;
     W.rolled=true;
-    if(Math.random()<(L.file[t]||0))courtFile(id);
+    // a seed can make the first roll certain, to show a suit on demand
+    const forced=!!(GAME.courtForce&&GAME.courtForce[id]); if(forced)delete GAME.courtForce[id];
+    if(Math.random()<(L.file[t]||0)||forced)courtFile(id);
   }
   // a suit waits for the desk to be clear of another decision
   if(GAME.courtDecision&&!GAME.pendingDilemma&&GAME.courtCases[GAME.courtDecision])GAME.pendingDilemma="courtCase";
@@ -23467,7 +23473,7 @@ const VERSION_HISTORY=[
   ["7.1","25 October 2026","Potential Taxes on the State Budget page: the taxes you have not passed and the reforms that keep or unlock revenue, each with the range it could raise, who it falls on, and how it passes. It sits under Total Revenue, and every deficit warning points to it."],
   ["7.2","25 October 2026","Laws in court: gas in new buildings, the stricter gun laws, the Climate Protection Program's market tiers, PERS reform and selling the trust lands can be sued once they pass. You defend, settle or concede, and the losing side may appeal. Provisions written in on the floor weaken each law in a stated way and make it likelier to survive. A new law, Gas in New Buildings, runs from Electric-Ready to all-electric. The Psilocybin Program runs in four tiers, and only dispensary sales are taxed."],
   ["7.3","25 October 2026","Fixes from a bug sweep: provisions keep their clocks when a suit is settled and survive a change of setting; a law struck in court is not sued again at its fallback; the floor's effect preview follows the provisions you tick; a repealed law leaves its provisions behind; the Potential Taxes page keeps your place when opened from the quarterly report; conceding a Parliament you could have governed says so; the Port crisis page lists every condition for how it starts and both ways it ends; and a smaller fix to the RCV start."],
-  ["7.4","25 October 2026","Police Pursuits: when an officer may chase a fleeing car, from banned through Washington's 2021 and 2023 limits to Oregon's patchwork of agency rules and a statewide permissive standard. Tighter rules mean fewer crashes and more drivers who get away; looser ones the reverse."]
+  ["7.4","25 October 2026","Police Pursuits: when an officer may chase a fleeing car, from banned through Washington's 2021 and 2023 limits to Oregon's patchwork of agency rules and a statewide permissive standard. Tighter rules mean fewer crashes and more drivers who get away; looser ones the reverse. A COURT seed starts with Gas in New Buildings already law, and the suit against it filed as the first quarter ends."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -35838,6 +35844,12 @@ function bootWorld(startId){
   if(window.RCV_SEED&&CATALOG.rankedChoice&&!POLICIES.rankedChoice){
     POLICIES.rankedChoice=CATALOG.rankedChoice; POLICIES.rankedChoice.enabled=true; POLICIES.rankedChoice.enacted=true; POLICIES.rankedChoice._id="rankedChoice"; delete CATALOG.rankedChoice;
     GAME.log.push(ico('ballot')+" This Oregon already votes by ranked choice: the governor's race and every legislative seat are counted in rounds.");
+  }
+  if(window.COURT_SEED&&CATALOG.gasHookups&&!POLICIES.gasHookups){
+    _applyEnact("gasHookups"); POLICIES.gasHookups.tierIndex=3;
+    // watched from before the first quarter, and the first roll is certain
+    GAME.courtWatch={gasHookups:{key:"3|", since:-1}}; GAME.courtForce={gasHookups:true};
+    GAME.log.push(ico('gavel')+" This Oregon has just passed Gas in New Buildings at its strictest: All New Buildings All-Electric. The home builders and the gas utility are preparing a suit.");
   }
   if(window.PR_SEED&&!GAME.prMode){
     POLICIES.propRep=CATALOG.propRep; POLICIES.propRep.enacted=true; delete CATALOG.propRep;
