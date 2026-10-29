@@ -5083,7 +5083,11 @@ const COURT_LAWS={
       conservation:{label:"Keep the parcels with conservation or recreation value", tiers:[0], odds:0.10, fx:{environment:0.5}, proceeds:0.8, note:"Environment hit halved, proceeds ×0.8"},
       guarantee:{label:"Guarantee school payments during the transition", tiers:[0], odds:0.15, cost:0.05, costQ:8, note:"About $0.05B a year for two years"}}}
 };
-const COURT_DEFEND_COST=4;
+const COURT_DEFEND_COST=4, COURT_APPEAL_COST=3;
+/* Court decisions wait in line: one on the desk at a time, the rest behind it. */
+function courtQueue(id){ GAME.courtQueue=GAME.courtQueue||[]; if(GAME.courtQueue.indexOf(id)<0)GAME.courtQueue.push(id); }
+function courtDecided(id){ if(GAME.courtDecision===id)GAME.courtDecision=null; GAME.courtQueue=(GAME.courtQueue||[]).filter(x=>x!==id); }
+function courtWaiting(id){ return GAME.courtDecision===id||(GAME.courtQueue||[]).indexOf(id)>=0; }
 function courtTier(p){ return (p&&p.mechanic==="tier")?(p.tierIndex||0):0; }
 function courtCoveredAt(id,t){ const L=COURT_LAWS[id]; return !!(L&&(L.file[t]||0)>0); }
 function courtCovered(id,p){ return !!(p&&courtCoveredAt(id,courtTier(p))); }
@@ -5159,7 +5163,8 @@ function courtStatusHTML(id){
   const C=(GAME.courtCases||{})[id], act=courtActive(p);
   if(!C&&!act.length&&!courtCovered(id,p))return "";
   let h=`<div class="whip-prev" style="margin:0 0 12px">${ico('gavel')} `;
-  if(C)h+=`<b>Before the courts.</b> ${L.who} sued ${L.where}. ${C.stage==="appeal"?"On appeal":"At trial"}, a ruling is expected ${turnLabel(C.ruling)}, with ${Math.round(C.odds*100)}% odds it survives.${p.courtEnjoined?" The law is blocked until then.":""}`;
+  if(C&&C.stage==="lost")h+=`<b>Lost at trial.</b> ${L.who} sued ${L.where}. ${L.injunction?"The law is blocked":"The law stays in force"} while you decide whether to appeal.`;
+  else if(C)h+=`<b>Before the courts.</b> ${L.who} sued ${L.where}. ${C.stage==="appeal"?"On appeal":"At trial"}, a ruling is expected ${turnLabel(C.ruling)}, with ${Math.round(C.odds*100)}% odds it survives.${p.courtEnjoined?" The law is blocked until then.":""}`;
   else if(courtCovered(id,p))h+=`In this form it can be challenged in court: ${Math.round(courtOddsAt(id,courtTier(p),p.prov||{})*100)}% odds it would survive.`;
   if(act.length)h+=`<br>Written into it: `+act.map(v=>`<b>${v.label}</b> (${v.note})`).join("; ")+".";
   if(courtOff(p)&&!p.courtEnjoined)h+=`<br>Its effects begin ${turnLabel(p.courtDelayUntil)}.`;
@@ -5171,15 +5176,15 @@ function tickCourtCases(){
   GAME.courtCases=GAME.courtCases||{}; GAME.courtWatch=GAME.courtWatch||{};
   for(const id in COURT_LAWS){
     const L=COURT_LAWS[id], p=POLICIES[id], C=GAME.courtCases[id];
-    if(!p||p.enacted===false){ if(C)delete GAME.courtCases[id]; delete GAME.courtWatch[id]; if(GAME.courtDecision===id)GAME.courtDecision=null; continue; }
+    if(!p||p.enacted===false){ if(C)delete GAME.courtCases[id]; delete GAME.courtWatch[id]; courtDecided(id); continue; }
     const t=courtTier(p), key=t+"|"+Object.keys(p.prov||{}).sort().join(",");
     if(!courtCovered(id,p)){
       // moved down out of reach of the suit: the case is moot
       if(C){ delete GAME.courtCases[id]; p.courtEnjoined=false; GAME.log.push(ico('gavel')+" The suit against "+p.name+" is moot: the law no longer does what was challenged"); }
-      if(GAME.courtDecision===id)GAME.courtDecision=null;
+      courtDecided(id);
       delete GAME.courtWatch[id]; continue;
     }
-    if(C){ if(GAME.courtDecision!==id&&GAME.turn>=C.ruling)courtRule(id); continue; }
+    if(C){ if(!courtWaiting(id)&&GAME.turn>=C.ruling)courtRule(id); continue; }
     const W=GAME.courtWatch[id];
     if(!W||W.key!==key){ GAME.courtWatch[id]={key, since:GAME.turn}; continue; }
     if(W.rolled||GAME.turn<W.since+1)continue;
@@ -5188,24 +5193,34 @@ function tickCourtCases(){
     const forced=!!(GAME.courtForce&&GAME.courtForce[id]); if(forced)delete GAME.courtForce[id];
     if(Math.random()<(L.file[t]||0)||forced)courtFile(id);
   }
-  // a suit waits for the desk to be clear of another decision
-  if(GAME.courtDecision&&!GAME.pendingDilemma&&GAME.courtCases[GAME.courtDecision])GAME.pendingDilemma="courtCase";
+  // a suit waits for the desk to be clear of another decision, and in line behind any other suit
+  GAME.courtQueue=(GAME.courtQueue||[]).filter(x=>GAME.courtCases[x]);
+  if(GAME.courtDecision&&!GAME.courtCases[GAME.courtDecision])GAME.courtDecision=null;
+  if(!GAME.courtDecision&&GAME.courtQueue.length)GAME.courtDecision=GAME.courtQueue[0];
+  if(GAME.courtDecision&&!GAME.pendingDilemma)GAME.pendingDilemma="courtCase";
 }
 function courtFile(id){
   const L=COURT_LAWS[id], p=POLICIES[id], t=courtTier(p);
   GAME.courtCases[id]={tier:t, filed:GAME.turn, ruling:GAME.turn+2+Math.floor(Math.random()*2), stage:"trial", odds:courtOddsAt(id,t,p.prov||{})};
   if(L.injunction)p.courtEnjoined=true;
-  GAME.courtDecision=id;
+  courtQueue(id);
   GAME.log.push(ico('gavel')+" "+L.who+" sued to stop "+p.name+(L.injunction?". The court has blocked it while the case runs":""));
 }
 function courtRule(id){
   const L=COURT_LAWS[id], p=POLICIES[id], C=GAME.courtCases[id];
   const won=Math.random()<C.odds, wasAppeal=C.stage==="appeal";
-  // the side that loses the trial appeals about half the time; an appeal is final
+  // lost at trial: whether to appeal is the governor's call. The law stays in
+  // force while it is fought over, unless it is one the courts block outright
+  if(!wasAppeal&&!won){
+    C.stage="lost"; if(L.injunction)p.courtEnjoined=true; courtQueue(id);
+    GAME.log.push(ico('ban')+" "+p.name+" lost at trial. "+(L.injunction?"It stays blocked":"It stays in force")+" while you decide whether to appeal");
+    return;
+  }
+  // won at trial: the challengers appeal about half the time; an appeal is final
   if(!wasAppeal&&Math.random()<0.5){
     C.stage="appeal"; C.ruling=GAME.turn+2+Math.floor(Math.random()*2);
-    (GAME.pendingCourtNews=GAME.pendingCourtNews||[]).push({id, kind:"trial", won});
-    GAME.log.push(ico('gavel')+" "+p.name+(won?" survives at trial; the challengers appeal":" loses at trial; the state appeals"));
+    (GAME.pendingCourtNews=GAME.pendingCourtNews||[]).push({id, kind:"trial", won:true});
+    GAME.log.push(ico('gavel')+" "+p.name+" survives at trial; the challengers appeal");
     return;
   }
   delete GAME.courtCases[id];
@@ -9974,35 +9989,44 @@ const DILEMMAS={
   /* ---- A LAW YOU PASSED HAS BEEN SUED. Set by tickCourtCases, never drawn at
      random: defend it, settle by writing in a provision, or let it go. ---- */
   courtCase:{icon:"gavel", cooldown:0,
-    get title(){ const p=POLICIES[GAME.courtDecision]; return p?"Sued: "+p.name:"A lawsuit"; },
+    get title(){ const p=POLICIES[GAME.courtDecision], C=(GAME.courtCases||{})[GAME.courtDecision];
+      return !p?"A lawsuit":(C&&C.stage==="lost")?"Lost at trial: "+p.name:"Sued: "+p.name; },
     influence:()=>-1,
     text:()=>{
       const id=GAME.courtDecision, p=POLICIES[id], L=COURT_LAWS[id], C=(GAME.courtCases||{})[id];
       if(!p||!L||!C)return "";
+      if(C.stage==="lost")
+        return "The trial court has ruled against "+p.name+". "+L.who+" won the first round."
+          +(L.injunction?" The law stays blocked until the case is over.":" The law stays in force for now: the ruling waits while you decide, and while any appeal runs.")
+          +"\n\nYou can appeal: the appeals court rules "+turnLabel(GAME.turn+2)+" or the quarter after, with about a "+Math.round(C.odds*100)+"% chance of upholding the law. You can settle, writing in what the challengers want, and the case ends. Or you can accept the ruling.";
       return L.who+" have sued to stop "+p.name+", "+L.where+"."+(L.injunction?" The court has blocked the law while the case runs.":" The law stays in force while the case runs.")
         +"\n\nAs written, it has about a "+Math.round(C.odds*100)+"% chance of surviving. A ruling is expected "+turnLabel(C.ruling)+", and the losing side may appeal.";
     },
     get options(){
       const id=GAME.courtDecision, p=POLICIES[id], L=COURT_LAWS[id], C=(GAME.courtCases||{})[id];
-      if(!p||!L||!C)return [{label:"Continue", text:"", apply:()=>{ GAME.courtDecision=null; }}];
-      const t=courtTier(p), out=[];
-      out.push({label:"Defend it in court",
+      if(!p||!L||!C)return [{label:"Continue", text:"", apply:()=>{ courtDecided(id); }}];
+      const t=courtTier(p), out=[], lost=C.stage==="lost";
+      if(lost)out.push({label:"Appeal",
+        text:"Costs ◈"+COURT_APPEAL_COST+". "+(L.injunction?"The law stays blocked":"The law stays in force")+" until the appeals court rules, with about a "+Math.round(C.odds*100)+"% chance it is upheld.",
+        apply:()=>{ GAME.capital=clamp(GAME.capital-COURT_APPEAL_COST,0,100); C.stage="appeal"; C.ruling=GAME.turn+2+Math.floor(Math.random()*2); courtDecided(id);
+          GAME.log.push(ico('gavel')+" Appealing the ruling against "+p.name); }});
+      else out.push({label:"Defend it in court",
         text:"Costs ◈"+COURT_DEFEND_COST+". The Attorney General defends the law as written, with about a "+Math.round(C.odds*100)+"% chance it survives.",
-        apply:()=>{ GAME.capital=clamp(GAME.capital-COURT_DEFEND_COST,0,100); C.defended=true; GAME.courtDecision=null;
+        apply:()=>{ GAME.capital=clamp(GAME.capital-COURT_DEFEND_COST,0,100); C.defended=true; courtDecided(id);
           GAME.log.push(ico('gavel')+" Defending "+p.name+" in court"); }});
       // the settlement the challengers would take: the open provision that most improves the odds
       const open=Object.keys(L.provisions).filter(k=>L.provisions[k].tiers.indexOf(t)>=0&&!(p.prov||{})[k]);
       const best=open.sort((a,b)=>(L.provisions[b].odds||0)-(L.provisions[a].odds||0))[0];
       if(best){ const v=L.provisions[best];
         out.push({label:"Settle: "+v.label.charAt(0).toLowerCase()+v.label.slice(1),
-          text:"The suit is dropped and the law stays, with this written in: "+v.note.charAt(0).toLowerCase()+v.note.slice(1)+".",
+          text:(lost?"The challengers drop the case and the law stands"+(L.injunction?" again, from now,":"")+" with this written in: ":"The suit is dropped and the law stays, with this written in: ")+v.note.charAt(0).toLowerCase()+v.note.slice(1)+".",
           apply:()=>{ const set=Object.assign({},p.prov||{}); set[best]=true; courtSetProvisions(id,p,set);
-            delete GAME.courtCases[id]; p.courtEnjoined=false; GAME.courtDecision=null;
+            delete GAME.courtCases[id]; p.courtEnjoined=false; courtDecided(id);
             GAME.courtWatch[id]={key:courtTier(p)+"|"+Object.keys(p.prov).sort().join(","), since:GAME.turn, rolled:true};
             GAME.log.push(ico('handshake')+" Settled the suit against "+p.name+": "+v.label); }}); }
-      out.push({label:"Concede",
-        text:(L.strikeTo?"The law falls back to "+p.tiers[L.strikeTo(t)]+".":"The law comes off the books.")+" Its supporters are let down, and it costs you less than losing in court would.",
-        apply:()=>{ delete GAME.courtCases[id]; GAME.courtDecision=null; courtStrike(id,"concede"); }});
+      out.push({label:lost?"Accept the ruling":"Concede",
+        text:(L.strikeTo?"The law falls back to "+p.tiers[L.strikeTo(t)]+".":"The law comes off the books.")+(lost?" Its supporters are let down.":" Its supporters are let down, and it costs you less than losing in court would."),
+        apply:()=>{ delete GAME.courtCases[id]; courtDecided(id); courtStrike(id,lost?"court":"concede"); }});
       return out;
     }},
   walkoutConcessions:{
@@ -23443,7 +23467,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="7.4";
+const GAME_VERSION="7.5";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -23473,7 +23497,8 @@ const VERSION_HISTORY=[
   ["7.1","25 October 2026","Potential Taxes on the State Budget page: the taxes you have not passed and the reforms that keep or unlock revenue, each with the range it could raise, who it falls on, and how it passes. It sits under Total Revenue, and every deficit warning points to it."],
   ["7.2","25 October 2026","Laws in court: gas in new buildings, the stricter gun laws, the Climate Protection Program's market tiers, PERS reform and selling the trust lands can be sued once they pass. You defend, settle or concede, and the losing side may appeal. Provisions written in on the floor weaken each law in a stated way and make it likelier to survive. A new law, Gas in New Buildings, runs from Electric-Ready to all-electric. The Psilocybin Program runs in four tiers, and only dispensary sales are taxed."],
   ["7.3","25 October 2026","Fixes from a bug sweep: provisions keep their clocks when a suit is settled and survive a change of setting; a law struck in court is not sued again at its fallback; the floor's effect preview follows the provisions you tick; a repealed law leaves its provisions behind; the Potential Taxes page keeps your place when opened from the quarterly report; conceding a Parliament you could have governed says so; the Port crisis page lists every condition for how it starts and both ways it ends; and a smaller fix to the RCV start."],
-  ["7.4","25 October 2026","Police Pursuits: when an officer may chase a fleeing car, from banned through Washington's 2021 and 2023 limits to Oregon's patchwork of agency rules and a statewide permissive standard. Tighter rules mean fewer crashes and more drivers who get away; looser ones the reverse. A COURT seed starts with Gas in New Buildings already law, and the suit against it filed as the first quarter ends."]
+  ["7.4","25 October 2026","Police Pursuits: when an officer may chase a fleeing car, from banned through Washington's 2021 and 2023 limits to Oregon's patchwork of agency rules and a statewide permissive standard. Tighter rules mean fewer crashes and more drivers who get away; looser ones the reverse. A COURT seed starts with Gas in New Buildings already law, and the suit against it filed as the first quarter ends."],
+  ["7.5","28 October 2026","Appeals are yours to decide: a law that loses at trial waits on you to appeal, settle or accept the ruling, and it stays in force while you do unless it is one the courts block outright. Two suits at once each get their own decision in turn."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -32314,7 +32339,7 @@ function _applyRepeal(id,opts){
   // passed again later, it is a new bill: no provisions, no court clock
   p.prov=null; p.courtEnjoined=false; p.courtDelayUntil=0; p.courtCost=0;
   if(GAME.courtCases)delete GAME.courtCases[id];
-  if(GAME.courtDecision===id)GAME.courtDecision=null;
+  if(typeof courtDecided==="function")courtDecided(id);
   const voted=!!(opts&&opts.voted);
   // backlash: backers grudge you, and a U-turn (enact-then-repeal within
   // 2 years) breeds lasting cynicism — D4's flip-flop penalty
