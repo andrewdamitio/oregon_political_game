@@ -5198,6 +5198,9 @@ function tickCourtCases(){
   GAME.courtCases=GAME.courtCases||{}; GAME.courtWatch=GAME.courtWatch||{};
   for(const id in COURT_LAWS){
     const L=COURT_LAWS[id], p=POLICIES[id], C=GAME.courtCases[id];
+    GAME.courtLast=GAME.courtLast||{};
+    const seen=GAME.courtLast[id];
+    GAME.courtLast[id]=(p&&p.enacted!==false)?{t:courtTier(p), prov:Object.assign({},p.prov||{})}:"off";
     if(!p||p.enacted===false){ if(C)delete GAME.courtCases[id]; delete GAME.courtWatch[id]; courtDecided(id); continue; }
     const t=courtTier(p), key=t+"|"+Object.keys(p.prov||{}).sort().join(",");
     if(!courtCovered(id,p)){
@@ -5208,7 +5211,7 @@ function tickCourtCases(){
     }
     if(C){ if(!courtWaiting(id)&&GAME.turn>=C.ruling)courtRule(id); continue; }
     const W=GAME.courtWatch[id];
-    if(!W||W.key!==key){ GAME.courtWatch[id]={key, since:GAME.turn}; continue; }
+    if(!W||W.key!==key){ GAME.courtWatch[id]={key, since:GAME.turn, from:(seen===undefined?null:seen)}; continue; }
     if(W.rolled||GAME.turn<W.since+1)continue;
     W.rolled=true;
     // a seed can make the first roll certain, to show a suit on demand
@@ -5259,6 +5262,7 @@ function courtStrike(id,how){
   const L=COURT_LAWS[id], p=POLICIES[id]; if(!p)return;
   const be=Object.assign({},p.blocEffect||{}, (p.mechanic==="tier"&&p.tierBlocEffects)?p.tierBlocEffects[courtTier(p)]||{}:{});
   const nm=p.name, yrs=Math.max(0,(GAME.turn-((GAME.courtWatch[id]||{}).since||GAME.turn))/4);
+  const R=courtRevertTarget(id);           // read before the watch is cleared
   p.courtEnjoined=false; p.prov=null; p.courtDelayUntil=0; p.courtCost=0;
   delete GAME.courtWatch[id];
   if(GAME.provDraft)delete GAME.provDraft[id];
@@ -5268,9 +5272,13 @@ function courtStrike(id,how){
       GAME.rainyDay=+((GAME.rainyDay||0)-fromRd).toFixed(3); GAME.structuralDebt=+((GAME.structuralDebt||0)+r-fromRd).toFixed(3);
       GAME.log.push(ico('bank')+" The court ordered $"+r.toFixed(2)+"B in pension savings paid back"); }
   }
-  if(L.strikeTo){ p.tierIndex=L.strikeTo(courtTier(p));
-    // the fallback has just been argued over; nobody files against it again
-    GAME.courtWatch[id]={key:courtTier(p)+"|", since:GAME.turn, rolled:true}; }
+  if(R.kind!=="off"&&p.tiers){
+    p.tierIndex=R.t;
+    // back where it was, with the provisions it had there
+    const keep=courtProvList(id,R.t,R.prov||{});
+    if(keep.length){ p._courtId=id; p.prov={}; keep.forEach(v=>p.prov[v.id]=true); }
+    // that setting has just been argued over; nobody files against it again
+    GAME.courtWatch[id]={key:courtTier(p)+"|"+Object.keys(p.prov||{}).sort().join(","), since:GAME.turn, rolled:true}; }
   else {           // off the books; a sale already booked is unwound
     if(id==="csfLandSale"&&GAME.csfSaleBooked){ GAME.csfCorpus=+Math.max(0.3,(GAME.csfCorpus||0)-(GAME.csfSaleAmt||1.3)).toFixed(3); GAME.csfSaleBooked=false; }
     CATALOG[id]=p; delete p.enacted; delete POLICIES[id];
@@ -5280,6 +5288,67 @@ function courtStrike(id,how){
   // its backers are let down; its opponents have won and stop being angry about it
   for(const b in be){ if(be[b]>0)createGrudge("v_"+b,-be[b]*0.5,0.88,nm+(how==="concede"?" given up in court":" struck down")); }
   GAME.log.push(ico('ban')+(how==="concede"?" Conceded the suit — ":" Struck down — ")+nm);
+}
+/* WHERE A LAW GOES WHEN IT LOSES. A loss, or a concession, undoes the change
+   that drew the suit: the law goes back to the setting it had before you
+   moved it, or off the books if you passed it new. Only a law that was
+   already at this setting when you took office falls to the strongest
+   setting nobody sues over (strikeTo). The setting before the change is
+   courtWatch[id].from: undefined or null when it started there, "off" when
+   the law was not on the books, else {t, prov}. */
+function courtStartedThere(id){ const W=(GAME.courtWatch||{})[id]; return !W||W.from==null; }
+function courtRevertTarget(id){
+  const L=COURT_LAWS[id], p=POLICIES[id], W=(GAME.courtWatch||{})[id], f=W&&W.from;
+  if(f==="off")return {kind:"off"};
+  if(f&&typeof f==="object")return {kind:"tier", t:f.t, prov:f.prov||{}};
+  if(L&&L.strikeTo&&p)return {kind:"fallback", t:L.strikeTo(courtTier(p)), prov:{}};
+  return {kind:"off"};
+}
+function courtRevertPhrase(id){
+  const p=POLICIES[id], R=courtRevertTarget(id);
+  if(R.kind==="off")return courtStartedThere(id)?"the law comes off the books":"the law comes off the books, as it was before you passed it";
+  const nm=(p&&p.tiers)?p.tiers[R.t]:"its earlier form";
+  return R.kind==="tier"?"the law goes back to "+nm+", where it was before you changed it":"the law falls back to "+nm;
+}
+/* Descriptions of the settled versions that are a step down the same law. */
+const COURT_SETTLED_DESC={
+  gasHookups:{2:"no gas piping in new homes, while offices, stores and restaurants keep it"},
+  gunControl:{2:"a permit and safety training to buy a gun and a ten-round magazine limit, but no ban on the weapons themselves"},
+  carbonProgram:{3:"California's economy-wide cap with auctioned allowances, without Washington's higher price and reinvestment"},
+  persReform:{1:"a cap on the salary that counts toward a pension, and part of each member's contribution redirected to the fund, which the Oregon Supreme Court upheld in 2022"}};
+/* What the challengers will settle for: the law a step down, when that step is
+   still more than a loss would leave; otherwise this setting with the provision
+   that most improves its odds. Each comes with its cost to the law. */
+function courtSettlement(id){
+  const L=COURT_LAWS[id], p=POLICIES[id]; if(!L||!p)return null;
+  const t=courtTier(p), R=courtRevertTarget(id), floor=R.kind==="off"?-1:R.t;
+  const party=COURT_PARTY[id]||L.who;
+  const tail=lost=>" The case ends now"+(L.injunction?", the court lifts its block,":"")+" and they will not sue the settled law.";
+  if(p.tiers&&t-1>floor&&t-1>=0){
+    const t2=t-1, nm=p.tiers[t2], d=(COURT_SETTLED_DESC[id]||{})[t2];
+    return {label:"Settle for "+nm, short:"scaled back to "+nm,
+      text:lost=>party+" drop "+(lost?"the case":"the suit")+" if you scale the law back to "+nm+(d?": "+d:"")+"."+tail(lost)+" "+courtStepCost(id,p,t,t2),
+      apply:()=>{ p.tierIndex=t2; courtSetProvisions(id,p,p.prov||{}); }};
+  }
+  const open=Object.keys(L.provisions).filter(k=>L.provisions[k].tiers.indexOf(t)>=0&&!(p.prov||{})[k]);
+  const best=open.sort((a,b)=>(L.provisions[b].odds||0)-(L.provisions[a].odds||0))[0];
+  if(!best)return null;
+  const v=L.provisions[best], ST=COURT_SETTLE[best]||{act:v.label.charAt(0).toLowerCase()+v.label.slice(1), cost:v.note.charAt(0).toLowerCase()+v.note.slice(1)};
+  return {label:"Settle: "+ST.act.charAt(0).toUpperCase()+ST.act.slice(1), short:ST.act,
+    text:lost=>party+" drop "+(lost?"the case":"the suit")+" if you "+ST.act+"."+tail(lost)+" In exchange, "+ST.cost+".",
+    apply:()=>{ const set=Object.assign({},p.prov||{}); set[best]=true; courtSetProvisions(id,p,set); }};
+}
+/* What a step down costs the law, in its own biggest number. */
+function courtStepCost(id,p,t,t2){
+  if(id==="persReform"&&typeof PERS_ACCRUAL!=="undefined"){
+    const a=PERS_ACCRUAL[0]-PERS_ACCRUAL[t], b=PERS_ACCRUAL[0]-PERS_ACCRUAL[t2];
+    return a>0?"Its pension savings fall by about "+Math.round((1-b/a)*100)+"%.":"";
+  }
+  const e1=(p.tierEffects||[])[t]||{}, e2=(p.tierEffects||[])[t2]||{};
+  const k=Object.keys(e1).filter(x=>METRICS[x]).sort((a,b)=>Math.abs(e1[b])-Math.abs(e1[a]))[0];
+  if(!k)return "";
+  const f=v=>(v>0?"+":v<0?"−":"")+Math.abs(+v.toFixed(2));
+  return METRICS[k].name+": "+f(e1[k])+" → "+f(e2[k]||0)+".";
 }
 /* The ruling, as news. */
 function showCourtEvent(ev,next){
@@ -5298,7 +5367,7 @@ function showCourtEvent(ev,next){
       <div class="rrow"><span class="rlabel">Opposition momentum</span><span class="rval" style="color:var(--good)">−3</span></div>`;
   else
     h=`<div class="sectionhdr">${ico('ban')} Struck down${ev.appeal?" on appeal":""}</div>
-      <div class="sectionsub">The court has struck down <b>${p.name}</b> in the form you passed. ${POLICIES[ev.id]?"It falls back to "+p.tiers[p.tierIndex]+".":"It is off the books."} You can pass it again, with provisions that make it likelier to survive.</div>
+      <div class="sectionsub">The court has struck down <b>${p.name}</b> in the form you passed. ${POLICIES[ev.id]?"The law is now at "+p.tiers[p.tierIndex]+".":"It is off the books."} You can pass it again, with provisions that make it likelier to survive.</div>
       <div class="rrow"><span class="rlabel">Political mandate</span><span class="rval" style="color:var(--clay)">−3</span></div>
       <div class="rrow"><span class="rlabel">Opposition momentum</span><span class="rval" style="color:var(--clay)">+5</span></div>`;
   card.innerHTML=h+`<button id="eoEventOk" class="enactbtn">Continue ▸</button>`;
@@ -10020,7 +10089,7 @@ const DILEMMAS={
       if(C.stage==="lost")
         return "The trial court has ruled against "+p.name+". "+L.who+" won the first round."
           +(L.injunction?" The law stays blocked until the case is over.":" The law stays in force for now: the ruling waits while you decide, and while any appeal runs.")
-          +"\n\nYou can appeal: the appeals court rules "+turnLabel(GAME.turn+2)+" or the quarter after, with about a "+Math.round(C.odds*100)+"% chance of upholding the law. You can settle, writing in what the challengers want, and the case ends. Or you can accept the ruling.";
+          +"\n\nYou can appeal: the appeals court rules "+turnLabel(GAME.turn+2)+" or the quarter after, with about a "+Math.round(C.odds*100)+"% chance of upholding the law. Or you can accept the ruling: "+courtRevertPhrase(id)+".";
       return L.who+" have sued to stop "+p.name+", "+L.where+"."+(L.injunction?" The court has blocked the law while the case runs.":" The law stays in force while the case runs.")
         +"\n\nAs written, it has about a "+Math.round(C.odds*100)+"% chance of surviving. A ruling is expected "+turnLabel(C.ruling)+", and the losing side may appeal.";
     },
@@ -10037,24 +10106,17 @@ const DILEMMAS={
           +(L.injunction?" The law stays blocked until it is over.":" The law stays in force until it is over."),
         apply:()=>{ GAME.capital=clamp(GAME.capital-COURT_DEFEND_COST,0,100); C.defended=true; courtDecided(id);
           GAME.log.push(ico('gavel')+" Defending "+p.name+" in court"); }});
-      // the settlement the challengers would take: the open provision that most improves the odds
-      const open=Object.keys(L.provisions).filter(k=>L.provisions[k].tiers.indexOf(t)>=0&&!(p.prov||{})[k]);
-      const best=open.sort((a,b)=>(L.provisions[b].odds||0)-(L.provisions[a].odds||0))[0];
-      if(best){ const v=L.provisions[best];
-        const ST=COURT_SETTLE[best]||{act:v.label.charAt(0).toLowerCase()+v.label.slice(1), cost:v.note.charAt(0).toLowerCase()+v.note.slice(1)};
-        out.push({label:"Settle: "+ST.act.charAt(0).toUpperCase()+ST.act.slice(1),
-          // what happens to the law: a provision that delays it says so in its cost
-          text:(COURT_PARTY[id]||L.who)+" drop "+(lost?"the case":"the suit")+" if you "+ST.act+". "
-            +(v.delay?(lost?"The ruling is set aside.":"The case ends now.")
-              :lost?(L.injunction?"The ruling is set aside and the law takes effect.":"The ruling is set aside and the law stays in force.")
-              :(L.injunction?"The case ends now, the court lifts its block, and the law takes effect.":"The case ends now and the law stays in force."))
-            +" In exchange, "+ST.cost+".",
-          apply:()=>{ const set=Object.assign({},p.prov||{}); set[best]=true; courtSetProvisions(id,p,set);
-            delete GAME.courtCases[id]; p.courtEnjoined=false; courtDecided(id);
-            GAME.courtWatch[id]={key:courtTier(p)+"|"+Object.keys(p.prov).sort().join(","), since:GAME.turn, rolled:true};
-            GAME.log.push(ico('handshake')+" Settled the suit against "+p.name+": "+v.label); }}); }
+      // A settlement, before any ruling. After a loss at trial there is none:
+      // accepting it simply undoes your change. The one exception is a law that
+      // was already at this setting when you took office, which has nothing to undo.
+      const S=(!lost||courtStartedThere(id))?courtSettlement(id):null;
+      if(S)out.push({label:S.label, text:S.text(lost),
+        apply:()=>{ S.apply(); delete GAME.courtCases[id]; p.courtEnjoined=false; courtDecided(id);
+          const W0=GAME.courtWatch[id]||{};
+          GAME.courtWatch[id]={key:courtTier(p)+"|"+Object.keys(p.prov||{}).sort().join(","), since:GAME.turn, rolled:true, from:W0.from};
+          GAME.log.push(ico('handshake')+" Settled the suit against "+p.name+": "+S.short); }});
       out.push({label:lost?"Accept the ruling":"Concede",
-        text:(L.strikeTo?"The law falls back to "+p.tiers[L.strikeTo(t)]+".":"The law comes off the books.")+(lost?" Its supporters are let down.":" Its supporters are let down, and it costs you less than losing in court would."),
+        text:courtRevertPhrase(id).charAt(0).toUpperCase()+courtRevertPhrase(id).slice(1)+"."+(lost?" Its supporters are let down.":" Its supporters are let down, and it costs you less than losing in court would."),
         apply:()=>{ delete GAME.courtCases[id]; courtDecided(id); courtStrike(id,lost?"court":"concede"); }});
       return out;
     }},
@@ -23493,7 +23555,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="7.6";
+const GAME_VERSION="7.7";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -23525,7 +23587,8 @@ const VERSION_HISTORY=[
   ["7.3","25 October 2026","Fixes from a bug sweep: provisions keep their clocks when a suit is settled and survive a change of setting; a law struck in court is not sued again at its fallback; the floor's effect preview follows the provisions you tick; a repealed law leaves its provisions behind; the Potential Taxes page keeps your place when opened from the quarterly report; conceding a Parliament you could have governed says so; the Port crisis page lists every condition for how it starts and both ways it ends; and a smaller fix to the RCV start."],
   ["7.4","25 October 2026","Police Pursuits: when an officer may chase a fleeing car, from banned through Washington's 2021 and 2023 limits to Oregon's patchwork of agency rules and a statewide permissive standard. Tighter rules mean fewer crashes and more drivers who get away; looser ones the reverse. A COURT seed starts with Gas in New Buildings already law, and the suit against it filed as the first quarter ends."],
   ["7.5","28 October 2026","Appeals are yours to decide: a law that loses at trial waits on you to appeal, settle or accept the ruling, and it stays in force while you do unless it is one the courts block outright. Two suits at once each get their own decision in turn."],
-  ["7.6","28 October 2026","A bill a director brings you goes to the floor screen like any of yours, with their discount in the price: the count, the odds, how strong a bill to ask for, any court provisions and what it would do, before you call the vote. Pulling it leaves it in the drawer."]
+  ["7.6","28 October 2026","A bill a director brings you goes to the floor screen like any of yours, with their discount in the price: the count, the odds, how strong a bill to ask for, any court provisions and what it would do, before you call the vote. Pulling it leaves it in the drawer."],
+  ["7.7","29 October 2026","Settling a lawsuit means settling for a version of the law: usually a step down the same law, named and described, with what it costs. Losing in court, or conceding, undoes your change, putting the law back where it was before you moved it, or off the books if you passed it new. After a loss at trial you appeal or accept; there is no settlement unless the law was already in that form when you took office."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -35925,6 +35988,8 @@ function bootWorld(startId){
     GAME.pendingCoalition=true;
     GAME.log.push(ico('columns')+" This Oregon elects its legislature as one Senate, by party vote share. Form a government before the first quarter ends.");
   }
+  // the suable laws as you found them: a change to one can be undone in court
+  GAME.courtLast={}; for(const id in COURT_LAWS){ const p=POLICIES[id]; GAME.courtLast[id]=(p&&p.enacted!==false)?{t:courtTier(p), prov:{}}:"off"; }
   pushHistory(); // seed turn 0
   // hand gameplay its own stream, so the run plays the same however many times
   // the opening screen rebuilt the world
