@@ -5249,7 +5249,7 @@ function courtRule(id){
     return;
   }
   delete GAME.courtCases[id];
-  (GAME.pendingCourtNews=GAME.pendingCourtNews||[]).push({id, kind:"final", won, appeal:wasAppeal});
+  (GAME.pendingCourtNews=GAME.pendingCourtNews||[]).push({id, kind:"final", won, appeal:wasAppeal, byState:!!C.stateAppealed});
   if(won){
     p.courtEnjoined=false;
     GAME.mandateShock=(GAME.mandateShock||0)+2;
@@ -5361,13 +5361,13 @@ function showCourtEvent(ev,next){
       <div class="sectionsub"><b>${p.name}</b> ${ev.won?"survived its first ruling, and the challengers have appealed.":"lost its first ruling, and the state has appealed."} The appeal decides it.</div>
       <div class="rrow"><span class="rlabel">Status</span><span class="rval">${(POLICIES[ev.id]||{}).courtEnjoined?"Blocked while the appeal runs":"In force while the appeal runs"}</span></div>`;
   else if(ev.won)
-    h=`<div class="sectionhdr">${ico('scales')} Upheld${ev.appeal?" on appeal":""}</div>
-      <div class="sectionsub">The court has upheld <b>${p.name}</b>. It stands, and the question is settled.</div>
+    h=`<div class="sectionhdr">${ico('scales')} ${ev.byState?"Restored on appeal":"Upheld"+(ev.appeal?" on appeal":"")}</div>
+      <div class="sectionsub">${ev.byState?"The appeals court has overturned the trial court's ruling against <b>"+p.name+"</b>. The law stands, and the question is settled.":"The court has upheld <b>"+p.name+"</b>. It stands, and the question is settled."}</div>
       <div class="rrow"><span class="rlabel">Political mandate</span><span class="rval" style="color:var(--good)">+2</span></div>
       <div class="rrow"><span class="rlabel">Opposition momentum</span><span class="rval" style="color:var(--good)">−3</span></div>`;
   else
     h=`<div class="sectionhdr">${ico('ban')} Struck down${ev.appeal?" on appeal":""}</div>
-      <div class="sectionsub">The court has struck down <b>${p.name}</b> in the form you passed. ${POLICIES[ev.id]?"The law is now at "+p.tiers[p.tierIndex]+".":"It is off the books."} You can pass it again, with provisions that make it likelier to survive.</div>
+      <div class="sectionsub">${ev.byState?"The appeals court has agreed with the trial court and ":"The court has "}struck down <b>${p.name}</b> in the form you passed. ${POLICIES[ev.id]?"The law is now at "+p.tiers[p.tierIndex]+".":"It is off the books."} You can pass it again, with provisions that make it likelier to survive.</div>
       <div class="rrow"><span class="rlabel">Political mandate</span><span class="rval" style="color:var(--clay)">−3</span></div>
       <div class="rrow"><span class="rlabel">Opposition momentum</span><span class="rval" style="color:var(--clay)">+5</span></div>`;
   card.innerHTML=h+`<button id="eoEventOk" class="enactbtn">Continue ▸</button>`;
@@ -10089,7 +10089,7 @@ const DILEMMAS={
       if(C.stage==="lost")
         return "The trial court has ruled against "+p.name+". "+L.who+" won the first round."
           +(L.injunction?" The law stays blocked until the case is over.":" The law stays in force for now: the ruling waits while you decide, and while any appeal runs.")
-          +"\n\nYou can appeal: the appeals court rules "+turnLabel(GAME.turn+2)+" or the quarter after, with about a "+Math.round(C.odds*100)+"% chance of upholding the law. Or you can accept the ruling: "+courtRevertPhrase(id)+".";
+          +"\n\nYou can appeal: the appeals court rules "+turnLabel(GAME.turn+2)+" or the quarter after, with about a "+Math.round(C.odds*100)+"% chance of overturning the ruling and saving the law. Or you can accept the ruling: "+courtRevertPhrase(id)+".";
       return L.who+" have sued to stop "+p.name+", "+L.where+"."+(L.injunction?" The court has blocked the law while the case runs.":" The law stays in force while the case runs.")
         +"\n\nAs written, it has about a "+Math.round(C.odds*100)+"% chance of surviving. A ruling is expected "+turnLabel(C.ruling)+", and the losing side may appeal.";
     },
@@ -10098,8 +10098,8 @@ const DILEMMAS={
       if(!p||!L||!C)return [{label:"Continue", text:"", apply:()=>{ courtDecided(id); }}];
       const t=courtTier(p), out=[], lost=C.stage==="lost";
       if(lost)out.push({label:"Appeal",
-        text:"Costs ◈"+COURT_APPEAL_COST+". "+(L.injunction?"The law stays blocked":"The law stays in force")+" until the appeals court rules, with about a "+Math.round(C.odds*100)+"% chance it is upheld.",
-        apply:()=>{ GAME.capital=clamp(GAME.capital-COURT_APPEAL_COST,0,100); C.stage="appeal"; C.ruling=GAME.turn+2+Math.floor(Math.random()*2); courtDecided(id);
+        text:"Costs ◈"+COURT_APPEAL_COST+". "+(L.injunction?"The law stays blocked":"The law stays in force")+" until the appeals court rules. It has about a "+Math.round(C.odds*100)+"% chance of overturning the trial court's ruling, which would save the law.",
+        apply:()=>{ GAME.capital=clamp(GAME.capital-COURT_APPEAL_COST,0,100); C.stage="appeal"; C.stateAppealed=true; C.ruling=GAME.turn+2+Math.floor(Math.random()*2); courtDecided(id);
           GAME.log.push(ico('gavel')+" Appealing the ruling against "+p.name); }});
       else out.push({label:"Defend it in court",
         text:"Costs ◈"+COURT_DEFEND_COST+". The Attorney General defends the law as written. The trial court rules "+turnLabel(C.ruling)+", "+Math.max(1,C.ruling-GAME.turn)+" quarter"+(Math.max(1,C.ruling-GAME.turn)===1?"":"s")+" from now, with about a "+Math.round(C.odds*100)+"% chance the law survives. Whoever loses can appeal, which adds two or three quarters."
