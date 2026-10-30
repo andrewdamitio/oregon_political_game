@@ -2102,6 +2102,9 @@
   .rc-stmt-h{font-size:11.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted-2);margin-bottom:4px}
   .rc-stmt-q{font-style:italic;font-size:14px;line-height:1.5}
   .rc-salem{display:grid;gap:6px;font-size:13.5px;line-height:1.5;margin:0 0 10px}
+  .rc-terms{border-left-color:var(--slate-blue)}
+  .rc-terms-btns{display:flex;flex-direction:column;gap:6px;flex-shrink:0}
+  .rc-terms-btns .enactbtn{white-space:nowrap}
   .rc-way{font-size:13.5px;line-height:1.5;padding:5px 0;border-bottom:1px solid var(--line)}
   .rc-way:last-child{border-bottom:0}
   .rc-way b{color:var(--ink)}
@@ -11123,6 +11126,7 @@ function recallTick(){
   // the seed files its drive when the first quarter ends
   if(R.seedPlan&&!R.drive&&!R.vote&&T>=R.seedPlan.turn){ const sp=R.seedPlan; R.seedPlan=null;
     R.drive={group:sp.group, spark:sp.spark, start:T+1, len:2, voteInto:into+3, q:0, sigs:0, hist:[], energy:0, seeded:true};
+    R.drive.terms=recallTerms(R.drive);
     R.count++; recallWarFooting(); recallOpenCampaign(R.drive, T+1);
     if(GAME.opposition)GAME.opposition.momentum=clamp(GAME.opposition.momentum+2,0,100);
     (GAME.pendingRecallNews=GAME.pendingRecallNews||[]).push({kind:"started", group:sp.group, spark:sp.spark});
@@ -11139,6 +11143,8 @@ function recallTick(){
     R.series.push({turn:T+1, sigs:null, yes:Vt.lastYes, yesE:Vt.yesE, myE:R.myQ||0}); R.acts=[]; R.myQ=0;
     return;
   }
+  // a drive whose terms you met has already stood down
+  recallCheckTerms();
   // a drive in the field gathers its quarter's names
   const D=R.drive;
   if(D&&T>=D.start){
@@ -11209,6 +11215,7 @@ function recallTick(){
   }
   // up to four quarters to gather, and always time for the vote after
   R.drive={group:sid, spark:sp, start:T+1, len:Math.min(4,V-1-sInto), voteInto:V, q:0, sigs:0, hist:[], energy:0};
+  R.drive.terms=recallTerms(R.drive);
   R.count++; recallWarFooting();
   recallOpenCampaign(R.drive, T+1);
   if(GAME.opposition)GAME.opposition.momentum=clamp(GAME.opposition.momentum+2,0,100);
@@ -11414,7 +11421,8 @@ function recallWaysOutHTML(X,D,Vt,who){
   const crisis=sp.kind==="crisis"&&GAME.activeSituations[sp.id]?`<span class="sf-l" data-detail="s_${sp.id}">${sp.name}</span>`:null;
   let h=`<div class="ebgroup-label">${D?"How to stop it":"How to survive it"}</div><div class="ebgroup">`;
   if(D){
-    if(law)h+=way("Undo the grievance.", `Change or repeal ${law} and the drive loses most of its pace. It is the strongest single move you have.`);
+    if(law&&D.terms)h+=way("Take their terms.", `${D.terms.label}, or go further, and they stand down. The drive ends at once. A smaller change to ${law} only slows it.`);
+    else if(law)h+=way("Undo the grievance.", `Change or repeal ${law} and the drive loses most of its pace. It is the strongest single move you have.`);
     else if(crisis)h+=way("End the crisis.", `Bring the ${crisis} to an end and the drive loses most of its pace.`);
     else if(sp.kind==="scandal")h+=way("Outlast the scandal.", "A scandal cannot be undone. While it runs, people outside the group sign too, so the drive has to be fought on the doorstep.");
     h+=way(`Win back ${grp}.`, "The angrier they are, the faster they sign and the more money they give the Yes campaign.");
@@ -11445,12 +11453,11 @@ function recallToolsHTML(){
   if(D){
     const P=recallSigParts(D);
     h+=`<div class="camp-sec">${ico('ballot')} Stop the signatures</div>`;
+    h+=recallTermsToolHTML(D);
     h+=tool("Decline-to-sign canvass","Canvassers and ads statewide asking people not to sign. It slows the signatures this quarter only, and each extra day does a little less than the one before.",
       ebtn("canvass","Canvass — 1 energy",null,noE), D.energy?`This quarter: ${D.energy} day${D.energy===1?"":"s"} of canvassing`:"");
     h+=tool("Challenge the signatures",`Ask the Secretary of State to check every signature instead of a sample. The invalid ones come off when the petition closes, but it reads as stalling and hands the opposition a story. <b>One time only.</b>`,
       D.challenged?`<button class="enactbtn ghost" disabled>Requested</button>`:ebtn("challenge","Request a full count — ◈"+RECALL_CHALLENGE_CAP,null,!window.SANDBOX&&GAME.capital<RECALL_CHALLENGE_CAP), D.challenged?"Requested: the invalid names come off at the close":"");
-    if(X.spark&&X.spark.kind!=="scandal")h+=tool("Meet the organizers",`Promise ${who} you will revisit ${recallSparkTxt(X.spark)}. The drive slows at once, but if ${X.spark.kind==="law"?"the law is unchanged":"the crisis is still running"} when the petition closes, they hold it against you. <b>One time only.</b>`,
-      D.met?`<button class="enactbtn ghost" disabled>Promised</button>`:ebtn("meet","Meet them — ◈"+RECALL_MEET_CAP,null,!window.SANDBOX&&GAME.capital<RECALL_MEET_CAP), D.met?(recallAddressed(D)?"Kept so far":"Not kept yet"):"");
     return h;
   }
   const P=recallVoteParts(Vt);
@@ -11484,44 +11491,13 @@ function wireRecallBody(root,redraw,inHQ){
     if(inHQ)redraw(); else { currentView="camphq"; detailKey=null; render(); } }));
   root.querySelectorAll('.recall-body [data-recallhq]').forEach(el=>el.addEventListener('click',()=>{ const t=root.querySelector("#recallTools"); if(t)t.scrollIntoView({block:"start"}); }));
   root.querySelectorAll('.recall-body [data-recallstmt]').forEach(el=>el.addEventListener('click',()=>showRecallStatement(()=>redraw())));
+  root.querySelectorAll('.recall-body [data-recallterms]').forEach(el=>el.addEventListener('click',()=>{
+    if(el.dataset.recallterms==="accept")recallAcceptTerms(()=>redraw()); else { recallDeclineTerms(); redraw(); } }));
   root.querySelectorAll('.recall-body [data-recallmore]').forEach(el=>el.addEventListener('toggle',()=>{ GAME.recallGroupsOpen=el.open; }));
   wireRecallTools(root,redraw);
 }
 /* The start-of-quarter screens: a drive filed, qualified, or fell short.
    In the recall's own colour, with its figures set out. */
-function showRecallNews(ev,next){
-  const card=document.getElementById("recallNewsCard"), modal=document.getElementById("recallNewsModal");
-  const who=SIMULANTS[ev.group]?SIMULANTS[ev.group].name:"A group", why=recallSparkTxt(ev.spark);
-  const R=GAME.recall||{}, D=R.drive, Vt=R.vote;
-  const head=ev.kind==="started"?"A Recall Signature Drive Has Begun":ev.kind==="qualified"?"The Recall Has Qualified":ev.faded?"The Signature Drive Collapsed":"The Signature Drive Fell Short";
-  const tag=ev.kind==="started"?"Recall signature drive":ev.kind==="qualified"?"Recall election":"Recall";
-  const body=ev.kind==="started"
-    ?`${who} have filed to recall you over <b>${why}</b>. Most drives fall short, but this one is now the most serious thing on your desk.`
-    :ev.kind==="qualified"
-    ?`${who} turned in enough valid signatures over <b>${why}</b>. The recall goes on the ballot. If Yes wins, you are removed from office.`
-    :ev.faded
-    ?`The drive by ${who} over <b>${why}</b> collapsed: its campaign ran out of money and volunteers.`
-    :`The drive by ${who} over <b>${why}</b> ended short of the signatures it needed.${ev.addressed?" Undoing "+why+" took the wind out of it.":""}`;
-  const fact=(v,l)=>`<div class="rn-fact"><b>${v}</b><span>${l}</span></div>`;
-  let facts="";
-  if(ev.kind==="started"&&D)facts=fact(RECALL_SIG_NEED.toLocaleString(),"Signatures needed")+fact(turnLabel(D.start+D.len-1),"Due by the end of")+fact(D.len+" quarter"+(D.len===1?"":"s"),"To gather them");
-  else if(ev.kind==="qualified")facts=fact(ev.sigs.toLocaleString(),"Valid signatures")+fact(turnLabel(ev.voteTurn),"Vote at the end of")+(Vt?fact(recallVoteParts(Vt).yes.toFixed(0)+"%","Yes today"):"");
-  else facts=fact(ev.sigs.toLocaleString(),"Signatures")+fact(Math.max(0,RECALL_SIG_NEED-ev.sigs).toLocaleString(),"Short of qualifying")+fact("A year","Before they can refile");
-  card.classList.add("recall-news");
-  card.innerHTML=`<span class="rc-tag">${tag}</span><div class="rn-head">${ico('ballot')} ${head}</div><div class="rn-body">${body}</div>
-    <div class="rn-facts">${facts}</div>
-    <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
-      ${ev.kind!=="failed"&&recallActive()?`<button class="enactbtn ghost" id="rnOpen">Open the recall</button>`:""}
-      <button class="enactbtn" id="rnOk">Continue ▸</button></div>`;
-  modal.classList.remove("hidden");
-  const openedAt=Date.now();
-  const done=()=>{ if(Date.now()-openedAt<450)return; modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); if(next)next(); };
-  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
-  document.getElementById("rnOk").onclick=done;
-  const op=document.getElementById("rnOpen");
-  if(op)op.onclick=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); window._afterSeq=()=>openDetail("recall"); if(next)next(); };
-  document.addEventListener("keydown",onKey,true);
-}
 /* A WATERFALL: a starting total, each part as a step taken off or added on
    from where the last one ended, and the result. A dashed line marks the
    level that matters. Green steps work for you, red ones for them. */
@@ -11765,6 +11741,127 @@ function showRecallNight(r,next){
   document.getElementById("recallContinue").onclick=done;
   const rt=document.getElementById("recallRetry");
   if(rt)rt.onclick=()=>{ try{ localStorage.setItem("sc_nextSeed",window.RUN_SEED||""); localStorage.setItem("sc_freshGame","1"); }catch(e){} location.reload(); };
+  document.addEventListener("keydown",onKey,true);
+}
+/* ---- THEIR TERMS ----
+   A drive over a law comes with a price for calling it off: one step
+   gentler for a law with settings, about half for a dial, repeal for a law
+   that is simply on or off. Take it to the floor and, if it passes, they
+   stand down. Any change at least that far, made from the law's own page,
+   counts the same. The terms are gone once the recall qualifies. */
+function recallTerms(D){
+  const sp=D&&D.spark; if(!sp||sp.kind!=="law"||sp.repealed)return null;
+  const p=POLICIES[sp.id]; if(!p)return null;
+  if(p.mechanic==="tier"&&Array.isArray(p.tiers)&&p.tiers.length>1){
+    const t=p.tierIndex-1;
+    if(t>=(p.tierMin||0))return {id:sp.id, kind:"tier", target:t, label:`Scale ${p.name} back to ${p.tiers[t]}`};
+  } else if(p.mechanic==="slider"&&(p.value||0)>0.05){
+    return {id:sp.id, kind:"level", target:+((p.value||0)/2).toFixed(3), label:`Cut ${p.name} to about half its current level`};
+  } else if(p.mechanic==="intensity"&&p.enabled&&(p.intensity||0)>0.05){
+    return {id:sp.id, kind:"level", target:+((p.intensity||0)/2).toFixed(3), label:`Cut ${p.name} to about half its current level`};
+  }
+  if(p.noRepeal)return null;
+  return {id:sp.id, kind:"repeal", target:null, label:`Repeal ${p.name}`};
+}
+function recallTermsMet(D){
+  const T=D&&D.terms; if(!T)return false;
+  const p=POLICIES[T.id];
+  if(!p||p.enacted===false)return true;                      // repealed: further than they asked
+  if(T.kind==="tier")return p.tierIndex<=T.target;
+  if(T.kind==="level")return p.mechanic==="intensity"?(!p.enabled||(p.intensity||0)<=T.target+1e-6):(p.value||0)<=T.target+1e-6;
+  return false;
+}
+/* Met, from whatever route: the drive ends there and then. */
+function recallCheckTerms(){
+  const R=GAME.recall, D=R&&R.drive; if(!D||!recallTermsMet(D))return false;
+  // a setting dialled in but not yet passed is not a change: wait for the floor
+  if(GAME.pendingFloorChange||GAME.pendingFloor)return false;
+  if(GAME.pending){ try{ if(snapshotFor(GAME.pending.key)!==GAME.pending.snap)return false; }catch(e){} }
+  R.drive=null; R.cool[D.group]=GAME.turn+1+RECALL_GROUP_COOL;
+  R.past.push({kind:"settled", term:GAME.term, group:D.group, spark:D.spark, sigs:D.sigs, turn:GAME.turn});
+  (GAME.pendingRecallNews=GAME.pendingRecallNews||[]).push({kind:"settled", group:D.group, spark:D.spark, sigs:D.sigs, terms:D.terms});
+  GAME.log.push(ico('handshake')+" "+SIMULANTS[D.group].name+" took the compromise and called off the recall drive");
+  try{ toast(SIMULANTS[D.group].name+" called off the recall drive"); }catch(e){}
+  return true;
+}
+/* Take the terms to the floor: the exact change, through the usual room. */
+function recallAcceptTerms(after){
+  const R=GAME.recall, D=R&&R.drive, T=D&&D.terms, p=T&&POLICIES[T.id];
+  const fin=()=>{ recallCheckTerms(); render(); if(after)after(); };
+  if(!p){ fin(); return; }
+  D.termsAnswer="accepted";
+  if(T.kind==="repeal"){
+    repealPolicy(T.id);
+    // a repeal that needed a vote reports back when the room closes
+    if(GAME.pendingFloor){ const iv=setInterval(()=>{ if(!GAME.pendingFloor){ clearInterval(iv); fin(); } },200); return; }
+    fin(); return;
+  }
+  const key="p_"+T.id, orig=snapshotFor(key);
+  if(T.kind==="tier")p.tierIndex=T.target;
+  else if(p.mechanic==="intensity")p.intensity=T.target;
+  else p.value=T.target;
+  const cur=snapshotFor(key);
+  GAME.pending=null;
+  showPendingFloor(key, orig, cur, fin);
+}
+function recallDeclineTerms(){
+  const R=GAME.recall, D=R&&R.drive; if(!D||!D.terms||D.termsAnswer)return;
+  D.termsAnswer="declined";
+  D.yesE=+((D.yesE||0)+1).toFixed(2);
+  (R.marks=R.marks||[]).push({turn:GAME.turn, label:"Refused", why:"You turned down their terms"});
+  GAME.log.push(ico('ballot')+" You turned down the recall organizers' terms; they have made your refusal public");
+}
+function recallTermsToolHTML(D){
+  const T=D.terms; if(!T)return "";
+  const who=SIMULANTS[D.group].name;
+  return `<div class="rtool rc-terms"><div class="rtool-b"><div class="rtool-h">Their terms</div>
+    <div class="rtool-d">${who} will call off the drive if you <b>${T.label.charAt(0).toLowerCase()+T.label.slice(1)}</b>. Taking the deal sends that change to the floor; if it passes, they stand down at once. Any change at least that far counts, made here or from the law's own page. The offer stands until the petition closes.</div>
+    ${D.termsAnswer==="declined"?`<div class="rtool-s">You turned them down, and they made your refusal public. The offer still stands.</div>`:""}</div>
+    <div class="rc-terms-btns"><button class="enactbtn" data-recallterms="accept">Take the deal to the floor</button>${D.termsAnswer?"":`<button class="enactbtn ghost" data-recallterms="decline">Turn them down</button>`}</div></div>`;
+}
+/* The start-of-quarter screens: a drive filed (with its terms), called off,
+   or fallen short. In the recall's own colour, with its figures set out. */
+function showRecallNews(ev,next){
+  const card=document.getElementById("recallNewsCard"), modal=document.getElementById("recallNewsModal");
+  const who=SIMULANTS[ev.group]?SIMULANTS[ev.group].name:"A group", why=recallSparkTxt(ev.spark);
+  const R=GAME.recall||{}, D=R.drive, Vt=R.vote;
+  const T=ev.kind==="started"&&D&&D.terms&&!D.termsAnswer?D.terms:null;
+  const head=ev.kind==="started"?"A Recall Signature Drive Has Begun":ev.kind==="qualified"?"The Recall Has Qualified":ev.kind==="settled"?"The Signature Drive Has Ended":ev.faded?"The Signature Drive Collapsed":"The Signature Drive Fell Short";
+  const tag=ev.kind==="started"?"Recall signature drive":ev.kind==="qualified"?"Recall election":"Recall";
+  const body=ev.kind==="started"
+    ?`${who} have filed to recall you over <b>${why}</b>. Most drives fall short, but this one is now the most serious thing on your desk.`
+    :ev.kind==="qualified"
+    ?`${who} turned in enough valid signatures over <b>${why}</b>. The recall goes on the ballot. If Yes wins, you are removed from office.`
+    :ev.kind==="settled"
+    ?`${who} took the compromise${ev.terms?": "+ev.terms.label.charAt(0).toLowerCase()+ev.terms.label.slice(1):""}. They have stood down, and cannot file again for a year.`
+    :ev.faded
+    ?`The drive by ${who} over <b>${why}</b> collapsed: its campaign ran out of money and volunteers.`
+    :`The drive by ${who} over <b>${why}</b> ended short of the signatures it needed.${ev.addressed?" Undoing "+why+" took the wind out of it.":""}`;
+  const fact=(v,l)=>`<div class="rn-fact"><b>${v}</b><span>${l}</span></div>`;
+  let facts="";
+  if(ev.kind==="started"&&D)facts=fact(RECALL_SIG_NEED.toLocaleString(),"Signatures needed")+fact(turnLabel(D.start+D.len-1),"Due by the end of")+fact(D.len+" quarter"+(D.len===1?"":"s"),"To gather them");
+  else if(ev.kind==="qualified")facts=fact(ev.sigs.toLocaleString(),"Valid signatures")+fact(turnLabel(ev.voteTurn),"Vote at the end of")+(Vt?fact(recallVoteParts(Vt).yes.toFixed(0)+"%","Yes today"):"");
+  else if(ev.kind==="settled")facts=fact((ev.sigs||0).toLocaleString(),"Signatures when they stopped")+fact("A year","Before they can refile");
+  else facts=fact(ev.sigs.toLocaleString(),"Signatures")+fact(Math.max(0,RECALL_SIG_NEED-ev.sigs).toLocaleString(),"Short of qualifying")+fact("A year","Before they can refile");
+  card.classList.add("recall-news");
+  card.innerHTML=`<span class="rc-tag">${tag}</span><div class="rn-head">${ico('ballot')} ${head}</div><div class="rn-body">${body}</div>
+    <div class="rn-facts">${facts}</div>
+    ${T?`<div class="rn-sub">Their terms</div>
+      <div class="rn-subd">${who} will call it off if you <b>${T.label.charAt(0).toLowerCase()+T.label.slice(1)}</b>. Take the deal and that change goes to the floor; if it passes, the drive ends. Turn it down and they will make your refusal public. You can also decide later, from the recall page, until the petition closes.</div>`:""}
+    <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
+      <button class="enactbtn" id="rnOk">${T?"Decide later":"Continue"} ▸</button>
+      ${T?`<button class="enactbtn" id="rnTake">Take the deal to the floor</button><button class="enactbtn ghost" id="rnRefuse">Turn them down</button>`:""}
+      ${ev.kind!=="failed"&&ev.kind!=="settled"&&recallActive()?`<button class="enactbtn ghost" id="rnOpen">Open the recall</button>`:""}</div>`;
+  modal.classList.remove("hidden");
+  const openedAt=Date.now(), armed=()=>Date.now()-openedAt>=450;
+  const close=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
+  const done=()=>{ if(!armed())return; close(); if(next)next(); };
+  const onKey=(e)=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
+  document.getElementById("rnOk").onclick=done;
+  const tk=document.getElementById("rnTake"); if(tk)tk.onclick=()=>{ if(!armed())return; close(); recallAcceptTerms(next); };
+  const rf=document.getElementById("rnRefuse"); if(rf)rf.onclick=()=>{ if(!armed())return; recallDeclineTerms(); close(); render(); if(next)next(); };
+  const op=document.getElementById("rnOpen");
+  if(op)op.onclick=()=>{ close(); window._afterSeq=()=>openDetail("recall"); if(next)next(); };
   document.addEventListener("keydown",onKey,true);
 }
 function recallActive(){ const R=GAME.recall; return !!(R&&(R.drive||R.vote)&&recallOn()); }
@@ -18972,7 +19069,7 @@ function briefCollect(){
   if(GAME.pendingPrimaries){ const pp=GAME.pendingPrimaries; GAME.pendingPrimaries=null; if(!prOn()&&GAME.caucus){ const w=pp.list.filter(x=>x.won).length, all=pp.list.filter(x=>!x.moot).length; items.push({kind:"primaries", pp, icon:"ballot", title:primaryNightTitle(pp)}); } }
   if(GAME.pendingCaucusNews){ const cn=GAME.pendingCaucusNews; GAME.pendingCaucusNews=null; if(cn.pr||(!prOn()&&GAME.caucus))items.push({kind:"caucus", news:cn, icon:"people", title:cn.pr?cn.title:caucusNewsTitle(cn.n)}); }
   if(GAME.pendingTermLimitWarn){ const w=GAME.pendingTermLimitWarn; GAME.pendingTermLimitWarn=null; items.push({kind:"termlimit", w, icon:"warning", title:"Your second term ends after the next election"}); }
-  for(const ev of (GAME.pendingRecallNews||[]))items.push({kind:"recall", ev, icon:"ballot", title:ev.kind==="started"?"A recall signature drive has begun":ev.kind==="qualified"?"The recall has qualified for the ballot":ev.faded?"The signature drive collapsed":"The signature drive fell short"});
+  for(const ev of (GAME.pendingRecallNews||[]))items.push({kind:"recall", ev, icon:"ballot", title:ev.kind==="settled"?"The recall drive was called off":ev.kind==="started"?"A recall signature drive has begun":ev.kind==="qualified"?"The recall has qualified for the ballot":ev.faded?"The signature drive collapsed":"The signature drive fell short"});
   GAME.pendingRecallNews=[];
   if(GAME.recall&&GAME.recall.vote&&!GAME.recall.vote.statement&&recallOn())items.push({kind:"recallStatement", decision:true, icon:"ballot", title:"The recall qualified: choose your statement for the ballot"});
 
@@ -24860,7 +24957,7 @@ const VERSION_HISTORY=[
   ["8.0","29 October 2026","Recall elections. A voter group you have badly hurt can petition to recall you over the law or crisis that hurt it. Most drives fall short of the 285,000 signatures; one that qualifies goes to a vote in the fourth quarter, with the midterm or as a special election the year after. Fight it from Campaign HQ. Survive and you gain a mandate; lose and the game ends. The quarterly report follows a running recall, and the RECALL seed starts with one."],
   ["8.1","29 October 2026","The recall vote is decided by what you did, not a flat lean: your own side's loyalty (which breaks if your own side organized it), how close the next election is, a scandal, a pattern of unpopular laws, and executive orders. A serious scandal or criminal referral can start a recall on its own. The recall page has its own tools: a decline-to-sign canvass, a full signature count, meeting the organizers, a No campaign, endorsements, voter-group and county pushes, and two points of war-footing energy a quarter. The quarterly report links straight to them."],
   ["8.2","29 October 2026","The recall gets a story and an opponent. The organizers run a Yes campaign with its own energy, fed by their money, anger and opposition momentum, and by anything you do while it runs: an executive order, a law the state dislikes, a scandal. Left alone it fades, and a drive whose campaign fades too far collapses. Drives can run up to four quarters. The recall page charts the petition or the vote, and the two campaigns, with what happened marked; lists what moved the Yes campaign each quarter; and maps where the signatures come from, with canvassing county by county. Tuned so recalls stay very uncommon: a drive rarely qualifies unless the governor is deeply unpopular, and during the vote orders and unpopular laws count once. Opposition momentum links to where it is explained, the energy you have spent fighting a recall is tallied on its page and in Campaign HQ, and the drive is named a Recall Signature Drive. The recall page is laid out like a crisis page, with a verdict box, bar breakdowns and charts, and the same page is Campaign HQ's Recall tab; its briefing screens carry the banner's colour."],
-  ["8.3","29 October 2026","A qualified recall asks for your statement on the ballot: defend what you did, promise to revisit it, apologize or deny a scandal, attack the organizers, or point to your record, each moving different voters. You may resign instead. While a recall runs, legislators keep their distance and every vote costs more, and the opposition's leader fronts the Yes campaign. Recall night reports county by county, as election night does."]
+  ["8.3","29 October 2026","A drive over a law comes with the organizers' terms, a specific compromise that ends it: take it to the floor, or turn it down. A qualified recall asks for your statement on the ballot: defend what you did, promise to revisit it, apologize or deny a scandal, attack the organizers, or point to your record, each moving different voters. You may resign instead. While a recall runs, legislators keep their distance and every vote costs more, and the opposition's leader fronts the Yes campaign. Recall night reports county by county, as election night does."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -36852,6 +36949,7 @@ function migrateSexWork(){
   POLICIES.sexWorkDecrim=q;
 }
 function render(){
+  try{ recallCheckTerms(); }catch(e){}
   try{ migrateTaxCut(); }catch(e){}
   try{ migrateSexWork(); }catch(e){}
   reportReturnCheck();
