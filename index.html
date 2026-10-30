@@ -11303,9 +11303,19 @@ function recallTick(){
       (GAME.pendingRecallNews=GAME.pendingRecallNews||[]).push({kind:"failed", group:D.group, spark:D.spark, sigs:D.sigs, addressed:recallAddressed(D), struck:D.struck||0, faded, q:D.q});
       GAME.log.push(ico('ballot')+(faded?" The recall drive collapsed: its campaign ran out of steam at ":" The recall drive fell short: ")+D.sigs.toLocaleString()+" of "+RECALL_SIG_NEED.toLocaleString()+" signatures");
     }
-    if(R.drive&&R.drive.terms&&!R.drive.termsOffered&&R.drive.q>=1){
-      R.drive.termsOffered=true;
-      GAME.log.push(ico('handshake')+" "+SIMULANTS[R.drive.group].name+" have named their terms for calling off the recall drive");
+    if(R.drive&&R.drive.terms&&!R.drive.termsOffered&&!R.drive.noTerms&&R.drive.q>=1){
+      const D2=R.drive, P2=recallSigParts(D2), proj=D2.sigs+P2.expected*Math.max(1,D2.len-D2.q);
+      const odds=D2.seeded?1:(proj>=RECALL_SIG_NEED?RECALL_TERMS_ON_PACE:RECALL_TERMS_BEHIND);
+      if(Math.random()<odds){
+        D2.termsOffered=true;
+        GAME.log.push(ico('handshake')+" "+SIMULANTS[D2.group].name+" have named their terms for calling off the recall drive");
+      } else {
+        // no deal: only giving them everything, a repeal, ends it now
+        D2.noTerms=true;
+        const law=POLICIES[D2.terms.id];
+        D2.terms=(law&&!law.noRepeal)?{id:D2.terms.id, kind:"repeal", target:null, label:"Repeal "+law.name}:null;
+        GAME.log.push(ico('ballot')+" "+SIMULANTS[D2.group].name+" are offering no compromise: they mean to see the recall through");
+      }
     }
     return;
   }
@@ -11825,6 +11835,7 @@ function showRecallNight(r,next){
    that is simply on or off. Take it to the floor and, if it passes, they
    stand down. Any change at least that far, made from the law's own page,
    counts the same. The terms are gone once the recall qualifies. */
+const RECALL_TERMS_ON_PACE=0.3, RECALL_TERMS_BEHIND=0.65;
 function recallTerms(D){
   const sp=D&&D.spark; if(!sp||sp.kind!=="law"||sp.repealed)return null;
   const p=POLICIES[sp.id]; if(!p)return null;
@@ -11897,7 +11908,8 @@ function recallDeclineTerms(){
 function recallTermsToolHTML(D){
   const T=D.terms; if(!T)return "";
   const who=SIMULANTS[D.group].name;
-  if(!D.termsOffered)return `<div class="threshline" style="margin:4px 0 8px">${ico('handshake')} Once the first quarter's signatures are in, ${who} will name their price for calling the drive off.</div>`;
+  if(D.noTerms)return `<div class="threshline" style="margin:4px 0 8px">${ico('ban')} ${who} have offered no compromise. Only repealing the law outright would end the drive now.</div>`;
+  if(!D.termsOffered)return `<div class="threshline" style="margin:4px 0 8px">${ico('handshake')} Once the first quarter's signatures are in, ${who} may name a price for calling the drive off, or may decide to fight on.</div>`;
   return `<div class="rtool rc-terms"><div class="rtool-b"><div class="rtool-h">Their terms</div>
     <div class="rtool-d">${who} will call off the drive for this compromise. It goes to the floor like any change to the law; if it passes, they stand down at once, and a compromise both sides agreed to is not taken to court. Any change at least that far counts, made here or from the law's own page. The offer stands until the petition closes.</div>
     ${D.termsAnswer==="declined"?`<div class="rtool-s">You refused, and they made your refusal public. The offer still stands.</div>`:""}</div>
@@ -11937,7 +11949,7 @@ function showRecallNews(ev,next){
   const tag=ev.kind==="started"?"Recall signature drive":ev.kind==="qualified"?"Recall election":"Recall";
   const tl=ev.terms?ev.terms.label.charAt(0).toLowerCase()+ev.terms.label.slice(1):"";
   const body=ev.kind==="started"
-    ?`${who} have filed to recall you over <b>${why}</b>. Most drives fall short, but this one is now the most serious thing on your desk.${D&&D.terms?" Once their first signatures are in, expect them to name a price for calling it off.":""}`
+    ?`${who} have filed to recall you over <b>${why}</b>. Most drives fall short, but this one is now the most serious thing on your desk.${D&&D.terms?" Once their first signatures are in, they may name a price for calling it off.":""}`
     :ev.kind==="qualified"
     ?`${who} turned in enough valid signatures over <b>${why}</b>. The recall goes on the ballot. If Yes wins, you are removed from office.`
     :ev.kind==="settled"
@@ -12013,8 +12025,9 @@ function recallWaysOutHTML(X,D,Vt,who){
   const T=D&&D.terms;
   let h=`<div class="ebgroup-label">${D?"How to stop it":"How to survive it"}</div><div class="rc-ways">`;
   if(D){
-    if(T&&D.termsOffered)h+=tile("handshake","Take their terms",`${T.label}, or go further, and the drive ends.`);
-    else if(T)h+=tile("handshake","Wait for their terms",`They name a price once the first signatures are in. Repealing ${law||"the law"} ends it now.`);
+    if(D.noTerms)h+=tile("ban","No deal on offer",`They want the fight. Repealing ${law||"the law"} outright would still end it.`);
+    else if(T&&D.termsOffered)h+=tile("handshake","Take their terms",`${T.label}, or go further, and the drive ends.`);
+    else if(T)h+=tile("handshake","Watch for terms",`They may name a price once the first signatures are in. Repealing ${law||"the law"} ends it now.`);
     else if(crisis)h+=tile("handshake","End the crisis",`Bring the ${crisis} to an end and the drive slows to a crawl.`);
     else if(sp.kind==="scandal")h+=tile("shield","Outlast the scandal","It can't be undone. While it runs, people outside the group sign too.");
     else if(law)h+=tile("handshake","Undo the grievance",`Change or repeal ${law} and the drive slows to a crawl.`);
@@ -25129,7 +25142,7 @@ const VERSION_HISTORY=[
   ["8.0","29 October 2026","Recall elections. A voter group you have badly hurt can petition to recall you over the law or crisis that hurt it. Most drives fall short of the 285,000 signatures; one that qualifies goes to a vote in the fourth quarter, with the midterm or as a special election the year after. Fight it from Campaign HQ. Survive and you gain a mandate; lose and the game ends. The quarterly report follows a running recall, and the RECALL seed starts with one."],
   ["8.1","29 October 2026","The recall vote is decided by what you did, not a flat lean: your own side's loyalty (which breaks if your own side organized it), how close the next election is, a scandal, a pattern of unpopular laws, and executive orders. A serious scandal or criminal referral can start a recall on its own. The recall page has its own tools: a decline-to-sign canvass, a full signature count, meeting the organizers, a No campaign, endorsements, voter-group and county pushes, and two points of war-footing energy a quarter. The quarterly report links straight to them."],
   ["8.2","29 October 2026","The recall gets a story and an opponent. The organizers run a Yes campaign with its own energy, fed by their money, anger and opposition momentum, and by anything you do while it runs: an executive order, a law the state dislikes, a scandal. Left alone it fades, and a drive whose campaign fades too far collapses. Drives can run up to four quarters. The recall page charts the petition or the vote, and the two campaigns, with what happened marked; lists what moved the Yes campaign each quarter; and maps where the signatures come from, with canvassing county by county. Tuned so recalls stay very uncommon: a drive rarely qualifies unless the governor is deeply unpopular, and during the vote orders and unpopular laws count once. Opposition momentum links to where it is explained, the energy you have spent fighting a recall is tallied on its page and in Campaign HQ, and the drive is named a Recall Signature Drive. The recall page is laid out like a crisis page, with a verdict box, bar breakdowns and charts, and the same page is Campaign HQ's Recall tab; its briefing screens carry the banner's colour."],
-  ["8.3","30 October 2026","A recall drive needs more than one controversial law: a governor at 40% approval or below, and a pattern of at least three unpopular laws or executive orders, and never alongside a lawsuit: no drive starts while one runs, and no suit is filed during a recall. A quarter into a drive over a law, the organizers name their terms, a specific compromise: pass it and the drive ends, with the agreed law immune from lawsuit, or refuse. A qualified recall asks you to defend your record on the ballot or resign. While a recall runs, legislators keep their distance and every vote costs more, and the opposition leader fronts the Yes campaign. Recall night reports county by county. The RECALL seed plays the whole arc."]
+  ["8.3","30 October 2026","A recall drive needs more than one controversial law: a governor at 40% approval or below, and a pattern of at least three unpopular laws or executive orders, and never alongside a lawsuit: no drive starts while one runs, and no suit is filed during a recall. A quarter into a drive over a law, the organizers may name their terms (likelier when they are falling behind), a specific compromise: pass it and the drive ends, with the agreed law immune from lawsuit, or refuse. A qualified recall asks you to defend your record on the ballot or resign. While a recall runs, legislators keep their distance and every vote costs more, and the opposition leader fronts the Yes campaign. Recall night reports county by county. The RECALL seed plays the whole arc."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
