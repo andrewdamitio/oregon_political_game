@@ -10942,6 +10942,7 @@ function recallAddressed(X){
   const sp=X.spark; if(!sp||sp.kind==="scandal")return false;
   return sp.kind==="law"?recallHit(sp.id,X.group)>-RECALL_SPARK*0.5:!GAME.activeSituations[sp.id];
 }
+const RECALL_EO_EACH=0.75;   // Yes points for each executive order in force, up to 4
 function recallEOs(){ try{ return eoLiveList().length; }catch(e){ return 0; } }
 const SCANDAL_SEV=["","Embarrassing","Serious","Criminal referral"];
 /* How bad the scandal is, rolled when it breaks. Only a serious one or a
@@ -11200,7 +11201,7 @@ function recallVoteParts(Vt,noStmt){
   let grievance=sev>=3?0.5*(loyalty+time):sev>=2?6:sp.kind==="crisis"?2:0;
   if(st==="apologize")grievance*=0.6; else if(st==="deny")grievance*=1.25;
   const recShift=st==="record"?recallRecordShift():0;
-  const over=recallOverreach(), eos=recallEOs(), eoPen=clamp(eos-2,0,4);
+  const over=recallOverreach(), eos=recallEOs(), eoPen=clamp(eos*RECALL_EO_EACH,0,4);
   const dist=clamp((Math.abs(g.economic)+Math.abs(g.social))/2,0,1);
   const endorse=Vt.endorsed?2+2*(1-dist):0;
   const camp=1.2*Math.sqrt(Vt.energy||0);
@@ -11504,7 +11505,7 @@ function recallBodyHTML(){
     :`The vote decides it, and Yes needs a majority. Your approval sets most of it. Many who disapprove of you still vote No: your own side out of loyalty, others because the next election is close. A scandal, a pattern of unpopular laws, governing by executive order and the Yes campaign wear that down.`}</div>`;
   h+=`<div class="detailrow"><span class="pill rc">${D?"Signature drive":"Recall election"}</span><span class="pill pill-go" data-detail="v_${X.group}" role="link" tabindex="0">Organized by ${who} \u2192</span>`
     +(D?`<span class="pill">Quarter ${Math.min(D.q+1,D.len)} of ${D.len}</span><span class="pill">Due end of ${turnLabel(D.start+D.len-1)}</span>`
-       :`<span class="pill">Votes end of ${turnLabel(Vt.voteTurn)}</span><span class="pill">${Vt.special?"Special election":"With the midterm"}</span>`)+`</div>`;
+       :`<span class="pill">Votes end of ${turnLabel(Vt.voteTurn)}</span><span class="pill">${recallQuartersLeft(Vt)==="This quarter"?"Votes this quarter":recallQuartersLeft(Vt)+" to go"}</span><span class="pill">${Vt.special?"Special election":"With the midterm"}</span>`)+`</div>`;
   if(Vt)h+=Vt.statement?""
     :`<div class="pendbanner" style="margin:0 0 12px">${ico('doc')} You have not chosen your statement for the ballot yet. <span class="sf-l" data-recallstmt="1">Choose it \u2192</span></div>`;
   // the tools sit under the numbers they move, the map (a tool too) under them
@@ -11636,7 +11637,7 @@ function recallWhyHTML(){
   const P=recallVoteParts(Vt), P0=Vt.statement?recallVoteParts(Vt,true):P;
   let h=`<div class="ebgroup-label">How the vote adds up</div><div class="ebgroup">`
     +recallVoteWaterfall(Vt,P0,P,null)
-    +`<div class="threshline" style="margin-top:8px;font-style:italic">Steps are points of the vote. Green works for you, red for them. Your <span class="sf-l" data-detail="approval">approval among likely voters</span> is ${P.A.toFixed(1)}%. Laws the state dislikes count against you whatever your approval, each by how much it is disliked, for what it costs people as well as for its politics; so do executive orders past the second. Each one you add before the vote moves this directly. Your record is the same count the end of a term makes: ${RECORD_STATS.map(r=>r[2]).join(", ")}, each against where it stood when you took office.</div>`;
+    +`<div class="threshline" style="margin-top:8px;font-style:italic">Steps are points of the vote. Green works for you, red for them. Your <span class="sf-l" data-detail="approval">approval among likely voters</span> is ${P.A.toFixed(1)}%. Laws the state dislikes count against you whatever your approval, each by how much it is disliked, for what it costs people as well as for its politics; so does every executive order in force. Each one you add before the vote moves this directly. Your record is the same count the end of a term makes: ${RECORD_STATS.map(r=>r[2]).join(", ")}, each against where it stood when you took office.</div>`;
   return h+`</div>`;
 }
 /* ---- THE STATEMENT OF JUSTIFICATION ----
@@ -11702,8 +11703,8 @@ function showRecallStatement(next){
   const fact=(v,l)=>`<div class="rn-fact"><b>${v}</b><span>${l}</span></div>`;
   card.classList.add("recall-news");
   card.innerHTML=`<span class="rc-tag">Recall election</span><div class="rn-head">${ico('ballot')} The Recall Has Qualified</div>
-    <div class="rn-body">${who} turned in enough valid signatures over <b>${why}</b>. The recall goes on the ballot at the end of ${turnLabel(Vt.voteTurn)}${Vt.special?", as a special election":", alongside the midterm"}. If Yes wins, you are removed from office.</div>
-    <div class="rn-facts">${fact(Vt.sigs.toLocaleString(),"Valid signatures")}${fact(turnLabel(Vt.voteTurn),"Vote at the end of")}${fact(P.yes.toFixed(0)+"%","Yes today")}</div>
+    <div class="rn-body">${who} turned in enough valid signatures over <b>${why}</b>. The recall goes on the ballot ${recallVoteWhen(Vt)}${Vt.special?", as a special election":", alongside the midterm"}. If Yes wins, you are removed from office.</div>
+    <div class="rn-facts">${fact(Vt.sigs.toLocaleString(),"Valid signatures")}${fact(turnLabel(Vt.voteTurn),"Vote at the end of")}${fact(recallQuartersLeft(Vt),"Until the vote")}${fact(P.yes.toFixed(0)+"%","Yes today")}</div>
     <div class="rn-sub">Your answer</div>
     <div class="rn-subd">Oregon's constitution lets you answer the charge in up to 200 words, printed beside the question on every ballot. Fight on, and this statement defending your record goes before the voters with the question: it helps if Oregon is better off on your watch, and hurts if it is not. Or use the five days the law gives you to resign, which ends your governorship and the game.</div>
     <div class="rn-resign" id="rnResignRow"><button class="enactbtn" data-stmt="record">Fight on and defend your record</button><button class="enactbtn ghost" id="rnResign">${window.SANDBOX?"Resign":"Resign and end the game"}</button></div>`;
@@ -12043,6 +12044,12 @@ function recallWaysOutHTML(X,D,Vt,who){
   }
   return h+`</div>`;
 }
+/* How long until the vote, counted from this quarter. */
+function recallVoteWhen(Vt){
+  const q=Vt.voteTurn-GAME.turn;
+  return q<=0?"at the end of this quarter":"in "+(q+1)+" quarters, at the end of "+turnLabel(Vt.voteTurn);
+}
+function recallQuartersLeft(Vt){ const q=Vt.voteTurn-GAME.turn; return q<=0?"This quarter":(q+1)+" quarters"; }
 function recallActive(){ const R=GAME.recall; return !!(R&&(R.drive||R.vote)&&recallOn()); }
 /* Spend a point of campaign energy against a drive or a recall. */
 /* The whole recall, as its own page. */
