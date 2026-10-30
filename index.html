@@ -10919,7 +10919,7 @@ function recallCap(n){
   if(GAME.capital<n){ GAME.log.push("✗ Not enough political capital (◈"+n+")"); return false; }
   GAME.capital=clamp(GAME.capital-n,0,CAPITAL_MAX); return true;
 }
-const RECALL_CHALLENGE_CAP=4, RECALL_MEET_CAP=3, RECALL_ENDORSE_CAP=5;
+const RECALL_CHALLENGE_CAP=4, RECALL_MEET_CAP=3, RECALL_ENDORSE_CAP=5, RECALL_DECLINE_CAP=3;
 // below this approval no one of standing will put their name next to yours
 const RECALL_ENDORSE_MIN=35;
 function recallEndorseOpen(){ return overallApproval()>=RECALL_ENDORSE_MIN; }
@@ -11067,8 +11067,10 @@ function recallSigParts(D){
   let county=1; const ce=D.county||{};
   if(Object.keys(ce).length){ const C=recallDriveCounties(D), ix=orCountyIndex(); county=0;
     OR_COUNTIES.forEach((r,i)=>{ const e=ce[r[0]]||0; county+=C.share[i]/(1+0.35*Math.sqrt(e)); }); }
-  let expected=(group+wider+scandal)*energy*opp*eo*fatigue*addressed*met*decline*county, seedExtra=0;
-  if(D.seeded){ const need=(RECALL_SIG_NEED+3000-D.sigs)/Math.max(1,D.len-D.q); if(expected<need){ seedExtra=need-expected; expected=need; } }
+  const natural=(group+wider+scandal)*energy*opp*eo*fatigue;
+  let seedExtra=0;
+  if(D.seeded){ const need=(RECALL_SIG_NEED+3000-D.sigs)/Math.max(1,D.len-D.q); if(natural<need)seedExtra=need-natural; }
+  const expected=(natural+seedExtra)*addressed*met*decline*county;
   return {group, wider, scandal, sev, energy, opp, eo, fatigue, addressed, met, decline, county, org, anger, seedExtra, expected};
 }
 /* THE RECALL BALLOT, voter by voter. Everyone's approval of you, weighted
@@ -11138,7 +11140,7 @@ function recallAct(kind,arg){
   const R=GAME.recall; if(!R)return;
   const D=R.drive, Vt=R.vote;
   const did=(label,energy,mark)=>{ (R.acts=R.acts||[]).push({label, energy:energy||0, mark:mark||null}); R.myQ=(R.myQ||0)+(energy||0); R.myTotal=(R.myTotal||0)+(energy||0); };
-  if(kind==="canvass"&&D){ if(recallPay(1)){ D.energy=(D.energy||0)+1; did("A day of the decline-to-sign canvass",1); GAME.log.push(ico('ballot')+" A day of the decline-to-sign canvass"); } }
+  if(kind==="canvass"&&D){ if(recallCap(RECALL_DECLINE_CAP)){ D.energy=(D.energy||0)+1; did("A push of the decline-to-sign campaign",0); GAME.log.push(ico('ballot')+" A push of the decline-to-sign campaign (\u25c8"+RECALL_DECLINE_CAP+")"); } }
   else if(kind==="challenge"&&D&&!D.challenged){ if(recallCap(RECALL_CHALLENGE_CAP)){ D.challenged=true;
     if(GAME.opposition)GAME.opposition.momentum=clamp(GAME.opposition.momentum+3,0,100);
     did("You asked for a full count of the signatures",0,"Count");
@@ -11150,7 +11152,7 @@ function recallAct(kind,arg){
   else if(kind==="endorse"&&Vt&&!Vt.endorsed&&recallEndorseOpen()){ if(recallCap(RECALL_ENDORSE_CAP)){ Vt.endorsed=true; did("Endorsements against the recall",0,"Endorsed"); GAME.log.push(ico('medal')+" Party elders and a former governor came out against the recall"); } }
   else if((kind==="persuade"||kind==="mobilize")&&Vt&&SIMULANTS[arg]){ if(recallPay(1)){ const o=Vt[kind]=Vt[kind]||{}; o[arg]=(o[arg]||0)+1;
     did((kind==="persuade"?"Persuaded ":"Mobilized ")+SIMULANTS[arg].name,1); GAME.log.push(ico('ballot')+" "+(kind==="persuade"?"Persuaded ":"Mobilized ")+SIMULANTS[arg].name+" against the recall"); } }
-  else if(kind==="county"&&(D||Vt)&&orCountyIndex()[arg]!=null){ if(recallPay(1)){ const X=D||Vt, o=X.county=X.county||{}; o[arg]=(o[arg]||0)+1;
+  else if(kind==="county"&&Vt&&!D&&orCountyIndex()[arg]!=null){ if(recallPay(1)){ const X=D||Vt, o=X.county=X.county||{}; o[arg]=(o[arg]||0)+1;
     did((D?"Canvassed ":"Worked ")+arg+" County",1); GAME.log.push(ico('ballot')+" "+(D?"Canvassed ":"Worked ")+arg+" County against the recall"); } }
 }
 /* Once a quarter, after approval has moved. */
@@ -11189,7 +11191,6 @@ function recallTick(){
     // a seeded drive lands on its planned pace; a real one has a good or a bad quarter
     const got=Math.round(D.seeded?P.expected:P.expected*Math.exp(gauss()*0.3-0.045));
     D.sigs+=got; D.hist.push({turn:T, got, energy:D.energy||0}); D.q++; D.energy=0; D.county={};
-    if(D.seeded&&D.q>=D.len&&D.sigs<RECALL_SIG_NEED){ D.hist[D.hist.length-1].got+=RECALL_SIG_NEED+1200-D.sigs; D.sigs=RECALL_SIG_NEED+1200; }
     // the campaign behind it has run out of money and volunteers
     const faded=!D.seeded&&D.sigs<RECALL_SIG_NEED&&D.q<D.len&&D.yesE<RECALL_COLLAPSE;
     const closing=D.sigs>=RECALL_SIG_NEED||D.q>=D.len||faded;
@@ -11287,7 +11288,7 @@ function recallMapHTML(){
     <svg class="cmap-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="${D?"Where the recall petition is gathering signatures":"How each county would vote on the recall"}">${paths}${labels}</svg>
     <div class="cmap-info mm-info">
       <h4>${worked.length?worked.length+(worked.length===1?" county worked":" counties worked")+(D?" this quarter":""):D?"Where they are signing":"Where the state stands"}</h4>
-      <div class="ci-sub">${D?"Shaded by how fast each county is signing, from the organizing group's members and how angry they are. Click a county to send decline-to-sign canvassers there: they cut that county's signatures for this quarter.":"Shaded by how each county would vote on the recall today."} ${hv("Hover for the readout, click to work it.","Tap a county for the readout and to work it.")}</div>
+      <div class="ci-sub">${D?"Shaded by how fast each county is signing, from the organizing group's members and how angry they are. Hover a county for its share of the signatures.":"Shaded by how each county would vote on the recall today."} ${D?"":hv("Hover for the readout, click to work it.","Tap a county for the readout and to work it.")}</div>
       ${worked.map(n=>`<div class="ci-row"><span>${n}</span><span>${X.county[n]} in</span></div>`).join("")}
       <div class="cmap-legend">${D?`<span><i style="background:#efe9d8"></i>Few signing</span><span><i style="background:#7a1f3d"></i>Many signing</span>`:`<span><i style="background:#2f6d3a"></i>Votes No</span><span><i style="background:#a8412c"></i>Votes Yes</span>`}</div>
     </div></div>`;
@@ -11302,17 +11303,12 @@ function wireRecallTools(root,redraw){
   const C=D?recallDriveCounties(D):null, P=D?null:recallVoteParts(Vt);
   const tot=OR_COUNTIES.reduce((s,r)=>s+r[6],0);
   const paint=(name,sel)=>{ const ci=ix[name], prof=COUNTY_PROFILE[name]||{};
-    // what one more day of canvassing here would take off this quarter's count
-    let worth="";
-    if(D){ const mx=Math.max(...C.share), r=mx>0?C.share[ci]/mx:0, e=(D.county||{})[name]||0, f=r/Math.sqrt(1+e);
-      worth=f>=0.6?"prime target":f>=0.3?"worth it":f>=0.12?"modest":"low yield"; }
     const read=D?`<div class="ci-row"><span>Share of the signatures</span><span>${(C.share[ci]*100).toFixed(1)}%</span></div>
-        <div class="ci-row"><span>Signing rate</span><span>${C.rate[ci]>=C.max*0.66?"high":C.rate[ci]>=C.max*0.33?"middling":"low"}</span></div>
-        <div class="ci-row"><span>Value of a canvass here</span><span>${worth}</span></div>`
+        <div class="ci-row"><span>Signing rate</span><span>${C.rate[ci]>=C.max*0.66?"high":C.rate[ci]>=C.max*0.33?"middling":"low"}</span></div>`
       :`<div class="ci-row"><span>Would vote</span><span style="color:${P.byCounty[ci]>=50?'var(--bad)':'var(--good)'}">${Math.round(P.byCounty[ci])}% Yes</span></div>`;
     cmi.innerHTML=`<h4>${name} County</h4><div class="ci-sub">${_cmLeanWord(prof.ideo)} · ${(OR_COUNTIES[ci][6]/tot*100).toFixed(1)}% of the state's voters</div>
-      ${read}<div class="ci-row"><span>Energy invested${D?" this quarter":""}</span><span>${(X.county||{})[name]||"none"}</span></div>
-      ${sel?`<button class="enactbtn" data-recallcty="${name}" ${recallEnergyLeft()<1?'disabled':''} style="width:100%;margin-top:12px">${D?"Ask voters here not to sign":"Campaign here against it"} — 1 energy</button>`:`<div class="ci-sub" style="margin:10px 0 0;text-align:center">Click the county to work it ▸</div>`}`;
+      ${read}${D?"":`<div class="ci-row"><span>Energy invested</span><span>${(X.county||{})[name]||"none"}</span></div>
+      ${sel?`<button class="enactbtn" data-recallcty="${name}" ${recallEnergyLeft()<1?'disabled':''} style="width:100%;margin-top:12px">Campaign here against it — 1 energy</button>`:`<div class="ci-sub" style="margin:10px 0 0;text-align:center">Click the county to work it ▸</div>`}`}`;
     const b=cmi.querySelector("[data-recallcty]"); if(b)b.addEventListener('click',()=>{ recallAct("county",name); window._recallSel=name; redraw(); }); };
   wrap.querySelectorAll('.cm-cty[data-rcty]').forEach(el=>{ const name=el.dataset.rcty;
     el.addEventListener('mouseenter',()=>{ if(!window._recallSel)paint(name,false); });
@@ -11494,14 +11490,15 @@ function recallToolsHTML(){
   const X=D||Vt, who=SIMULANTS[X.group].name, left=recallEnergyLeft(), noE=left<1;
   const tool=(title,desc,btn,state)=>`<div class="rtool"><div class="rtool-b"><div class="rtool-h">${title}</div><div class="rtool-d">${desc}</div>${state?`<div class="rtool-s">${state}</div>`:""}</div>${btn}</div>`;
   const ebtn=(kind,label,arg,dis)=>`<button class="enactbtn" data-recallact="${kind}"${arg?` data-arg="${arg}"`:""} ${dis?'disabled':''}>${label}</button>`;
-  let h=recallEnergyHTML();
-  h+=`<div class="threshline" style="margin:4px 0 10px">While a recall runs, your campaign is on a war footing: ${RECALL_WAR_FOOTING} more campaign energy a quarter, already counted above. Click a county on the map ${D?"below":"above"} to work it.</div>`;
+  let h="";
+  if(Vt)h+=recallEnergyHTML()+`<div class="threshline" style="margin:4px 0 10px">While a recall runs, your campaign is on a war footing: ${RECALL_WAR_FOOTING} more campaign energy a quarter, already counted above. Click a county on the map above to work it.</div>`;
+  else h+=`<div class="threshline" style="margin:4px 0 10px">Stopping a petition is paid for in political capital: you have <b>\u25c8${Math.floor(GAME.capital)}</b>.</div>`;
   if(D){
     const P=recallSigParts(D);
     h+=`<div class="camp-sec">${ico('ballot')} Stop the signatures</div>`;
     h+=recallTermsToolHTML(D);
-    h+=tool("Decline-to-sign canvass","Canvassers and ads statewide asking people not to sign. It slows the signatures this quarter only, and each extra day does a little less than the one before.",
-      ebtn("canvass","Canvass — 1 energy",null,noE), D.energy?`This quarter: ${D.energy} day${D.energy===1?"":"s"} of canvassing`:"");
+    h+=tool("Decline-to-sign campaign","Ads, mailers and your allies' networks across the state, asking people not to sign. It slows the signatures this quarter only, and each extra push does a little less than the one before.",
+      ebtn("canvass","Push it \u2014 \u25c8"+RECALL_DECLINE_CAP,null,!window.SANDBOX&&GAME.capital<RECALL_DECLINE_CAP), D.energy?`This quarter: ${D.energy} push${D.energy===1?"":"es"}`:"");
     h+=tool("Challenge the signatures",`Ask the Secretary of State to check every signature instead of a sample. The invalid ones come off when the petition closes, but it reads as stalling and hands the opposition a story. <b>One time only.</b>`,
       D.challenged?`<button class="enactbtn ghost" disabled>Requested</button>`:ebtn("challenge","Request a full count — ◈"+RECALL_CHALLENGE_CAP,null,!window.SANDBOX&&GAME.capital<RECALL_CHALLENGE_CAP), D.challenged?"Requested: the invalid names come off at the close":"");
     return h;
@@ -11579,14 +11576,16 @@ function recallWhyHTML(){
     const mults=[["Their campaign's energy", P.energy], [opp, P.opp]];
     if(P.eo>1)mults.push(["Governing by decree", P.eo]);
     mults.push(["Signature fatigue", P.fatigue]);
+    mults.push(["__seed__", 1]);
     if(sp.kind!=="scandal")mults.push([P.addressed<1?`You undid ${sparkLink}`:`${sparkLink}, still ${sp.kind==="law"?"in force":"running"}`, P.addressed]);
     if(D.met)mults.push(["Your promise to the organizers", P.met]);
-    mults.push(["Your decline-to-sign canvass", P.decline]);
+    mults.push(["Your decline-to-sign campaign", P.decline]);
     if(P.county<0.999)mults.push(["Your county canvassing", P.county]);
     const steps=adds.slice(1).filter(a=>a[1]>=1).map(a=>({label:a[0], v:a[1]}));
     let r=base;
-    for(const [l,x] of mults){ const d=r*(x-1); if(Math.abs(d)>=1)steps.push({label:l, v:d}); r+=d; }
-    if(P.seedExtra>=1)steps.push({label:"Paid signature gatherers (the RECALL scenario)", v:P.seedExtra});
+    for(const [l,x] of mults){
+      if(l==="__seed__"){ if(P.seedExtra>=1){ steps.push({label:"Paid signature gatherers (the RECALL scenario)", v:P.seedExtra}); r+=P.seedExtra; } continue; }
+      const d=r*(x-1); if(Math.abs(d)>=1)steps.push({label:l, v:d}); r+=d; }
     const left=Math.max(1,D.len-D.q), per=Math.max(0,(RECALL_SIG_NEED-D.sigs)/left);
     const fmtN=v=>Math.round(v).toLocaleString(), fmtS=v=>(v>0?"+":"−")+Math.round(Math.abs(v)).toLocaleString();
     return `<div class="ebgroup-label">How this quarter's signatures add up</div><div class="ebgroup">`
