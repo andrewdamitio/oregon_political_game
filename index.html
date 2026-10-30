@@ -5323,6 +5323,8 @@ function tickCourtCases(){
     const W=GAME.courtWatch[id];
     if(!W||W.key!==key){ GAME.courtWatch[id]={key, since:GAME.turn, from:(seen===undefined?null:seen)}; continue; }
     if(W.rolled||GAME.turn<W.since+1)continue;
+    // ...and while a recall runs, no new suit is filed: the roll waits for it to end
+    if(typeof recallActive==="function"&&recallActive())continue;
     W.rolled=true;
     // a seed can make the first roll certain, to show a suit on demand
     const forced=!!(GAME.courtForce&&GAME.courtForce[id]); if(forced)delete GAME.courtForce[id];
@@ -10816,11 +10818,13 @@ function recallPattern(){
   const laws=recallOverreach().laws, eos=recallLiveEOs().filter(id=>recallEONet(id)<=-0.5);
   return {laws, eos, n:laws.length+eos.length};
 }
+function recallSuits(){ return Object.keys(GAME.courtCases||{}).length; }
 function recallStatewide(){
   const oa=overallApproval(), pat=recallPattern();
   return {oa, pat, conds:[
     {name:"Your statewide approval at "+RECALL_UNPOP+"% or under", now:Math.round(oa)+"%", ok:oa<=RECALL_UNPOP},
-    {name:"A pattern: "+RECALL_PATTERN+" or more unpopular laws or executive orders in force", now:pat.n+" now", ok:pat.n>=RECALL_PATTERN}]};
+    {name:"A pattern: "+RECALL_PATTERN+" or more unpopular laws or executive orders in force", now:pat.n+" now", ok:pat.n>=RECALL_PATTERN},
+    {name:"No lawsuit against one of your laws in the courts", now:recallSuits()?recallSuits()+" running":"none", ok:!recallSuits()}]};
 }
 /* Every test a group has to pass before it can start a drive, as rows:
    its own, then the statewide ones every drive needs. */
@@ -11225,6 +11229,7 @@ function recallTick(){
     return;
   }
   if(R.drive||R.survived||R.count>=RECALL_PER_TERM)return;
+  if(recallSuits())return;                                 // not while a suit is in the courts
   // a drive filed now starts gathering next quarter
   const sInto=into+1;
   if(sInto<2)return;                                       // not in the first six months
@@ -11954,7 +11959,7 @@ function recallWatchHTML(){
   for(const st of rows.slice(0,4)){
     h+=`<div class="sf-r"><div class="sf-cs"><div class="sf-c"><b><span class="sf-l" data-detail="v_${st.sid}">${SIMULANTS[st.sid].name}</span></b>${st.cool?' <em>will not file again until '+turnLabel(R.cool[st.sid])+'</em>':''}</div>${st.conds.map(c=>sitCondHTML(c,true)).join("")}</div></div>`;
   }
-  return h+`<div class="threshline" style="font-style:italic">A drive can start when every line holds for a group and both statewide tests above hold, for two quarters running, or one if a single law cost them ${RECALL_SHARP} points or more. Even then it is about a one-in-five chance a quarter that someone files. No drive starts in a term's first six months or its last year, after you survive one, or more than ${RECALL_PER_TERM} times a term.${recallScandalSev()>=2?` <b>The scandal (${SCANDAL_SEV[recallScandalSev()].toLowerCase()}) changes this:</b> while it runs, any group at 35% or under can file, about a ${recallScandalSev()>=3?"one-in-three":"one-in-seven"} chance a quarter.`:""}</div></div>`;
+  return h+`<div class="threshline" style="font-style:italic">A drive can start when every line holds for a group and every statewide test above holds, for two quarters running, or one if a single law cost them ${RECALL_SHARP} points or more. Even then it is about a one-in-five chance a quarter that someone files. No drive starts in a term's first six months or its last year, after you survive one, or more than ${RECALL_PER_TERM} times a term.${recallScandalSev()>=2?` <b>The scandal (${SCANDAL_SEV[recallScandalSev()].toLowerCase()}) changes this:</b> while it runs, any group at 35% or under can file, about a ${recallScandalSev()>=3?"one-in-three":"one-in-seven"} chance a quarter.`:""}</div></div>`;
 }
 /* The banner on the board: bigger than a crisis card, and its own colour. */
 function recallBannerHTML(){
@@ -25037,7 +25042,7 @@ const VERSION_HISTORY=[
   ["8.0","29 October 2026","Recall elections. A voter group you have badly hurt can petition to recall you over the law or crisis that hurt it. Most drives fall short of the 285,000 signatures; one that qualifies goes to a vote in the fourth quarter, with the midterm or as a special election the year after. Fight it from Campaign HQ. Survive and you gain a mandate; lose and the game ends. The quarterly report follows a running recall, and the RECALL seed starts with one."],
   ["8.1","29 October 2026","The recall vote is decided by what you did, not a flat lean: your own side's loyalty (which breaks if your own side organized it), how close the next election is, a scandal, a pattern of unpopular laws, and executive orders. A serious scandal or criminal referral can start a recall on its own. The recall page has its own tools: a decline-to-sign canvass, a full signature count, meeting the organizers, a No campaign, endorsements, voter-group and county pushes, and two points of war-footing energy a quarter. The quarterly report links straight to them."],
   ["8.2","29 October 2026","The recall gets a story and an opponent. The organizers run a Yes campaign with its own energy, fed by their money, anger and opposition momentum, and by anything you do while it runs: an executive order, a law the state dislikes, a scandal. Left alone it fades, and a drive whose campaign fades too far collapses. Drives can run up to four quarters. The recall page charts the petition or the vote, and the two campaigns, with what happened marked; lists what moved the Yes campaign each quarter; and maps where the signatures come from, with canvassing county by county. Tuned so recalls stay very uncommon: a drive rarely qualifies unless the governor is deeply unpopular, and during the vote orders and unpopular laws count once. Opposition momentum links to where it is explained, the energy you have spent fighting a recall is tallied on its page and in Campaign HQ, and the drive is named a Recall Signature Drive. The recall page is laid out like a crisis page, with a verdict box, bar breakdowns and charts, and the same page is Campaign HQ's Recall tab; its briefing screens carry the banner's colour."],
-  ["8.3","30 October 2026","A recall drive needs more than one controversial law: a governor at 40% approval or below, and a pattern of at least three unpopular laws or executive orders. A quarter into a drive over a law, the organizers name their terms, a specific compromise: pass it and the drive ends, with the agreed law immune from lawsuit, or refuse. A qualified recall asks you to defend your record on the ballot or resign. While a recall runs, legislators keep their distance and every vote costs more, and the opposition leader fronts the Yes campaign. Recall night reports county by county. The RECALL seed plays the whole arc."]
+  ["8.3","30 October 2026","A recall drive needs more than one controversial law: a governor at 40% approval or below, and a pattern of at least three unpopular laws or executive orders, and never alongside a lawsuit: no drive starts while one runs, and no suit is filed during a recall. A quarter into a drive over a law, the organizers name their terms, a specific compromise: pass it and the drive ends, with the agreed law immune from lawsuit, or refuse. A qualified recall asks you to defend your record on the ballot or resign. While a recall runs, legislators keep their distance and every vote costs more, and the opposition leader fronts the Yes campaign. Recall night reports county by county. The RECALL seed plays the whole arc."]
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
