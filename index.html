@@ -2065,6 +2065,13 @@
   @media (max-width:600px){ .rn-head{font-size:24px} }
   .pill.pill-go{cursor:pointer;color:var(--slate-blue);text-decoration:underline;text-underline-offset:2px}
   .pill.pill-go:hover,.pill.pill-go:focus-visible{background:var(--hover-bg);border-color:var(--slate-blue)}
+  .rc-groups>summary{cursor:pointer;list-style:none}
+  .rc-groups>summary::-webkit-details-marker{display:none}
+  .rc-groups>summary::after{content:"\25b8";margin-left:auto;color:var(--muted-2)}
+  .rc-groups[open]>summary::after{content:"\25be"}
+  .rc-way{font-size:13.5px;line-height:1.5;padding:5px 0;border-bottom:1px solid var(--line)}
+  .rc-way:last-child{border-bottom:0}
+  .rc-way b{color:var(--ink)}
   .rtool{display:flex;align-items:center;gap:14px;border:1px solid var(--line);border-left:4px solid var(--recall);background:var(--paper-2);padding:10px 14px;margin:8px 0}
   .rtool-b{flex:1;min-width:0}
   .rtool-h{font-weight:700;font-size:14.5px}
@@ -11394,11 +11401,31 @@ function recallBodyHTML(){
        :`<span class="pill">Votes end of ${turnLabel(Vt.voteTurn)}</span><span class="pill">${Vt.special?"Special election":"With the midterm"}</span>`)+`</div>`;
   h+=recallStatusHTML()+recallWhyHTML()+recallCampaignsHTML()+recallMapHTML();
   h+=`<div id="recallTools"><div class="ebgroup-label">Fight it</div>`+recallToolsHTML()+`</div>`;
-  h+=`<div class="ebgroup-label">Ways out</div><div class="ebgroup">`;
-  if(X.spark&&X.spark.kind==="law"&&!X.spark.repealed&&POLICIES[X.spark.id])h+=`<div class="threshline">Change or repeal <span class="sf-l" data-detail="p_${X.spark.id}">${X.spark.name}</span>. ${D?"The drive loses most of its pace.":"It does not stop the vote, but it wins back the group that started it."}</div>`;
-  h+=`<div class="threshline">Win back <span class="sf-l" data-detail="v_${X.group}">${who}</span> and the state at large: every point of approval ${D?"slows the signatures and drains the Yes campaign's money":"is a point off Yes"}.</div>`;
-  h+=`<div class="threshline">Give them nothing new: no executive orders, no unpopular laws. ${D?`Left alone, the Yes campaign fades, and below ${RECALL_COLLAPSE} the petition collapses.`:"Left alone, the Yes campaign fades."}</div>`;
-  h+=`<div class="threshline">Fight it: <span class="sf-l" data-recallhq="1">the tools above ↑</span></div></div>`;
+  h+=recallWaysOutHTML(X,D,Vt,who);
+  return h+`</div>`;
+}
+/* HOW TO STOP IT, or HOW TO SURVIVE IT: each a short lead and the
+   mechanic behind it, in the order they matter. */
+function recallWaysOutHTML(X,D,Vt,who){
+  const sp=X.spark||{}, way=(lead,txt)=>`<div class="rc-way"><b>${lead}</b> ${txt}</div>`;
+  const grp=`<span class="sf-l" data-detail="v_${X.group}">${who}</span>`;
+  const law=sp.kind==="law"&&!sp.repealed&&POLICIES[sp.id]?`<span class="sf-l" data-detail="p_${sp.id}">${sp.name}</span>`:null;
+  const crisis=sp.kind==="crisis"&&GAME.activeSituations[sp.id]?`<span class="sf-l" data-detail="s_${sp.id}">${sp.name}</span>`:null;
+  let h=`<div class="ebgroup-label">${D?"How to stop it":"How to survive it"}</div><div class="ebgroup">`;
+  if(D){
+    if(law)h+=way("Undo the grievance.", `Change or repeal ${law} and the drive loses most of its pace. It is the strongest single move you have.`);
+    else if(crisis)h+=way("End the crisis.", `Bring the ${crisis} to an end and the drive loses most of its pace.`);
+    else if(sp.kind==="scandal")h+=way("Outlast the scandal.", "A scandal cannot be undone. While it runs, people outside the group sign too, so the drive has to be fought on the doorstep.");
+    h+=way(`Win back ${grp}.`, "The angrier they are, the faster they sign and the more money they give the Yes campaign.");
+    h+=way("Give them nothing new.", `Every executive order you sign and every unpopular law you pass while the drive runs feeds the Yes campaign. Left alone it fades, and if it runs out of energy the petition collapses.`);
+    h+=way("Run out the clock.", `The petition closes at the end of ${turnLabel(D.start+D.len-1)}. If it has fewer than ${RECALL_SIG_NEED.toLocaleString()} valid signatures by then, it fails, and ${who} cannot file again for a year.`);
+  } else {
+    h+=way("Raise your approval.", "It decides most of the vote. Every point you gain among likely voters is close to a point off Yes.");
+    if(law)h+=way("Undo the grievance.", `Changing or repealing ${law} will not cancel the vote, but it wins back ${grp}, the group that forced it.`);
+    else if(crisis)h+=way("End the crisis.", `Ending the ${crisis} will not cancel the vote, but it wins back ${grp}, the group that forced it.`);
+    h+=way("Give them nothing new.", "From here an executive order counts against you as governing by decree, and an unpopular law as part of a pattern. Both go straight into the vote.");
+    h+=way("Campaign until the vote.", `The tools above work until the end of ${turnLabel(Vt.voteTurn)}.${Vt.special?" A special election draws few voters, so getting your own to the polls counts for more than usual.":""}`);
+  }
   return h+`</div>`;
 }
 function recallPageHTML(){
@@ -11435,17 +11462,16 @@ function recallToolsHTML(){
         :!open?`<button class="enactbtn ghost" disabled>Not available</button>`
         :ebtn("endorse","Ask for them, once — ◈"+RECALL_ENDORSE_CAP,null,!window.SANDBOX&&GAME.capital<RECALL_ENDORSE_CAP),
       Vt.endorsed?"They have spoken for you":!open?`Your approval is ${Math.round(overallApproval())}%: they will not stand with you below ${RECALL_ENDORSE_MIN}%.`:""); }
-  h+=`<div class="camp-sec">${ico('handshake')} Voter groups</div>
+  // the whole list folds away behind its heading, largest groups first
+  const open=(GAME.recallGroupsOpen?" open":"");
+  h+=`<details class="rc-groups" data-recallmore${open}><summary class="camp-sec">${ico('handshake')} Voter groups <span class="sec-note">— persuade or mobilize any of them against the recall</span></summary>
     <div class="vg-cap"><b>Persuade</b> turns a group against the recall; <b>mobilize</b> gets those already against it to the polls, which counts most at a special election. Each push costs 1 energy and counts only for the recall.</div>`;
-  // the largest groups first; the rest a click away
   const blocs=Object.keys(SIMULANTS).filter(s=>P.byGroup[s]!=null).sort((a,b)=>SIMULANTS[b].size-SIMULANTS[a].size);
   const grow=sid=>{ const s=SIMULANTS[sid], y=P.byGroup[sid], pe=(Vt.persuade||{})[sid]||0, mo=(Vt.mobilize||{})[sid]||0;
     return `<div class="vg-row"><div class="vg-who"><div class="vg-name">${s.name}${sid===Vt.group?" <small>(organized it)</small>":""}</div><div class="vg-meta">${Math.round(s.size*100)}% of voters${pe||mo?` · ${pe?pe+" persuade":""}${pe&&mo?", ":""}${mo?mo+" mobilize":""}`:""}</div></div>
       <div class="vg-appr" style="color:${y>=50?'var(--bad)':'var(--good)'}">${Math.round(y)}%<small>Yes</small></div>
       <div class="vg-acts"><button class="vg-btn" data-recallact="persuade" data-arg="${sid}" ${noE?'disabled':''}><span class="k">Persuade</span></button><button class="vg-btn" data-recallact="mobilize" data-arg="${sid}" ${noE?'disabled':''}><span class="k">Mobilize</span></button></div></div>`; };
-  const open=(GAME.recallGroupsOpen?" open":"");
-  h+=`<div class="vglist">${blocs.slice(0,8).map(grow).join("")}</div>`;
-  if(blocs.length>8)h+=`<details class="rc-more" data-recallmore${open}><summary>All ${blocs.length} groups</summary><div class="vglist">${blocs.slice(8).map(grow).join("")}</div></details>`;
+  h+=`<div class="vglist">${blocs.map(grow).join("")}</div></details>`;
   return h;
 }
 /* Everything on the recall's body that does something, wherever it is
