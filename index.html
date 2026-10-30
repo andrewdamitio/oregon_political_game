@@ -11271,10 +11271,13 @@ function recallTick(){
     // the campaign behind it has run out of money and volunteers
     const faded=!D.seeded&&D.sigs<RECALL_SIG_NEED&&D.q<D.len&&D.yesE<RECALL_COLLAPSE;
     const closing=D.sigs>=RECALL_SIG_NEED||D.q>=D.len||faded;
-    // a full count, if you asked for one, strikes the invalid names at the end
+    // a full count, if you asked for one, checks every signature once, when
+    // the petition is turned in; struck short with quarters left, they go
+    // back out for more names, and the count is not repeated
     if(closing&&!faded&&D.challenged&&D.struck==null&&!D.seeded){
       D.struck=Math.round(D.sigs*(0.04+0.06*Math.random())); D.sigs-=D.struck;
-      GAME.log.push(ico('gavel')+" The full count struck "+D.struck.toLocaleString()+" signatures from the recall petition");
+      GAME.log.push(ico('gavel')+" The full count struck "+D.struck.toLocaleString()+" signatures from the recall petition"
+        +(D.sigs<RECALL_SIG_NEED&&D.q<D.len?"; the organizers go back out for more":""));
     }
     // a promise to revisit the law, not kept by the time the petition closes
     if(closing&&D.met&&!recallAddressed(D)){
@@ -11294,7 +11297,7 @@ function recallTick(){
       GAME.recallFront={term:GAME.term};
       { const C=GAME.challenger; if(C&&C.term===GAME.term){ const m=C.field.find(f=>f.style==="main"); if(m)m.charm=Math.min(99,m.charm+5); } }
       GAME.log.push(ico('ballot')+" The recall qualified: "+D.sigs.toLocaleString()+" signatures. The vote is "+turnLabel(vt));
-    } else if(closing){
+    } else if(D.q>=D.len||faded){
       R.drive=null; R.cool[D.group]=T+1+RECALL_GROUP_COOL;
       R.past.push({kind:"failed", term:GAME.term, group:D.group, spark:D.spark, sigs:D.sigs, turn:T, faded});
       (GAME.pendingRecallNews=GAME.pendingRecallNews||[]).push({kind:"failed", group:D.group, spark:D.spark, sigs:D.sigs, addressed:recallAddressed(D), struck:D.struck||0, faded, q:D.q});
@@ -11462,7 +11465,7 @@ function recallStatusHTML(){
     if((D.yesE||0)<RECALL_COLLAPSE*2)v+=` Its campaign is running down (energy ${(D.yesE||0).toFixed(1)}); below ${RECALL_COLLAPSE} the drive collapses.`;
     return `<div class="ebgroup-label">Will it qualify?</div><div class="sitprog ${c}"><div class="sitprog-v">${v}</div>
       <div class="sit-bars"><div class="sit-bar"><div class="sit-bar-t"><span>Signatures <b>${D.sigs.toLocaleString()}</b> of ${need.toLocaleString()}</span><b style="color:${c==="bad"?'var(--clay)':c==="warn"?'var(--warn)':'var(--good)'}">${pct}%</b></div><div class="fbar2"><i style="width:${pct}%;background:var(--recall)"></i></div></div></div>
-      ${D.challenged?`<div class="threshline" style="margin-top:6px">You asked for a full count: the invalid names come off when the petition closes.</div>`:""}
+      ${D.challenged?`<div class="threshline" style="margin-top:6px">You asked for a full count: invalid signatures are struck once, when the petition is turned in. If that leaves them short with time to spare, they keep gathering.</div>`:""}
       ${T.html}${recallMarksKeyHTML()}</div>`;
   }
   const yes=recallVoteParts(Vt).yes;
@@ -11525,8 +11528,8 @@ function recallToolsHTML(){
     h+=recallTermsToolHTML(D);
     h+=tool("Decline-to-sign campaign","Ads, mailers and your allies' networks across the state, asking people not to sign. It slows the signatures this quarter only, and each extra push does a little less than the one before.",
       ebtn("canvass","Push it \u2014 \u25c8"+RECALL_DECLINE_CAP,null,!window.SANDBOX&&GAME.capital<RECALL_DECLINE_CAP), D.energy?`This quarter: ${D.energy} push${D.energy===1?"":"es"}`:"");
-    h+=tool("Challenge the signatures",`Ask the Secretary of State to check every signature instead of a sample. The invalid ones come off when the petition closes, but it reads as stalling and hands the opposition a story. <b>One time only.</b>`,
-      D.challenged?`<button class="enactbtn ghost" disabled>Requested</button>`:ebtn("challenge","Request a full count — ◈"+RECALL_CHALLENGE_CAP,null,!window.SANDBOX&&GAME.capital<RECALL_CHALLENGE_CAP), D.challenged?"Requested: the invalid names come off at the close":"");
+    h+=tool("Challenge the signatures",`Ask the Secretary of State to check every signature instead of a sample. Invalid signatures are struck once, when the petition is turned in, but it reads as stalling and hands the opposition a story. <b>One time only.</b>`,
+      D.challenged?`<button class="enactbtn ghost" disabled>Requested</button>`:ebtn("challenge","Request a full count — ◈"+RECALL_CHALLENGE_CAP,null,!window.SANDBOX&&GAME.capital<RECALL_CHALLENGE_CAP), D.challenged?(D.struck!=null?"Done: "+D.struck.toLocaleString()+" signatures struck":"Requested: invalid signatures are struck when the petition is turned in"):"");
     return h;
   }
   const P=recallVoteParts(Vt);
