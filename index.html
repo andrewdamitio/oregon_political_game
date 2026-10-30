@@ -2083,6 +2083,7 @@
   .wf-row.total .wf-l,.wf-row.total .wf-v{font-weight:700}
   .wf-row.end{border-top:var(--rule) solid var(--ink)!important;margin-top:2px;padding-top:6px}
   .wf-row.up .wf-v{color:var(--clay)}
+  .wf-row.zero .wf-l,.wf-row.zero .wf-v{color:var(--muted-2)}
   .wf-row.down .wf-v{color:var(--good)}
   .wf-v{text-align:right;font-family:var(--font-data);white-space:nowrap}
   .wf-line{position:absolute;top:-5px;bottom:-5px;width:0;border-left:2px dashed var(--clay);opacity:.75;z-index:1}
@@ -11553,8 +11554,9 @@ function recallWaterfallHTML(start, steps, end, line, fmtTot, fmtStep, forYou){
     return `<div class="wf-row ${cls}"><span class="wf-l">${label}</span><div class="wf-t">${lineEl}<i style="left:${pct(lo).toFixed(2)}%;width:${Math.max(0.6,pct(hi)-pct(lo)).toFixed(2)}%"></i></div><span class="wf-v">${val}</span></div>`; };
   let h=`<div class="wf">`+row("total start", start.label, 0, start.v, fmtTot(start.v));
   r=start.v;
-  for(const s of steps){ const good=forYou(s.v);
-    h+=row(good?"down":"up", s.label, r, r+s.v, fmtStep(s.v)); r+=s.v; }
+  for(const s of steps){ const good=forYou(s.v), zero=Math.abs(s.v)<0.05;
+    h+=zero?`<div class="wf-row zero"><span class="wf-l">${s.label}</span><div class="wf-t">${lineEl}</div><span class="wf-v">${fmtStep(s.v)}</span></div>`
+      :row(good?"down":"up", s.label, r, r+s.v, fmtStep(s.v)); r+=s.v; }
   h+=row("total end", end.label, 0, end.v, fmtTot(end.v));
   if(line)h+=`<div class="wf-key"><b class="wf-key-line"></b>${line.label}</div>`;
   return h+`</div>`;
@@ -11596,7 +11598,7 @@ function recallWhyHTML(){
   const P=recallVoteParts(Vt), P0=Vt.statement?recallVoteParts(Vt,true):P;
   let h=`<div class="ebgroup-label">How the vote adds up</div><div class="ebgroup">`
     +recallVoteWaterfall(Vt,P0,P,null)
-    +`<div class="threshline" style="margin-top:8px;font-style:italic">Steps are points of the vote. Green works for you, red for them. Your <span class="sf-l" data-detail="approval">approval among likely voters</span> is ${P.A.toFixed(1)}%.</div>`;
+    +`<div class="threshline" style="margin-top:8px;font-style:italic">Steps are points of the vote. Green works for you, red for them. Your <span class="sf-l" data-detail="approval">approval among likely voters</span> is ${P.A.toFixed(1)}%. Unpopular laws and executive orders count against you whatever your approval: each one you add before the vote moves this directly. Your record on the ballot is how many of the headline statistics are better, or worse, than when you took office.</div>`;
   if(P.over.laws.length)h+=`<div class="threshline" style="margin-top:6px">The unpopular laws: ${P.over.laws.slice(0,5).map(x=>(POLICIES[x.id]?`<span class="sf-l" data-detail="p_${x.id}">${x.name}</span>`:x.name)).join(", ")}${P.over.laws.length>5?", and "+(P.over.laws.length-5)+" more":""}.</div>`;
   return h+`</div>`;
 }
@@ -11696,20 +11698,24 @@ function recallFrontName(){ const n=oppLeaderName(); return n.charAt(0).toUpperC
    you, the parts measured without your statement, then the statement, then
    (on the night) what the count itself moved. */
 function recallVoteWaterfall(Vt,P0,P,counted){
-  const steps=[{label:"Disapprove, but vote No out of party loyalty", v:-P0.loyalty}];
+  // who would rather wait for the next election than remove you now
+  const steps=[{label:"Disapprove of you, but against removing you mid-term", v:-P0.loyalty}];
   if(P0.ground>0.05)steps.push({label:"Your work with voter groups and counties", v:-P0.ground});
-  if(P0.time)steps.push({label:"A year from the general: “just vote them out”", v:-P0.time});
+  if(P0.time)steps.push({label:"A year from the general: \u201cjust vote them out\u201d", v:-P0.time});
   if(P0.grievance)steps.push({label:P0.sev>=3?"A criminal referral":P0.sev>=2?"A serious scandal":"Over a crisis, not one law", v:P0.grievance});
-  if(P0.over.pen>0.05)steps.push({label:"A pattern of unpopular laws ("+P0.over.laws.length+")", v:P0.over.pen});
-  if(P0.eoPen)steps.push({label:"Governing by decree: "+P0.eos+" executive orders", v:P0.eoPen});
+  // what you have done counts whatever your approval: always shown, at zero too
+  const nl0=P0.over.laws.length;
+  steps.push({label:"Unpopular laws in force"+(nl0?" ("+nl0+")":""), v:P0.over.pen, always:true});
+  steps.push({label:"Executive orders in force ("+P0.eos+(P0.eos>2?")":", more than two count)"), v:P0.eoPen, always:true});
   if(P0.yesCamp>0.05)steps.push({label:"The Yes campaign", v:P0.yesCamp});
   if(P0.endorse)steps.push({label:"Endorsements against the recall", v:-P0.endorse});
   if(P0.camp>0.05)steps.push({label:"Your No on the recall campaign", v:-P0.camp});
-  if(Vt.statement&&Math.abs(P.yes-P0.yes)>=0.05)steps.push({label:"Your statement: "+RECALL_STATEMENTS[Vt.statement].label.toLowerCase(), v:P.yes-P0.yes});
+  if(Vt.statement){ const rc=recallRecordNet();
+    steps.push({label:(rc.imp+rc.wor)?"Your record on the ballot: better on "+rc.imp+" measure"+(rc.imp===1?"":"s")+", worse on "+rc.wor:"Your record on the ballot: too early to judge", v:P.yes-P0.yes, always:true}); }
   if(counted!=null&&Math.abs(counted-P.yes)>=0.05)steps.push({label:"On the night: the count itself", v:counted-P.yes});
   return recallWaterfallHTML({label:`Disapprove of you${Vt.special?" (likely voters at a special)":" (likely voters)"}`, v:100-P0.A}, steps,
     {label:counted!=null?"Voted Yes":"Vote Yes", v:counted!=null?counted:P.yes}, {v:50, label:"50%: past it, you are removed"},
-    v=>v.toFixed(counted!=null?1:0)+"%", v=>(v>0?"+":"−")+Math.abs(v).toFixed(1), v=>v<0);
+    v=>v.toFixed(counted!=null?1:0)+"%", v=>Math.abs(v)<0.05?"none":(v>0?"+":"\u2212")+Math.abs(v).toFixed(1), v=>v<0);
 }
 /* RECALL NIGHT: counties report in on the map, as on election night. Each
    county's figure is shifted so that, weighted by population, they come to
