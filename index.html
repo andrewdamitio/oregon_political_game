@@ -10753,6 +10753,42 @@ function lawMoodOn(p,sid){
     v+=courtAnger(p,sid,p.tierBlocEffects[p.tierIndex][sid]);
   return v;
 }
+/* WHAT A LAW DOES TO A GROUP THROUGH THE STATISTICS. Ideology is only half
+   of why a law is liked: the other half is what it does to people's lives,
+   their taxes, prices, crime, housing, schools. Each law declares its effect
+   on every statistic, and each group's mood reads the statistics through its
+   own sensitivities, so the two together say what the law is doing to that
+   group. Without it every left-leaning law read as popular in a left-leaning
+   state, however much it cost. The mood per point of each statistic is
+   measured once a quarter; each law's effects once per setting. */
+let _rcSlope={t:-1, s:null}, _rcFx={t:-1, m:{}};
+function recallStatSlopes(){
+  if(_rcSlope.t===GAME.turn&&_rcSlope.s)return _rcSlope.s;
+  const gs=Object.keys(SIMULANTS).filter(k=>!SIMULANTS[k].static), out={}, base={};
+  for(const sid of gs)base[sid]=metricMood(SIMULANTS[sid],sid);
+  for(const k in METRICS){ if(k==="gspLevel")continue;
+    const m=METRICS[k], v0=m.value, row={};
+    try{ m.value=v0+1; for(const sid of gs)row[sid]=metricMood(SIMULANTS[sid],sid)-base[sid]; } finally { m.value=v0; }
+    out[k]=row; }
+  _rcSlope={t:GAME.turn, s:out}; return out;
+}
+function recallLawFx(id){
+  const p=POLICIES[id]; if(!p)return null;
+  if(_rcFx.t!==GAME.turn)_rcFx={t:GAME.turn, m:{}};
+  const key=id+"|"+p.value+"|"+p.tierIndex+"|"+p.enabled+"|"+p.intensity+"|"+(+(p.eff||0)).toFixed(2)+"|"+(p.enacted===false?0:1);
+  if(_rcFx.m[key])return _rcFx.m[key];
+  const fx={}; for(const k in METRICS){ if(k==="gspLevel")continue; const e=policyEffect(p,k); if(Math.abs(e)>1e-6)fx[k]=e; }
+  return (_rcFx.m[key]=fx);
+}
+function recallStatMood(id,sid){
+  const fx=recallLawFx(id); if(!fx)return 0;
+  const S=recallStatSlopes(); let t=0;
+  for(const k in fx){ const sl=S[k]&&S[k][sid]; if(sl)t+=sl*fx[k]; }
+  return t;
+}
+/* A law's whole effect on a group: its ideology and named reactions, and
+   what it does to the statistics the group cares about. */
+function recallLawMood(id,sid){ const p=POLICIES[id]; return p?lawMoodOn(p,sid)+recallStatMood(id,sid):0; }
 function recallState(){
   let R=GAME.recall;
   if(!R){
@@ -10763,14 +10799,19 @@ function recallState(){
     // and what each inherited law was already doing to it, and to the
     // ideologies, which the pattern of unpopular laws is read against
     for(const id in POLICIES){ const m={};
-      for(const sid of gs.concat(recallIdeoGroups())){ const v=lawMoodOn(POLICIES[id],sid); if(Math.abs(v)>0.05)m[sid]=+v.toFixed(2); }
+      for(const sid of gs.concat(recallIdeoGroups())){ const v=recallLawMood(id,sid); if(Math.abs(v)>0.05)m[sid]=+v.toFixed(2); }
       R.mood0[id]=m; }
-    R.ideo0=true;
+    R.ideo0=true; R.stat0=true;
   }
   // a game saved before the ideologies were measured takes them from now
   if(!R.ideo0){ R.ideo0=true;
     for(const id in POLICIES){ const m=R.mood0[id]=R.mood0[id]||{};
       for(const sid of recallIdeoGroups()){ const v=lawMoodOn(POLICIES[id],sid); if(Math.abs(v)>0.05)m[sid]=+v.toFixed(2); } } }
+  // a game saved before laws were measured through the statistics takes
+  // that part of the baseline from now
+  if(!R.stat0){ R.stat0=true;
+    for(const id in POLICIES){ const m=R.mood0[id]=R.mood0[id]||{};
+      for(const sid of recallGroups().concat(recallIdeoGroups())){ const v=recallStatMood(id,sid); if(Math.abs(v)>0.05)m[sid]=+((m[sid]||0)+v).toFixed(2); } } }
   if(R.term!==GAME.term){ R.term=GAME.term; R.count=0; R.survived=false; R.angry={}; }
   return R;
 }
@@ -10778,7 +10819,7 @@ function recallState(){
    or repealed. A law the voters passed by initiative is not yours. */
 function recallHit(id,sid){
   const R=recallState();
-  const now=POLICIES[id]?lawMoodOn(POLICIES[id],sid):0;
+  const now=recallLawMood(id,sid);
   return now-(((R.mood0[id]||{})[sid])||0);
 }
 /* The grievance a drive can run on: the law that hurt the group most, or
@@ -11610,7 +11651,7 @@ function recallWhyHTML(){
   const P=recallVoteParts(Vt), P0=Vt.statement?recallVoteParts(Vt,true):P;
   let h=`<div class="ebgroup-label">How the vote adds up</div><div class="ebgroup">`
     +recallVoteWaterfall(Vt,P0,P,null)
-    +`<div class="threshline" style="margin-top:8px;font-style:italic">Steps are points of the vote. Green works for you, red for them. Your <span class="sf-l" data-detail="approval">approval among likely voters</span> is ${P.A.toFixed(1)}%. Laws the state dislikes count against you whatever your approval, each by how much it is disliked; so do executive orders past the second. Each one you add before the vote moves this directly. Your record on the ballot is how many of the headline statistics are better, or worse, than when you took office.</div>`;
+    +`<div class="threshline" style="margin-top:8px;font-style:italic">Steps are points of the vote. Green works for you, red for them. Your <span class="sf-l" data-detail="approval">approval among likely voters</span> is ${P.A.toFixed(1)}%. Laws the state dislikes count against you whatever your approval, each by how much it is disliked, for what it costs people as well as for its politics; so do executive orders past the second. Each one you add before the vote moves this directly. Your record on the ballot is how many of the headline statistics are better, or worse, than when you took office.</div>`;
   return h+`</div>`;
 }
 /* ---- THE STATEMENT OF JUSTIFICATION ----
