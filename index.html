@@ -2063,6 +2063,8 @@
   .rn-fact b{display:block;font-family:var(--font-data);font-size:18px;line-height:1.2}
   .rn-fact span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted-2);margin-top:2px}
   @media (max-width:600px){ .rn-head{font-size:24px} }
+  .pill.pill-go{cursor:pointer;color:var(--slate-blue);text-decoration:underline;text-underline-offset:2px}
+  .pill.pill-go:hover,.pill.pill-go:focus-visible{background:var(--hover-bg);border-color:var(--slate-blue)}
   .rtool{display:flex;align-items:center;gap:14px;border:1px solid var(--line);border-left:4px solid var(--recall);background:var(--paper-2);padding:10px 14px;margin:8px 0}
   .rtool-b{flex:1;min-width:0}
   .rtool-h{font-weight:700;font-size:14.5px}
@@ -10829,11 +10831,14 @@ function recallScandalSev(){ return (GAME.activeSituations&&GAME.activeSituation
    unpopular laws, executive orders, and your campaign. */
 /* War footing: two points of energy a quarter that only the recall can use,
    spent before your own campaign's. */
-function recallEnergyLeft(){ return ((GAME.recall&&GAME.recall.rEnergy)||0)+GAME.campEnergy; }
-function recallPay(n){
-  const R=GAME.recall; if(recallEnergyLeft()<n)return false;
-  const r=Math.min(R.rEnergy||0,n); R.rEnergy=(R.rEnergy||0)-r; GAME.campEnergy-=n-r; return true;
-}
+function recallEnergyLeft(){ return GAME.campEnergy; }
+function recallPay(n){ if(GAME.campEnergy<n)return false; GAME.campEnergy-=n; return true; }
+/* The war footing: two more points of campaign energy a quarter while a
+   recall runs. The quarter's refill counts it; a drive that opens after the
+   refill gets its two at once. */
+const RECALL_WAR_FOOTING=2;
+function recallEnergyBonus(){ return (typeof recallActive==="function"&&recallActive())?RECALL_WAR_FOOTING:0; }
+function recallWarFooting(){ GAME.campEnergyMax+=RECALL_WAR_FOOTING; GAME.campEnergy+=RECALL_WAR_FOOTING; }
 function recallCap(n){
   if(window.SANDBOX)return true;
   if(GAME.capital<n){ GAME.log.push("✗ Not enough political capital (◈"+n+")"); return false; }
@@ -10861,7 +10866,7 @@ function recallSeed(){
   SIMULANTS[sid].approval=Math.max(0,SIMULANTS[sid].approval-16);
   if(GAME.opposition)GAME.opposition.momentum=clamp(GAME.opposition.momentum+15,0,100);
   R.drive={group:sid, spark, start:0, len:1, voteInto:3, q:0, sigs:276400, hist:[], energy:0, seeded:true};
-  R.count=1; R.rEnergy=2;
+  R.count=1; recallWarFooting();
   recallOpenCampaign(R.drive, 0);
   GAME.log.push(ico('ballot')+" "+SIMULANTS[sid].name+" are already gathering signatures to recall you over "+spark.name);
 }
@@ -11071,7 +11076,7 @@ function recallTick(){
     const Vt=R.vote; if(Vt.yesE==null)recallOpenCampaign(Vt,T);
     recallTickCampaign(Vt,T);
     Vt.prevYes=Vt.lastYes; Vt.lastYes=+recallVoteParts(Vt).yes.toFixed(1);
-    R.series.push({turn:T+1, sigs:null, yes:Vt.lastYes, yesE:Vt.yesE, myE:R.myQ||0}); R.acts=[]; R.myQ=0; R.rEnergy=2;
+    R.series.push({turn:T+1, sigs:null, yes:Vt.lastYes, yesE:Vt.yesE, myE:R.myQ||0}); R.acts=[]; R.myQ=0;
     return;
   }
   // a drive in the field gathers its quarter's names
@@ -11100,18 +11105,18 @@ function recallTick(){
     if(D.sigs>=RECALL_SIG_NEED){
       const vt=recallTermTurn(D.voteInto);
       R.vote={group:D.group, spark:D.spark, sigs:D.sigs, start:D.start, announced:T+1, voteTurn:vt, special:D.voteInto!==GAME.midtermTurn-1, energy:0, yesE:D.yesE};
-      R.drive=null; R.vote.lastYes=+recallVoteParts(R.vote).yes.toFixed(1); R.rEnergy=2;
+      R.drive=null; R.vote.lastYes=+recallVoteParts(R.vote).yes.toFixed(1);
       R.series[R.series.length-1].yes=R.vote.lastYes;
       R.marks.push({turn:T+1, label:"Qualified", why:"The recall qualified for the ballot"});
       if(GAME.opposition)GAME.opposition.momentum=clamp(GAME.opposition.momentum+4,0,100);
       (GAME.pendingRecallNews=GAME.pendingRecallNews||[]).push({kind:"qualified", group:D.group, spark:D.spark, sigs:D.sigs, voteTurn:vt});
       GAME.log.push(ico('ballot')+" The recall qualified: "+D.sigs.toLocaleString()+" signatures. The vote is "+turnLabel(vt));
     } else if(closing){
-      R.drive=null; R.cool[D.group]=T+1+RECALL_GROUP_COOL; R.rEnergy=0;
+      R.drive=null; R.cool[D.group]=T+1+RECALL_GROUP_COOL;
       R.past.push({kind:"failed", term:GAME.term, group:D.group, spark:D.spark, sigs:D.sigs, turn:T, faded});
       (GAME.pendingRecallNews=GAME.pendingRecallNews||[]).push({kind:"failed", group:D.group, spark:D.spark, sigs:D.sigs, addressed:recallAddressed(D), struck:D.struck||0, faded, q:D.q});
       GAME.log.push(ico('ballot')+(faded?" The recall drive collapsed: its campaign ran out of steam at ":" The recall drive fell short: ")+D.sigs.toLocaleString()+" of "+RECALL_SIG_NEED.toLocaleString()+" signatures");
-    } else R.rEnergy=2;
+    }
     return;
   }
   if(R.drive||R.survived||R.count>=RECALL_PER_TERM)return;
@@ -11140,7 +11145,7 @@ function recallTick(){
   }
   // up to four quarters to gather, and always time for the vote after
   R.drive={group:sid, spark:sp, start:T+1, len:Math.min(4,V-1-sInto), voteInto:V, q:0, sigs:0, hist:[], energy:0};
-  R.count++; R.rEnergy=2;
+  R.count++; recallWarFooting();
   recallOpenCampaign(R.drive, T+1);
   if(GAME.opposition)GAME.opposition.momentum=clamp(GAME.opposition.momentum+2,0,100);
   (GAME.pendingRecallNews=GAME.pendingRecallNews||[]).push({kind:"started", group:sid, spark:sp});
@@ -11187,7 +11192,7 @@ function recallMapHTML(){
     <svg class="cmap-svg" viewBox="${OR_MAP_VIEWBOX}" role="img" aria-label="${D?"Where the recall petition is gathering signatures":"How each county would vote on the recall"}">${paths}${labels}</svg>
     <div class="cmap-info mm-info">
       <h4>${worked.length?worked.length+(worked.length===1?" county worked":" counties worked")+(D?" this quarter":""):D?"Where they are signing":"Where the state stands"}</h4>
-      <div class="ci-sub">${D?"Shaded by how fast each county is signing, from the organizing group's members and how angry they are. A canvass in one county cuts its signatures hard but lasts the quarter only.":"Shaded by how each county would vote on the recall today."} ${hv("Hover for the readout, click to work it.","Tap a county for the readout and to work it.")}</div>
+      <div class="ci-sub">${D?"Shaded by how fast each county is signing, from the organizing group's members and how angry they are. Click a county to send decline-to-sign canvassers there: they cut that county's signatures for this quarter.":"Shaded by how each county would vote on the recall today."} ${hv("Hover for the readout, click to work it.","Tap a county for the readout and to work it.")}</div>
       ${worked.map(n=>`<div class="ci-row"><span>${n}</span><span>${X.county[n]} in</span></div>`).join("")}
       <div class="cmap-legend">${D?`<span><i style="background:#efe9d8"></i>Few signing</span><span><i style="background:#7a1f3d"></i>Many signing</span>`:`<span><i style="background:#2f6d3a"></i>Votes No</span><span><i style="background:#a8412c"></i>Votes Yes</span>`}</div>
     </div></div>`;
@@ -11202,12 +11207,17 @@ function wireRecallTools(root,redraw){
   const C=D?recallDriveCounties(D):null, P=D?null:recallVoteParts(Vt);
   const tot=OR_COUNTIES.reduce((s,r)=>s+r[6],0);
   const paint=(name,sel)=>{ const ci=ix[name], prof=COUNTY_PROFILE[name]||{};
+    // what one more day of canvassing here would take off this quarter's count
+    let cut=0;
+    if(D){ const SP=recallSigParts(D), e=(D.county||{})[name]||0, base=SP.county>0?SP.expected/SP.county:0;
+      cut=Math.round(base*C.share[ci]*(1/(1+0.35*Math.sqrt(e))-1/(1+0.35*Math.sqrt(e+1)))); }
     const read=D?`<div class="ci-row"><span>Share of the signatures</span><span>${(C.share[ci]*100).toFixed(1)}%</span></div>
-        <div class="ci-row"><span>Signing rate</span><span>${C.rate[ci]>=C.max*0.66?"high":C.rate[ci]>=C.max*0.33?"middling":"low"}</span></div>`
+        <div class="ci-row"><span>Signing rate</span><span>${C.rate[ci]>=C.max*0.66?"high":C.rate[ci]>=C.max*0.33?"middling":"low"}</span></div>
+        <div class="ci-row"><span>A canvass here would cut</span><span>about ${cut.toLocaleString()} signatures</span></div>`
       :`<div class="ci-row"><span>Would vote</span><span style="color:${P.byCounty[ci]>=50?'var(--bad)':'var(--good)'}">${Math.round(P.byCounty[ci])}% Yes</span></div>`;
     cmi.innerHTML=`<h4>${name} County</h4><div class="ci-sub">${_cmLeanWord(prof.ideo)} · ${(OR_COUNTIES[ci][6]/tot*100).toFixed(1)}% of the state's voters</div>
       ${read}<div class="ci-row"><span>Energy invested${D?" this quarter":""}</span><span>${(X.county||{})[name]||"none"}</span></div>
-      ${sel?`<button class="enactbtn" data-recallcty="${name}" ${recallEnergyLeft()<1?'disabled':''} style="width:100%;margin-top:12px">${D?"Canvass here":"Campaign here against it"} — 1 energy</button>`:`<div class="ci-sub" style="margin:10px 0 0;text-align:center">Click the county to work it ▸</div>`}`;
+      ${sel?`<button class="enactbtn" data-recallcty="${name}" ${recallEnergyLeft()<1?'disabled':''} style="width:100%;margin-top:12px">${D?"Ask voters here not to sign":"Campaign here against it"} — 1 energy</button>`:`<div class="ci-sub" style="margin:10px 0 0;text-align:center">Click the county to work it ▸</div>`}`;
     const b=cmi.querySelector("[data-recallcty]"); if(b)b.addEventListener('click',()=>{ recallAct("county",name); window._recallSel=name; redraw(); }); };
   wrap.querySelectorAll('.cm-cty[data-rcty]').forEach(el=>{ const name=el.dataset.rcty;
     el.addEventListener('mouseenter',()=>{ if(!window._recallSel)paint(name,false); });
@@ -11216,22 +11226,20 @@ function wireRecallTools(root,redraw){
   const svg=wrap.querySelector('.cmap-svg'); if(svg)svg.addEventListener('mouseleave',()=>{ if(window._recallSel)paint(window._recallSel,true); else cmi.innerHTML=def; });
   if(window._recallSel&&ix[window._recallSel]!=null){ const el=wrap.querySelector(`.cm-cty[data-rcty="${window._recallSel}"]`); if(el){ el.classList.add('sel'); paint(window._recallSel,true); } }
 }
-/* The energy you have for the recall, as pips: the war footing's two in
-   the recall's colour, then your campaign's, and what you have spent. */
+/* Campaign energy, drawn exactly as Campaign HQ draws it, and what you
+   have spent fighting this recall. */
 function recallEnergyHTML(){
-  const R=GAME.recall||{}, w=R.rEnergy||0, wMax=2;
-  const pips=Array.from({length:wMax},(_,i)=>`<i class="${i<w?'on rc':''}"></i>`).join("")
-    +`<b class="rc-sep"></b>`+Array.from({length:GAME.campEnergyMax},(_,i)=>`<i class="${i<GAME.campEnergy?'on':''}"></i>`).join("");
-  return `<div class="energybar" style="margin-top:4px"><span class="energy-label">Energy for the recall</span>
-    <span class="energy-pips">${pips}</span>
-    <span class="energy-num">${w} war footing + ${GAME.campEnergy} campaign</span></div>
+  const R=GAME.recall||{};
+  return `<div class="energybar" style="margin-top:4px"><span class="energy-label">Campaign energy remaining</span>
+    <span class="energy-pips">${Array.from({length:GAME.campEnergyMax},(_,i)=>`<i class="${i<GAME.campEnergy?'on':''}"></i>`).join("")}</span>
+    <span class="energy-num">${GAME.campEnergy} / ${GAME.campEnergyMax}</span></div>
     <div class="threshline" style="margin:4px 0 0">Spent fighting this recall: <b>${R.myTotal||0}</b> energy, ${R.myQ||0} of it this quarter.</div>`;
 }
 /* Campaign HQ's reminder, under the recall banner. */
 function recallHQTallyHTML(){
   if(!recallActive())return "";
-  const R=GAME.recall, w=R.rEnergy||0;
-  return `<div class="threshline rc-tally">${ico('ballot')} <b>Fighting the recall:</b> ${w} war-footing energy ${w?"unused this quarter, which only the recall can use":"left this quarter"}; ${R.myTotal||0} energy spent on it so far, ${R.myQ||0} this quarter. <span class="sf-l" data-camptab="recall">The Recall tab \u2192</span></div>`;
+  const R=GAME.recall;
+  return `<div class="threshline rc-tally">${ico('ballot')} <b>Fighting the recall:</b> ${R.myTotal||0} campaign energy spent on it so far, ${R.myQ||0} this quarter. While it runs you have ${RECALL_WAR_FOOTING} more energy a quarter. <span class="sf-l" data-camptab="recall">The Recall tab \u2192</span></div>`;
 }
 /* ---- THE RECALL PAGE ----
    Laid out the way a crisis page is: what it is and how it ends, pills for
@@ -11378,7 +11386,7 @@ function recallBodyHTML(){
   h+=`<div class="sit-rules"><div class="sit-rules-h">How it ends</div>${D
     ?`The drive ends when its time runs out, or sooner if its campaign runs out of energy (below ${RECALL_COLLAPSE}). If it has the signatures by then, the recall goes on the ballot. ${X.spark&&X.spark.kind==="scandal"?"A scandal cannot be undone, so it has to be fought on the doorstep.":"Undoing what started it cuts the signatures it gathers to about a third."}`
     :`The vote decides it, and Yes needs a majority. Your approval sets most of it. Many who disapprove of you still vote No: your own side out of loyalty, others because the next election is close. A scandal, a pattern of unpopular laws, governing by executive order and the Yes campaign wear that down.`}</div>`;
-  h+=`<div class="detailrow"><span class="pill rc">${D?"Signature drive":"Recall election"}</span><span class="pill"><span class="sf-l" data-detail="v_${X.group}">Organized by ${who}</span></span>`
+  h+=`<div class="detailrow"><span class="pill rc">${D?"Signature drive":"Recall election"}</span><span class="pill pill-go" data-detail="v_${X.group}" role="link" tabindex="0">Organized by ${who} \u2192</span>`
     +(D?`<span class="pill">Quarter ${Math.min(D.q+1,D.len)} of ${D.len}</span><span class="pill">Due end of ${turnLabel(D.start+D.len-1)}</span>`
        :`<span class="pill">Votes end of ${turnLabel(Vt.voteTurn)}</span><span class="pill">${Vt.special?"Special election":"With the midterm"}</span>`)+`</div>`;
   h+=recallStatusHTML()+recallWhyHTML()+recallCampaignsHTML()+recallMapHTML();
@@ -11402,7 +11410,7 @@ function recallToolsHTML(){
   const tool=(title,desc,btn,state)=>`<div class="rtool"><div class="rtool-b"><div class="rtool-h">${title}</div><div class="rtool-d">${desc}</div>${state?`<div class="rtool-s">${state}</div>`:""}</div>${btn}</div>`;
   const ebtn=(kind,label,arg,dis)=>`<button class="enactbtn" data-recallact="${kind}"${arg?` data-arg="${arg}"`:""} ${dis?'disabled':''}>${label}</button>`;
   let h=recallEnergyHTML();
-  h+=`<div class="threshline" style="margin:4px 0 10px">While a recall runs, your campaign is on a war footing: two extra points of energy a quarter that only the recall can use, spent before your own campaign's. Click a county on the map above to work it.</div>`;
+  h+=`<div class="threshline" style="margin:4px 0 10px">While a recall runs, your campaign is on a war footing: ${RECALL_WAR_FOOTING} more campaign energy a quarter, already counted above. Click a county on the map above to work it.</div>`;
   if(D){
     const P=recallSigParts(D);
     h+=`<div class="camp-sec">${ico('ballot')} Stop the signatures</div>`;
@@ -17868,7 +17876,8 @@ function tickGroundGame(){
   // you didn't ask for still needs working
   const citizenOnBallot=((GAME.ballot&&GAME.ballot.pending)||[]).some(m=>m.source==="citizen");
   // and one more from primary day to the election, for the legislative races
-  GAME.campEnergyMax=6+(citizenOnBallot?1:0)+(campLegisWindow()?1:0);
+  // and two more while a recall is running against you: the war footing
+  GAME.campEnergyMax=6+(citizenOnBallot?1:0)+(campLegisWindow()?1:0)+recallEnergyBonus();
   GAME.campEnergy=GAME.campEnergyMax;   // refill for the new quarter
 }
 
@@ -32129,7 +32138,10 @@ const DETAIL_HOME={
   policies:{view:"policies", label:"‹ Back to new policies"},
   voters:{view:"voters",   label:"‹ Back to voters"},
   budget:{view:"budget",   label:"‹ Back to budget"},
-  execorders:{view:"execorders", label:"‹ Back to executive orders"}
+  execorders:{view:"execorders", label:"‹ Back to executive orders"},
+  camphq:{view:"camphq", label:"‹ Back to Campaign HQ"},
+  // a page opened from the recall's own page goes back to it
+  recall:{view:"detail", key:"recall", label:"‹ Back to the recall"}
 };
 function detailHome(){ return DETAIL_HOME[detailFrom]||DETAIL_HOME.board; }
 function openDetail(key){
@@ -32161,7 +32173,9 @@ function renderDetail(){
     const main=document.getElementById("main");
     main.innerHTML=recallPageHTML();
     const bb=document.getElementById("backBtn"); if(bb)bb.onclick=()=>{ currentView=detailHome().view; detailKey=null; render(); };
-    main.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
+    // anything opened from here offers the way back
+    main.querySelectorAll('[data-detail]').forEach(el=>{ const go=()=>{ window._recallFrom=detailFrom; detailFrom="recall"; openDetail(el.dataset.detail); };
+      el.addEventListener('click',go); el.addEventListener('keydown',e=>{ if(e.key==="Enter"){ e.preventDefault(); go(); } }); });
     // a tool redraws the page where you are on it
     wireRecallBody(main,()=>{ const y=window.scrollY; render(); window.scrollTo(0,y); },false);
     return;
@@ -33031,8 +33045,10 @@ function renderDetail(){
   // environments suppress dialogs, which previously made the button look dead.)
   const goBack=()=>{
     try{ settlePending(); }catch(err){/* never block navigation */}
-    currentView=detailHome().view; detailKey=null;
+    { const H=detailHome(); currentView=H.view; detailKey=H.key||null;
+      if(H.key){ detailFrom=window._recallFrom||"board"; window._recallFrom=null; } }
     try{render();}catch(err){ try{renderBoard();renderHUD();renderSidebar();}catch(e2){} }
+    if(detailKey)return;
     // land on the issue web, not scrolled up past the crisis strip and key metrics
     setTimeout(()=>{ const t=document.getElementById('bnModeBar')||document.getElementById('boardNet')||document.querySelector('.boardlegend')||document.querySelector('.boardgraph');
       if(t)try{ t.scrollIntoView({block:"start",behavior:"auto"}); }catch(e){} },40);
