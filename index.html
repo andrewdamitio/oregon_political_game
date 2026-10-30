@@ -10992,13 +10992,25 @@ function recallLawNets(){
   }
   return out;
 }
-/* "IT IS NOT ONE BILL, IT IS A PATTERN." */
+/* "IT IS NOT ONE BILL, IT IS A PATTERN." Every law the electorate dislikes
+   counts against you in a recall vote in proportion to how much it is
+   disliked: a slightly unpopular law a little, a deeply unpopular one a
+   lot, with only the near-neutral left out. The total eases off as it
+   grows, so a long list cannot run away with the vote. Each law's share
+   of it is kept, for the waterfall to show law by law. laws is the
+   clearly unpopular ones, which the pattern test for starting a drive
+   counts. */
+const RECALL_LAW_DEAD=0.2, RECALL_LAW_K=0.7, RECALL_LAW_CAP=5;
 function recallOverreach(){
-  const nets=recallLawNets(), out=[];
-  for(const id in nets){ const net=nets[id]; if(net>-1)continue;
-    const p=POLICIES[id]||CATALOG[id]; out.push({id, name:p.name, net:+net.toFixed(1), repealed:!POLICIES[id]}); }
-  out.sort((a,b)=>a.net-b.net);
-  return {pen:clamp(out.reduce((s,x)=>s+(-x.net-0.5),0)*0.8,0,5), laws:out};
+  const nets=recallLawNets(), laws=[], each=[];
+  for(const id in nets){ const net=nets[id], p=POLICIES[id]||CATALOG[id];
+    const c=Math.max(0,-net-RECALL_LAW_DEAD)*RECALL_LAW_K;
+    if(c>0)each.push({id, name:p.name, net:+net.toFixed(1), raw:c, repealed:!POLICIES[id]});
+    if(net<=-1)laws.push({id, name:p.name, net:+net.toFixed(1), repealed:!POLICIES[id]}); }
+  const raw=each.reduce((t,x)=>t+x.raw,0), pen=RECALL_LAW_CAP*Math.tanh(raw/RECALL_LAW_CAP), k=raw>0?pen/raw:0;
+  for(const x of each)x.v=+(x.raw*k).toFixed(2);
+  each.sort((a,b)=>b.v-a.v); laws.sort((a,b)=>a.net-b.net);
+  return {pen, laws, each};
 }
 /* What you have done since the last quarter's count that the Yes campaign
    can use. Read live, so the page can warn you before the quarter ends. */
@@ -11598,8 +11610,7 @@ function recallWhyHTML(){
   const P=recallVoteParts(Vt), P0=Vt.statement?recallVoteParts(Vt,true):P;
   let h=`<div class="ebgroup-label">How the vote adds up</div><div class="ebgroup">`
     +recallVoteWaterfall(Vt,P0,P,null)
-    +`<div class="threshline" style="margin-top:8px;font-style:italic">Steps are points of the vote. Green works for you, red for them. Your <span class="sf-l" data-detail="approval">approval among likely voters</span> is ${P.A.toFixed(1)}%. Unpopular laws and executive orders count against you whatever your approval: each one you add before the vote moves this directly. Your record on the ballot is how many of the headline statistics are better, or worse, than when you took office.</div>`;
-  if(P.over.laws.length)h+=`<div class="threshline" style="margin-top:6px">The unpopular laws: ${P.over.laws.slice(0,5).map(x=>(POLICIES[x.id]?`<span class="sf-l" data-detail="p_${x.id}">${x.name}</span>`:x.name)).join(", ")}${P.over.laws.length>5?", and "+(P.over.laws.length-5)+" more":""}.</div>`;
+    +`<div class="threshline" style="margin-top:8px;font-style:italic">Steps are points of the vote. Green works for you, red for them. Your <span class="sf-l" data-detail="approval">approval among likely voters</span> is ${P.A.toFixed(1)}%. Laws the state dislikes count against you whatever your approval, each by how much it is disliked; so do executive orders past the second. Each one you add before the vote moves this directly. Your record on the ballot is how many of the headline statistics are better, or worse, than when you took office.</div>`;
   return h+`</div>`;
 }
 /* ---- THE STATEMENT OF JUSTIFICATION ----
@@ -11704,8 +11715,10 @@ function recallVoteWaterfall(Vt,P0,P,counted){
   if(P0.time)steps.push({label:"A year from the general: \u201cjust vote them out\u201d", v:-P0.time});
   if(P0.grievance)steps.push({label:P0.sev>=3?"A criminal referral":P0.sev>=2?"A serious scandal":"Over a crisis, not one law", v:P0.grievance});
   // what you have done counts whatever your approval: always shown, at zero too
-  const nl0=P0.over.laws.length;
-  steps.push({label:"Unpopular laws in force"+(nl0?" ("+nl0+")":""), v:P0.over.pen, always:true});
+  const ea=P0.over.each||[];
+  if(!ea.length)steps.push({label:"Laws the state dislikes", v:0, always:true});
+  for(const x of ea.slice(0,4))steps.push({label:(x.repealed?"Repealing ":"")+x.name, v:x.v});
+  if(ea.length>4)steps.push({label:"Other laws the state dislikes ("+(ea.length-4)+")", v:ea.slice(4).reduce((t,x)=>t+x.v,0)});
   steps.push({label:"Executive orders in force ("+P0.eos+(P0.eos>2?")":", more than two count)"), v:P0.eoPen, always:true});
   if(P0.yesCamp>0.05)steps.push({label:"The Yes campaign", v:P0.yesCamp});
   if(P0.endorse)steps.push({label:"Endorsements against the recall", v:-P0.endorse});
