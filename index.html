@@ -1112,10 +1112,6 @@
   .wopts{margin-top:8px}
   .wopts .dilemma-opt{font:inherit;width:100%}
   .wopts .do-sub{line-height:1.45}
-  /* the tutorial's tip, at the top of a screen it explains */
-  .tut-tip{text-align:left;border-left:4px solid var(--gold);background:rgba(192,134,24,.10);padding:10px 12px;margin:0 0 12px;font-size:13.5px;line-height:1.45}
-  .tut-tip .tut-h{font-family:var(--font-display);font-weight:700;font-size:15px;margin-bottom:3px}
-  .tut-tip .tut-ok{margin-top:8px;font:inherit;font-size:12.5px;font-weight:600;padding:4px 12px;border:1px solid var(--gold);background:transparent;color:var(--ink);cursor:pointer}
   .walkout-ask{width:min(640px,94vw);text-align:left;margin-top:10px;border-top:1px solid var(--line);padding-top:12px}
   .walkout-ask-h{font-family:var(--font-display);font-size:18px;text-align:center;margin-bottom:4px}
   .walkout-ask-n{font-size:12.5px;color:var(--muted-3);text-align:center;margin-top:8px}
@@ -3399,7 +3395,7 @@
   }catch(e){}
 })();
 </script>
-<div id="tutorialModal" class="modal hidden" style="z-index:80"><div class="card" id="tutorialCard"></div></div>
+<div id="tutorialModal" class="modal hidden" style="z-index:95"><div class="card" id="tutorialCard"></div></div>
 <div id="campPopupModal" class="modal hidden"><div class="camp-popup-card" id="campPopupCard"></div></div>
 
 <script>
@@ -19184,9 +19180,8 @@ function showTutorialWelcome(next){
 }
 /* THE TUTORIAL'S MOMENTS. Three screens the pages' How this works cannot
    reach: a vote on the floor, the quarterly report, and a decision. With the
-   tutorial on, the first time each opens it carries a short tip at its top,
-   gone once you dismiss it or close the screen. One watcher finds them, so
-   no screen's own code changes. */
+   tutorial on, the first time each opens, a short note pops up in front of
+   it. One watcher finds them, so no screen's own code changes. */
 const TUT_TIPS={
   floor:{modal:"floorModal", card:"floorCard", when:c=>!!c.querySelector('[class*="whip-"]'), title:"A vote on the floor",
     text:"Each member votes by how their own district feels about it. The count shows who is with you and who is against, and political capital buys the votes you are short. A weaker version costs less and does less, and a few spare votes guard against surprises."},
@@ -19210,36 +19205,52 @@ const TUT_PAGES={
   countymap:{title:"Oregon, county by county", text:"The voters election night will count, by county. Switch views to see your approval and how it has moved, who lives where, the last election, and where your campaign has reached. Campaign work you do by county in Campaign HQ shows up here."},
   camphq:{title:"Everything aimed at the next ballot", text:"Your platform, the campaign energy you spend on voter groups and counties, the ballot measures and the legislature's races. Energy refills every quarter and what you leave unspent is lost, so spend it."}
 };
-function tutPageTip(){
-  const T=GAME&&GAME.tutorial; if(!T)return;
-  const seen=T.seen=T.seen||{}, v=currentView, P=TUT_PAGES[v];
-  if(!P||seen["page:"+v])return;
+function tutPopup(title,text){
   const modal=document.getElementById("tutorialModal"), card=document.getElementById("tutorialCard");
-  if(!modal||!card||!modal.classList.contains("hidden"))return;
-  // another screen in front waits to close first; the note comes after it
-  if([...document.querySelectorAll(".modal")].some(m=>m!==modal&&!m.classList.contains("hidden")))return;
-  seen["page:"+v]=true;
-  card.innerHTML=`<div class="sectionhdr">${ico('bulb')} ${P.title}</div>
-    <div class="dilemma-text" style="margin:10px 0 14px">${P.text}</div>
+  if(!modal||!card)return false;
+  card.innerHTML=`<div class="sectionhdr">${ico('bulb')} ${title}</div>
+    <div class="dilemma-text" style="margin:10px 0 14px">${text}</div>
     <button class="enactbtn" id="tutorialGo">Got it \u25b8</button>`;
   modal.classList.remove("hidden");
-  const done=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
+  const done=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); setTimeout(tutPageTip,0); };
   const onKey=e=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
   document.getElementById("tutorialGo").onclick=done;
   modal.onclick=e=>{ if(e.target===modal)done(); };
   document.addEventListener("keydown",onKey,true);
+  return true;
 }
+function tutBusy(){ const m=document.getElementById("tutorialModal"); return !m||!m.classList.contains("hidden"); }
+/* A law's own page, the first time you open one. */
+const TUT_LAW={title:"A law's page", text:"What a law would do, before you try it: its public support and the floor's verdict at the top, then its effects on the state's statistics, what it costs or raises in the budget, and which voter groups it pleases or angers. The button at the top takes it to a vote when the votes can be found."};
+/* The issue web, the first time you scroll down to it on the board. */
+const TUT_WEB={title:"The issue web", text:"Everything you control and everything it touches. Squares are your levers, the laws and agencies; circles are the statistics they move, green when healthy and amber when struggling; dashed red rings are crises. Down the left are the voter groups: hover a lever to see whom it pleases or angers, and click anything to open its page."};
+function tutPageTip(){
+  const T=GAME&&GAME.tutorial; if(!T)return;
+  const seen=T.seen=T.seen||{}, v=currentView;
+  const isLaw=v==="detail"&&/^p_/.test(String(detailKey||""));
+  const key=isLaw?"page:law":"page:"+v, P=isLaw?TUT_LAW:TUT_PAGES[v];
+  if(!P||seen[key]||tutBusy())return;
+  // another screen in front waits to close first; the note comes after it
+  if([...document.querySelectorAll(".modal")].some(m=>m.id!=="tutorialModal"&&!m.classList.contains("hidden")))return;
+  seen[key]=true; tutPopup(P.title,P.text);
+}
+/* The board's issue web sits below the fold: its note waits until it scrolls into view. */
+function tutWatchWeb(){
+  const T=GAME&&GAME.tutorial; if(!T||currentView!=="board"||(T.seen&&T.seen["page:web"]))return;
+  const el=document.getElementById("boardNet"); if(!el)return;
+  const r=el.getBoundingClientRect(), vh=window.innerHeight||document.documentElement.clientHeight;
+  if(r.height<=0||r.top>vh*0.7||r.bottom<vh*0.2)return;               // not yet on screen
+  if(tutBusy()||[...document.querySelectorAll(".modal")].some(m=>m.id!=="tutorialModal"&&!m.classList.contains("hidden")))return;
+  const seen=T.seen=T.seen||{}; seen["page:web"]=true; tutPopup(TUT_WEB.title,TUT_WEB.text);
+}
+document.addEventListener("scroll",()=>{ try{ tutWatchWeb(); }catch(e){} },{capture:true, passive:true});
 function tutTipsCheck(){
   if(!GAME||!GAME.tutorial)return;
   const seen=GAME.tutorial.seen=GAME.tutorial.seen||{};
   for(const k in TUT_TIPS){ const T=TUT_TIPS[k], key="tip:"+k;
-    const m=document.getElementById(T.modal), c=document.getElementById(T.card); if(!m||!c)continue;
-    // closing a screen that carried its tip counts as having read it
-    if(m.classList.contains("hidden")){ if(T.shown){ seen[key]=true; T.shown=false; } continue; }
-    if(seen[key]||c.querySelector(".tut-tip")||!T.when(c))continue;
-    c.insertAdjacentHTML("afterbegin",`<div class="tut-tip"><div class="tut-h">${ico('bulb')} ${T.title}</div><div>${T.text}</div><button class="tut-ok">Got it</button></div>`);
-    T.shown=true;
-    c.querySelector(".tut-tip .tut-ok").onclick=e=>{ e.stopPropagation(); seen[key]=true; T.shown=false; const t=c.querySelector(".tut-tip"); if(t)t.remove(); };
+    const m=document.getElementById(T.modal), c=document.getElementById(T.card); if(!m||!c||m.classList.contains("hidden"))continue;
+    if(seen[key]||!T.when(c)||tutBusy())continue;
+    seen[key]=true; tutPopup(T.title,T.text); return;
   }
   setTimeout(tutPageTip,0);
 }
@@ -37613,7 +37624,7 @@ function render(){
     // the tutorial opens it the first time you see each kind of page
     if(rb&&GAME.tutorial&&!TUT_PAGES[currentView]){ const k=currentView==="detail"?"detail:"+String(detailKey||"").split("_")[0]:currentView;
       const seen=GAME.tutorial.seen=GAME.tutorial.seen||{}; if(!seen[k]){ seen[k]=true; rb.open=true; } }
-    tutPageTip(); }
+    tutPageTip(); tutWatchWeb(); if(GAME.tutorial&&currentView==="board")setTimeout(tutWatchWeb,700); }
   renderDilemma();
   renderProposal();
   railScrollActive();
