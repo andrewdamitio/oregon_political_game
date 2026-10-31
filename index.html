@@ -3391,6 +3391,7 @@
   }catch(e){}
 })();
 </script>
+<div id="tutorialModal" class="modal hidden" style="z-index:80"><div class="card" id="tutorialCard"></div></div>
 <div id="campPopupModal" class="modal hidden"><div class="camp-popup-card" id="campPopupCard"></div></div>
 
 <script>
@@ -19152,6 +19153,27 @@ function platformProgressHTML(){
    runs once at load — so switching reloads with the choice stored, the same
    way choosing a seed or resuming a save already does. Picking the coalition
    that is already loaded costs nothing and goes straight through. */
+/* THE TUTORIAL, if you asked for one on the opening screen: a short welcome
+   before the first quarter, and each page's How this works open the first
+   time you visit it (render() does that). Nothing in the simulation changes. */
+function showTutorialWelcome(next){
+  const modal=document.getElementById("tutorialModal"), card=document.getElementById("tutorialCard");
+  if(!modal||!card){ if(next)next(); return; }
+  card.innerHTML=`<div class="sectionhdr">${ico('bulb')} Your first quarter</div>
+    <ul class="walkout-list" style="margin:10px 0 12px">
+      <li><b>The job.</b> You are Oregon's governor for four years, eight if you are re-elected. Leave the state better than you found it, and keep enough voters with you to stay.</li>
+      <li><b>What you spend.</b> Political capital (\u25c8, top bar) buys votes in the legislature. Money is the state budget, and it has to balance over time.</li>
+      <li><b>This quarter.</b> Look over the Governing Board, then open New Policies and try passing one law.</li>
+      <li><b>When you are done,</b> press End Quarter. The state responds, and the quarterly briefing tells you how.</li>
+    </ul>
+    <div class="threshline" style="margin-bottom:12px">Each page's <i>How this works</i> opens the first time you visit it. The full guide is <i>How to play</i> on the opening screen.</div>
+    <button class="enactbtn" id="tutorialGo">Start governing \u25b8</button>`;
+  modal.classList.remove("hidden");
+  const done=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); if(next)next(); };
+  const onKey=e=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
+  document.getElementById("tutorialGo").onclick=done;
+  document.addEventListener("keydown",onKey,true);
+}
 function showWelcome(onDone){
   const modal=document.getElementById("welcomeModal"), card=document.getElementById("welcomeCard");
   if(!modal||!card){ if(onDone)onDone(); return; }
@@ -19193,6 +19215,10 @@ function showWelcome(onDone){
     <label class="welcome-optin">
       <input type="checkbox" id="welcomeTermLimit" ${GAME.enforceTermLimit!==false?'checked':''}>
       <span>Enforce Oregon's <b>two consecutive-term limit</b>, so your second term is your last unless you amend the constitution. Off means re-election without end.</span>
+    </label>
+    <label class="welcome-optin">
+      <input type="checkbox" id="welcomeTutorial" ${GAME.tutorial?'checked':''}>
+      <span><b>Tutorial.</b> A short welcome before your first quarter, and each page's <i>How this works</i> opens the first time you visit it.</span>
     </label>
     <button class="enactbtn welcome-go" id="welcomeGo"${ready?'':' disabled'}>${goLabel}</button>
     <details class="welcome-help">
@@ -19244,9 +19270,12 @@ function showWelcome(onDone){
     const tl=document.getElementById("welcomeTermLimit");
     GAME.enforceTermLimit = tl ? !!tl.checked : true;
     if(!GAME.enforceTermLimit && CATALOG.termLimitRepeal) delete CATALOG.termLimitRepeal;   // no limit ⇒ nothing to repeal
+    const tu=document.getElementById("welcomeTutorial");
+    GAME.tutorial=(tu&&tu.checked)?{seen:{}}:null;
     modal.classList.add("hidden"); modal.classList.remove("grand");
     document.removeEventListener("keydown",onKey,true);
-    if(onDone)onDone();
+    if(GAME.tutorial)showTutorialWelcome(()=>{ if(onDone)onDone(); });
+    else if(onDone)onDone();
   };
   const onKey=(e)=>{ if(modal.classList.contains("hidden"))return;
     const ng=document.getElementById("newGameModal"); if(ng&&!ng.classList.contains("hidden"))return;   // seed dialog owns the keyboard
@@ -37504,7 +37533,10 @@ function render(){
   ({board:renderBoard,detail:renderDetail,policies:renderPolicies,voters:renderVoters,budget:renderBudget,execorders:renderExecOrders,appointments:renderAppointments,caucus:renderCaucus,web:renderWeb,compass:renderCompass,countymap:renderCountyMap,camphq:renderCampaignHQ}[currentView]||renderBoard)();
   // HOW THIS WORKS sits straight under the page title's rule, on every page
   { const mn=document.getElementById("main"), rb=mn&&mn.querySelector(".rulesbox"), hd=mn&&mn.querySelector(".sectionhdr");
-    if(rb&&hd&&hd.nextElementSibling!==rb)hd.after(rb); }
+    if(rb&&hd&&hd.nextElementSibling!==rb)hd.after(rb);
+    // the tutorial opens it the first time you see each kind of page
+    if(rb&&GAME.tutorial){ const k=currentView==="detail"?"detail:"+String(detailKey||"").split("_")[0]:currentView;
+      const seen=GAME.tutorial.seen=GAME.tutorial.seen||{}; if(!seen[k]){ seen[k]=true; rb.open=true; } } }
   renderDilemma();
   renderProposal();
   railScrollActive();
