@@ -10752,12 +10752,14 @@ function checkActivistTriggers(){
 const RECALL_SIG_NEED=285000;          // 15% of about 1.9 million votes for governor
 const RECALL_POOL=3000000;             // Oregon's registered voters, roughly
 const RECALL_NO_LEAN=15;               // "just vote them out next time": points of No among people who disapprove
-const RECALL_FLOOR=25;                 // a group's approval must be at or under this
-const RECALL_DROP=15;                  // ...and this far under where it started
+const RECALL_FURY=25;                  // a group's approval of you must be at or under this
+const RECALL_HURT=12;                  // ...and your laws and orders together must have cost it this much
+const RECALL_HURT_MIN=2;               // an action counts toward that if it cost them at least this
+const RECALL_ACTIONS=2;                // and it takes two or more: one law alone is not enough
 const RECALL_REACH=0.05;               // share of the electorate that votes, under which a group cannot gather alone
 const RECALL_SPARK=5;                  // a law that cost the group this much approval can be named
-const RECALL_SHARP=8;                  // one that cost this much starts a drive after one quarter, not two
-const RECALL_START_CHANCE=0.05;         // each quarter everything holds, the chance someone files
+const RECALL_SHARP=20;                 // hurt this badly, a group files after one quarter, not two
+const RECALL_START_CHANCE=0.03;         // each quarter everything holds, the chance someone files
 const RECALL_PER_TERM=2, RECALL_GROUP_COOL=4;
 const RECALL_CATS=["region","income","housing","sector","lifestage","community"];
 // the fourth quarter of years two (with the midterm) and three (a special) of a term
@@ -10874,31 +10876,31 @@ function recallHit(id,sid){
   const now=recallLawMood(id,sid);
   return now-(((R.mood0[id]||{})[sid])||0);
 }
-/* The grievance a drive can run on: the law that hurt the group most, or
-   failing that a crisis that has run two quarters and lands on it. */
-function recallSpark(sid){
-  const R=recallState(); let best=null;
+/* WHAT YOU DID TO THEM. Every law you passed, changed or repealed, and
+   every executive order in force, that cost this group approval: the
+   recall's case against you, as the group would make it. */
+function recallEOHit(id,sid){ return eoLive(id)?(((EXEC_ORDERS[id]||{}).blocEffect||{})[sid]||0):0; }
+function recallHurt(sid){
+  const R=recallState(), acts=[];
   const ids=new Set(Object.keys(POLICIES).concat(Object.keys(R.mood0)));
   for(const id of ids){
     if(enactedViaBallot(id))continue;
     const p=POLICIES[id]||CATALOG[id]; if(!p)continue;
     const h=recallHit(id,sid);
-    if(h<=-RECALL_SPARK&&(!best||h<best.hit))best={kind:"law", id, name:p.name, hit:+h.toFixed(1), repealed:!POLICIES[id]};
+    if(h<=-RECALL_HURT_MIN)acts.push({kind:"law", id, name:p.name, hit:+h.toFixed(1), repealed:!POLICIES[id]});
   }
-  if(best)return best;
-  for(const s2 in GAME.activeSituations){ const s=SITUATIONS[s2]; if(!s||s.kind==="good")continue;
-    const g=s.groupMood&&s.groupMood[sid];
-    if(g!=null&&g<=-4&&(GAME.situationAge[s2]||0)>=2&&(!best||g<best.hit))best={kind:"crisis", id:s2, name:s.name, hit:g}; }
-  return best;
+  for(const id of recallLiveEOs()){ const h=recallEOHit(id,sid); if(h<=-RECALL_HURT_MIN)acts.push({kind:"eo", id, name:EXEC_ORDERS[id].name, hit:h}); }
+  acts.sort((a,b)=>a.hit-b.hit);
+  return {acts, total:+(-acts.reduce((t,a)=>t+a.hit,0)).toFixed(1)};
 }
+/* The grievance a drive runs on: the worst of what you did to the group. */
+function recallSpark(sid){ const H=recallHurt(sid); return H.acts.length?H.acts[0]:null; }
 function recallIdeoGroups(){ return Object.keys(SIMULANTS).filter(sid=>SIMULANTS[sid].category==="ideology"&&!SIMULANTS[sid].static); }
 function recallReach(sid){ const s=SIMULANTS[sid]; return s.size*(s.turnout||0.5); }
 function recallOrganized(sid){ return Object.values(GAME.activists||{}).some(a=>a.dir==="against"&&a.ownGroup===sid); }
-/* NOT ONE BILL. Statewide, a drive needs a governor who is unpopular and a
-   pattern: several laws or executive orders in force that the electorate
-   as a whole dislikes. One controversial law, however angry its group,
-   is not enough on its own. */
-const RECALL_UNPOP=40, RECALL_PATTERN=3;
+/* A recall is one group's fury, not the state's mood: a governor the
+   state has turned on loses at the next election anyway. What the
+   electorate as a whole dislikes still counts, in the vote. */
 /* An executive order's cost across the electorate, measured as a law's is. */
 function recallEONet(id){
   const be=(EXEC_ORDERS[id]||{}).blocEffect||{}, cats=["region","income","housing"];
@@ -10907,10 +10909,6 @@ function recallEONet(id){
       const w=s.size*(s.turnout||0.5); n+=(be[sid]||0)*w; d+=w; }
     return d>0?n/d:0; };
   return 0.5*share("ideology")+0.5*cats.reduce((t,c)=>t+share(c),0)/cats.length;
-}
-function recallPattern(){
-  const laws=recallOverreach().laws, eos=recallLiveEOs().filter(id=>recallEONet(id)<=-0.5);
-  return {laws, eos, n:laws.length+eos.length};
 }
 function recallSuits(){ return Object.keys(GAME.courtCases||{}).length; }
 /* A REASON TO TRADE THE COURTS FOR THE BALLOT. A lawsuit normally keeps a
@@ -10943,10 +10941,8 @@ function recallDropSuits(){
   return out;
 }
 function recallStatewide(){
-  const oa=overallApproval(), pat=recallPattern();
-  return {oa, pat, conds:[
-    {name:"Your statewide approval at "+RECALL_UNPOP+"% or under", now:Math.round(oa)+"%", ok:oa<=RECALL_UNPOP},
-    {name:"A pattern: "+RECALL_PATTERN+" or more unpopular laws or executive orders in force", now:pat.n+" now", ok:pat.n>=RECALL_PATTERN},
+  const oa=overallApproval();
+  return {oa, conds:[
     (()=>{ const n=recallSuits(), esc=n?recallEscalation():null;
       return {name:"No lawsuit against one of your laws, or a reason to drop one",
         now:!n?"none":esc?n+" running, but "+esc.txt+": "+(n>1?"they":"it")+" would be dropped for a recall"
@@ -10955,17 +10951,17 @@ function recallStatewide(){
 /* Every test a group has to pass before it can start a drive, as rows:
    its own, then the statewide ones every drive needs. */
 function recallGroupStatus(sid,SW){
-  const R=recallState(), sim=SIMULANTS[sid], base=R.base[sid]!=null?R.base[sid]:sim.approval;
-  const spark=recallSpark(sid), drop=base-sim.approval, reach=recallReach(sid);
+  const R=recallState(), sim=SIMULANTS[sid], H=recallHurt(sid), spark=H.acts[0]||null, reach=recallReach(sid);
   const cool=(R.cool[sid]||0)>GAME.turn;
+  const named=H.acts.slice(0,3).map(a=>a.name).join(", ")+(H.acts.length>3?" and "+(H.acts.length-3)+" more":"");
   const conds=[
-    {name:"Approval of you at "+RECALL_FLOOR+"% or under", now:Math.round(sim.approval)+"%", ok:sim.approval<=RECALL_FLOOR},
-    {name:"Down "+RECALL_DROP+" points or more since you took office", now:(drop>=0?"down ":"up ")+Math.abs(drop).toFixed(0), ok:drop>=RECALL_DROP},
-    {name:"Big enough to gather the names", now:(reach*100).toFixed(1)+"% of voters", ok:reach>=RECALL_REACH||recallOrganized(sid)},
-    {name:"A grievance to name", now:spark?spark.name:"none", ok:!!spark}
+    {name:"What you did cost them "+RECALL_HURT+" points of approval or more", now:H.total.toFixed(0)+" points", ok:H.total>=RECALL_HURT},
+    {name:RECALL_ACTIONS+" or more of your laws or executive orders behind it", now:H.acts.length?H.acts.length+": "+named:"none", ok:H.acts.length>=RECALL_ACTIONS},
+    {name:"Approval of you at "+RECALL_FURY+"% or under", now:Math.round(sim.approval)+"%", ok:sim.approval<=RECALL_FURY},
+    {name:"Big enough to gather the names", now:(reach*100).toFixed(1)+"% of voters", ok:reach>=RECALL_REACH||recallOrganized(sid)}
   ];
   SW=SW||recallStatewide();
-  return {sid, conds, spark, cool, statewide:SW.conds, ready:conds.every(c=>c.ok)&&SW.conds.every(c=>c.ok)&&!cool};
+  return {sid, conds, spark, hurt:H, cool, statewide:SW.conds, ready:conds.every(c=>c.ok)&&SW.conds.every(c=>c.ok)&&!cool};
 }
 /* The recall ballot: everyone's approval of you, weighted by who turns out.
    The organizing group turns out harder, and at a special election with
@@ -10995,13 +10991,13 @@ function recallReportHTML(){
 function recallSparkTxt(sp){
   if(!sp)return "your record";
   if(sp.kind==="scandal")return "the scandal in the governor's office";
-  return sp.kind==="law"?(sp.repealed?"the repeal of ":"")+sp.name:"the "+sp.name+" crisis";
+  return sp.kind==="law"?(sp.repealed?"the repeal of ":"")+sp.name:sp.kind==="eo"?"the "+sp.name+" executive order":"the "+sp.name+" crisis";
 }
 /* Undoing what started it: the law no longer hurts them, or the crisis is
    over. A scandal cannot be undone. */
 function recallAddressed(X){
   const sp=X.spark; if(!sp||sp.kind==="scandal")return false;
-  return sp.kind==="law"?recallHit(sp.id,X.group)>-RECALL_SPARK*0.5:!GAME.activeSituations[sp.id];
+  return sp.kind==="law"?recallHit(sp.id,X.group)>-RECALL_SPARK*0.5:sp.kind==="eo"?!eoLive(sp.id):!GAME.activeSituations[sp.id];
 }
 const RECALL_EO_EACH=0.75;   // Yes points for each executive order in force, up to 4
 function recallEOs(){ try{ return eoLiveList().length; }catch(e){ return 0; } }
@@ -11189,8 +11185,13 @@ function recallDriveCounties(D){
 function recallSigParts(D){
   const R=recallState(), sim=SIMULANTS[D.group], oa=overallApproval();
   const anger=clamp((45-sim.approval)/45,0,1), org=recallOrganized(D.group);
-  const group=sim.size*RECALL_POOL*anger*0.10*(org?1.4:1);
-  const wider=RECALL_POOL*clamp((40-oa)/40,0,1)*0.035;
+  const group=sim.size*RECALL_POOL*anger*0.08*(org?1.4:1);
+  // everyone else the same laws and orders hurt, read across the ideologies
+  let allies=0;
+  for(const i of recallIdeoGroups()){ let h=0;
+    for(const a of (D.acts||[]))h+=a.kind==="eo"?recallEOHit(a.id,i):recallHit(a.id,i);
+    allies+=SIMULANTS[i].size*RECALL_POOL*clamp(-h/12,0,1)*0.06; }
+  const wider=RECALL_POOL*clamp((45-oa)/45,0,1)*0.02;
   // a scandal brings people outside the group to the clipboard
   const sev=D.spark&&D.spark.kind==="scandal"?(D.spark.sev||2):0;
   const scandal=sev>=3?RECALL_POOL*0.03:sev>=2?RECALL_POOL*0.012:0;
@@ -11206,11 +11207,11 @@ function recallSigParts(D){
   let county=1; const ce=D.county||{};
   if(Object.keys(ce).length){ const C=recallDriveCounties(D), ix=orCountyIndex(); county=0;
     OR_COUNTIES.forEach((r,i)=>{ const e=ce[r[0]]||0; county+=C.share[i]/(1+0.35*Math.sqrt(e)); }); }
-  const natural=(group+wider+scandal)*energy*opp*eo*fatigue;
+  const natural=(group+allies+wider+scandal)*energy*opp*eo*fatigue;
   let seedExtra=0;
   if(D.seeded){ const need=(RECALL_SIG_NEED+3000-D.sigs)/Math.max(1,D.len-D.q); if(natural<need)seedExtra=need-natural; }
   const expected=(natural+seedExtra)*addressed*met*decline*county;
-  return {group, wider, scandal, sev, energy, opp, eo, fatigue, addressed, met, decline, county, org, anger, seedExtra, expected};
+  return {group, allies, wider, scandal, sev, energy, opp, eo, fatigue, addressed, met, decline, county, org, anger, seedExtra, expected};
 }
 /* THE RECALL BALLOT, voter by voter. Everyone's approval of you, weighted
    by who turns out: the organizing group harder, and at a special election
@@ -11394,7 +11395,7 @@ function recallTick(){
   // with no re-election to come, before it)
   const lastClose=GAME.termLengthTurns-1-RECALL_VOTE_GAP-(termLimited()?2:0);
   const len=Math.min(4,lastClose-sInto+1); if(len<1)return;
-  let sid=null, sp=null;
+  let sid=null, sp=null, acts=[];
   // A SCANDAL can start one on its own: a serious one or a criminal
   // referral, any group soured enough to sign, no long fuse. Not always.
   const sev=recallScandalSev();
@@ -11406,15 +11407,15 @@ function recallTick(){
     }
   }
   if(!sid){
-    const cands=Object.keys(ready).filter(g=>R.angry[g]>=(ready[g].spark.hit<=-RECALL_SHARP?1:2));
+    const cands=Object.keys(ready).filter(g=>R.angry[g]>=(ready[g].hurt.total>=RECALL_SHARP?1:2));
     if(!cands.length)return;
     if(Math.random()>=RECALL_START_CHANCE)return;
     // the angriest group with the most hands
     cands.sort((a,b)=>(45-SIMULANTS[b].approval)*recallReach(b)-(45-SIMULANTS[a].approval)*recallReach(a));
-    sid=cands[0]; sp=ready[sid].spark;
+    sid=cands[0]; sp=ready[sid].spark; acts=ready[sid].hurt.acts.map(a=>({kind:a.kind, id:a.id}));
   }
   // up to four quarters to gather, and always time for the vote after
-  R.drive={group:sid, spark:sp, start:T+1, len, q:0, sigs:0, hist:[], energy:0};
+  R.drive={group:sid, spark:sp, acts, start:T+1, len, q:0, sigs:0, hist:[], energy:0};
   if(esc){ R.drive.dropped=recallDropSuits(); R.drive.esc=esc.txt; }
   R.drive.terms=recallTerms(R.drive);
   R.count++; recallWarFooting();
@@ -11674,12 +11675,13 @@ function recallWhyHTML(){
   const R=GAME.recall, D=R.drive, Vt=R.vote, X=D||Vt, who=SIMULANTS[X.group].name;
   const opp=`<span class="sf-l" data-recallopp="1">Opposition momentum</span>`;
   const sp=X.spark||{};
-  const sparkLink=sp.kind==="law"&&POLICIES[sp.id]?`<span class="sf-l" data-detail="p_${sp.id}">${sp.name}</span>`:sp.kind==="crisis"&&GAME.activeSituations[sp.id]?`<span class="sf-l" data-detail="s_${sp.id}">${sp.name}</span>`:sp.name;
+  const sparkLink=sp.kind==="eo"&&eoLive(sp.id)?`<span class="sf-l" data-detail="eo_${sp.id}">${sp.name}</span>`:sp.kind==="law"&&POLICIES[sp.id]?`<span class="sf-l" data-detail="p_${sp.id}">${sp.name}</span>`:sp.kind==="crisis"&&GAME.activeSituations[sp.id]?`<span class="sf-l" data-detail="s_${sp.id}">${sp.name}</span>`:sp.name;
   if(D){
     const P=recallSigParts(D);
     // what they would gather on their own, then each thing that speeds or
     // slows it, as signatures gained or lost this quarter
     const adds=[[`<span class="sf-l" data-detail="v_${D.group}">${who}</span>, ${Math.round(SIMULANTS[D.group].approval)}% approve of you`, P.group],
+      ["Others the same laws and orders angered", P.allies],
       [`Wider anger, <span class="sf-l" data-detail="approval">statewide approval ${Math.round(overallApproval())}%</span>`, P.wider]];
     if(P.scandal)adds.push(["The scandal: people outside the group sign too", P.scandal]);
     const base=adds.reduce((t,a)=>t+a[1],0);
@@ -11687,7 +11689,7 @@ function recallWhyHTML(){
     if(P.eo>1)mults.push(["Governing by decree", P.eo]);
     mults.push(["Signature fatigue", P.fatigue]);
     mults.push(["__seed__", 1]);
-    if(sp.kind!=="scandal")mults.push([P.addressed<1?`You undid ${sparkLink}`:`${sparkLink}, still ${sp.kind==="law"?"in force":"running"}`, P.addressed]);
+    if(sp.kind!=="scandal")mults.push([P.addressed<1?`You undid ${sparkLink}`:`${sparkLink}, still ${sp.kind==="law"||sp.kind==="eo"?"in force":"running"}`, P.addressed]);
     if(D.met)mults.push(["Your promise to the organizers", P.met]);
     mults.push(["Your decline-to-sign campaign", P.decline]);
     if(P.county<0.999)mults.push(["Your county canvassing", P.county]);
@@ -12104,12 +12106,14 @@ function recallWaysOutHTML(X,D,Vt,who){
   const grp=`<span class="sf-l" tabindex="0" data-detail="v_${X.group}">${who}</span>`;
   const law=sp.kind==="law"&&!sp.repealed&&POLICIES[sp.id]?`<span class="sf-l" tabindex="0" data-detail="p_${sp.id}">${sp.name}</span>`:null;
   const crisis=sp.kind==="crisis"&&GAME.activeSituations[sp.id]?`<span class="sf-l" tabindex="0" data-detail="s_${sp.id}">${sp.name}</span>`:null;
+  const order=sp.kind==="eo"&&eoLive(sp.id)?`<span class="sf-l" tabindex="0" data-detail="eo_${sp.id}">${sp.name}</span>`:null;
   const T=D&&D.terms;
   let h=`<div class="ebgroup-label">${D?"How to stop it":"How to survive it"}</div><div class="rc-ways">`;
   if(D){
     if(D.noTerms)h+=tile("ban","No deal on offer",`They want the fight. Repealing ${law||"the law"} outright would still end it.`);
     else if(T&&D.termsOffered)h+=tile("handshake","Take their terms",`${T.label}, or go further, and the drive ends.`);
     else if(T)h+=tile("handshake","Watch for terms",`They may name a price once the first signatures are in. Repealing ${law||"the law"} ends it now.`);
+    else if(order)h+=tile("handshake","Rescind the order",`Rescind ${order} and the drive slows to a crawl.`);
     else if(crisis)h+=tile("handshake","End the crisis",`Bring the ${crisis} to an end and the drive slows to a crawl.`);
     else if(sp.kind==="scandal")h+=tile("shield","Outlast the scandal","It can't be undone. While it runs, people outside the group sign too.");
     else if(law)h+=tile("handshake","Undo the grievance",`Change or repeal ${law} and the drive slows to a crawl.`);
@@ -12141,13 +12145,13 @@ function recallWatchHTML(){
   const R=recallState(), rows=recallGroups().map(g=>recallGroupStatus(g,SW)).filter(s=>s.conds.filter(c=>c.ok).length>=2)
     .sort((a,b)=>b.conds.filter(c=>c.ok).length-a.conds.filter(c=>c.ok).length);
   let h=`<div class="ebgroup-label">What any drive needs</div><div class="ebgroup"><div class="sf-cs">${SW.conds.map(c=>sitCondHTML(c,true)).join("")}</div>`
-    +(SW.pat.n?`<div class="threshline" style="margin-top:6px">Counting toward the pattern: ${SW.pat.laws.map(x=>x.name).concat(SW.pat.eos.map(id=>EXEC_ORDERS[id].name)).join(", ")}.</div>`:"")+`</div>`;
+    +`</div>`;
   h+=`<div class="ebgroup-label">Who could start one</div><div class="ebgroup">`;
   if(!rows.length)h+=`<div class="threshline">No group is anywhere near it.</div>`;
   for(const st of rows.slice(0,4)){
     h+=`<div class="sf-r"><div class="sf-cs"><div class="sf-c"><b><span class="sf-l" data-detail="v_${st.sid}">${SIMULANTS[st.sid].name}</span></b>${st.cool?' <em>will not file again until '+turnLabel(R.cool[st.sid])+'</em>':''}</div>${st.conds.map(c=>sitCondHTML(c,true)).join("")}</div></div>`;
   }
-  return h+`<div class="threshline" style="font-style:italic">A drive can start when every line holds for a group and every statewide test above holds, for two quarters running, or one if a single law cost them ${RECALL_SHARP} points or more. Even then it is about a one-in-twenty chance a quarter that someone files. No drive starts in a term's first six months or its last year, after you survive one, or more than ${RECALL_PER_TERM} times a term.${recallScandalSev()>=2?` <b>The scandal (${SCANDAL_SEV[recallScandalSev()].toLowerCase()}) changes this:</b> while it runs, any group at 35% or under can file, about a ${recallScandalSev()>=3?"one-in-three":"one-in-seven"} chance a quarter.`:""}</div></div>`;
+  return h+`<div class="threshline" style="font-style:italic">A recall is one group's fury, not the state's mood. A drive can start when every line holds for a group, and the courts are clear, for two quarters running, or one if what you did cost them ${RECALL_SHARP} points or more. One law alone is never enough: it takes it with another law or an executive order against the same people. Even then it is about a one-in-thirty chance a quarter that someone files. No drive starts in a term's first six months or its last year, after you survive one, or more than ${RECALL_PER_TERM} times a term.${recallScandalSev()>=2?` <b>The scandal (${SCANDAL_SEV[recallScandalSev()].toLowerCase()}) changes this:</b> while it runs, any group at 35% or under can file, about a ${recallScandalSev()>=3?"one-in-three":"one-in-seven"} chance a quarter.`:""}</div></div>`;
 }
 /* The banner on the board: bigger than a crisis card, and its own colour. */
 function recallBannerHTML(){
@@ -25202,7 +25206,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="8.5";
+const GAME_VERSION="8.6";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -25244,6 +25248,7 @@ const VERSION_HISTORY=[
   ["8.3","30 October 2026","A recall drive needs more than one controversial law: a governor at 40% approval or below, and a pattern of at least three unpopular laws or executive orders, and never alongside a lawsuit: no drive starts while one runs, and no suit is filed during a recall. A quarter into a drive over a law, the organizers may name their terms (likelier when they are falling behind), a specific compromise: pass it and the drive ends, with the agreed law immune from lawsuit, or refuse. A qualified recall asks you to defend your record on the ballot or resign. While a recall runs, legislators keep their distance and every vote costs more, and the opposition leader fronts the Yes campaign. Recall night reports county by county. The RECALL seed plays the whole arc."],
   ["8.4","30 October 2026","A recall vote comes two quarters after the petition qualifies, in whatever quarter that falls: on the midterm or general ballot it is counted on that night, and otherwise it has a night of its own. Every executive order in force counts against you in the vote. The recall page loses its quarter-by-quarter vote chart, since the waterfall and the Yes bar carry it, and its buttons no longer jump when a row appears: the decline-to-sign campaign, endorsements, your voter-group work and the newly named Boost the No on Recall campaign all keep their rows from the start. A recall started by a scandal never offers terms. Four left-wing policies that divided Oregon more than the mood model shows now count against you in a recall only, never in approval: Safe Consumption Sites and the strictest rent cap heavily, decriminalized possession and the gas ban in all new buildings less so. The opening line now says four years, eight if Oregon re-elects you."],
   ["8.5","30 October 2026","Recall drives are rarer: when every test holds, about a one-in-twenty chance a quarter that someone files, down from one in five. A lawsuit no longer shields you from a recall when there is reason to escalate: a serious scandal, three or more executive orders in force, or approval at 30% or under. Then a drive can be filed while a suit runs, and the plaintiffs drop every suit to back it, for good: the laws they were against are safe from those suits afterwards."],
+  ["8.6","30 October 2026","A recall is one group's fury, not the state's mood. A group can start a drive when what you did has cost it 12 points of approval or more, from at least two of your laws or executive orders (one law alone is never enough), and its approval of you is at 25% or under. Your statewide approval and the count of unpopular laws no longer decide whether a drive starts; they still weigh in the vote. Signatures come from the group, from others the same laws and orders angered, and from wider anger, so a furious group with no broader support usually falls short. An executive order can be the grievance a drive names, and rescinding it slows the drive. Drives file at about one chance in thirty a quarter."],
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
