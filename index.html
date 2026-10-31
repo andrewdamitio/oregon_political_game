@@ -11230,10 +11230,12 @@ function recallSigParts(D){
     .sort((a,b)=>b.raw-a.raw).map((x,k)=>Object.assign(x,{v:x.raw/(1+k)}));
   const partners=partList.reduce((t,x)=>t+x.v,0);
   // everyone else the same laws and orders hurt, read across the ideologies
-  let allies=0;
+  let allies=0; const allyList=[];
   for(const i of recallIdeoGroups()){ let h=0;
     for(const a of (D.acts||[]))h+=a.kind==="eo"?recallEOHit(a.id,i):recallHit(a.id,i);
-    allies+=SIMULANTS[i].size*RECALL_POOL*clamp(-h/12,0,1)*0.06; }
+    const v=SIMULANTS[i].size*RECALL_POOL*clamp(-h/12,0,1)*0.06;
+    allies+=v; if(v>=1)allyList.push({sid:i, v, hurt:-h}); }
+  allyList.sort((a,b)=>b.v-a.v);
   const wider=RECALL_POOL*clamp((45-oa)/45,0,1)*0.02;
   // a scandal brings people outside the group to the clipboard
   const sev=D.spark&&D.spark.kind==="scandal"?(D.spark.sev||2):0;
@@ -11254,7 +11256,7 @@ function recallSigParts(D){
   let seedExtra=0;
   if(D.seeded){ const need=(RECALL_SIG_NEED+3000-D.sigs)/Math.max(1,D.len-D.q); if(natural<need)seedExtra=need-natural; }
   const expected=(natural+seedExtra)*addressed*met*decline*county;
-  return {group, partners, partList, allies, wider, scandal, sev, energy, opp, eo, fatigue, addressed, met, decline, county, org, anger, seedExtra, expected};
+  return {group, partners, partList, allies, allyList, wider, scandal, sev, energy, opp, eo, fatigue, addressed, met, decline, county, org, anger, seedExtra, expected};
 }
 /* THE RECALL BALLOT, voter by voter. Everyone's approval of you, weighted
    by who turns out: the organizing group harder, and at a special election
@@ -11743,8 +11745,8 @@ function recallWhyHTML(){
     // what they would gather on their own, then each thing that speeds or
     // slows it, as signatures gained or lost this quarter
     const adds=[[`<span class="sf-l" data-detail="v_${D.group}">${who}</span>, ${Math.round(SIMULANTS[D.group].approval)}% approve of you`, P.group],
-      ["Others the same laws and orders angered", P.allies],
       [`Wider anger, <span class="sf-l" data-detail="approval">statewide approval ${Math.round(overallApproval())}%</span>`, P.wider]];
+    for(const x of (P.allyList||[]))adds.push([`<span class="sf-l" data-detail="v_${x.sid}">${SIMULANTS[x.sid].name}</span>, angered by the same laws and orders`, x.v]);
     for(const x of (P.partList||[]))adds.push([`With them: <span class="sf-l" data-detail="v_${x.sid}">${SIMULANTS[x.sid].name}</span>, ${Math.round(SIMULANTS[x.sid].approval)}% approve of you`, x.v]);
     if(P.scandal)adds.push(["The scandal: people outside the group sign too", P.scandal]);
     const base=adds.reduce((t,a)=>t+a[1],0);
