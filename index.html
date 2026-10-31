@@ -938,6 +938,10 @@
     color:var(--muted-1);margin:2px 0 4px}
   .welcome-title .eg-role b{color:var(--ink)}
   .mandrow{display:flex;gap:9px;justify-content:center;flex-wrap:wrap;margin:2px 0 4px;width:min(700px,94vw)}
+  .tutrow{margin:10px 0 12px}
+  .tutbtn{flex:0 1 460px;padding:12px 14px}
+  .tutbtn .mb-name{font-size:18px}
+  .tutbtn .mb-seats{font-family:var(--font-body);font-size:12.5px;letter-spacing:0}
   .mandbtn{flex:1 1 180px;display:flex;flex-direction:column;gap:2px;align-items:center;cursor:pointer;
     border:var(--rule) solid var(--ink);background:var(--paper-2);color:var(--ink);
     padding:8px 10px;box-shadow:none;transition:box-shadow .12s,transform .12s}
@@ -1108,6 +1112,10 @@
   .wopts{margin-top:8px}
   .wopts .dilemma-opt{font:inherit;width:100%}
   .wopts .do-sub{line-height:1.45}
+  /* the tutorial's tip, at the top of a screen it explains */
+  .tut-tip{text-align:left;border-left:4px solid var(--gold);background:rgba(192,134,24,.10);padding:10px 12px;margin:0 0 12px;font-size:13.5px;line-height:1.45}
+  .tut-tip .tut-h{font-family:var(--font-display);font-weight:700;font-size:15px;margin-bottom:3px}
+  .tut-tip .tut-ok{margin-top:8px;font:inherit;font-size:12.5px;font-weight:600;padding:4px 12px;border:1px solid var(--gold);background:transparent;color:var(--ink);cursor:pointer}
   .walkout-ask{width:min(640px,94vw);text-align:left;margin-top:10px;border-top:1px solid var(--line);padding-top:12px}
   .walkout-ask-h{font-family:var(--font-display);font-size:18px;text-align:center;margin-bottom:4px}
   .walkout-ask-n{font-size:12.5px;color:var(--muted-3);text-align:center;margin-top:8px}
@@ -19166,7 +19174,7 @@ function showTutorialWelcome(next){
       <li><b>This quarter.</b> Look over the Governing Board, then open New Policies and try passing one law.</li>
       <li><b>When you are done,</b> press End Quarter. The state responds, and the quarterly briefing tells you how.</li>
     </ul>
-    <div class="threshline" style="margin-bottom:12px">Each page's <i>How this works</i> opens the first time you visit it. The full guide is <i>How to play</i> on the opening screen.</div>
+    <div class="threshline" style="margin-bottom:12px">Each page explains itself the first time you open it. The full guide is <i>How to play</i> on the opening screen.</div>
     <button class="enactbtn" id="tutorialGo">Start governing \u25b8</button>`;
   modal.classList.remove("hidden");
   const done=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); if(next)next(); };
@@ -19174,6 +19182,62 @@ function showTutorialWelcome(next){
   document.getElementById("tutorialGo").onclick=done;
   document.addEventListener("keydown",onKey,true);
 }
+/* THE TUTORIAL'S MOMENTS. Three screens the pages' How this works cannot
+   reach: a vote on the floor, the quarterly report, and a decision. With the
+   tutorial on, the first time each opens it carries a short tip at its top,
+   gone once you dismiss it or close the screen. One watcher finds them, so
+   no screen's own code changes. */
+const TUT_TIPS={
+  floor:{modal:"floorModal", card:"floorCard", when:c=>!!c.querySelector('[class*="whip-"]'), title:"A vote on the floor",
+    text:"Each member votes by how their own district feels about it. The count shows who is with you and who is against, and political capital buys the votes you are short. A weaker version costs less and does less, and a few spare votes guard against surprises."},
+  report:{modal:"reportModal", card:"reportCard", when:()=>true, title:"The quarterly report",
+    text:"What last quarter did to the state: your approval and who moved it, the budget, the statistics, and anything waiting on you. It reopens from the Menu, under This quarter's report."},
+  decision:{modal:"dilemmaModal", card:"dilemmaCard", when:c=>!!c.querySelector('[data-opt]'), title:"A decision",
+    text:"Something has landed on your desk, and the quarter's work waits until you answer. Each choice pleases some voters and costs others, and none is free. When you choose, the game shows what it set in motion."}
+};
+/* AND EACH PAGE ON THE SIDEBAR: what it is for, and the first thing to do
+   there, the first time you open it. It stays until you dismiss it or move
+   on to another page. */
+const TUT_PAGES={
+  board:{title:"Start here every quarter", text:"The Governing Board is the state at a glance. Each red card is a crisis, with the measure that ends it; open one to see what feeds it and what would fix it. The laws already in force live here too: a small change to one is administrative, a large one goes to the floor."},
+  policies:{title:"Laws you can propose", text:"Each card shows what a law costs, who it pleases and who it angers, and its odds on the floor. For a first bill, look for good odds and a low capital cost."},
+  caucus:{title:"The people who vote on your bills", text:"Every member votes by how their own district feels. Loyal members back you, and angry ones band together into factions. Open a member to see why they vote the way they do."},
+  execorders:{title:"Acting without the legislature", text:"An executive order costs political capital rather than votes, and does about a quarter of what the matching law would. Orders can be challenged in court, and the ones under challenge are tracked here."},
+  appointments:{title:"Who carries out your policies", text:"Each chair scales every policy its department delivers. An empty chair slows its department and costs capital every quarter, so fill any empty ones first."},
+  voters:{title:"Who decides your elections", text:"Overall Approval shows your standing and what moved it each quarter. Groups shows who is with you and who is drifting away. After a big law, look here to see whom it cost you."},
+  budget:{title:"The state's money", text:"Revenue and spending line by line, and the reserves under Funds. The balance has to even out over time, or the shortfall builds into a crisis, so new spending needs new revenue or a cut somewhere else."},
+  compass:{title:"Where the voters stand, and you", text:"Every one of the 2,000 voters is a dot: economic left to right, personal liberty at the bottom and state authority at the top. YOU marks where your record stands and START where it began. The black dot is the electorate's centre: the further your record sits from it, the more approval it costs you."},
+  countymap:{title:"Oregon, county by county", text:"The voters election night will count, by county. Switch views to see your approval and how it has moved, who lives where, the last election, and where your campaign has reached. Campaign work you do by county in Campaign HQ shows up here."},
+  camphq:{title:"Everything aimed at the next ballot", text:"Your platform, the campaign energy you spend on voter groups and counties, the ballot measures and the legislature's races. Energy refills every quarter and what you leave unspent is lost, so spend it."}
+};
+function tutPageTip(){
+  const T=GAME&&GAME.tutorial; if(!T)return;
+  const seen=T.seen=T.seen||{}, v=currentView;
+  // moving on from a page whose note was showing counts as having read it
+  if(T.pageTip&&T.pageTip!==v){ seen["page:"+T.pageTip]=true; T.pageTip=null; }
+  const P=TUT_PAGES[v]; if(!P||seen["page:"+v])return;
+  const mn=document.getElementById("main"), hd=mn&&mn.querySelector(".sectionhdr"); if(!hd||mn.querySelector(".tut-tip"))return;
+  const anchor=(hd.nextElementSibling&&hd.nextElementSibling.classList.contains("rulesbox"))?hd.nextElementSibling:hd;
+  anchor.insertAdjacentHTML("afterend",`<div class="tut-tip" style="margin-top:10px"><div class="tut-h">${ico('bulb')} ${P.title}</div><div>${P.text}</div><button class="tut-ok">Got it</button></div>`);
+  T.pageTip=v;
+  const ok=mn.querySelector(".tut-tip .tut-ok"); if(ok)ok.onclick=e=>{ e.stopPropagation(); seen["page:"+v]=true; T.pageTip=null; const t=mn.querySelector(".tut-tip"); if(t)t.remove(); };
+}
+function tutTipsCheck(){
+  if(!GAME||!GAME.tutorial)return;
+  const seen=GAME.tutorial.seen=GAME.tutorial.seen||{};
+  for(const k in TUT_TIPS){ const T=TUT_TIPS[k], key="tip:"+k;
+    const m=document.getElementById(T.modal), c=document.getElementById(T.card); if(!m||!c)continue;
+    // closing a screen that carried its tip counts as having read it
+    if(m.classList.contains("hidden")){ if(T.shown){ seen[key]=true; T.shown=false; } continue; }
+    if(seen[key]||c.querySelector(".tut-tip")||!T.when(c))continue;
+    c.insertAdjacentHTML("afterbegin",`<div class="tut-tip"><div class="tut-h">${ico('bulb')} ${T.title}</div><div>${T.text}</div><button class="tut-ok">Got it</button></div>`);
+    T.shown=true;
+    c.querySelector(".tut-tip .tut-ok").onclick=e=>{ e.stopPropagation(); seen[key]=true; T.shown=false; const t=c.querySelector(".tut-tip"); if(t)t.remove(); };
+  }
+}
+(function(){ try{ const obs=new MutationObserver(tutTipsCheck);
+  for(const k in TUT_TIPS){ const T=TUT_TIPS[k], m=document.getElementById(T.modal), c=document.getElementById(T.card);
+    if(m)obs.observe(m,{attributes:true, attributeFilter:["class"]}); if(c)obs.observe(c,{childList:true}); } }catch(e){} })();
 function showWelcome(onDone){
   const modal=document.getElementById("welcomeModal"), card=document.getElementById("welcomeCard");
   if(!modal||!card){ if(onDone)onDone(); return; }
@@ -19216,10 +19280,10 @@ function showWelcome(onDone){
       <input type="checkbox" id="welcomeTermLimit" ${GAME.enforceTermLimit!==false?'checked':''}>
       <span>Enforce Oregon's <b>two consecutive-term limit</b>, so your second term is your last unless you amend the constitution. Off means re-election without end.</span>
     </label>
-    <label class="welcome-optin">
-      <input type="checkbox" id="welcomeTutorial" ${GAME.tutorial?'checked':''}>
-      <span><b>Tutorial.</b> A short welcome before your first quarter, and each page's <i>How this works</i> opens the first time you visit it.</span>
-    </label>
+    <div class="mandrow tutrow"><button class="mandbtn tutbtn${GAME.tutorial?' selected':''}" id="welcomeTutorial" aria-pressed="${GAME.tutorial?'true':'false'}">
+      <span class="mb-name">Tutorial</span>
+      <span class="mb-seats" id="welcomeTutorialSub">${GAME.tutorial?'On: each page and key moment explains itself the first time you meet it':'Off. New to the game? Turn it on'}</span>
+    </button></div>
     <button class="enactbtn welcome-go" id="welcomeGo"${ready?'':' disabled'}>${goLabel}</button>
     <details class="welcome-help">
       <summary>How to play</summary>
@@ -19271,7 +19335,7 @@ function showWelcome(onDone){
     GAME.enforceTermLimit = tl ? !!tl.checked : true;
     if(!GAME.enforceTermLimit && CATALOG.termLimitRepeal) delete CATALOG.termLimitRepeal;   // no limit ⇒ nothing to repeal
     const tu=document.getElementById("welcomeTutorial");
-    GAME.tutorial=(tu&&tu.checked)?{seen:{}}:null;
+    GAME.tutorial=(tu&&tu.classList.contains("selected"))?{seen:{}}:null;
     modal.classList.add("hidden"); modal.classList.remove("grand");
     document.removeEventListener("keydown",onKey,true);
     if(GAME.tutorial)showTutorialWelcome(()=>{ if(onDone)onDone(); });
@@ -19281,6 +19345,9 @@ function showWelcome(onDone){
     const ng=document.getElementById("newGameModal"); if(ng&&!ng.classList.contains("hidden"))return;   // seed dialog owns the keyboard
     if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); go(); } };
   goBtn.onclick=go;
+  { const tb=document.getElementById("welcomeTutorial"), ts=document.getElementById("welcomeTutorialSub");
+    if(tb)tb.onclick=()=>{ const on=!tb.classList.contains("selected"); tb.classList.toggle("selected",on); tb.setAttribute("aria-pressed",on?"true":"false");
+      if(ts)ts.textContent=on?"On: each page and key moment explains itself the first time you meet it":"Off. New to the game? Turn it on"; }; }
   {const wsb=document.getElementById("welcomeSeedBtn");
    if(wsb)wsb.onclick=()=>newGame();}
   // Straight into sandbox. No confirm: startSeed's prompt is about losing a
@@ -25383,7 +25450,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="9.2";
+const GAME_VERSION="9.3";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -25432,6 +25499,7 @@ const VERSION_HISTORY=[
   ["9.0","31 October 2026","Recall anger fades over time and compounds with each new grievance, and scandals weigh less in the vote."],
   ["9.1","31 October 2026","Laws the voters decide at the ballot are off-limits for recalls, and a petition and a recall cannot target the same law at once."],
   ["9.2","31 October 2026","Full-screen Capitol occupations with their own drawings, the OCCUPY and CONVOY seeds, and a leaner recall page."],
+  ["9.3","31 October 2026","A tutorial, chosen on the opening screen: a short welcome, and each page and key moment explaining itself the first time you meet it."],
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -37535,8 +37603,9 @@ function render(){
   { const mn=document.getElementById("main"), rb=mn&&mn.querySelector(".rulesbox"), hd=mn&&mn.querySelector(".sectionhdr");
     if(rb&&hd&&hd.nextElementSibling!==rb)hd.after(rb);
     // the tutorial opens it the first time you see each kind of page
-    if(rb&&GAME.tutorial){ const k=currentView==="detail"?"detail:"+String(detailKey||"").split("_")[0]:currentView;
-      const seen=GAME.tutorial.seen=GAME.tutorial.seen||{}; if(!seen[k]){ seen[k]=true; rb.open=true; } } }
+    if(rb&&GAME.tutorial&&!TUT_PAGES[currentView]){ const k=currentView==="detail"?"detail:"+String(detailKey||"").split("_")[0]:currentView;
+      const seen=GAME.tutorial.seen=GAME.tutorial.seen||{}; if(!seen[k]){ seen[k]=true; rb.open=true; } }
+    tutPageTip(); }
   renderDilemma();
   renderProposal();
   railScrollActive();
