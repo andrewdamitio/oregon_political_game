@@ -10920,7 +10920,7 @@ function recallHurt(sid){
   const ids=new Set(Object.keys(POLICIES).concat(Object.keys(R.mood0)));
   for(const id of ids){
     if(enactedViaBallot(id))continue;
-    const p=POLICIES[id]||CATALOG[id]; if(!p||!recallLawTouched(id))continue;
+    const p=POLICIES[id]||CATALOG[id]; if(!p||!recallLawTouched(id)||recallLawOnBallot(id))continue;
     const h=-recallHit(id,sid); if(h<RECALL_HURT_MIN)continue;
     const f=recallAngerOf(sid,id,h);
     acts.push({kind:"law", id, name:p.name, hit:+(-f).toFixed(1), full:+h.toFixed(1), w:f/h, repealed:!POLICIES[id]});
@@ -11001,20 +11001,15 @@ function recallBargainingCut(){
   if(GAME.pendingFloorChange||GAME.pendingFloor)return false;
   return true;
 }
-/* ONE FIGHT AT A TIME. While a recall runs, the laws it is over cannot also
-   be put to the voters by citizen petition: those who would sign one are
-   signing the recall. A petition already bound for a ballot is withdrawn. */
+/* ONE FIGHT AT A TIME, whichever came first. A law already headed to the
+   voters by citizen petition cannot be the case for a recall: the voters
+   will decide it. And while a recall runs, the laws it is over cannot be
+   petitioned onto the ballot. */
 function recallShieldedLaw(id){
   const R=GAME.recall, X=R&&(R.drive||R.vote); if(!X||!recallOn())return false;
   return (X.spark&&X.spark.kind==="law"&&X.spark.id===id)||(X.acts||[]).some(a=>a.kind==="law"&&a.id===id);
 }
-function recallPullPetitions(){
-  const B=GAME.ballot; if(!B||!B.pending)return;
-  const gone=B.pending.filter(m=>m.source==="citizen"&&recallShieldedLaw(m.id));
-  if(!gone.length)return;
-  B.pending=B.pending.filter(m=>!gone.includes(m));
-  for(const m of gone)GAME.log.push(ico('ballot')+" The petition to put "+m.name+" to the voters is withdrawn: its backers are gathering signatures to recall you instead");
-}
+function recallLawOnBallot(id){ return !!(GAME.ballot&&(GAME.ballot.pending||[]).some(m=>m.source==="citizen"&&m.id===id)); }
 /* A REASON TO TRADE THE COURTS FOR THE BALLOT. A lawsuit normally keeps a
    recall off: the opposition is already fighting you in court. A serious
    scandal, government by executive order, or a collapse in approval makes
@@ -11228,6 +11223,7 @@ function recallCase(Vt){
   // and any law you made the state dislike more since the vote was called
   if(Vt&&Vt.nets0)for(const id in nets)if(!ids.includes(id)&&(Vt.nets0[id]||0)-nets[id]>=0.3)ids.push(id);
   for(const id of ids){ const a={id};
+    if(recallLawOnBallot(id))continue;
     const n=nets[a.id]; if(n==null||n>-RECALL_LAW_DEAD)continue;
     const v=(-n-RECALL_LAW_DEAD)*RECALL_LAW_K, p=POLICIES[a.id]||CATALOG[a.id];
     const heat=recallHeat(a.id)-((recallState().heat0||{})[a.id]||0);
@@ -11435,7 +11431,6 @@ function recallTick(){
   const D=R.drive;
   if(D&&T>=D.start){
     if(!D.seeded)recallJoinPartners(D,T);
-    recallPullPetitions();
     if(!R.prov0)recallOpenCampaign(D,T);
     recallTickCampaign(D,T);
     const P=recallSigParts(D);
@@ -11535,7 +11530,6 @@ function recallTick(){
   recallJoinPartners(R.drive,T,true);
   if(esc){ R.drive.dropped=recallDropSuits(); R.drive.esc=esc.txt; R.drive.escKind=esc.kind; }
   R.drive.terms=recallTerms(R.drive);
-  recallPullPetitions();
   R.count++; recallWarFooting();
   recallOpenCampaign(R.drive, T+1);
   if(GAME.opposition)GAME.opposition.momentum=clamp(GAME.opposition.momentum+2,0,100);
@@ -25383,7 +25377,7 @@ const VERSION_HISTORY=[
   ["8.8","30 October 2026","The recall vote no longer counts your laws and orders twice. Your approval already carries what the state thinks of them, so the separate rows for unpopular laws and executive orders are gone. They feed the Yes campaign instead, as its case: the laws behind the drive, as unpopular as the state finds them, and every order in force, with the organizers' money and opposition momentum, up to 4 points in all. The campaign's row says what fuels it. A law you never touched no longer counts against you, Fight the recall opens the recall page, and the qualified screen drops the quarters-until-the-vote box."],
   ["8.9","31 October 2026","Recall drives become coalitions. Once a group files, any other group you have angered as badly (12 points or more from two or more of your laws or orders, and 25% approval or under) joins it, at filing or in any later quarter until it qualifies. Partners gather signatures at half the lead's strength, each one after the first a little less, add their grievances to the Yes campaign's case and half their money to its funds, and turn out harder at the vote. A drive that fails or is settled cools every group in it. The news, the banner and the recall page name the coalition, and the signature waterfall has a row for each partner. A coalition never starts a drive no single group would. A drive no longer collapses early: since the organizers' money stopped depending on their anger, its energy could not fall that low, so the drive simply runs its two to four quarters. The Yes campaign no longer has energy that builds up and wears off. In the vote it is read fresh each quarter: their case (the laws behind the drive, any unpopular law passed since, and every executive order in force), their money, opposition momentum and the opposition leader fronting it, each adding a little less as they pile up, and the Their campaign box shows exactly those parts. During the drive their money pays signature gatherers, a row in the signature waterfall. Only an outright ban on collective bargaining brings the unions' drive on its own; limiting it is fought like any other law."],
   ["9.0","31 October 2026","Recall anger fades and compounds. What you do to a group counts in full when you do it and half as much a year and a half later, so a recall is likeliest just after you act and quiet years cool it. A small change to a law adds only its own increase as fresh anger; it does not restart the clock. One law alone can now bring a drive, but rarely: a furious group files with about a one-in-two-hundred chance a quarter for one action, rising with each more behind its fury to one in twenty for five or more. The recall watch shows how much each action still counts and the odds. A group needs 8 points of fresh damage from you to file, down from 12. A scandal weighs less in the vote: a serious one adds 3 points to Yes, not 6, and a criminal referral takes a quarter off the voters who would wait for the next election, not half."],
-  ["9.1","31 October 2026","Recall anger fades to half over a year and a half. A law the voters repeal by petition is theirs, not yours, and is never held against you in a recall; if it was the law a drive was over, the drive ends and the news says the voters did it. While a recall runs, the laws it is over cannot also be put to the voters by citizen petition, and a petition already bound for a ballot is withdrawn."],
+  ["9.1","31 October 2026","Recall anger fades to half over a year and a half. A law the voters repeal by petition is theirs, not yours, and is never held against you in a recall; if it was the law a drive was over, the drive ends and the news says the voters did it. Whichever comes first stands: a law already headed to the voters by citizen petition cannot be the case for a recall, and while a recall runs, the laws it is over cannot be petitioned onto the ballot."],
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
