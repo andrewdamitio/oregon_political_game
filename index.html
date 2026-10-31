@@ -11172,7 +11172,8 @@ function recallCase(Vt){
   for(const id of ids){ const a={id};
     const n=nets[a.id]; if(n==null||n>-RECALL_LAW_DEAD)continue;
     const v=(-n-RECALL_LAW_DEAD)*RECALL_LAW_K, p=POLICIES[a.id]||CATALOG[a.id];
-    laws.push({id:a.id, name:p?p.name:a.id, v}); pts+=v; }
+    const heat=recallHeat(a.id)-((recallState().heat0||{})[a.id]||0);
+    laws.push({id:a.id, name:p?p.name:a.id, v, net:n, own:+(n+heat).toFixed(1), heat}); pts+=v; }
   const eos=recallEOs(); pts+=eos*RECALL_CASE_EO;
   return {laws, eos, pts};
 }
@@ -12155,6 +12156,11 @@ function recallCampaignsHTML(){
   const sc=Math.max(2,...rows.map(r=>r[1]));
   h+=`<div class="ebgroup rc-camp">`;
   for(const [l,v] of rows)h+=effectBar(l, v, sc, {color:'var(--clay)', fmt});
+  const sg=v=>(v>=0?"+":"\u2212")+Math.abs(v).toFixed(1);
+  for(const x of cs.laws)h+=`<div class="rc-you" style="margin:6px 0 0"><b>${x.name}:</b> ${x.heat
+    ?`voters' own reactions ${sg(x.own)}${x.own>0?", liking it on balance":""}; ${sg(-x.heat)} for how much it divided Oregon; ${sg(x.net)} in all.`
+    :`voters' own reactions ${sg(x.net)}, disliking it on balance.`}</div>`;
+  if(cs.laws.length)h+=`<div class="rc-you" style="margin:4px 0 0">For each law, the first 0.2 of dislike is ignored and each point past it adds 0.7 to their case.</div>`;
   h+=`<div class="rc-you">Together, +${YP.total.toFixed(1)}: each part adds a little less as they pile up. Read fresh each quarter, nothing builds up or wears off. Anything unpopular you pass or sign before the vote joins their case.${gave?" "+gave:""}</div></div>`;
   return h+salem;
 }
