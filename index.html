@@ -15684,6 +15684,8 @@ function startSituation(sid){
   }
   // A WALKOUT gets the whole screen too, at the end of the quarter it starts.
   if(sid==="gopWalkout"||sid==="demWalkout"){ GAME.pendingWalkout={side:sid==="gopWalkout"?"right":"left", turn:GAME.turn}; GAME.walkoutHeld=null; GAME.walkoutConceded=0; }
+  // and so does an occupation of the Capitol
+  if(sid==="laborUprising"||sid==="convoyBlockade")GAME.pendingOccupation={sid, turn:GAME.turn};
   // no-choice events surface a notification splash so the player sees the hit
   if(s.noChoice){
     const fx=[];
@@ -25394,7 +25396,7 @@ const VERSION_HISTORY=[
   ["8.8","30 October 2026","The recall vote no longer counts your laws and orders twice. Your approval already carries what the state thinks of them, so the separate rows for unpopular laws and executive orders are gone. They feed the Yes campaign instead, as its case: the laws behind the drive, as unpopular as the state finds them, and every order in force, with the organizers' money and opposition momentum, up to 4 points in all. The campaign's row says what fuels it. A law you never touched no longer counts against you, Fight the recall opens the recall page, and the qualified screen drops the quarters-until-the-vote box."],
   ["8.9","31 October 2026","Recall drives become coalitions. Once a group files, any other group you have angered as badly (12 points or more from two or more of your laws or orders, and 25% approval or under) joins it, at filing or in any later quarter until it qualifies. Partners gather signatures at half the lead's strength, each one after the first a little less, add their grievances to the Yes campaign's case and half their money to its funds, and turn out harder at the vote. A drive that fails or is settled cools every group in it. The news, the banner and the recall page name the coalition, and the signature waterfall has a row for each partner. A coalition never starts a drive no single group would. A drive no longer collapses early: since the organizers' money stopped depending on their anger, its energy could not fall that low, so the drive simply runs its two to four quarters. The Yes campaign no longer has energy that builds up and wears off. In the vote it is read fresh each quarter: their case (the laws behind the drive, any unpopular law passed since, and every executive order in force), their money, opposition momentum and the opposition leader fronting it, each adding a little less as they pile up, and the Their campaign box shows exactly those parts. During the drive their money pays signature gatherers, a row in the signature waterfall. Only an outright ban on collective bargaining brings the unions' drive on its own; limiting it is fought like any other law."],
   ["9.0","31 October 2026","Recall anger fades and compounds. What you do to a group counts in full when you do it and half as much a year and a half later, so a recall is likeliest just after you act and quiet years cool it. A small change to a law adds only its own increase as fresh anger; it does not restart the clock. One law alone can now bring a drive, but rarely: a furious group files with about a one-in-two-hundred chance a quarter for one action, rising with each more behind its fury to one in twenty for five or more. The recall watch shows how much each action still counts and the odds. A group needs 8 points of fresh damage from you to file, down from 12. A scandal weighs less in the vote: a serious one adds 3 points to Yes, not 6, and a criminal referral takes a quarter off the voters who would wait for the next election, not half."],
-  ["9.1","31 October 2026","Recall anger fades to half over a year and a half. A law the voters repeal by petition is theirs, not yours, and is never held against you in a recall; if it was the law a drive was over, the drive ends and the news says the voters did it. Whichever comes first stands: a law already headed to the voters by citizen petition cannot be the case for a recall, and while a recall runs, the laws it is over cannot be petitioned onto the ballot. A law the voters decide on is off-limits for a recall whichever way they vote, repealing it or keeping it, until you change it again. Two seeds start a Capitol occupation as the first quarter ends: OCCUPY, the public-sector unions over a Right-to-Work law already passed, and CONVOY, timber country's log trucks over a carbon tax at its highest rate."],
+  ["9.1","31 October 2026","Recall anger fades to half over a year and a half. A law the voters repeal by petition is theirs, not yours, and is never held against you in a recall; if it was the law a drive was over, the drive ends and the news says the voters did it. Whichever comes first stands: a law already headed to the voters by citizen petition cannot be the case for a recall, and while a recall runs, the laws it is over cannot be petitioned onto the ballot. A law the voters decide on is off-limits for a recall whichever way they vote, repealing it or keeping it, until you change it again. Two seeds start a Capitol occupation as the first quarter ends: OCCUPY, the public-sector unions over a Right-to-Work law already passed, and CONVOY, timber country's log trucks over a carbon tax at its highest rate. A Capitol occupation now gets the whole screen when it begins, as a walkout does: who has taken the building and over what, what it does while they hold it, and the two ways it ends."],
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -28887,6 +28889,67 @@ function showWalkoutScreen(next){
   document.addEventListener('keydown',onKey,true);
   setTimeout(()=>{ try{ btn&&btn.focus({preventScroll:true}); }catch(e){} },30);
 }
+/* AN OCCUPATION OF THE CAPITOL gets the whole screen, as a walkout does:
+   who has taken the building and over what, what it does while they hold
+   it, and the two ways it ends. */
+function showOccupationScreen(sid,next){
+  const s=SITUATIONS[sid], card=document.getElementById('midtermCard'), modal=document.getElementById('midtermModal');
+  if(!s||!card||!modal){ if(next)next(); return; }
+  const unions=sid==="laborUprising";
+  const list=a=>a.length>1?a.slice(0,-1).join(", ")+" and "+a[a.length-1]:a[0]||"";
+  // what started it
+  let cause, putBack;
+  if(unions){
+    const rtw=!!(POLICIES.rightToWork&&POLICIES.rightToWork.enacted), ban=!!(POLICIES.collectiveBargaining&&POLICIES.collectiveBargaining.tierIndex===0);
+    cause=list([rtw&&"the right-to-work law", ban&&"the ban on public-sector bargaining"].filter(Boolean))||"your labor laws";
+    putBack=list([rtw&&"repeal right-to-work", ban&&"restore public-sector bargaining"].filter(Boolean));
+  } else {
+    const c=convoyCauses(), cp=POLICIES.carbonProgram&&POLICIES.carbonProgram.tierIndex>=4, ct=POLICIES.carbonTax&&(POLICIES.carbonTax.value||0)>=CONVOY_CARBON;
+    cause=list([c.carbon&&cp&&"Cap-and-Invest", c.carbon&&ct&&"the carbon tax", c.harvest&&"the cut in the timber harvest"].filter(Boolean))||"your climate and forest policy";
+    putBack=list([c.carbon&&cp&&"step back from Cap-and-Invest", c.carbon&&ct&&"lower or repeal the carbon tax", c.harvest&&"let the harvest back up"].filter(Boolean));
+  }
+  const gm=s.groupMood||{}, nm=k=>SIMULANTS[k]?SIMULANTS[k].name:null;
+  const angry=Object.keys(gm).filter(k=>gm[k]<0).sort((a,b)=>gm[a]-gm[b]).map(nm).filter(Boolean).slice(0,4);
+  const pleased=Object.keys(gm).filter(k=>gm[k]>0).map(nm).filter(Boolean);
+  const first=(s.onTrigger&&s.onTrigger.capital)?-s.onTrigger.capital:0, drain=s.capitalDrain?-s.capitalDrain:0;
+  card.innerHTML='<div class="egrand quake-grand walkout-grand">'
+    +'<div class="eg-kicker">'+turnLabel(GAME.turn)+' \u00b7 THE OREGON STATE CAPITOL \u00b7 '+(unions?'OCCUPIED':'BLOCKADED')+'</div>'
+    +'<div class="eg-result lose quake-title">'+(unions?'OCCUPIED':'BLOCKADE')+'</div>'
+    +'<div class="wm-rule"></div>'
+    +'<div class="quake-sub">'+(unions?'Public employees have taken the Capitol':'Timber country\'s convoys have shut Salem')+' over '+cause+'. Nothing new passes until '+(unions?'the building is cleared':'they leave')+'.</div>'
+    +'<img class="walkout-art" src="oregon-capitol-line.webp" alt="The Oregon State Capitol, drawn in pen" width="1100" height="620">'
+    +'<div class="quake-body">'
+      +'<p>'+String(s.desc||"").split("\n\n")[0]+'</p>'
+      +'<p><b>What it does.</b></p><ul class="walkout-list">'
+        +'<li>The floor is shut for the rest of the quarter: no bills and no confirmations. The one thing that can still pass is giving them what they came for.</li>'
+        +((first||drain)?'<li>It cost you <b>\u25c8'+first+'</b> political capital when it began, and costs <b>\u25c8'+drain+'</b> more every quarter it runs.</li>':'')
+        +(unions?'<li>Sick-outs close schools and slow public services: education and health outcomes slip, and downtown looks worse for it.</li>'
+                :'<li>Freight backs up around Salem: growth slows, the business climate takes a hit, and rural Oregon feels further from its government.</li>')
+        +(angry.length?'<li>'+list(angry)+' blame you while it lasts'+(pleased.length?'; '+list(pleased)+' are with you':'')+'.</li>':'')
+      +'</ul>'
+      +'<p><b>The ways out.</b></p><ul class="walkout-list">'
+        +'<li><b>Wait.</b> '+(unions?'The building is cleared at the end of the quarter.':'The convoys go home at the end of the quarter.')+' You pay for it in capital and goodwill until then.</li>'
+        +(putBack?'<li><b>Give them what they came for.</b> '+putBack.charAt(0).toUpperCase()+putBack.slice(1)+', and '+(unions?'they leave':'they go home')+' the same week. That change can pass even with the floor shut.</li>':'')
+      +'</ul>'
+    +'</div>'
+    +'<button class="enactbtn eg-go" id="occupyContinue">Continue \u25b8</button>'
+    +'</div>';
+  modal.classList.add('grand');
+  modal.classList.remove('hidden');
+  const _top=()=>{ card.scrollTop=0; const g=card.querySelector('.egrand'); if(g)g.scrollTop=0; };
+  _top(); requestAnimationFrame(_top);
+  const done=()=>{
+    modal.classList.add('hidden'); modal.classList.remove('grand');
+    document.removeEventListener('keydown',onKey,true);
+    if(next)next();
+  };
+  const onKey=(e)=>{ if(modal.classList.contains('hidden'))return;
+    if(e.key==='Enter'||e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); done(); } };
+  const btn=document.getElementById('occupyContinue');
+  if(btn)btn.onclick=done;
+  document.addEventListener('keydown',onKey,true);
+  setTimeout(()=>{ try{ btn&&btn.focus({preventScroll:true}); }catch(e){} },30);
+}
 /* Campaign HQ's third surface: the legislature as polling. */
 /* The next election as it stands, seat by seat: who would win each district
    today, with the candidates on hover. Senate seats not up next time are
@@ -29760,6 +29823,9 @@ function doEndTurn(){
     startQuarterSequence();
   };
   const afterWalkout=()=>{
+    // an occupation that began this quarter gets its own screen first
+    if(GAME.pendingOccupation){ const oc=GAME.pendingOccupation; GAME.pendingOccupation=null;
+      if((GAME.activeSituations||{})[oc.sid]){ showOccupationScreen(oc.sid,afterWalkout); return; } }
     // recall night comes before the midterm: if it removes you, nothing after it happens
     if(GAME.pendingRecallNight){ const rn=GAME.pendingRecallNight; GAME.pendingRecallNight=null; showRecallNight(rn,afterWalkout); return; }
     // the briefing opens when the midterm screen closes, not on top of it
