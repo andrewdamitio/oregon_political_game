@@ -10887,7 +10887,7 @@ function recallHurt(sid){
   const ids=new Set(Object.keys(POLICIES).concat(Object.keys(R.mood0)));
   for(const id of ids){
     if(enactedViaBallot(id))continue;
-    const p=POLICIES[id]||CATALOG[id]; if(!p)continue;
+    const p=POLICIES[id]||CATALOG[id]; if(!p||!recallLawTouched(id))continue;
     const h=recallHit(id,sid);
     if(h<=-RECALL_HURT_MIN)acts.push({kind:"law", id, name:p.name, hit:+h.toFixed(1), repealed:!POLICIES[id]});
   }
@@ -11125,6 +11125,7 @@ function recallLawNets(){
   for(const id of ids){
     if(enactedViaBallot(id))continue;
     if(!POLICIES[id]&&!CATALOG[id])continue;
+    if(!recallLawTouched(id))continue;
     out[id]=+(0.5*share(id,"ideology")+0.5*cats.reduce((t,c)=>t+share(id,c),0)/cats.length-(recallHeat(id)-(R.heat0[id]||0))).toFixed(2);
   }
   return out;
@@ -11691,6 +11692,16 @@ function recallWaterfallHTML(start, steps, end, line, fmtTot, fmtStep, forYou){
   h+=row("total end", end.label, 0, end.v, fmtTot(end.v));
   if(line)h+=`<div class="wf-key"><b class="wf-key-line"></b>${line.label}</div>`;
   return h+`</div>`;
+}
+/* A law is yours only if you touched it: passed it, repealed it, or moved
+   its setting from where you found it. One you left alone still shifts as
+   the economy and the statistics move, but that is not something you did. */
+function recallLawTouched(id){
+  const R=GAME.recall||{}, p=POLICIES[id], b=(R.lvl0||{})[id];
+  if(!(id in (R.mood0||{})))return !!p;           // passed since you took office
+  if(!p||p.enacted===false)return true;           // repealed
+  if(!b)return true;                              // a save from before settings were kept
+  return Math.abs(policyLevel(p)-b.lvl)>0.005||p.tierIndex!==b.tier;
 }
 /* What you did to a law, in a row's words: enacted it, repealed it, moved
    it to another tier, or raised or cut it from where you found it. */
