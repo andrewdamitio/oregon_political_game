@@ -19212,15 +19212,22 @@ const TUT_PAGES={
 };
 function tutPageTip(){
   const T=GAME&&GAME.tutorial; if(!T)return;
-  const seen=T.seen=T.seen||{}, v=currentView;
-  // moving on from a page whose note was showing counts as having read it
-  if(T.pageTip&&T.pageTip!==v){ seen["page:"+T.pageTip]=true; T.pageTip=null; }
-  const P=TUT_PAGES[v]; if(!P||seen["page:"+v])return;
-  const mn=document.getElementById("main"), hd=mn&&mn.querySelector(".sectionhdr"); if(!hd||mn.querySelector(".tut-tip"))return;
-  const anchor=(hd.nextElementSibling&&hd.nextElementSibling.classList.contains("rulesbox"))?hd.nextElementSibling:hd;
-  anchor.insertAdjacentHTML("afterend",`<div class="tut-tip" style="margin-top:10px"><div class="tut-h">${ico('bulb')} ${P.title}</div><div>${P.text}</div><button class="tut-ok">Got it</button></div>`);
-  T.pageTip=v;
-  const ok=mn.querySelector(".tut-tip .tut-ok"); if(ok)ok.onclick=e=>{ e.stopPropagation(); seen["page:"+v]=true; T.pageTip=null; const t=mn.querySelector(".tut-tip"); if(t)t.remove(); };
+  const seen=T.seen=T.seen||{}, v=currentView, P=TUT_PAGES[v];
+  if(!P||seen["page:"+v])return;
+  const modal=document.getElementById("tutorialModal"), card=document.getElementById("tutorialCard");
+  if(!modal||!card||!modal.classList.contains("hidden"))return;
+  // another screen in front waits to close first; the note comes after it
+  if([...document.querySelectorAll(".modal")].some(m=>m!==modal&&!m.classList.contains("hidden")))return;
+  seen["page:"+v]=true;
+  card.innerHTML=`<div class="sectionhdr">${ico('bulb')} ${P.title}</div>
+    <div class="dilemma-text" style="margin:10px 0 14px">${P.text}</div>
+    <button class="enactbtn" id="tutorialGo">Got it \u25b8</button>`;
+  modal.classList.remove("hidden");
+  const done=()=>{ modal.classList.add("hidden"); document.removeEventListener("keydown",onKey,true); };
+  const onKey=e=>{ if(modal.classList.contains("hidden"))return; if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
+  document.getElementById("tutorialGo").onclick=done;
+  modal.onclick=e=>{ if(e.target===modal)done(); };
+  document.addEventListener("keydown",onKey,true);
 }
 function tutTipsCheck(){
   if(!GAME||!GAME.tutorial)return;
@@ -19234,6 +19241,7 @@ function tutTipsCheck(){
     T.shown=true;
     c.querySelector(".tut-tip .tut-ok").onclick=e=>{ e.stopPropagation(); seen[key]=true; T.shown=false; const t=c.querySelector(".tut-tip"); if(t)t.remove(); };
   }
+  setTimeout(tutPageTip,0);
 }
 (function(){ try{ const obs=new MutationObserver(tutTipsCheck);
   for(const k in TUT_TIPS){ const T=TUT_TIPS[k], m=document.getElementById(T.modal), c=document.getElementById(T.card);
@@ -19338,7 +19346,7 @@ function showWelcome(onDone){
     GAME.tutorial=(tu&&tu.classList.contains("selected"))?{seen:{}}:null;
     modal.classList.add("hidden"); modal.classList.remove("grand");
     document.removeEventListener("keydown",onKey,true);
-    if(GAME.tutorial)showTutorialWelcome(()=>{ if(onDone)onDone(); });
+    if(GAME.tutorial)showTutorialWelcome(()=>{ if(onDone)onDone(); setTimeout(tutPageTip,50); });
     else if(onDone)onDone();
   };
   const onKey=(e)=>{ if(modal.classList.contains("hidden"))return;
