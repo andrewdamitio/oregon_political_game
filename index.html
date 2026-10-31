@@ -943,6 +943,7 @@
   .tut-block{position:fixed;inset:0;z-index:8999}
   .tut-dim{position:fixed;z-index:9000;background:rgba(10,14,16,.74)}
   .tut-hole{position:fixed;z-index:9001;pointer-events:none;border-radius:6px;box-shadow:0 0 0 3px var(--gold),0 0 18px 4px rgba(192,134,24,.55)}
+  .tut-skip{font:inherit;font-size:13px;background:none;border:none;color:var(--muted-2);text-decoration:underline;cursor:pointer}
   .tut-spotcard{position:fixed;z-index:9002;width:min(430px,92vw);margin:0;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-top:4px solid var(--gold);border-radius:4px;padding:16px 18px;box-shadow:0 12px 32px rgba(0,0,0,.4);text-align:left}
   .tutbtn{flex:0 1 460px;padding:12px 14px}
   .tutbtn .mb-name{font-size:18px}
@@ -19228,58 +19229,164 @@ function tutPopup(title,text){
    the page goes dark except the Quarterly Balance and Net Reserves, and a
    note says why they matter. */
 const TUT_BUDGET={title:"The state's money, quarter by quarter", text:"<b>Quarterly Balance</b> is what this quarter adds to the state's money or takes from it; red means you are spending more than you take in. <b>Net Reserves</b> is the rainy-day money left after any shortfall. A deficit drains the Rainy Day Fund first. Once it is empty the gap piles up as shortfall, which every surplus pays down first, and enough of it sets off a deficit crisis. Click either figure to open the budget."};
+/* THE SPOTLIGHT TOUR. A run of stops, each lighting up part of the page
+   while the rest goes dark, with a note beside it: Next moves on, and the
+   last one closes it. A stop whose target is not on screen is skipped. */
 let _tutSpotOpen=false;
-function tutSpotlight(targets,title,text){
-  const els=targets.map(id=>document.getElementById(id)).filter(Boolean).map(e=>e.closest(".stat")||e);
-  const rs=els.map(e=>e.getBoundingClientRect()).filter(r=>r.width>0&&r.height>0);
-  if(!rs.length)return false;                                   // not on screen (a phone keeps them in the menu)
-  // the box takes in each figure and its label, even where a label runs wider than its box
-  for(const e of els)for(const k of e.querySelectorAll("*")){ const r=k.getBoundingClientRect(); if(r.width>0&&r.height>0)rs.push({left:r.left, top:r.top, right:Math.max(r.right,r.left+k.scrollWidth), bottom:r.bottom}); }
-  const pad=8, padX=16, box={l:Math.min(...rs.map(r=>r.left))-padX, t:Math.min(...rs.map(r=>r.top))-pad, r:Math.max(...rs.map(r=>r.right))+padX, b:Math.max(...rs.map(r=>r.bottom))+pad};
+// what a stop lights: a selector, a list of them, or a function returning elements
+function tutResolve(t){
+  let els=typeof t==="function"?t():[].concat(t).flatMap(sel=>[...document.querySelectorAll(sel)].slice(0,1));
+  els=[].concat(els||[]).filter(e=>e&&e.getBoundingClientRect);
+  return els.filter(e=>{ const r=e.getBoundingClientRect(); return r.width>0&&r.height>0; });
+}
+// a section by its heading: the heading and the block under it
+function tutSection(label){ return ()=>{ const h=[...document.querySelectorAll("#main .ebgroup-label,#main .camp-sec,#main h3")].find(x=>x.innerText.trim().toUpperCase().startsWith(label.toUpperCase()));
+  return h?[h,h.nextElementSibling].filter(Boolean):[]; }; }
+function tutRunTour(steps,onEnd){
+  let i=0;
+  const next=()=>{
+    while(i<steps.length&&!tutResolve(steps[i].t).length)i++;          // skip what is not on screen
+    if(i>=steps.length){ if(onEnd)onEnd(); setTimeout(tutPageTip,0); return; }
+    const st=steps[i], els=tutResolve(st.t); i++;
+    let more=false; for(let k=i;k<steps.length;k++)if(tutResolve(steps[k].t).length){ more=true; break; }
+    // bring it into view, then light it
+    const r0=els[0].getBoundingClientRect(), vh=window.innerHeight||document.documentElement.clientHeight;
+    if(st.top)window.scrollTo({top:0, behavior:"instant"});
+    else if(!st.fixed&&(r0.top<70||r0.bottom>vh-40))els[0].scrollIntoView({block:r0.height>vh*0.6?"start":"center", behavior:"instant"});
+    setTimeout(()=>tutShow(tutResolve(st.t),st.title,st.text,more,next,()=>{ i=steps.length; if(onEnd)onEnd(); setTimeout(tutPageTip,0); }),120);
+  };
+  _tutSpotOpen=true; next();
+}
+function tutShow(els,title,text,more,onNext,onEnd,tries){
+  // something else may have scrolled the page meanwhile (a tab scrolls to itself): bring it back and measure again
+  { const r=els[0].getBoundingClientRect(), h=window.innerHeight||document.documentElement.clientHeight;
+    if((r.top>h-40||r.bottom<40)&&(tries||0)<3){ els[0].scrollIntoView({block:r.height>h*0.6?"start":"center", behavior:"instant"}); setTimeout(()=>tutShow(els,title,text,more,onNext,onEnd,(tries||0)+1),150); return; } }
+  const rs=[];
+  for(const e of els){ const r=e.getBoundingClientRect(); if(r.width>0&&r.height>0)rs.push(r);
+    // the box takes in what the text really spans, even where it runs wider than its box
+    for(const k of e.querySelectorAll("*")){ const q=k.getBoundingClientRect(); if(q.width>0&&q.height>0&&q.width<4000)rs.push({left:q.left, top:q.top, right:Math.max(q.right,q.left+Math.min(k.scrollWidth,q.width+60)), bottom:q.bottom}); } }
+  const vw=window.innerWidth||document.documentElement.clientWidth, vh=window.innerHeight||document.documentElement.clientHeight;
+  const pad=8, padX=12, box={l:Math.max(4,Math.min(...rs.map(r=>r.left))-padX), t:Math.max(4,Math.min(...rs.map(r=>r.top))-pad), r:Math.min(vw-4,Math.max(...rs.map(r=>r.right))+padX), b:Math.min(vh-4,Math.max(...rs.map(r=>r.bottom))+pad)};
   const block=document.createElement("div"), hole=document.createElement("div"), card=document.createElement("div");
   block.className="tut-block"; hole.className="tut-hole"; card.className="card tut-spotcard";
   Object.assign(hole.style,{left:box.l+"px", top:box.t+"px", width:(box.r-box.l)+"px", height:(box.b-box.t)+"px"});
-  card.innerHTML=`<div class="sectionhdr">${ico('bulb')} ${title}</div><div class="dilemma-text" style="margin:10px 0 14px">${text}</div><button class="enactbtn" id="tutSpotGo">Got it \u25b8</button>`;
+  card.innerHTML=`<div class="sectionhdr">${ico('bulb')} ${title}</div><div class="dilemma-text" style="margin:10px 0 14px">${text}</div>
+    <div style="display:flex;gap:10px;align-items:center"><button class="enactbtn" id="tutSpotGo">${more?"Next \u25b8":"Got it \u25b8"}</button>${more?'<button class="tut-skip" id="tutSpotEnd">Skip the rest</button>':''}</div>`;
   const px=v=>Math.max(0,v)+"px";
   const dims=[{left:"0", right:"0", top:"0", height:px(box.t)}, {left:"0", right:"0", top:px(box.b), bottom:"0"},
               {left:"0", width:px(box.l), top:px(box.t), height:px(box.b-box.t)}, {left:px(box.r), right:"0", top:px(box.t), height:px(box.b-box.t)}].map(st=>{
     const d=document.createElement("div"); d.className="tut-dim"; Object.assign(d.style,st); return d; });
   document.body.append(block,...dims,hole,card);
-  const vw=window.innerWidth||document.documentElement.clientWidth, cw=card.offsetWidth;
-  Object.assign(card.style,{top:(box.b+14)+"px", left:Math.max(12,Math.min(vw-cw-12,(box.l+box.r)/2-cw/2))+"px"});
-  _tutSpotOpen=true;
-  const done=()=>{ block.remove(); dims.forEach(d=>d.remove()); hole.remove(); card.remove(); _tutSpotOpen=false; document.removeEventListener("keydown",onKey,true); setTimeout(tutPageTip,0); };
-  const onKey=e=>{ if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
-  card.querySelector("#tutSpotGo").onclick=done; block.onclick=done;
+  // the note goes below what it explains, or above, or at the foot of the screen
+  const cw=card.offsetWidth, ch=card.offsetHeight;
+  const midX=Math.max(12,Math.min(vw-cw-12,(box.l+box.r)/2-cw/2)), midY=Math.max(8,Math.min(vh-ch-8,(box.t+box.b)/2-ch/2));
+  let pos;
+  if(box.b+14+ch<=vh)pos={top:box.b+14, left:midX};
+  else if(box.t-14-ch>=0)pos={top:box.t-14-ch, left:midX};
+  else if(box.r+14+cw<=vw)pos={top:midY, left:box.r+14};
+  else if(box.l-14-cw>=0)pos={top:midY, left:box.l-14-cw};
+  else pos={top:Math.max(8,vh-ch-12), left:midX};
+  Object.assign(card.style,{top:pos.top+"px", left:pos.left+"px"});
+  const clear=()=>{ block.remove(); dims.forEach(d=>d.remove()); hole.remove(); card.remove(); document.removeEventListener("keydown",onKey,true); };
+  const go=()=>{ clear(); if(more)onNext(); else { _tutSpotOpen=false; onEnd(); } };
+  const end=()=>{ clear(); _tutSpotOpen=false; onEnd(); };
+  const onKey=e=>{ if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); go(); } else if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); end(); } };
+  card.querySelector("#tutSpotGo").onclick=go; const sk=card.querySelector("#tutSpotEnd"); if(sk)sk.onclick=end; block.onclick=go;
   document.addEventListener("keydown",onKey,true);
-  return true;
 }
 function tutBusy(){ const m=document.getElementById("tutorialModal"); return _tutSpotOpen||!m||!m.classList.contains("hidden"); }
 /* A law's own page, the first time you open one. */
 const TUT_LAW={title:"A law's page", text:"What a law would do, before you try it: its public support and the floor's verdict at the top, then its effects on the state's statistics, what it costs or raises in the budget, and which voter groups it pleases or angers. The button at the top takes it to a vote when the votes can be found."};
 /* The issue web, the first time you scroll down to it on the board. */
 const TUT_WEB={title:"The issue web", text:"Everything you control and everything it touches. Squares are your levers, the laws and agencies; circles are the statistics they move, green when healthy and amber when struggling; dashed red rings are crises. Down the left are the voter groups: hover a lever to see whom it pleases or angers, and click anything to open its page."};
+/* THE TOURS: each page, each tab on it, and a crisis's own page. A page's
+   first tour opens on its title with what the page is for. */
+const tutIntro=v=>({t:"#main .sectionhdr", title:TUT_PAGES[v].title, text:TUT_PAGES[v].text});
+const TUT_TOURS={
+  board:[tutIntro("board"),
+    {t:"#main .crisis-strip .crisis-card", title:"Crises and bright spots", text:"Each card is something running now. The red ones cost you approval every quarter they last, and the line on each card is the measure that ends it. Open one to see what feeds it."},
+    {t:"#main .board-climate", title:"The weather you govern in", text:"The national mood and the economy move largely on their own. The mood counts toward your approval, and the economy drives revenue and jobs."},
+    {t:"#main .keystat-row", title:"The headline numbers", text:"Eight of the statistics voters watch most, each with where it stands and how it moved last quarter. Open one to see what moves it."},
+    {t:()=>["hudBudget","hudFiscal"].map(id=>document.getElementById(id)).filter(Boolean).map(e=>e.closest(".stat")||e), top:true, title:TUT_BUDGET.title, text:TUT_BUDGET.text}],
+  policies:[tutIntro("policies"),
+    {t:"#main .websearch", title:"Find a law", text:"Search by name, by what it does, or by area."},
+    {t:"#main .polsec", title:"Laws by area", text:"Open an area to see its laws. Each shows what it costs in capital, who it pleases and angers, and its odds on the floor; open one for the whole picture."}],
+  "caucus:mine":[tutIntro("caucus"),
+    {t:"#main .ctabs", title:"Your party and theirs", text:"Switch between your own members and the opposition's."},
+    {t:"#main .ascore", title:"Your hold on your party", text:"Party control is how firmly your members follow you. Angry members band into factions that vote against you, and district projects are how you buy back a member's goodwill."},
+    {t:"#main .cmap-row", title:"Every seat", text:"The map shows every district. Open a member for their loyalty, their voting record, their seat's past elections and the tools to win them over."},
+    {t:"#main .croster > *", title:"The roster", text:"Every member, sortable by loyalty. Before a close vote, the least loyal are the ones to work on."}],
+  "caucus:opp":[
+    {t:"#main .ascore", title:"The other side", text:"How firmly the opposition holds its own members. The ones at odds with their party are the ones who may cross over on a bill their district wants."}],
+  execorders:[tutIntro("execorders"),
+    {t:"#main .ascore", title:"Your orders at a glance", text:"How many are in force, how many are being fought in court, the capital they tie up and what they do to the budget."},
+    {t:"#main .eo-cols > *", title:"Orders by area", text:"Each order costs political capital rather than votes and does about a quarter of what the matching law would. Sign one here; rescinding it later is your call too."}],
+  appointments:[tutIntro("appointments"),
+    {t:"#main .ascore", title:"Your cabinet", text:"How many chairs are filled, how strong the cabinet is overall, the capital it costs each quarter and the overhead it adds."},
+    {t:"#main .aroster-wrap", title:"Every chair", text:"One row a department or commission: who sits there, their trait, and how well they deliver your policies. An empty chair slows its department, so fill those first."}],
+  "voters:standing":[tutIntro("voters"),
+    {t:"#main .vsum", title:"Where you stand today", text:"Your approval, the share who would vote for you, the turnout to expect, and the next election."},
+    {t:"#main .ctabs", title:"Three ways to look at the voters", text:"Overall Approval is your standing and what moved it. Groups shows every voter group. The focus group is ten voters you follow from quarter to quarter."},
+    {t:tutSection("What is costing you votes"), title:"What is costing you votes", text:"Everything moving your approval, largest first: laws, budgets, crises and the national mood. When approval slips, look here first."}],
+  "voters:groups":[
+    {t:tutSection("Where your election is decided"), title:"Where your election is decided", text:"The groups with the most votes to swing in your next election. Winning these matters more than the rest."},
+    {t:tutSection("All groups"), title:"Every voter group", text:"Your approval in each group, and which way it is moving. Open a group to see what it cares about and what you have done to it."}],
+  "voters:focus":[
+    {t:tutSection("Focus group"), title:"Your focus group", text:"Ten voters, chosen so there are partisans of every kind among them, that you follow from quarter to quarter. Watch how your choices land on them."}],
+  "budget:budget":[tutIntro("budget"),
+    {t:"#main .mgrid", title:"The budget at a glance", text:"Revenue and spending a year, the balance between them, and your net reserves."},
+    {t:"#main .ctabs", title:"The budget and the funds", text:"State Budget is the money in and out. Funds holds the savings and the debts: the reserves, PERS and the school trust."},
+    {t:"#main .fiscal-panel", title:"The forces on the budget", text:"The economic cycle, the kicker, the Oregon Health Plan and federal money, each pushing revenue or spending in ways you do not fully control."},
+    {t:"#main .budget-ledger", title:"Where the money comes from and goes", text:"Revenue by source and spending by program area, with the taxes Oregon does not levy and the reforms that could raise more."}],
+  "budget:funds":[
+    {t:"#main .fiscal-panel", title:"Savings and debts", text:"Net reserves, the Rainy Day Fund, the schools' stability fund, the PERS pension shortfall and the Common School Fund. Manage opens any of them."}],
+  "camphq:reelect":[tutIntro("camphq"),
+    {t:"#main .ctabs", title:"Four folders", text:"Your re-election, the measures on the ballot, the legislature's races and the opposition."},
+    {t:"#main .energybar", title:"Campaign energy", text:"What every campaign action here spends. It refills each quarter, and what you leave unspent is lost."},
+    {t:"#main .cmap-layout", title:"The county map", text:"Work a county to raise your support where it is thin."},
+    {t:"#main .vglist", title:"Voter groups", text:"Persuade moves how a group sees you. Mobilize gets its supporters out to vote."}],
+  "camphq:ballot":[
+    {t:tutSection("Measures on the ballot"), title:"Measures on the ballot", text:"What Oregon votes on next: the measures you referred and the citizens' initiatives. Take a side to campaign for or against each one."}],
+  "camphq:legis":[
+    {t:tutSection("Where the chambers stand"), title:"The legislature's races", text:"Where the House and Senate stand and which of your members are at risk. Your energy can help hold a seat."}],
+  "camphq:opp":[
+    {t:"#main .camp-sec", title:"The opposition", text:"Their leader, their momentum and what feeds it, and who is running against you."}],
+  compass:[tutIntro("compass"), {t:"#main .compass-wrap", title:"The compass", text:"Find YOU and START, and the black dot at the electorate's centre. The closer your record sits to it, the less your agenda costs you."}],
+  countymap:[tutIntro("countymap"),
+    {t:"#main .cmap-top", title:"Change what the map shows", text:"Who lives where, your approval, where your campaign has reached, where one group lives, and the urban–rural divide."},
+    {t:"#main .cmap-layout", title:"Every county", text:"Click a county for its numbers."}],
+  crisis:[
+    {t:"#main .detailrow", title:"What kind of crisis", text:"Whether it ends on its own or lasts until you resolve it, and how long it has run."},
+    {t:"#main .sitprog", title:"Are you ending it?", text:"Where the measure that clears it stands, and whether it is moving the right way."},
+    {t:tutSection("What's improving or worsening"), title:"What drives it", text:"Every law, agency and statistic pushing it better or worse. These are your levers."},
+    {t:tutSection("Effect on voter blocs"), title:"Who it costs you", text:"The groups it turns against you while it runs."}]
+};
+function tutTourKey(){
+  const v=currentView;
+  if(v==="detail"){ const dk=String(detailKey||""); if(/^s_/.test(dk)){ const sx=SITUATIONS[dk.slice(2)]; return sx&&sx.kind==="bad"?"crisis":null; } return null; }
+  const tab=document.querySelector('#main .ctabs [role=tab].on, #main .ctabs [role=tab][aria-selected="true"]');
+  const attr=tab&&[...tab.attributes].find(a=>/^data-(ctab|vtab|btab|camptab)$/.test(a.name));
+  return attr?v+":"+attr.value:v;
+}
 function tutPageTip(){
   const T=GAME&&GAME.tutorial; if(!T)return;
-  const seen=T.seen=T.seen||{}, v=currentView;
-  const isLaw=v==="detail"&&/^p_/.test(String(detailKey||""));
-  const key=isLaw?"page:law":"page:"+v, P=isLaw?TUT_LAW:TUT_PAGES[v];
+  const seen=T.seen=T.seen||{};
   if(tutBusy())return;
-  // another screen in front waits to close first; the note comes after it
+  // another screen in front waits to close first; the tour comes after it
   if([...document.querySelectorAll(".modal")].some(m=>m.id!=="tutorialModal"&&!m.classList.contains("hidden")))return;
-  if(v==="board"&&seen["page:board"]&&!seen["spot:budget"]){ seen["spot:budget"]=true; window.scrollTo(0,0);
-    if(tutSpotlight(["hudBudget","hudFiscal"],TUT_BUDGET.title,TUT_BUDGET.text))return; }
-  if(!P||seen[key])return;
-  seen[key]=true; tutPopup(P.title,P.text);
+  if(currentView==="detail"&&/^p_/.test(String(detailKey||""))){ if(!seen["page:law"]){ seen["page:law"]=true; tutPopup(TUT_LAW.title,TUT_LAW.text); } return; }
+  const key=tutTourKey(), steps=key&&TUT_TOURS[key];
+  if(!steps||seen["tour:"+key])return;
+  seen["tour:"+key]=true; window.scrollTo({top:0, behavior:"instant"}); tutRunTour(steps);
 }
-/* The board's issue web sits below the fold: its note waits until it scrolls into view. */
+/* The board's issue web sits below the fold: its spotlight waits until it scrolls into view. */
 function tutWatchWeb(){
   const T=GAME&&GAME.tutorial; if(!T||currentView!=="board"||(T.seen&&T.seen["page:web"]))return;
   const el=document.getElementById("boardNet"); if(!el)return;
   const r=el.getBoundingClientRect(), vh=window.innerHeight||document.documentElement.clientHeight;
   if(r.height<=0||r.top>vh*0.7||r.bottom<vh*0.2)return;               // not yet on screen
   if(tutBusy()||[...document.querySelectorAll(".modal")].some(m=>m.id!=="tutorialModal"&&!m.classList.contains("hidden")))return;
-  const seen=T.seen=T.seen||{}; seen["page:web"]=true; tutPopup(TUT_WEB.title,TUT_WEB.text);
+  const seen=T.seen=T.seen||{}; seen["page:web"]=true; tutRunTour([{t:"#boardNet", fixed:true, title:TUT_WEB.title, text:TUT_WEB.text}]);
 }
 document.addEventListener("scroll",()=>{ try{ tutWatchWeb(); }catch(e){} },{capture:true, passive:true});
 function tutTipsCheck(){
@@ -25556,7 +25663,7 @@ const VERSION_HISTORY=[
   ["9.0","31 October 2026","Recall anger fades over time and compounds with each new grievance, and scandals weigh less in the vote."],
   ["9.1","31 October 2026","Laws the voters decide at the ballot are off-limits for recalls, and a petition and a recall cannot target the same law at once."],
   ["9.2","31 October 2026","Full-screen Capitol occupations with their own drawings, the OCCUPY and CONVOY seeds, and a leaner recall page."],
-  ["9.3","31 October 2026","A tutorial, chosen on the opening screen: a short welcome, and each page and key moment explaining itself the first time you meet it."],
+  ["9.3","31 October 2026","A tutorial, chosen on the opening screen: a short welcome, then spotlight tours of each page, each tab and a crisis's page the first time you open them, and a note on your first vote, report and decision."],
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
