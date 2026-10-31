@@ -939,6 +939,11 @@
   .welcome-title .eg-role b{color:var(--ink)}
   .mandrow{display:flex;gap:9px;justify-content:center;flex-wrap:wrap;margin:2px 0 4px;width:min(700px,94vw)}
   .tutrow{margin:10px 0 12px}
+  /* the tutorial's spotlight: everything dark but what it explains */
+  .tut-block{position:fixed;inset:0;z-index:8999}
+  .tut-dim{position:fixed;z-index:9000;background:rgba(10,14,16,.74)}
+  .tut-hole{position:fixed;z-index:9001;pointer-events:none;border-radius:6px;box-shadow:0 0 0 3px var(--gold),0 0 18px 4px rgba(192,134,24,.55)}
+  .tut-spotcard{position:fixed;z-index:9002;width:min(430px,92vw);margin:0;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-top:4px solid var(--gold);border-radius:4px;padding:16px 18px;box-shadow:0 12px 32px rgba(0,0,0,.4);text-align:left}
   .tutbtn{flex:0 1 460px;padding:12px 14px}
   .tutbtn .mb-name{font-size:18px}
   .tutbtn .mb-seats{font-family:var(--font-body);font-size:12.5px;letter-spacing:0}
@@ -19219,7 +19224,37 @@ function tutPopup(title,text){
   document.addEventListener("keydown",onKey,true);
   return true;
 }
-function tutBusy(){ const m=document.getElementById("tutorialModal"); return !m||!m.classList.contains("hidden"); }
+/* THE BUDGET, IN THE TOP BAR. After the board's note in your first quarter,
+   the page goes dark except the Quarterly Balance and Net Reserves, and a
+   note says why they matter. */
+const TUT_BUDGET={title:"The state's money, quarter by quarter", text:"<b>Quarterly Balance</b> is what this quarter adds to the state's money or takes from it; red means you are spending more than you take in. <b>Net Reserves</b> is the rainy-day money left after any shortfall. A deficit drains the Rainy Day Fund first. Once it is empty the gap piles up as shortfall, which every surplus pays down first, and enough of it sets off a deficit crisis. Click either figure to open the budget."};
+let _tutSpotOpen=false;
+function tutSpotlight(targets,title,text){
+  const els=targets.map(id=>document.getElementById(id)).filter(Boolean).map(e=>e.closest(".stat")||e);
+  const rs=els.map(e=>e.getBoundingClientRect()).filter(r=>r.width>0&&r.height>0);
+  if(!rs.length)return false;                                   // not on screen (a phone keeps them in the menu)
+  // the box takes in each figure and its label, even where a label runs wider than its box
+  for(const e of els)for(const k of e.querySelectorAll("*")){ const r=k.getBoundingClientRect(); if(r.width>0&&r.height>0)rs.push({left:r.left, top:r.top, right:Math.max(r.right,r.left+k.scrollWidth), bottom:r.bottom}); }
+  const pad=8, padX=16, box={l:Math.min(...rs.map(r=>r.left))-padX, t:Math.min(...rs.map(r=>r.top))-pad, r:Math.max(...rs.map(r=>r.right))+padX, b:Math.max(...rs.map(r=>r.bottom))+pad};
+  const block=document.createElement("div"), hole=document.createElement("div"), card=document.createElement("div");
+  block.className="tut-block"; hole.className="tut-hole"; card.className="card tut-spotcard";
+  Object.assign(hole.style,{left:box.l+"px", top:box.t+"px", width:(box.r-box.l)+"px", height:(box.b-box.t)+"px"});
+  card.innerHTML=`<div class="sectionhdr">${ico('bulb')} ${title}</div><div class="dilemma-text" style="margin:10px 0 14px">${text}</div><button class="enactbtn" id="tutSpotGo">Got it \u25b8</button>`;
+  const px=v=>Math.max(0,v)+"px";
+  const dims=[{left:"0", right:"0", top:"0", height:px(box.t)}, {left:"0", right:"0", top:px(box.b), bottom:"0"},
+              {left:"0", width:px(box.l), top:px(box.t), height:px(box.b-box.t)}, {left:px(box.r), right:"0", top:px(box.t), height:px(box.b-box.t)}].map(st=>{
+    const d=document.createElement("div"); d.className="tut-dim"; Object.assign(d.style,st); return d; });
+  document.body.append(block,...dims,hole,card);
+  const vw=window.innerWidth||document.documentElement.clientWidth, cw=card.offsetWidth;
+  Object.assign(card.style,{top:(box.b+14)+"px", left:Math.max(12,Math.min(vw-cw-12,(box.l+box.r)/2-cw/2))+"px"});
+  _tutSpotOpen=true;
+  const done=()=>{ block.remove(); dims.forEach(d=>d.remove()); hole.remove(); card.remove(); _tutSpotOpen=false; document.removeEventListener("keydown",onKey,true); setTimeout(tutPageTip,0); };
+  const onKey=e=>{ if(e.key==="Enter"||e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); done(); } };
+  card.querySelector("#tutSpotGo").onclick=done; block.onclick=done;
+  document.addEventListener("keydown",onKey,true);
+  return true;
+}
+function tutBusy(){ const m=document.getElementById("tutorialModal"); return _tutSpotOpen||!m||!m.classList.contains("hidden"); }
 /* A law's own page, the first time you open one. */
 const TUT_LAW={title:"A law's page", text:"What a law would do, before you try it: its public support and the floor's verdict at the top, then its effects on the state's statistics, what it costs or raises in the budget, and which voter groups it pleases or angers. The button at the top takes it to a vote when the votes can be found."};
 /* The issue web, the first time you scroll down to it on the board. */
@@ -19229,9 +19264,12 @@ function tutPageTip(){
   const seen=T.seen=T.seen||{}, v=currentView;
   const isLaw=v==="detail"&&/^p_/.test(String(detailKey||""));
   const key=isLaw?"page:law":"page:"+v, P=isLaw?TUT_LAW:TUT_PAGES[v];
-  if(!P||seen[key]||tutBusy())return;
+  if(tutBusy())return;
   // another screen in front waits to close first; the note comes after it
   if([...document.querySelectorAll(".modal")].some(m=>m.id!=="tutorialModal"&&!m.classList.contains("hidden")))return;
+  if(v==="board"&&seen["page:board"]&&!seen["spot:budget"]){ seen["spot:budget"]=true; window.scrollTo(0,0);
+    if(tutSpotlight(["hudBudget","hudFiscal"],TUT_BUDGET.title,TUT_BUDGET.text))return; }
+  if(!P||seen[key])return;
   seen[key]=true; tutPopup(P.title,P.text);
 }
 /* The board's issue web sits below the fold: its note waits until it scrolls into view. */
@@ -33624,7 +33662,6 @@ function renderDetail(){
     const sHoldsHdr=sGood?"Active effects while this bright spot holds":"Active effects while this crisis persists";
     h+=`<div class="sectionhdr">${s.kind==="good"?ico('sparkle'):ico('warning')} ${s.name}</div><div class="sectionsub">${descHTML(sitStory(s))}</div>`;
     { const r=sitRules(s); if(r)h+=`<div class="sit-rules"><div class="sit-rules-h">${s.kind==="good"?"How it holds":"How it ends"}</div>${descHTML(r)}</div>`; }
-    if(sid==="scandal"&&GAME.scandalSev)h+=`<div class="${GAME.scandalSev>=2?"pendbanner":"threshline"}" style="margin:0 0 10px">${ico('warning')} <b>${SCANDAL_SEV[GAME.scandalSev]}.</b> ${GAME.scandalSev>=2?`Serious enough to start a recall: while it runs, any voter group at 35% approval or under can file, about a ${GAME.scandalSev>=3?"one-in-three":"one-in-seven"} chance a quarter. ${GAME.scandalSev>=3?"A criminal referral also takes a quarter off the voters who would otherwise wait for the next election. ":""}<span class="sf-l" data-detail="recall">Recall \u2192</span>`:"Bad press, but not the kind that starts a recall."}</div>`;
     if(sid==="fiscalCrisis"&&potentialTaxesLine())h+=`<div class="whip-prev" style="margin:0 0 10px">${ico('receipt')} <span class="sf-l" data-detail="potentialTaxes">${potentialTaxesLine()} →</span></div>`;
     h+=`<div class="detailrow">
       <span class="pill ${s.kind==='good'?'rev':'spend'}">${sitTag(s)}</span>
