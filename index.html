@@ -10826,6 +10826,19 @@ function recallStatMood(id,sid){
 /* A law's whole effect on a group: its ideology and named reactions, and
    what it does to the statistics the group cares about. */
 function recallLawMood(id,sid){ const p=POLICIES[id]; return p?lawMoodOn(p,sid)+recallStatMood(id,sid):0; }
+/* CONTROVERSY THE MOOD MODEL MISSES. A few left-wing policies divided
+   Oregon far more than their ideology and their statistics suggest: the
+   fights over supervised drug use, decriminalized possession, the strictest
+   rent control and the gas ban in new buildings. They count against you in a
+   recall, by this many points of the statewide reading, and nowhere else:
+   approval and elections are untouched. */
+const RECALL_HEAT={
+  safeConsumption:{v:5, at:p=>policyLevel(p)},                  // scaled by how many sites
+  rentStabilization:{v:4, at:p=>p.tierIndex===3?1:0},          // Strict Control (3%, no exemption)
+  drugPossession:{v:2.5, at:p=>p.tierIndex===0?1:0},             // Decriminalized (M110)
+  gasHookups:{v:3, at:p=>p.tierIndex===3?1:0}                   // All New Buildings All-Electric
+};
+function recallHeat(id){ const H=RECALL_HEAT[id], p=POLICIES[id]; return (H&&p&&p.enacted!==false)?H.v*H.at(p):0; }
 function recallState(){
   let R=GAME.recall;
   if(!R){
@@ -10840,6 +10853,8 @@ function recallState(){
       R.mood0[id]=m; }
     R.ideo0=true; R.stat0=true;
   }
+  // and how controversial the inherited settings already were
+  if(!R.heat0){ R.heat0={}; for(const id in RECALL_HEAT)R.heat0[id]=recallHeat(id); }
   // a game saved before the ideologies were measured takes them from now
   if(!R.ideo0){ R.ideo0=true;
     for(const id in POLICIES){ const m=R.mood0[id]=R.mood0[id]||{};
@@ -11067,7 +11082,7 @@ function recallLawNets(){
   for(const id of ids){
     if(enactedViaBallot(id))continue;
     if(!POLICIES[id]&&!CATALOG[id])continue;
-    out[id]=+(0.5*share(id,"ideology")+0.5*cats.reduce((t,c)=>t+share(id,c),0)/cats.length).toFixed(2);
+    out[id]=+(0.5*share(id,"ideology")+0.5*cats.reduce((t,c)=>t+share(id,c),0)/cats.length-(recallHeat(id)-(R.heat0[id]||0))).toFixed(2);
   }
   return out;
 }
@@ -25153,7 +25168,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="8.3";
+const GAME_VERSION="8.4";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -25193,6 +25208,7 @@ const VERSION_HISTORY=[
   ["8.1","29 October 2026","The recall vote is decided by what you did, not a flat lean: your own side's loyalty (which breaks if your own side organized it), how close the next election is, a scandal, a pattern of unpopular laws, and executive orders. A serious scandal or criminal referral can start a recall on its own. The recall page has its own tools: a decline-to-sign canvass, a full signature count, meeting the organizers, a No campaign, endorsements, voter-group and county pushes, and two points of war-footing energy a quarter. The quarterly report links straight to them."],
   ["8.2","29 October 2026","The recall gets a story and an opponent. The organizers run a Yes campaign with its own energy, fed by their money, anger and opposition momentum, and by anything you do while it runs: an executive order, a law the state dislikes, a scandal. Left alone it fades, and a drive whose campaign fades too far collapses. Drives can run up to four quarters. The recall page charts the petition or the vote, and the two campaigns, with what happened marked; lists what moved the Yes campaign each quarter; and maps where the signatures come from, with canvassing county by county. Tuned so recalls stay very uncommon: a drive rarely qualifies unless the governor is deeply unpopular, and during the vote orders and unpopular laws count once. Opposition momentum links to where it is explained, the energy you have spent fighting a recall is tallied on its page and in Campaign HQ, and the drive is named a Recall Signature Drive. The recall page is laid out like a crisis page, with a verdict box, bar breakdowns and charts, and the same page is Campaign HQ's Recall tab; its briefing screens carry the banner's colour."],
   ["8.3","30 October 2026","A recall drive needs more than one controversial law: a governor at 40% approval or below, and a pattern of at least three unpopular laws or executive orders, and never alongside a lawsuit: no drive starts while one runs, and no suit is filed during a recall. A quarter into a drive over a law, the organizers may name their terms (likelier when they are falling behind), a specific compromise: pass it and the drive ends, with the agreed law immune from lawsuit, or refuse. A qualified recall asks you to defend your record on the ballot or resign. While a recall runs, legislators keep their distance and every vote costs more, and the opposition leader fronts the Yes campaign. Recall night reports county by county. The RECALL seed plays the whole arc."]
+  ["8.4","30 October 2026","A recall vote comes two quarters after the petition qualifies, in whatever quarter that falls: on the midterm or general ballot it is counted on that night, and otherwise it has a night of its own. Every executive order in force counts against you in the vote. The recall page loses its quarter-by-quarter vote chart, since the waterfall and the Yes bar carry it, and its buttons no longer jump when a row appears: the decline-to-sign campaign, endorsements, your voter-group work and the newly named Boost the No on Recall campaign all keep their rows from the start. A recall started by a scandal never offers terms. Four left-wing policies that divided Oregon more than the mood model shows now count against you in a recall only, never in approval: Safe Consumption Sites and the strictest rent cap heavily, decriminalized possession and the gas ban in all new buildings less so. The opening line now says four years, eight if Oregon re-elects you."],
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
