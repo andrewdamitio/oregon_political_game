@@ -10756,11 +10756,14 @@ const RECALL_NO_LEAN=15;               // "just vote them out next time": points
 const RECALL_FURY=25;                  // a group's approval of you must be at or under this
 const RECALL_HURT=12;                  // ...and your laws and orders together must have cost it this much
 const RECALL_HURT_MIN=2;               // an action counts toward that if it cost them at least this
-const RECALL_ACTIONS=2;                // and it takes two or more: one law alone is not enough
+const RECALL_FADE_Q=4;                 // what you did weighs half as much a year (four quarters) later
+const RECALL_TWEAK=0.5;                // a law moved this little or less against a group is not fresh anger
+// the chance a quarter that a furious group files, by how many of your actions
+// are behind it (each counted as much as it has not yet faded)
+const RECALL_ODDS=[[0,0],[1,0.005],[2,0.015],[3,0.03],[4,0.04],[5,0.05]];
 const RECALL_REACH=0.05;               // share of the electorate that votes, under which a group cannot gather alone
 const RECALL_SPARK=5;                  // a law that cost the group this much approval can be named
 const RECALL_SHARP=20;                 // hurt this badly, a group files after one quarter, not two
-const RECALL_START_CHANCE=0.03;         // each quarter everything holds, the chance someone files
 const RECALL_PER_TERM=2, RECALL_GROUP_COOL=4;
 const RECALL_CATS=["region","income","housing","sector","lifestage","community"];
 // the fourth quarter of years two (with the midterm) and three (a special) of a term
@@ -10883,18 +10886,58 @@ function recallHit(id,sid){
    every executive order in force, that cost this group approval: the
    recall's case against you, as the group would make it. */
 function recallEOHit(id,sid){ return eoLive(id)?(((EXEC_ORDERS[id]||{}).blocEffect||{})[sid]||0):0; }
+/* FRESH ANGER. A law hurts a group the moment you pass it, and the anger
+   fades: it weighs half as much a year later, by which time those still
+   angry are waiting for the next election. A tweak that makes a law a
+   little worse for them adds only that little as fresh anger; it does not
+   start the clock again. Kept per group and law, and faded once a quarter. */
+function recallAngerOf(sid,id,h){
+  const rec=((recallState().anger||{})[sid]||{})[id];
+  if(!rec)return h;                                      // new since the last count: all fresh
+  let f=rec.f; if(h>rec.peak+RECALL_TWEAK)f+=h-rec.peak;   // made worse since: the increase is fresh
+  return Math.min(f,h);
+}
+function recallAngerTick(){
+  const R=recallState(), A=R.anger=R.anger||{}, k=Math.pow(0.5,1/RECALL_FADE_Q);
+  const ids=new Set(Object.keys(POLICIES).concat(Object.keys(R.mood0)));
+  for(const sid of recallGroups()){ const G=A[sid]=A[sid]||{};
+    for(const id of ids){
+      const touched=!enactedViaBallot(id)&&(POLICIES[id]||CATALOG[id])&&recallLawTouched(id);
+      const h=touched?Math.max(0,-recallHit(id,sid)):0;
+      const rec=G[id];
+      if(!rec){ if(h>0)G[id]={f:h*k, peak:h}; continue; }
+      if(h>rec.peak+RECALL_TWEAK)rec.f+=h-rec.peak;
+      rec.peak=h; rec.f=Math.min(rec.f,h)*k;
+      if(h<=0&&rec.f<0.05)delete G[id];
+    }
+  }
+}
+/* What you did to a group, action by action: each law or order's damage,
+   and how much of it is still fresh. The fury a drive needs is the fresh
+   part; its odds rise with how many actions are behind it. */
 function recallHurt(sid){
   const R=recallState(), acts=[];
   const ids=new Set(Object.keys(POLICIES).concat(Object.keys(R.mood0)));
   for(const id of ids){
     if(enactedViaBallot(id))continue;
     const p=POLICIES[id]||CATALOG[id]; if(!p||!recallLawTouched(id))continue;
-    const h=recallHit(id,sid);
-    if(h<=-RECALL_HURT_MIN)acts.push({kind:"law", id, name:p.name, hit:+h.toFixed(1), repealed:!POLICIES[id]});
+    const h=-recallHit(id,sid); if(h<RECALL_HURT_MIN)continue;
+    const f=recallAngerOf(sid,id,h);
+    acts.push({kind:"law", id, name:p.name, hit:+(-f).toFixed(1), full:+h.toFixed(1), w:f/h, repealed:!POLICIES[id]});
   }
-  for(const id of recallLiveEOs()){ const h=recallEOHit(id,sid); if(h<=-RECALL_HURT_MIN)acts.push({kind:"eo", id, name:EXEC_ORDERS[id].name, hit:h}); }
+  for(const id of recallLiveEOs()){ const h=-recallEOHit(id,sid); if(h<RECALL_HURT_MIN)continue;
+    const st=eoState(id), age=Math.max(0,GAME.turn-((st&&st.signed)!=null?st.signed:GAME.turn)), w=Math.pow(0.5,age/RECALL_FADE_Q);
+    acts.push({kind:"eo", id, name:EXEC_ORDERS[id].name, hit:+(-h*w).toFixed(1), full:h, w}); }
   acts.sort((a,b)=>a.hit-b.hit);
-  return {acts, total:+(-acts.reduce((t,a)=>t+a.hit,0)).toFixed(1)};
+  const n=acts.reduce((t,a)=>t+a.w,0);
+  return {acts, n, odds:recallOdds(n), total:+(-acts.reduce((t,a)=>t+a.hit,0)).toFixed(1)};
+}
+/* The chance a quarter that a furious group files, from the faded count of
+   your actions behind it, read off RECALL_ODDS. */
+function recallOdds(n){
+  const T=RECALL_ODDS; if(n>=T[T.length-1][0])return T[T.length-1][1];
+  for(let i=1;i<T.length;i++)if(n<=T[i][0]){ const [a,pa]=T[i-1], [b,pb]=T[i]; return pa+(pb-pa)*(n-a)/(b-a); }
+  return 0;
 }
 /* THE COALITION. A drive one group files, others it has angered as badly
    can join: the same fury, without having to be big enough to organize
@@ -10903,7 +10946,7 @@ function recallHurt(sid){
 const RECALL_PARTNER=0.5;                // a partner gathers, funds and turns out at this share of the lead
 function recallFurious(sid){
   const H=recallHurt(sid), R=GAME.recall||{};
-  return H.total>=RECALL_HURT&&H.acts.length>=RECALL_ACTIONS&&SIMULANTS[sid].approval<=RECALL_FURY&&!((R.cool||{})[sid]>GAME.turn)?H:null;
+  return H.total>=RECALL_HURT&&SIMULANTS[sid].approval<=RECALL_FURY&&!((R.cool||{})[sid]>GAME.turn)?H:null;
 }
 function recallJoinPartners(X,T,quiet){
   const R=GAME.recall; X.partners=X.partners||[]; X.acts=X.acts||[];
@@ -11000,10 +11043,10 @@ function recallStatewide(){
 function recallGroupStatus(sid,SW){
   const R=recallState(), sim=SIMULANTS[sid], H=recallHurt(sid), spark=H.acts[0]||null, reach=recallReach(sid);
   const cool=(R.cool[sid]||0)>GAME.turn;
-  const named=H.acts.slice(0,3).map(a=>a.name).join(", ")+(H.acts.length>3?" and "+(H.acts.length-3)+" more":"");
+  const named=H.acts.slice(0,3).map(a=>a.name+(a.w<0.95?" ("+Math.round(a.w*100)+"%)":"")).join(", ")+(H.acts.length>3?" and "+(H.acts.length-3)+" more":"");
   const conds=[
-    {name:"What you did cost them "+RECALL_HURT+" points of approval or more", now:H.total.toFixed(0)+" points", ok:H.total>=RECALL_HURT},
-    {name:RECALL_ACTIONS+" or more of your laws or executive orders behind it", now:H.acts.length?H.acts.length+": "+named:"none", ok:H.acts.length>=RECALL_ACTIONS},
+    {name:"What you did cost them "+RECALL_HURT+" points of approval or more, while it is fresh", now:H.total.toFixed(0)+" points", ok:H.total>=RECALL_HURT},
+    {name:"Your laws and orders behind it, each as much as it has not faded", now:H.acts.length?H.n.toFixed(1)+": "+named+"; about "+(H.odds*100).toFixed(1)+"% a quarter that they file":"none", ok:H.acts.length>0},
     {name:"Approval of you at "+RECALL_FURY+"% or under", now:Math.round(sim.approval)+"%", ok:sim.approval<=RECALL_FURY},
     {name:"Big enough to gather the names", now:(reach*100).toFixed(1)+"% of voters", ok:reach>=RECALL_REACH||recallOrganized(sid)}
   ];
@@ -11358,7 +11401,8 @@ function recallTick(){
     (GAME.pendingRecallNews=GAME.pendingRecallNews||[]).push({kind:"started", group:sp.group, spark:sp.spark});
     GAME.log.push(ico('ballot')+" "+SIMULANTS[sp.group].name+" have filed to recall you over "+recallSparkTxt(sp.spark));
     return; }
-  // every group's anger is counted every quarter, so a short fuse is honest
+  // what you did fades a quarter older; then every group's anger is counted, so a short fuse is honest
+  recallAngerTick();
   const ready={};
   const SW=recallStatewide();
   for(const sid of recallGroups()){ const st=recallGroupStatus(sid,SW);
@@ -11465,10 +11509,10 @@ function recallTick(){
   if(!sid){
     const cands=Object.keys(ready).filter(g=>R.angry[g]>=(ready[g].hurt.total>=RECALL_SHARP?1:2));
     if(!cands.length)return;
-    if(Math.random()>=RECALL_START_CHANCE)return;
-    // the angriest group with the most hands
+    // the angriest group with the most hands first; each rolls its own odds
     cands.sort((a,b)=>(45-SIMULANTS[b].approval)*recallReach(b)-(45-SIMULANTS[a].approval)*recallReach(a));
-    sid=cands[0]; sp=ready[sid].spark; acts=ready[sid].hurt.acts.map(a=>({kind:a.kind, id:a.id}));
+    sid=cands.find(g=>Math.random()<ready[g].hurt.odds); if(!sid)return;
+    sp=ready[sid].spark; acts=ready[sid].hurt.acts.map(a=>({kind:a.kind, id:a.id}));
   }
   // up to four quarters to gather, and always time for the vote after
   R.drive={group:sid, spark:sp, acts, partners:[], start:T+1, len, q:0, sigs:0, hist:[], energy:0};
@@ -12216,7 +12260,7 @@ function recallWatchHTML(){
   for(const st of rows.slice(0,4)){
     h+=`<div class="sf-r"><div class="sf-cs"><div class="sf-c"><b><span class="sf-l" data-detail="v_${st.sid}">${SIMULANTS[st.sid].name}</span></b>${st.cool?' <em>will not file again until '+turnLabel(R.cool[st.sid])+'</em>':''}</div>${st.conds.map(c=>sitCondHTML(c,true)).join("")}</div></div>`;
   }
-  return h+`<div class="threshline" style="font-style:italic">A recall is one group's fury, not the state's mood. A drive can start when every line holds for a group, and the courts are clear, for two quarters running, or one if what you did cost them ${RECALL_SHARP} points or more. One law alone is never enough: it takes it with another law or an executive order against the same people. Even then it is about a one-in-thirty chance a quarter that someone files. No drive starts in a term's first six months or its last year, after you survive one, or more than ${RECALL_PER_TERM} times a term.${recallScandalSev()>=2?` <b>The scandal (${SCANDAL_SEV[recallScandalSev()].toLowerCase()}) changes this:</b> while it runs, any group at 35% or under can file, about a ${recallScandalSev()>=3?"one-in-three":"one-in-seven"} chance a quarter.`:""}</div></div>`;
+  return h+`<div class="threshline" style="font-style:italic">A recall is one group's fury, not the state's mood. A drive can start when every line holds for a group, and the courts are clear, for two quarters running, or one if what you did cost them ${RECALL_SHARP} points or more. Then the more of your actions are behind their fury, the likelier they file: about one in two hundred a quarter for one law, rising to one in twenty for five or more. Each counts in full when you act and half as much a year later, and a small change to a law adds only its own increase. No drive starts in a term's first six months or its last year, after you survive one, or more than ${RECALL_PER_TERM} times a term.${recallScandalSev()>=2?` <b>The scandal (${SCANDAL_SEV[recallScandalSev()].toLowerCase()}) changes this:</b> while it runs, any group at 35% or under can file, about a ${recallScandalSev()>=3?"one-in-three":"one-in-seven"} chance a quarter.`:""}</div></div>`;
 }
 /* The banner on the board: bigger than a crisis card, and its own colour. */
 function recallBannerHTML(){
@@ -25271,7 +25315,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="8.9";
+const GAME_VERSION="9.0";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -25317,6 +25361,7 @@ const VERSION_HISTORY=[
   ["8.7","30 October 2026","Banning public employees' collective bargaining outright brings a recall drive from the public-sector unions on its own, once a term, as Wisconsin's Act 10 did: no lawsuit, no waiting for their anger to build, and any running suit is dropped for it. It still waits out a term's first six months and never starts in the re-election year. If the unions name terms, their price is restoring bargaining rights a tier."],
   ["8.8","30 October 2026","The recall vote no longer counts your laws and orders twice. Your approval already carries what the state thinks of them, so the separate rows for unpopular laws and executive orders are gone. They feed the Yes campaign instead, as its case: the laws behind the drive, as unpopular as the state finds them, and every order in force, with the organizers' money and opposition momentum, up to 4 points in all. The campaign's row says what fuels it. A law you never touched no longer counts against you, Fight the recall opens the recall page, and the qualified screen drops the quarters-until-the-vote box."],
   ["8.9","31 October 2026","Recall drives become coalitions. Once a group files, any other group you have angered as badly (12 points or more from two or more of your laws or orders, and 25% approval or under) joins it, at filing or in any later quarter until it qualifies. Partners gather signatures at half the lead's strength, each one after the first a little less, add their grievances to the Yes campaign's case and half their money to its funds, and turn out harder at the vote. A drive that fails or is settled cools every group in it. The news, the banner and the recall page name the coalition, and the signature waterfall has a row for each partner. A coalition never starts a drive no single group would. A drive no longer collapses early: since the organizers' money stopped depending on their anger, its energy could not fall that low, so the drive simply runs its two to four quarters. The Yes campaign no longer has energy that builds up and wears off. In the vote it is read fresh each quarter: their case (the laws behind the drive, any unpopular law passed since, and every executive order in force), their money, opposition momentum and the opposition leader fronting it, each adding a little less as they pile up, and the Their campaign box shows exactly those parts. During the drive their money pays signature gatherers, a row in the signature waterfall. Only an outright ban on collective bargaining brings the unions' drive on its own; limiting it is fought like any other law."],
+  ["9.0","31 October 2026","Recall anger fades and compounds. What you do to a group counts in full when you do it and half as much a year later, so a recall is likeliest just after you act and a quiet year cools it. A small change to a law adds only its own increase as fresh anger; it does not restart the clock. One law alone can now bring a drive, but rarely: a furious group files with about a one-in-two-hundred chance a quarter for one action, rising with each more behind its fury to one in twenty for five or more. The recall watch shows how much each action still counts and the odds."],
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
