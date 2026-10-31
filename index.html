@@ -10913,12 +10913,44 @@ function recallPattern(){
   return {laws, eos, n:laws.length+eos.length};
 }
 function recallSuits(){ return Object.keys(GAME.courtCases||{}).length; }
+/* A REASON TO TRADE THE COURTS FOR THE BALLOT. A lawsuit normally keeps a
+   recall off: the opposition is already fighting you in court. A serious
+   scandal, government by executive order, or a collapse in approval makes
+   removing you worth more than winning one case, and a drive can be filed
+   anyway. The suits are dropped the moment it is, for good. */
+const RECALL_SWAP_EOS=3, RECALL_SWAP_APPR=30;
+function recallEscalation(){
+  const sev=recallScandalSev(), eos=recallEOs(), oa=overallApproval();
+  if(sev>=2)return {kind:"scandal", txt:sev>=3?"a criminal referral":"a serious scandal"};
+  if(eos>=RECALL_SWAP_EOS)return {kind:"eos", txt:eos+" executive orders in force"};
+  if(oa<=RECALL_SWAP_APPR)return {kind:"collapse", txt:"your approval at "+Math.round(oa)+"%"};
+  return null;
+}
+/* The plaintiffs drop every running suit to back the drive. The law each was
+   against is safe from that suit afterwards, in the form it was sued over. */
+function recallDropSuits(){
+  const out=[];
+  for(const id of Object.keys(GAME.courtCases||{})){
+    const p=POLICIES[id], L=COURT_LAWS[id];
+    delete GAME.courtCases[id]; courtDecided(id);
+    if(!p)continue;
+    p.courtEnjoined=false;
+    (GAME.courtImmune=GAME.courtImmune||{})[id]=courtTier(p)+"|"+Object.keys(p.prov||{}).sort().join(",");
+    out.push({id, name:p.name, who:L?L.who:"The plaintiffs"});
+    GAME.log.push(ico('gavel')+" The suit against "+p.name+(L?" ("+L.who.charAt(0).toLowerCase()+L.who.slice(1)+")":"")+" was dropped to back the recall");
+  }
+  if(GAME.pendingDilemma==="courtCase"&&!GAME.courtDecision)GAME.pendingDilemma=null;
+  return out;
+}
 function recallStatewide(){
   const oa=overallApproval(), pat=recallPattern();
   return {oa, pat, conds:[
     {name:"Your statewide approval at "+RECALL_UNPOP+"% or under", now:Math.round(oa)+"%", ok:oa<=RECALL_UNPOP},
     {name:"A pattern: "+RECALL_PATTERN+" or more unpopular laws or executive orders in force", now:pat.n+" now", ok:pat.n>=RECALL_PATTERN},
-    {name:"No lawsuit against one of your laws in the courts", now:recallSuits()?recallSuits()+" running":"none", ok:!recallSuits()}]};
+    (()=>{ const n=recallSuits(), esc=n?recallEscalation():null;
+      return {name:"No lawsuit against one of your laws, or a reason to drop one",
+        now:!n?"none":esc?n+" running, but "+esc.txt+": "+(n>1?"they":"it")+" would be dropped for a recall"
+          :n+" running; dropped only for a serious scandal, "+RECALL_SWAP_EOS+" or more executive orders, or approval at "+RECALL_SWAP_APPR+"% or under", ok:!n||!!esc}; })()]};
 }
 /* Every test a group has to pass before it can start a drive, as rows:
    its own, then the statewide ones every drive needs. */
@@ -11352,7 +11384,8 @@ function recallTick(){
     return;
   }
   if(R.drive||R.survived||R.count>=RECALL_PER_TERM)return;
-  if(recallSuits())return;                                 // not while a suit is in the courts
+  const esc=recallSuits()?recallEscalation():null;
+  if(recallSuits()&&!esc)return;                           // not while a suit is in the courts, without a reason to drop it
   // a drive filed now starts gathering next quarter
   const sInto=into+1;
   if(sInto<2)return;                                       // not in the first six months
@@ -11382,6 +11415,7 @@ function recallTick(){
   }
   // up to four quarters to gather, and always time for the vote after
   R.drive={group:sid, spark:sp, start:T+1, len, q:0, sigs:0, hist:[], energy:0};
+  if(esc){ R.drive.dropped=recallDropSuits(); R.drive.esc=esc.txt; }
   R.drive.terms=recallTerms(R.drive);
   R.count++; recallWarFooting();
   recallOpenCampaign(R.drive, T+1);
@@ -11997,7 +12031,7 @@ function showRecallNews(ev,next){
   const tag=ev.kind==="started"?"Recall signature drive":ev.kind==="qualified"?"Recall election":"Recall";
   const tl=ev.terms?ev.terms.label.charAt(0).toLowerCase()+ev.terms.label.slice(1):"";
   const body=ev.kind==="started"
-    ?`${who} have filed to recall you over <b>${why}</b>. Most drives fall short, but this one is now the most serious thing on your desk.${D&&D.terms?" Once their first signatures are in, they may name a price for calling it off.":""}`
+    ?`${who} have filed to recall you over <b>${why}</b>. Most drives fall short, but this one is now the most serious thing on your desk.${D&&D.terms?" Once their first signatures are in, they may name a price for calling it off.":""}${D&&D.dropped&&D.dropped.length?` With ${D.esc}, the opposition has moved from the courts to the ballot. ${D.dropped.length>1?"The suits against":"The suit against"} ${D.dropped.map(x=>x.name+" ("+x.who.charAt(0).toLowerCase()+x.who.slice(1)+")").join(" and ")} ${D.dropped.length>1?"are":"is"} dropped. ${D.dropped.length>1?"Those laws are":"That law is"} safe from ${D.dropped.length>1?"those suits":"that suit"} now.`:""}`
     :ev.kind==="qualified"
     ?`${who} turned in enough valid signatures over <b>${why}</b>. The recall goes on the ballot. If Yes wins, you are removed from office.`
     :ev.kind==="settled"
@@ -25168,7 +25202,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="8.4";
+const GAME_VERSION="8.5";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -25209,6 +25243,7 @@ const VERSION_HISTORY=[
   ["8.2","29 October 2026","The recall gets a story and an opponent. The organizers run a Yes campaign with its own energy, fed by their money, anger and opposition momentum, and by anything you do while it runs: an executive order, a law the state dislikes, a scandal. Left alone it fades, and a drive whose campaign fades too far collapses. Drives can run up to four quarters. The recall page charts the petition or the vote, and the two campaigns, with what happened marked; lists what moved the Yes campaign each quarter; and maps where the signatures come from, with canvassing county by county. Tuned so recalls stay very uncommon: a drive rarely qualifies unless the governor is deeply unpopular, and during the vote orders and unpopular laws count once. Opposition momentum links to where it is explained, the energy you have spent fighting a recall is tallied on its page and in Campaign HQ, and the drive is named a Recall Signature Drive. The recall page is laid out like a crisis page, with a verdict box, bar breakdowns and charts, and the same page is Campaign HQ's Recall tab; its briefing screens carry the banner's colour."],
   ["8.3","30 October 2026","A recall drive needs more than one controversial law: a governor at 40% approval or below, and a pattern of at least three unpopular laws or executive orders, and never alongside a lawsuit: no drive starts while one runs, and no suit is filed during a recall. A quarter into a drive over a law, the organizers may name their terms (likelier when they are falling behind), a specific compromise: pass it and the drive ends, with the agreed law immune from lawsuit, or refuse. A qualified recall asks you to defend your record on the ballot or resign. While a recall runs, legislators keep their distance and every vote costs more, and the opposition leader fronts the Yes campaign. Recall night reports county by county. The RECALL seed plays the whole arc."],
   ["8.4","30 October 2026","A recall vote comes two quarters after the petition qualifies, in whatever quarter that falls: on the midterm or general ballot it is counted on that night, and otherwise it has a night of its own. Every executive order in force counts against you in the vote. The recall page loses its quarter-by-quarter vote chart, since the waterfall and the Yes bar carry it, and its buttons no longer jump when a row appears: the decline-to-sign campaign, endorsements, your voter-group work and the newly named Boost the No on Recall campaign all keep their rows from the start. A recall started by a scandal never offers terms. Four left-wing policies that divided Oregon more than the mood model shows now count against you in a recall only, never in approval: Safe Consumption Sites and the strictest rent cap heavily, decriminalized possession and the gas ban in all new buildings less so. The opening line now says four years, eight if Oregon re-elects you."],
+  ["8.5","30 October 2026","Recall drives are rarer: when every test holds, about a one-in-twenty chance a quarter that someone files, down from one in five. A lawsuit no longer shields you from a recall when there is reason to escalate: a serious scandal, three or more executive orders in force, or approval at 30% or under. Then a drive can be filed while a suit runs, and the plaintiffs drop every suit to back it, for good: the laws they were against are safe from those suits afterwards."],
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
