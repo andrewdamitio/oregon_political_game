@@ -10853,6 +10853,7 @@ function recallState(){
     for(const id in POLICIES){ const m={};
       for(const sid of gs.concat(recallIdeoGroups())){ const v=recallLawMood(id,sid); if(Math.abs(v)>0.05)m[sid]=+v.toFixed(2); }
       R.mood0[id]=m; }
+    R.lvl0={}; for(const id in POLICIES)R.lvl0[id]={lvl:policyLevel(POLICIES[id]), tier:POLICIES[id].tierIndex};
     R.ideo0=true; R.stat0=true;
   }
   // and how controversial the inherited settings already were
@@ -11691,6 +11692,18 @@ function recallWaterfallHTML(start, steps, end, line, fmtTot, fmtStep, forYou){
   if(line)h+=`<div class="wf-key"><b class="wf-key-line"></b>${line.label}</div>`;
   return h+`</div>`;
 }
+/* What you did to a law, in a row's words: enacted it, repealed it, moved
+   it to another tier, or raised or cut it from where you found it. */
+function recallLawStep(x){
+  const R=GAME.recall||{}, p=POLICIES[x.id], b=(R.lvl0||{})[x.id];
+  if(x.repealed)return "Repealed: "+x.name;
+  if(!(x.id in (R.mood0||{})))return "Passed: "+x.name;
+  if(p&&b){
+    if(p.mechanic==="tier"&&p.tiers&&b.tier!=null&&p.tierIndex!==b.tier)return x.name+": "+p.tiers[b.tier]+" to "+p.tiers[p.tierIndex];
+    const l=policyLevel(p); if(l>b.lvl+0.005)return "Raised: "+x.name; if(l<b.lvl-0.005)return "Cut: "+x.name;
+  }
+  return "Changed: "+x.name;
+}
 /* WHY: how the drive's signatures, or the vote, add up. */
 function recallWhyHTML(){
   const R=GAME.recall, D=R.drive, Vt=R.vote, X=D||Vt, who=SIMULANTS[X.group].name;
@@ -11731,7 +11744,7 @@ function recallWhyHTML(){
   const P=recallVoteParts(Vt), P0=Vt.statement?recallVoteParts(Vt,true):P;
   let h=`<div class="ebgroup-label">How the vote adds up</div><div class="ebgroup">`
     +recallVoteWaterfall(Vt,P0,P,null)
-    +`<div class="threshline" style="margin-top:8px;font-style:italic">Steps are points of the vote. Green works for you, red for them. Your <span class="sf-l" data-detail="approval">approval among likely voters</span> is ${P.A.toFixed(1)}%. Laws the state dislikes count against you whatever your approval, each by how much it is disliked, for what it costs people as well as for its politics; so does every executive order in force. Each one you add before the vote moves this directly. Your record is the same count the end of a term makes: ${RECORD_STATS.map(r=>r[2]).join(", ")}, each against where it stood when you took office.</div>`;
+    +`<div class="threshline" style="margin-top:8px;font-style:italic">Steps are points of the vote. Green works for you, red for them. Your <span class="sf-l" data-detail="approval">approval among likely voters</span> is ${P.A.toFixed(1)}%. Laws the state dislikes count against you whatever your approval, each by how much it is disliked, for what it costs people as well as for its politics; so does every executive order in force. Each one you add before the vote moves this directly. The Yes campaign adds up to 3 points: the organizers' money (richer and angrier groups raise more), opposition momentum, and a lift from every executive order or unpopular law you add while it runs. Left alone it fades; Their campaign, below, shows its energy. Your record is the same count the end of a term makes: ${RECORD_STATS.map(r=>r[2]).join(", ")}, each against where it stood when you took office.</div>`;
   return h+`</div>`;
 }
 /* ---- THE STATEMENT OF JUSTIFICATION ----
@@ -11839,10 +11852,10 @@ function recallVoteWaterfall(Vt,P0,P,counted){
   // what you have done counts whatever your approval: always shown, at zero too
   const ea=P0.over.each||[];
   if(!ea.length)steps.push({label:"Laws the state dislikes", v:0, always:true});
-  for(const x of ea.slice(0,4))steps.push({label:(x.repealed?"Repealing ":"")+x.name, v:x.v});
+  for(const x of ea.slice(0,4))steps.push({label:recallLawStep(x), v:x.v});
   if(ea.length>4)steps.push({label:"Other laws the state dislikes ("+(ea.length-4)+")", v:ea.slice(4).reduce((t,x)=>t+x.v,0)});
-  steps.push({label:"Executive orders in force", v:P0.eoPen, always:true});
-  if(P0.yesCamp>0.05)steps.push({label:"The Yes campaign", v:P0.yesCamp});
+  steps.push({label:"Executive orders in force"+(P0.eos?" ("+P0.eos+")":""), v:P0.eoPen, always:true});
+  if(P0.yesCamp>0.05)steps.push({label:"The Yes campaign"+(SIMULANTS[Vt.group]?" run by "+SIMULANTS[Vt.group].name:""), v:P0.yesCamp});
   if(P0.endorse||live)steps.push({label:"Endorsements against the recall", v:-(P0.endorse||0)});
   if(P0.camp>0.05||live)steps.push({label:"Your No on Recall campaign", v:P0.camp>0.05?-P0.camp:0});
   if(Vt.statement){ const rc=recallRecordNet();
