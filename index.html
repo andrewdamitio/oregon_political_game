@@ -11014,7 +11014,7 @@ function recallAddressed(X){
   const sp=X.spark; if(!sp||sp.kind==="scandal")return false;
   return sp.kind==="law"?recallHit(sp.id,X.group)>-RECALL_SPARK*0.5:sp.kind==="eo"?!eoLive(sp.id):!GAME.activeSituations[sp.id];
 }
-const RECALL_EO_EACH=0.75;   // Yes points for each executive order in force, up to 4
+const RECALL_CASE_EO=0.5, RECALL_CAMP_CAP=4;   // each order in force in their case; the most the Yes campaign adds
 function recallEOs(){ try{ return eoLiveList().length; }catch(e){ return 0; } }
 const SCANDAL_SEV=["","Embarrassing","Serious","Criminal referral"];
 /* How bad the scandal is, rolled when it breaks. Only a serious one or a
@@ -11104,8 +11104,8 @@ const RECALL_FADE=0.6, RECALL_COLLAPSE=2;
 const RECALL_PROV_EO=2, RECALL_PROV_LAW=2, RECALL_PROV_SCANDAL=4;
 function recallYesBase(sid){
   const sim=SIMULANTS[sid]; if(!sim)return 0;
-  const anger=clamp((45-sim.approval)/45,0,1), mom=GAME.opposition?GAME.opposition.momentum:25;
-  const money=(RECALL_FUND[sid]||1)*(0.6+2.4*anger), opp=clamp((mom-25)/20,0,2);
+  const mom=GAME.opposition?GAME.opposition.momentum:25;
+  const money=(RECALL_FUND[sid]||1)*1.5, opp=clamp((mom-25)/20,0,2);
   // once it is a vote, the opposition's leader fronts it: one more point a quarter
   const front=(GAME.recall&&GAME.recall.vote&&GAME.recall.vote.group===sid)?1:0;
   return {money, opp, front, total:money+opp+front};
@@ -11130,25 +11130,19 @@ function recallLawNets(){
   }
   return out;
 }
-/* "IT IS NOT ONE BILL, IT IS A PATTERN." Every law the electorate dislikes
-   counts against you in a recall vote in proportion to how much it is
-   disliked: a slightly unpopular law a little, a deeply unpopular one a
-   lot, with only the near-neutral left out. The total eases off as it
-   grows, so a long list cannot run away with the vote. Each law's share
-   of it is kept, for the waterfall to show law by law. laws is the
-   clearly unpopular ones, which the pattern test for starting a drive
-   counts. */
-const RECALL_LAW_DEAD=0.2, RECALL_LAW_K=0.7, RECALL_LAW_CAP=5;
-function recallOverreach(){
-  const nets=recallLawNets(), laws=[], each=[];
-  for(const id in nets){ const net=nets[id], p=POLICIES[id]||CATALOG[id];
-    const c=Math.max(0,-net-RECALL_LAW_DEAD)*RECALL_LAW_K;
-    if(c>0)each.push({id, name:p.name, net:+net.toFixed(1), raw:c, repealed:!POLICIES[id]});
-    if(net<=-1)laws.push({id, name:p.name, net:+net.toFixed(1), repealed:!POLICIES[id]}); }
-  const raw=each.reduce((t,x)=>t+x.raw,0), pen=RECALL_LAW_CAP*Math.tanh(raw/RECALL_LAW_CAP), k=raw>0?pen/raw:0;
-  for(const x of each)x.v=+(x.raw*k).toFixed(2);
-  each.sort((a,b)=>b.v-a.v); laws.sort((a,b)=>a.net-b.net);
-  return {pen, laws, each};
+/* THE YES CAMPAIGN'S CASE. What the organizers can run on: the laws behind
+   their drive, as unpopular as the state finds them, and every executive
+   order in force. Counted once, here, as part of their campaign: what you
+   did already shows in your approval, which the vote starts from. */
+const RECALL_LAW_DEAD=0.2, RECALL_LAW_K=0.7;
+function recallCase(Vt){
+  const nets=recallLawNets(), laws=[]; let pts=0;
+  for(const a of ((Vt&&Vt.acts)||[])){ if(a.kind!=="law")continue;
+    const n=nets[a.id]; if(n==null||n>-RECALL_LAW_DEAD)continue;
+    const v=(-n-RECALL_LAW_DEAD)*RECALL_LAW_K, p=POLICIES[a.id]||CATALOG[a.id];
+    laws.push({id:a.id, name:p?p.name:a.id, v}); pts+=v; }
+  const eos=recallEOs(); pts+=eos*RECALL_CASE_EO;
+  return {laws, eos, pts};
 }
 /* What you have done since the last quarter's count that the Yes campaign
    can use. Read live, so the page can warn you before the quarter ends. */
@@ -11280,16 +11274,17 @@ function recallVoteParts(Vt,noStmt){
   let grievance=sev>=3?0.5*(loyalty+time):sev>=2?6:sp.kind==="crisis"?2:0;
   if(st==="apologize")grievance*=0.6; else if(st==="deny")grievance*=1.25;
   const recShift=st==="record"?recallRecordShift():0;
-  const over=recallOverreach(), eos=recallEOs(), eoPen=clamp(eos*RECALL_EO_EACH,0,4);
+  const cs=recallCase(Vt), eos=cs.eos;
   const dist=clamp((Math.abs(g.economic)+Math.abs(g.social))/2,0,1);
   const endorse=Vt.endorsed?2+2*(1-dist):0;
   const camp=1.2*Math.sqrt(Vt.energy||0);
-  const yesCamp=clamp(0.2*(Vt.yesE||0),0,3);
-  const yes=clamp(Y-time+grievance+over.pen+eoPen+yesCamp-endorse-camp+recShift,3,97);
+  // the Yes campaign: its case, then its money and momentum (its energy)
+  const yesCamp=clamp(cs.pts+0.2*(Vt.yesE||0),0,RECALL_CAMP_CAP);
+  const yes=clamp(Y-time+grievance+yesCamp-endorse-camp+recShift,3,97);
   const byCounty=cN.map((n,i)=>cD[i]>0?n/cD[i]:Y), byGroup={};
   for(const sid in gN)byGroup[sid]=gN[sid]/gD[sid];
-  return {A, loyalty, ground, time, grievance, sev, over, eos, eoPen, endorse, camp, yesCamp, yes, byCounty, byGroup,
-    lean:loyalty+time-grievance-over.pen-eoPen};
+  return {A, loyalty, ground, time, grievance, sev, case:cs, eos, endorse, camp, yesCamp, yes, byCounty, byGroup,
+    lean:loyalty+time-grievance-yesCamp};
 }
 /* Every tool on the recall page. Each one you use is remembered for the
    quarter's ledger, and the big ones for the charts. */
@@ -11318,7 +11313,7 @@ function recallTick(){
   const R=recallState(), T=GAME.turn, into=recallInto(T);
   // the seed files its drive when the first quarter ends
   if(R.seedPlan&&!R.drive&&!R.vote&&T>=R.seedPlan.turn){ const sp=R.seedPlan; R.seedPlan=null;
-    R.drive={group:sp.group, spark:sp.spark, start:T+1, len:2, voteInto:into+3, q:0, sigs:0, hist:[], energy:0, seeded:true};
+    R.drive={group:sp.group, spark:sp.spark, acts:sp.spark&&sp.spark.kind==="law"?[{kind:"law", id:sp.spark.id}]:[], start:T+1, len:2, voteInto:into+3, q:0, sigs:0, hist:[], energy:0, seeded:true};
     R.drive.terms=recallTerms(R.drive);
     R.count++; recallWarFooting(); recallOpenCampaign(R.drive, T+1);
     if(GAME.opposition)GAME.opposition.momentum=clamp(GAME.opposition.momentum+2,0,100);
@@ -11367,7 +11362,7 @@ function recallTick(){
     R.series.push({turn:T+1, sigs:D.sigs, yes:null, yesE:D.yesE, myE:R.myQ||0}); R.acts=[]; R.myQ=0;
     if(D.sigs>=RECALL_SIG_NEED){
       const vt=T+RECALL_VOTE_GAP;
-      R.vote={group:D.group, spark:D.spark, sigs:D.sigs, start:D.start, announced:T+1, voteTurn:vt, energy:0, yesE:D.yesE};
+      R.vote={group:D.group, spark:D.spark, acts:D.acts||[], sigs:D.sigs, start:D.start, announced:T+1, voteTurn:vt, energy:0, yesE:D.yesE};
       R.vote.special=!recallBallot(R.vote);
       R.drive=null; R.vote.lastYes=+recallVoteParts(R.vote).yes.toFixed(1);
       R.series[R.series.length-1].yes=R.vote.lastYes;
@@ -11703,18 +11698,6 @@ function recallLawTouched(id){
   if(!b)return true;                              // a save from before settings were kept
   return Math.abs(policyLevel(p)-b.lvl)>0.005||p.tierIndex!==b.tier;
 }
-/* What you did to a law, in a row's words: enacted it, repealed it, moved
-   it to another tier, or raised or cut it from where you found it. */
-function recallLawStep(x){
-  const R=GAME.recall||{}, p=POLICIES[x.id], b=(R.lvl0||{})[x.id];
-  if(x.repealed)return "Repealed: "+x.name;
-  if(!(x.id in (R.mood0||{})))return "Passed: "+x.name;
-  if(p&&b){
-    if(p.mechanic==="tier"&&p.tiers&&b.tier!=null&&p.tierIndex!==b.tier)return x.name+": "+p.tiers[b.tier]+" to "+p.tiers[p.tierIndex];
-    const l=policyLevel(p); if(l>b.lvl+0.005)return "Raised: "+x.name; if(l<b.lvl-0.005)return "Cut: "+x.name;
-  }
-  return "Changed: "+x.name;
-}
 /* WHY: how the drive's signatures, or the vote, add up. */
 function recallWhyHTML(){
   const R=GAME.recall, D=R.drive, Vt=R.vote, X=D||Vt, who=SIMULANTS[X.group].name;
@@ -11755,7 +11738,7 @@ function recallWhyHTML(){
   const P=recallVoteParts(Vt), P0=Vt.statement?recallVoteParts(Vt,true):P;
   let h=`<div class="ebgroup-label">How the vote adds up</div><div class="ebgroup">`
     +recallVoteWaterfall(Vt,P0,P,null)
-    +`<div class="threshline" style="margin-top:8px;font-style:italic">Steps are points of the vote. Green works for you, red for them. Your <span class="sf-l" data-detail="approval">approval among likely voters</span> is ${P.A.toFixed(1)}%. Laws the state dislikes count against you whatever your approval, each by how much it is disliked, for what it costs people as well as for its politics; so does every executive order in force. Each one you add before the vote moves this directly. The Yes campaign adds up to 3 points: the organizers' money (richer and angrier groups raise more), opposition momentum, and a lift from every executive order or unpopular law you add while it runs. Left alone it fades; Their campaign, below, shows its energy. Your record is the same count the end of a term makes: ${RECORD_STATS.map(r=>r[2]).join(", ")}, each against where it stood when you took office.</div>`;
+    +`<div class="threshline" style="margin-top:8px;font-style:italic">Steps are points of the vote. Green works for you, red for them. Your <span class="sf-l" data-detail="approval">approval among likely voters</span> is ${P.A.toFixed(1)}%. Your approval already carries what the state thinks of your laws and orders, so they are not counted again. The Yes campaign adds up to ${RECALL_CAMP_CAP} points on top: its case (the laws behind the drive, as unpopular as the state finds them, and every executive order in force), the organizers' money and opposition momentum, and a lift from anything unpopular you add while it runs. Left alone, its energy fades; Their campaign, below, shows it. Your record is the same count the end of a term makes: ${RECORD_STATS.map(r=>r[2]).join(", ")}, each against where it stood when you took office.</div>`;
   return h+`</div>`;
 }
 /* ---- THE STATEMENT OF JUSTIFICATION ----
@@ -11860,13 +11843,12 @@ function recallVoteWaterfall(Vt,P0,P,counted){
   if(P0.ground>0.05||live)steps.push({label:"Your work with voter groups and counties", v:P0.ground>0.05?-P0.ground:0});
   if(P0.time)steps.push({label:"A year from the general: \u201cjust vote them out\u201d", v:-P0.time});
   if(P0.grievance)steps.push({label:P0.sev>=3?"A criminal referral":P0.sev>=2?"A serious scandal":"Over a crisis, not one law", v:P0.grievance});
-  // what you have done counts whatever your approval: always shown, at zero too
-  const ea=P0.over.each||[];
-  if(!ea.length)steps.push({label:"Laws the state dislikes", v:0, always:true});
-  for(const x of ea.slice(0,4))steps.push({label:recallLawStep(x), v:x.v});
-  if(ea.length>4)steps.push({label:"Other laws the state dislikes ("+(ea.length-4)+")", v:ea.slice(4).reduce((t,x)=>t+x.v,0)});
-  steps.push({label:"Executive orders in force"+(P0.eos?" ("+P0.eos+")":""), v:P0.eoPen, always:true});
-  if(P0.yesCamp>0.05)steps.push({label:"The Yes campaign"+(SIMULANTS[Vt.group]?" run by "+SIMULANTS[Vt.group].name:""), v:P0.yesCamp});
+  // the Yes campaign, and what fuels it: always shown, at zero too
+  { const C=P0.case||{laws:[], eos:0}, fuel=[];
+    if(SIMULANTS[Vt.group])fuel.push(SIMULANTS[Vt.group].name+"'s money");
+    if(C.laws.length)fuel.push(C.laws.slice(0,2).map(x=>x.name).join(" and ")+(C.laws.length>2?" and "+(C.laws.length-2)+" more":""));
+    if(C.eos)fuel.push(C.eos+" executive order"+(C.eos>1?"s":"")+" in force");
+    steps.push({label:"The Yes campaign: "+(fuel.length>1?fuel.slice(0,-1).join(", ")+" and "+fuel[fuel.length-1]:fuel[0]||"their money"), v:P0.yesCamp, always:true}); }
   if(P0.endorse||live)steps.push({label:"Endorsements against the recall", v:-(P0.endorse||0)});
   if(P0.camp>0.05||live)steps.push({label:"Your No on Recall campaign", v:P0.camp>0.05?-P0.camp:0});
   if(Vt.statement){ const rc=recallRecordNet();
@@ -25255,7 +25237,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="8.7";
+const GAME_VERSION="8.8";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -25299,6 +25281,7 @@ const VERSION_HISTORY=[
   ["8.5","30 October 2026","Recall drives are rarer: when every test holds, about a one-in-twenty chance a quarter that someone files, down from one in five. A lawsuit no longer shields you from a recall when there is reason to escalate: a serious scandal, three or more executive orders in force, or approval at 30% or under. Then a drive can be filed while a suit runs, and the plaintiffs drop every suit to back it, for good: the laws they were against are safe from those suits afterwards."],
   ["8.6","30 October 2026","A recall is one group's fury, not the state's mood. A group can start a drive when what you did has cost it 12 points of approval or more, from at least two of your laws or executive orders (one law alone is never enough), and its approval of you is at 25% or under. Your statewide approval and the count of unpopular laws no longer decide whether a drive starts; they still weigh in the vote. Signatures come from the group, from others the same laws and orders angered, and from wider anger, so a furious group with no broader support usually falls short. An executive order can be the grievance a drive names, and rescinding it slows the drive. Drives file at about one chance in thirty a quarter."],
   ["8.7","30 October 2026","Cutting public employees' collective bargaining rights below where you found them brings a recall drive from the public-sector unions on its own, once a term, as Wisconsin's Act 10 did: no lawsuit, no waiting for their anger to build, and any running suit is dropped for it. It still waits out a term's first six months and never starts in the re-election year. If the unions name terms, their price is restoring bargaining rights a tier."],
+  ["8.8","30 October 2026","The recall vote no longer counts your laws and orders twice. Your approval already carries what the state thinks of them, so the separate rows for unpopular laws and executive orders are gone. They feed the Yes campaign instead, as its case: the laws behind the drive, as unpopular as the state finds them, and every order in force, with the organizers' money and opposition momentum, up to 4 points in all. The campaign's row says what fuels it. A law you never touched no longer counts against you, Fight the recall opens the recall page, and the qualified screen drops the quarters-until-the-vote box."],
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
