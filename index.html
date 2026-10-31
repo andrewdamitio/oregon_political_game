@@ -12062,12 +12062,14 @@ function recallCheckTerms(){
   if(GAME.pendingFloorChange||GAME.pendingFloor)return false;
   if(GAME.pending){ try{ if(snapshotFor(GAME.pending.key)!==GAME.pending.snap)return false; }catch(e){} }
   R.drive=null; for(const g of [D.group].concat(D.partners||[]))R.cool[g]=GAME.turn+1+RECALL_GROUP_COOL;
-  R.past.push({kind:"settled", term:GAME.term, group:D.group, spark:D.spark, sigs:D.sigs, turn:GAME.turn});
-  (GAME.pendingRecallNews=GAME.pendingRecallNews||[]).push({kind:"settled", group:D.group, spark:D.spark, sigs:D.sigs, terms:D.terms, offered:!!D.termsOffered});
+  // the voters repealed the law the drive was over: nothing left to recall you for
+  const byVoters=!!(D.terms&&!POLICIES[D.terms.id]&&(GAME.repealedByVoters||{})[D.terms.id]!=null);
+  R.past.push({kind:"settled", term:GAME.term, group:D.group, spark:D.spark, sigs:D.sigs, turn:GAME.turn, byVoters});
+  (GAME.pendingRecallNews=GAME.pendingRecallNews||[]).push({kind:"settled", group:D.group, spark:D.spark, sigs:D.sigs, terms:D.terms, offered:!!D.termsOffered, byVoters});
   // a compromise both sides agreed to is not taken to court
   { const id=D.terms&&D.terms.id, p=id&&POLICIES[id];
     if(p&&p.enacted!==false&&typeof COURT_LAWS!=="undefined"&&COURT_LAWS[id])(GAME.courtImmune=GAME.courtImmune||{})[id]=courtTier(p)+"|"+Object.keys(p.prov||{}).sort().join(","); }
-  GAME.log.push(ico('handshake')+" "+SIMULANTS[D.group].name+" took the compromise and called off the recall drive");
+  GAME.log.push(ico('handshake')+" "+(byVoters?"The voters repealed "+((POLICIES[D.terms.id]||CATALOG[D.terms.id]||{}).name||"the law")+", and "+SIMULANTS[D.group].name+" called off the recall drive":SIMULANTS[D.group].name+" took the compromise and called off the recall drive"));
   try{ toast(SIMULANTS[D.group].name+" called off the recall drive"); }catch(e){}
   return true;
 }
@@ -12149,7 +12151,8 @@ function showRecallNews(ev,next){
     :ev.kind==="qualified"
     ?`${who} turned in enough valid signatures over <b>${why}</b>. The recall goes on the ballot. If Yes wins, you are removed from office.`
     :ev.kind==="settled"
-    ?(ev.offered?`${who} took the compromise${tl?": "+tl:""}. They have stood down, and cannot file again for a year.`
+    ?(ev.byVoters?`The voters repealed ${why} at the ballot, and with it gone ${who} have called off the recall drive. They cannot file again for a year.`
+      :ev.offered?`${who} took the compromise${tl?": "+tl:""}. They have stood down, and cannot file again for a year.`
       :`You gave ${who} what they wanted${tl?": "+tl:""}. They have stood down, and cannot file again for a year.`)
     :ev.faded
     ?`The drive by ${who} over <b>${why}</b> collapsed: its campaign ran out of money and volunteers.`
@@ -30357,7 +30360,7 @@ function resolveBallot(kind){
         // Never apply a repeal to something that cannot be repealed — a measure
         // queued in a save from before a policy was marked noRepeal would
         // otherwise still abolish it.
-        if(!(POLICIES[m.id]&&POLICIES[m.id].noRepeal))_applyRepeal(m.id,{voted:true,blame});
+        if(!(POLICIES[m.id]&&POLICIES[m.id].noRepeal)){ _applyRepeal(m.id,{voted:true,blame}); (GAME.repealedByVoters=GAME.repealedByVoters||{})[m.id]=GAME.turn; }
       }
     }
     const r={id:m.id,dir:m.dir,target:m.target,name:m.name,icon:m.icon,share,passed,
