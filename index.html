@@ -10857,6 +10857,7 @@ function recallState(){
   }
   // and how controversial the inherited settings already were
   if(!R.heat0){ R.heat0={}; for(const id in RECALL_HEAT)R.heat0[id]=recallHeat(id); }
+  if(R.cb0==null&&POLICIES.collectiveBargaining)R.cb0=POLICIES.collectiveBargaining.tierIndex;
   // a game saved before the ideologies were measured takes them from now
   if(!R.ideo0){ R.ideo0=true;
     for(const id in POLICIES){ const m=R.mood0[id]=R.mood0[id]||{};
@@ -10911,6 +10912,18 @@ function recallEONet(id){
   return 0.5*share("ideology")+0.5*cats.reduce((t,c)=>t+share(c),0)/cats.length;
 }
 function recallSuits(){ return Object.keys(GAME.courtCases||{}).length; }
+/* ACT 10. Taking bargaining rights away from public employees is the one
+   law that brings a recall on its own, as Wisconsin's did in 2011: the
+   unions do not sue, they organize. Once a term, as soon as a drive could
+   be filed, whatever else holds. */
+function recallBargainingCut(){
+  const R=GAME.recall, p=POLICIES.collectiveBargaining;
+  if(!R||!p||p.enacted===false||R.cb0==null||p.tierIndex>=R.cb0)return false;
+  if(R.cbTerm===GAME.term||(R.cool.publicUnions||0)>GAME.turn)return false;
+  // a setting dialled in but not yet passed is not a change: wait for the floor
+  if(GAME.pendingFloorChange||GAME.pendingFloor)return false;
+  return true;
+}
 /* A REASON TO TRADE THE COURTS FOR THE BALLOT. A lawsuit normally keeps a
    recall off: the opposition is already fighting you in court. A serious
    scandal, government by executive order, or a collapse in approval makes
@@ -10991,6 +11004,7 @@ function recallReportHTML(){
 function recallSparkTxt(sp){
   if(!sp)return "your record";
   if(sp.kind==="scandal")return "the scandal in the governor's office";
+  if(sp.kind==="law"&&sp.id==="collectiveBargaining")return "cutting public employees' bargaining rights";
   return sp.kind==="law"?(sp.repealed?"the repeal of ":"")+sp.name:sp.kind==="eo"?"the "+sp.name+" executive order":"the "+sp.name+" crisis";
 }
 /* Undoing what started it: the law no longer hurts them, or the crisis is
@@ -11385,7 +11399,9 @@ function recallTick(){
     return;
   }
   if(R.drive||R.survived||R.count>=RECALL_PER_TERM)return;
-  const esc=recallSuits()?recallEscalation():null;
+  const act10=recallBargainingCut();
+  let esc=recallSuits()?recallEscalation():null;
+  if(act10&&recallSuits()&&!esc)esc={kind:"act10", txt:"public employees stripped of their bargaining rights"};
   if(recallSuits()&&!esc)return;                           // not while a suit is in the courts, without a reason to drop it
   // a drive filed now starts gathering next quarter
   const sInto=into+1;
@@ -11396,10 +11412,15 @@ function recallTick(){
   const lastClose=GAME.termLengthTurns-1-RECALL_VOTE_GAP-(termLimited()?2:0);
   const len=Math.min(4,lastClose-sInto+1); if(len<1)return;
   let sid=null, sp=null, acts=[];
+  if(act10){ const p=POLICIES.collectiveBargaining;
+    sid="publicUnions"; R.cbTerm=GAME.term;
+    sp={kind:"law", id:"collectiveBargaining", name:p.name, hit:+recallHit("collectiveBargaining","publicUnions").toFixed(1), repealed:false};
+    acts=recallHurt("publicUnions").acts.map(a=>({kind:a.kind, id:a.id}));
+    if(!acts.some(a=>a.id==="collectiveBargaining"))acts.unshift({kind:"law", id:"collectiveBargaining"}); }
   // A SCANDAL can start one on its own: a serious one or a criminal
   // referral, any group soured enough to sign, no long fuse. Not always.
   const sev=recallScandalSev();
-  if(sev>=2){
+  if(!sid&&sev>=2){
     const sc=(SW.oa>45?[]:recallGroups()).filter(g=>SIMULANTS[g].approval<=35&&(recallReach(g)>=RECALL_REACH||recallOrganized(g))&&!((R.cool[g]||0)>T));
     if(sc.length&&Math.random()<(sev>=3?0.35:0.15)){
       sc.sort((a,b)=>(45-SIMULANTS[b].approval)*recallReach(b)-(45-SIMULANTS[a].approval)*recallReach(a));
@@ -11416,7 +11437,7 @@ function recallTick(){
   }
   // up to four quarters to gather, and always time for the vote after
   R.drive={group:sid, spark:sp, acts, start:T+1, len, q:0, sigs:0, hist:[], energy:0};
-  if(esc){ R.drive.dropped=recallDropSuits(); R.drive.esc=esc.txt; }
+  if(esc){ R.drive.dropped=recallDropSuits(); R.drive.esc=esc.txt; R.drive.escKind=esc.kind; }
   R.drive.terms=recallTerms(R.drive);
   R.count++; recallWarFooting();
   recallOpenCampaign(R.drive, T+1);
@@ -11924,6 +11945,9 @@ const RECALL_TERMS_ON_PACE=0.3, RECALL_TERMS_BEHIND=0.65;
 function recallTerms(D){
   const sp=D&&D.spark; if(!sp||sp.kind!=="law"||sp.repealed)return null;
   const p=POLICIES[sp.id]; if(!p)return null;
+  // bargaining rights: what they want back is a tier up, not a tier down
+  if(sp.id==="collectiveBargaining"){ const t=p.tierIndex+1;
+    return t<p.tiers.length?{id:sp.id, kind:"tierUp", target:t, label:`Restore bargaining rights to ${p.tiers[t]}`}:null; }
   if(p.mechanic==="tier"&&Array.isArray(p.tiers)&&p.tiers.length>1){
     const t=p.tierIndex-1;
     if(t>=(p.tierMin||0))return {id:sp.id, kind:"tier", target:t, label:`Scale ${p.name} back to ${p.tiers[t]}`};
@@ -11940,6 +11964,7 @@ function recallTermsMet(D){
   const p=POLICIES[T.id];
   if(!p||p.enacted===false)return true;                      // repealed: further than they asked
   if(T.kind==="tier")return p.tierIndex<=T.target;
+  if(T.kind==="tierUp")return p.tierIndex>=T.target;
   if(T.kind==="level")return p.mechanic==="intensity"?(!p.enabled||(p.intensity||0)<=T.target+1e-6):(p.value||0)<=T.target+1e-6;
   return false;
 }
@@ -12033,7 +12058,7 @@ function showRecallNews(ev,next){
   const tag=ev.kind==="started"?"Recall signature drive":ev.kind==="qualified"?"Recall election":"Recall";
   const tl=ev.terms?ev.terms.label.charAt(0).toLowerCase()+ev.terms.label.slice(1):"";
   const body=ev.kind==="started"
-    ?`${who} have filed to recall you over <b>${why}</b>. Most drives fall short, but this one is now the most serious thing on your desk.${D&&D.terms?" Once their first signatures are in, they may name a price for calling it off.":""}${D&&D.dropped&&D.dropped.length?` With ${D.esc}, the opposition has moved from the courts to the ballot. ${D.dropped.length>1?"The suits against":"The suit against"} ${D.dropped.map(x=>x.name+" ("+x.who.charAt(0).toLowerCase()+x.who.slice(1)+")").join(" and ")} ${D.dropped.length>1?"are":"is"} dropped. ${D.dropped.length>1?"Those laws are":"That law is"} safe from ${D.dropped.length>1?"those suits":"that suit"} now.`:""}`
+    ?`${who} have filed to recall you over <b>${why}</b>. Most drives fall short, but this one is now the most serious thing on your desk.${D&&D.terms?" Once their first signatures are in, they may name a price for calling it off.":""}${D&&D.dropped&&D.dropped.length?` ${D.escKind==="act10"?"A recall and a lawsuit do not run together, and the unions come first.":"With "+D.esc+", the opposition has moved from the courts to the ballot."} ${D.dropped.length>1?"The suits against":"The suit against"} ${D.dropped.map(x=>x.name+" ("+x.who.charAt(0).toLowerCase()+x.who.slice(1)+")").join(" and ")} ${D.dropped.length>1?"are":"is"} dropped. ${D.dropped.length>1?"Those laws are":"That law is"} safe from ${D.dropped.length>1?"those suits":"that suit"} now.`:""}`
     :ev.kind==="qualified"
     ?`${who} turned in enough valid signatures over <b>${why}</b>. The recall goes on the ballot. If Yes wins, you are removed from office.`
     :ev.kind==="settled"
@@ -12112,7 +12137,7 @@ function recallWaysOutHTML(X,D,Vt,who){
   if(D){
     if(D.noTerms)h+=tile("ban","No deal on offer",`They want the fight. Repealing ${law||"the law"} outright would still end it.`);
     else if(T&&D.termsOffered)h+=tile("handshake","Take their terms",`${T.label}, or go further, and the drive ends.`);
-    else if(T)h+=tile("handshake","Watch for terms",`They may name a price once the first signatures are in. Repealing ${law||"the law"} ends it now.`);
+    else if(T)h+=tile("handshake","Watch for terms",`They may name a price once the first signatures are in. ${T.kind==="tierUp"?"Restoring their bargaining rights":"Repealing "+(law||"the law")} ends it now.`);
     else if(order)h+=tile("handshake","Rescind the order",`Rescind ${order} and the drive slows to a crawl.`);
     else if(crisis)h+=tile("handshake","End the crisis",`Bring the ${crisis} to an end and the drive slows to a crawl.`);
     else if(sp.kind==="scandal")h+=tile("shield","Outlast the scandal","It can't be undone. While it runs, people outside the group sign too.");
@@ -25206,7 +25231,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="8.6";
+const GAME_VERSION="8.7";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -25249,6 +25274,7 @@ const VERSION_HISTORY=[
   ["8.4","30 October 2026","A recall vote comes two quarters after the petition qualifies, in whatever quarter that falls: on the midterm or general ballot it is counted on that night, and otherwise it has a night of its own. Every executive order in force counts against you in the vote. The recall page loses its quarter-by-quarter vote chart, since the waterfall and the Yes bar carry it, and its buttons no longer jump when a row appears: the decline-to-sign campaign, endorsements, your voter-group work and the newly named Boost the No on Recall campaign all keep their rows from the start. A recall started by a scandal never offers terms. Four left-wing policies that divided Oregon more than the mood model shows now count against you in a recall only, never in approval: Safe Consumption Sites and the strictest rent cap heavily, decriminalized possession and the gas ban in all new buildings less so. The opening line now says four years, eight if Oregon re-elects you."],
   ["8.5","30 October 2026","Recall drives are rarer: when every test holds, about a one-in-twenty chance a quarter that someone files, down from one in five. A lawsuit no longer shields you from a recall when there is reason to escalate: a serious scandal, three or more executive orders in force, or approval at 30% or under. Then a drive can be filed while a suit runs, and the plaintiffs drop every suit to back it, for good: the laws they were against are safe from those suits afterwards."],
   ["8.6","30 October 2026","A recall is one group's fury, not the state's mood. A group can start a drive when what you did has cost it 12 points of approval or more, from at least two of your laws or executive orders (one law alone is never enough), and its approval of you is at 25% or under. Your statewide approval and the count of unpopular laws no longer decide whether a drive starts; they still weigh in the vote. Signatures come from the group, from others the same laws and orders angered, and from wider anger, so a furious group with no broader support usually falls short. An executive order can be the grievance a drive names, and rescinding it slows the drive. Drives file at about one chance in thirty a quarter."],
+  ["8.7","30 October 2026","Cutting public employees' collective bargaining rights below where you found them brings a recall drive from the public-sector unions on its own, once a term, as Wisconsin's Act 10 did: no lawsuit, no waiting for their anger to build, and any running suit is dropped for it. It still waits out a term's first six months and never starts in the re-election year. If the unions name terms, their price is restoring bargaining rights a tier."],
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
