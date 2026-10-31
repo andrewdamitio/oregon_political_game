@@ -19287,7 +19287,10 @@ function tutShow(els,title,text,more,onNext,onEnd,tries){
   else if(box.t-14-ch>=0)pos={top:box.t-14-ch, left:midX};
   else if(box.r+14+cw<=vw)pos={top:midY, left:box.r+14};
   else if(box.l-14-cw>=0)pos={top:midY, left:box.l-14-cw};
-  else pos={top:Math.max(8,vh-ch-12), left:midX};
+  else { const rRoom=vw-box.r-26, lRoom=box.l-26, room=Math.max(rRoom,lRoom);
+    if(room>=260){ card.style.width=room+"px"; const h2=card.offsetHeight;
+      pos={top:Math.max(8,Math.min(vh-h2-8,(box.t+box.b)/2-h2/2)), left:rRoom>=lRoom?box.r+14:12}; }
+    else pos={top:Math.max(8,vh-ch-12), left:midX}; }
   Object.assign(card.style,{top:pos.top+"px", left:pos.left+"px"});
   const clear=()=>{ block.remove(); dims.forEach(d=>d.remove()); hole.remove(); card.remove(); document.removeEventListener("keydown",onKey,true); };
   const go=()=>{ clear(); if(more)onNext(); else { _tutSpotOpen=false; onEnd(); } };
@@ -19397,8 +19400,78 @@ function tutWatchWeb(){
   const seen=T.seen=T.seen||{}; seen["page:web"]=true; tutRunTour(TUT_WEB);
 }
 document.addEventListener("scroll",()=>{ try{ tutWatchWeb(); }catch(e){} },{capture:true, passive:true});
+/* ELECTION NIGHTS. The first midterm, general election and recall night each
+   get a tour of their own. The ballot measures and a recall riding on a
+   regular ballot are explained on whichever night first carries them. */
+// within a night's card: a section's heading and the first few things under it
+function tutEgSec(c,label,n){ const h=[...c.querySelectorAll(".eg-h3")].find(x=>x.innerText.trim().toUpperCase().startsWith(label.toUpperCase()));
+  if(!h)return []; const out=[h]; let e=h.nextElementSibling; while(e&&out.length<(n||3)){ out.push(e); e=e.nextElementSibling; } return out; }
+const tutNightIn=(card,fn)=>()=>{ const c=document.getElementById(card); return c?fn(c):[]; };
+const tutFirst=(c,sel,n)=>[...c.querySelectorAll(sel)].slice(0,n||1);
+const TUT_MEASURES=card=>({t:tutNightIn(card,c=>[...tutFirst(c,".mres-grid > *"),...tutFirst(c,".mres-legend")]), title:"The ballot measures",
+  text:"Every measure on tonight's ballot, the ones you referred and the citizens' initiatives, with how each county voted. A measure the voters pass becomes law without the legislature, and one they reject does not take effect, whoever sent it to them."});
+const TUT_RECALL_RIDE=card=>({t:tutNightIn(card,c=>tutEgSec(c,"The recall on the same ballot")), title:"A recall on the same ballot",
+  text:"A group angry enough over one law can gather the signatures to put your removal on the ballot. When the drive lands near an election, the recall question rides on the regular ballot. Yes removes you; No keeps you, and a recall you survive leaves you stronger."});
+const TUT_NIGHTS={
+  midterm:{modal:"midtermModal", card:"midtermCard", steps:[
+    {t:tutNightIn("midtermCard",c=>[...tutFirst(c,".eg-kicker"),...tutFirst(c,".eg-result"),...tutFirst(c,".eg-sub",2)]), title:"The midterm",
+      text:"Halfway through your term, Oregon votes. Your own name is not on the ballot, but the night is read as a verdict on you, and the headline reflects your approval on election day."},
+    {t:tutNightIn("midtermCard",c=>tutFirst(c,".lg-row",2)), title:"The legislature",
+      text:"Every House seat and half the Senate were on the ballot. Each bar shows your seats against the two lines that matter: a majority to control the chamber, and three-fifths to raise revenue. These seats decide what you can pass for the rest of the term."},
+    {t:tutNightIn("midtermCard",c=>[...tutFirst(c,".lg-verdict"),...tutFirst(c,".rrow",2)]), title:"What the seats are worth",
+      text:"What the new numbers let you do. The chambers you hold also add political capital every quarter, and the line below it shows how tonight changed that."},
+    {t:tutNightIn("midtermCard",c=>tutEgSec(c,"Your mandate",4)), title:"Your mandate",
+      text:"Separate from the seats: the personal authority the night leaves you. It moves the Political Mandate gauge on the Governing Board, which sets how much political capital you get each quarter."},
+    "recall", "measures",
+    {t:tutNightIn("midtermCard",c=>tutEgSec(c,"Your platform")), title:"Amend your promises",
+      text:"Your one chance to change the promises you took office on: add pledges, or drop ones that are out of reach at a small cost. It stays open in Campaign HQ until the end of next quarter."}]},
+  general:{modal:"electionModal", card:"electionCard", steps:[
+    {t:tutNightIn("electionCard",c=>[...tutFirst(c,".eg-result"),...tutFirst(c,".eg-sub"),...tutFirst(c,".eg-bar"),...tutFirst(c,".eg-legend")]), title:"Election night",
+      text:"This time your name was on the ballot. The bar splits the vote between you, the opposition and the third parties; hover a segment for its exact share."},
+    {t:tutNightIn("electionCard",c=>[...tutFirst(c,".eg-map-svg"),...tutFirst(c,".eg-ctyread")]), title:"County by county",
+      text:"How each of the 36 counties voted. Hover one for its result. The race is won on the statewide total, not by counting counties."},
+    {t:tutNightIn("electionCard",c=>tutFirst(c,".eg-third")), title:"The third parties",
+      text:"Votes that went to neither of the two big parties. A third party on your own flank draws from your voters, and in a close race it can cost you the night."},
+    {t:tutNightIn("electionCard",c=>tutEgSec(c,"The race",2)), title:"The race",
+      text:"How hard the other side campaigned: the momentum the opposition built over your term, and the opponent they put up against you."},
+    {t:tutNightIn("electionCard",c=>tutFirst(c,".lg-row",2)), title:"The legislature",
+      text:"The legislature was on the same ballot. Win, and these are the chambers you govern with next term."},
+    "recall", "measures",
+    {t:tutNightIn("electionCard",c=>tutEgSec(c,"The record you leave behind")), title:"Your record",
+      text:"How Oregon moved on your watch, statistic by statistic, from the day you took office to tonight."},
+    {t:tutNightIn("electionCard",c=>tutEgSec(c,"How each group voted")), title:"How each group voted",
+      text:"Each voter group's split, its share of the electorate and its turnout. This is where to look for what won or lost you the race."}]},
+  recall:{modal:"recallModal", card:"recallCard", steps:[
+    {t:tutNightIn("recallCard",c=>[...tutFirst(c,".eg-kicker"),...tutFirst(c,".eg-result"),...tutFirst(c,".eg-sub",2)]), title:"A recall",
+      text:"Oregon lets its voters remove a governor before the term is up. One group angry enough over a single law or act gathered the signatures, and tonight the whole state voted on it. Yes removes you; No keeps you."},
+    {t:tutNightIn("recallCard",c=>[...tutFirst(c,".eg-map-svg"),...tutFirst(c,".eg-ctyread")]), title:"County by county",
+      text:"How each county voted. The recall needs a majority statewide, not a majority of counties."},
+    {t:tutNightIn("recallCard",c=>{ const h=c.querySelector(".eg-section .eg-h3"); return h?[h.parentElement]:[]; }), title:"What comes next",
+      text:"What tonight means for the rest of your term."}]}
+};
+function tutNightCheck(){
+  const seen=GAME.tutorial.seen=GAME.tutorial.seen||{};
+  for(const k in TUT_NIGHTS){ const N=TUT_NIGHTS[k], key="tour:night:"+k;
+    const m=document.getElementById(N.modal), c=document.getElementById(N.card);
+    if(!m||!c||m.classList.contains("hidden")||!c.querySelector(".egrand")||seen[key]||tutBusy())continue;
+    // a screen still in front of the night waits to close first
+    if([...document.querySelectorAll(".modal")].some(x=>x!==m&&x.id!=="tutorialModal"&&!x.classList.contains("hidden")))return true;
+    seen[key]=true;
+    const steps=[];
+    for(const st of N.steps){
+      if(st==="measures"){ if(!seen["tour:night:measures"]&&c.querySelector(".mres-grid")){ seen["tour:night:measures"]=true; steps.push(TUT_MEASURES(N.card)); } }
+      else if(st==="recall"){ if(!seen["tour:night:recallride"]&&tutEgSec(c,"The recall on the same ballot").length){ seen["tour:night:recallride"]=true; steps.push(TUT_RECALL_RIDE(N.card)); } }
+      else steps.push(st);
+    }
+    m.scrollTop=0;
+    setTimeout(()=>{ if(!m.classList.contains("hidden")&&!tutBusy())tutRunTour(steps); },350);
+    return true;
+  }
+  return false;
+}
 function tutTipsCheck(){
   if(!GAME||!GAME.tutorial)return;
+  if(tutNightCheck())return;
   const seen=GAME.tutorial.seen=GAME.tutorial.seen||{};
   for(const k in TUT_TIPS){ const T=TUT_TIPS[k], key="tip:"+k;
     const m=document.getElementById(T.modal), c=document.getElementById(T.card); if(!m||!c||m.classList.contains("hidden"))continue;
@@ -19408,7 +19481,7 @@ function tutTipsCheck(){
   setTimeout(tutPageTip,0);
 }
 (function(){ try{ const obs=new MutationObserver(tutTipsCheck);
-  for(const k in TUT_TIPS){ const T=TUT_TIPS[k], m=document.getElementById(T.modal), c=document.getElementById(T.card);
+  for(const T of [...Object.values(TUT_TIPS),...Object.values(TUT_NIGHTS)]){ const m=document.getElementById(T.modal), c=document.getElementById(T.card);
     if(m)obs.observe(m,{attributes:true, attributeFilter:["class"]}); if(c)obs.observe(c,{childList:true}); } }catch(e){} })();
 function showWelcome(onDone){
   const modal=document.getElementById("welcomeModal"), card=document.getElementById("welcomeCard");
@@ -25622,7 +25695,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="9.3";
+const GAME_VERSION="9.4";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -25672,6 +25745,7 @@ const VERSION_HISTORY=[
   ["9.1","31 October 2026","Laws the voters decide at the ballot are off-limits for recalls, and a petition and a recall cannot target the same law at once."],
   ["9.2","31 October 2026","Full-screen Capitol occupations with their own drawings, the OCCUPY and CONVOY seeds, and a leaner recall page."],
   ["9.3","31 October 2026","A tutorial, chosen on the opening screen: a short welcome, then spotlight tours of each page, each tab and a crisis's page the first time you open them, and a note on your first vote, report and decision."],
+  ["9.4","31 October 2026","The tutorial walks you through your first midterm, general election and recall night, and the ballot measures the first time they are counted."],
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
