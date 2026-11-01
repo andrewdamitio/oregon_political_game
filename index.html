@@ -7020,9 +7020,9 @@ const CATALOG={
     effects:{}, indicatorEffects:{},
     blocEffect:{},   // set by the form the voters pass
     ideology:{govSize:0.2}},
-  recallLimits:{name:"Restrict the Recall", domain:"social", icon:"ballot", mechanic:"law", reform:true,
+  recallLimits:{name:"Restrict Recall", domain:"social", icon:"ballot", mechanic:"law", reform:true,
     desc:"Oregon's constitution lets voters recall any elected official, the governor included. A petition signed by 15% of the votes cast in the last governor's race, about 285,000 names, forces a special election. No Oregon governor has ever been recalled, but every drive is a fight while it lasts.\n\nYou choose how far when you refer it: a 25% signature threshold, or no recall at all. Asking voters to give up a check on the people they elect reads as self-protection, and the further it goes the harder it is to sell. Only another vote of the people can undo it, and citizens can petition for that vote.",
-    enabled:true, capital:14, enactCapital:18, repealCost:14,
+    enabled:true, capital:20, enactCapital:26, repealCost:14,
     effects:{}, indicatorEffects:{},
     blocEffect:{},   // set by the form the voters pass
     citizenWeight:2.5,   // a restored recall is an easy petition to sell
@@ -22382,16 +22382,19 @@ const LTL_VARIANTS={
     bloc:{libertarian:5, moderate:2, conservative:3, rural:2, publicUnions:-2, businessClass:-1}}
 };
 /* The forms of the recall restriction, mildest first. bloc is what asking
-   costs you with each group; ballotLean is how each group votes on it. */
+   costs you with each group; ballotLean is how each group votes on it;
+   floorDrag is how much harder the referral is for a member to vote for. */
 const RECALL_VARIANTS={
   signatures:{label:"Higher signature threshold",
     note:"A recall petition needs 25% of the votes cast in the last governor's race, about 475,000 signatures, instead of 15%. It applies the moment the voters pass it, to any drive already gathering.",
     bloc:{libertarian:-3, conservative:-2, moderate:-2, rural:-2, socialist:-1, businessClass:1},
-    ballotLean:{libertarian:-3, conservative:-2, moderate:-1.5, rural:-1.5, socialist:-1}},
+    ballotLean:{libertarian:-3, conservative:-2, moderate:-1.5, rural:-1.5, socialist:-1},
+    floorDrag:1.3},
   noRecall:{label:"Abolish the recall",
     note:"The recall is struck from the constitution, and no official can be recalled. Any drive or recall vote under way ends the moment the voters pass it.",
     bloc:{libertarian:-7, conservative:-5, moderate:-4, rural:-4, socialist:-3, collegeEducated:-2, liberal:-2},
-    ballotLean:{libertarian:-5, conservative:-3, moderate:-2.5, rural:-2.5, socialist:-2, collegeEducated:-1.5, liberal:-1}}
+    ballotLean:{libertarian:-5, conservative:-3, moderate:-2.5, rural:-2.5, socialist:-2, collegeEducated:-1.5, liberal:-1},
+    floorDrag:0}
 };
 /* How far the recall is restricted now: null, or the form in force. */
 function recallLimit(){ const p=typeof POLICIES!=="undefined"&&POLICIES.recallLimits; return (p&&p.enacted!==false)?(p.variant||"signatures"):null; }
@@ -25757,7 +25760,7 @@ function prPartyWord(pid){ return prParty(pid).short; }
 /* THE VERSION. A major number for each new system of the game, a minor one
    for each batch of work built on it. Raise it with the work, and add the
    line to the history below. */
-const GAME_VERSION="9.8";
+const GAME_VERSION="9.9";
 const VERSION_HISTORY=[
   ["1.0","21 June 2026","The first playable game: a term as governor, platform promises, a ground game, the budget, and an election at the end."],
   ["1.1","22–24 June 2026","Debt, interest and the fiscal crisis; walkouts; the issue web and ripple pages; administrative overhead; the justice pipeline."],
@@ -25810,8 +25813,9 @@ const VERSION_HISTORY=[
   ["9.4","31 October 2026","The tutorial walks you through your first midterm, general election and recall night, and the ballot measures the first time they are counted."],
   ["9.5","31 October 2026","Campaign energy is back to seven a quarter, after a later change had quietly set it to six."],
   ["9.6","31 October 2026","Every tutorial note can skip the remaining tutorial, and every tour can skip the rest of that page's tour. The tutorial's place on the opening screen is a clear on-off switch."],
-  ["9.7","1 November 2026","Restrict the Recall: a constitutional amendment that raises the recall petition to 25% of the governor's-race vote or abolishes the recall, taking effect the night the voters pass it. Only the voters can repeal it, by your referral or a citizen petition."],
+  ["9.7","1 November 2026","Restrict Recall: a constitutional amendment that raises the recall petition to 25% of the governor's-race vote or abolishes the recall, taking effect the night the voters pass it. Only the voters can repeal it, by your referral or a citizen petition."],
   ["9.8","1 November 2026","Voters weigh the form an amendment takes: each wider restriction on the initiative is a harder sell, barring referendums costs more again, and legislative term limits poll by the cap chosen."],
+  ["9.9","1 November 2026","Restrict Recall costs more capital, and the legislature votes on the form you choose: a higher threshold takes real whipping, and abolishing the recall is as hard a vote as repealing term limits."],
 ];
 function showVersionHistory(){
   const modal=document.getElementById("versionModal"), card=document.getElementById("versionCard"); if(!modal||!card)return;
@@ -28091,7 +28095,7 @@ function tierRangeBlocEffect(p){
   return out;
 }
 function whipCount(id, dir, narrowed, cushion, skipOdds){
-  const pol=(dir==="repeal")?POLICIES[id]:CATALOG[id];
+  let pol=(dir==="repeal")?POLICIES[id]:CATALOG[id];
   if(!pol)return null;
   // a concession is a weaker bill: scale what it does to everyone at once
   const nw=(narrowed==null?1:narrowed);
@@ -28100,6 +28104,9 @@ function whipCount(id, dir, narrowed, cushion, skipOdds){
   // lists. Without this the floor saw no reactions at all on a tiered bill,
   // and every member voted on party and loyalty alone. On a repeal it is the
   // setting in force that is being undone.
+  // the recall restriction goes to the floor in the form chosen, and members answer to that form
+  const recallForm=(id==="recallLimits"&&dir!=="repeal")?RECALL_VARIANTS[measureVariantDraft(id)]:null;
+  if(recallForm)pol=Object.assign({},pol,{blocEffect:Object.assign({},recallForm.bloc)});
   const voted=billAsVoted(pol,dir,nw), tierBill=!!voted;
   const scaled=tierBill ? voted
     : (nw>=1)?pol:(()=>{
@@ -28137,7 +28144,8 @@ function whipCount(id, dir, narrowed, cushion, skipOdds){
     // members +4.6 — most of the way through BILL_LOYALTY — and then halve
     // discipline on top of it, which charged the same argument twice and
     // made amending the constitution the cheapest thing on the board.
-    ctx.ease=(mine)=>(base?base(mine):0)+(mine?1.1:2.0);
+    const drag=(recallForm&&recallForm.floorDrag)||0;
+    ctx.ease=(mine)=>(base?base(mine):0)+(mine?1.1:2.0)-drag;
     ctx.disc*=0.86;
   }
   const cu=cushion||0;
@@ -30862,7 +30870,7 @@ function resolveBallot(kind){
           const v=RECALL_VARIANTS[m.variant]?m.variant:"signatures";
           POLICIES.recallLimits.variant=v;
           POLICIES.recallLimits.blocEffect=Object.assign({},RECALL_VARIANTS[v].bloc);
-          POLICIES.recallLimits.name="Restrict the Recall ("+RECALL_VARIANTS[v].label.toLowerCase()+")";
+          POLICIES.recallLimits.name="Restrict Recall ("+RECALL_VARIANTS[v].label.toLowerCase()+")";
           recallLimitTakesEffect(v);
         }
         if(m.id==="legTermLimits"&&POLICIES.legTermLimits){
